@@ -50,10 +50,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 - **`electronic_device` joins the made kinds, orthogonal to `machine`.**
   `abstract.txt` declares `electronic_device`, a mechanism built around an electronic
-  circuit, with `(genl electronic_device mechanism)`. The circuit and the parts that
-  carry it make up the whole object, so an organism with an implanted circuit is not an
-  electronic device. The type is rigid: what defines it is how a thing is built and not
-  what the thing does. `(orthogonal
+  circuit, with `(genl electronic_device made)` and `(genl electronic_device
+  mechanism)`. The circuit and the parts that carry it make up the whole object, so an
+  organism with an implanted circuit is not an electronic device. The type is rigid:
+  what defines it is how a thing is built and not what the thing does. `(orthogonal
   electronic_device machine)`, `:monotonic`, states that the two types overlap and that
   neither is a genl of the other. A `comment` on that sentence names a witness for each
   of the three claims.
@@ -63,15 +63,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped one.
 
 - **`mechanism` is the common genl of `machine` and `electronic_device`.**
-  `abstract.txt` declares `mechanism`, a made physical object whose parts, in their
-  arrangement, set up a characteristic causal operation, with `(genl mechanism made)`,
-  `(genl machine mechanism)` and `(genl electronic_device mechanism)`. The type is rigid:
-  a stopped clock or an unplugged board is still one. The two kinds' shared separations
+  `abstract.txt` declares `mechanism`, a physical object whose parts, in their
+  arrangement, set up a characteristic causal operation, with `(genl mechanism
+  tangible)`, `(genl machine mechanism)` and `(genl electronic_device mechanism)`. Most
+  mechanisms are made but not all, so `mechanism` is not a genl of `made`: a juvenile
+  Issus planthopper's hind-leg gears are a mechanism. The type is rigid: a stopped clock
+  or an unplugged board is still one. The two kinds' shared separations
   are stated once on the parent: `(disjoint mechanism organism)` and `(disjoint
   mechanism substance)`, both `:monotonic`. `(disjoint animal machine)` is no longer
   stated; `animal` and `machine` stay disjoint through `mechanism` and `organism`.
-  The disjointness coverage ratchet rises to 21,877 disjoint pairs (83.07%) and at most
-  7.01% unknown.
+  The disjointness coverage ratchet rises to 21,875 disjoint pairs (83.06%) and at most
+  7.02% unknown.
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* a KB that asserts one term as both an `organism` (or a `substance`) and a

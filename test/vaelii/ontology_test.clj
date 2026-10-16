@@ -1632,15 +1632,14 @@
 
 (tu/deftest-kb artifact-is-declared-nowhere-and-the-made-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
-  ;; container, electronic_device, furniture, machine, mechanism and vehicle are kinds of
-  ;; made.  electronic_device and machine reach made through mechanism.
+  ;; container, electronic_device, furniture, machine and vehicle are kinds of made.
   (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
   (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxUniverse))))
-  (doseq [t '[building clothing container electronic_device furniture machine mechanism vehicle]]
+  (doseq [t '[building clothing container electronic_device furniture machine vehicle]]
     (is (true? (v/genl? kb t 'made 'CxUniverse)) (str t " is made")))
-  (doseq [t '[clothing container furniture mechanism vehicle]]
+  (doseq [t '[clothing container electronic_device furniture machine vehicle]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxUniverse))
         (str "(genl " t " made) is stated"))))
 
@@ -1683,7 +1682,10 @@
   (doseq [t '[machine electronic_device]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'mechanism) 'CxUniverse))
         (str "(genl " t " mechanism) is stated")))
-  (is (true? (v/genl? kb 'mechanism 'made 'CxUniverse)))
+  (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb '(genl mechanism tangible) 'CxUniverse))
+      "(genl mechanism tangible) is stated")
+  (is (not (v/genl? kb 'mechanism 'made 'CxUniverse))
+      "most mechanisms are made, not all: a mechanism is not concluded made")
   (doseq [t '[organism substance]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'disjoint 'mechanism t) 'CxUniverse))
         (str "(disjoint mechanism " t ") is stated"))

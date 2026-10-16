@@ -59,6 +59,7 @@
 (positiveExampleComment electronic_device "a bare circuit board")
 (positiveExampleComment electronic_device "a dead phone")
 (positiveExampleComment electronic_device "an unplugged board")
+(genl electronic_device made)
 (genl electronic_device mechanism)
 (set/monotonic (orthogonal electronic_device machine))
 (comment (orthogonal electronic_device machine) "A fan-cooled desktop is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
@@ -151,6 +152,7 @@
 (positiveExampleComment machine "a car engine")
 (positiveExampleComment machine "a hand-cranked pencil sharpener")
 (positiveExampleComment machine "a stopped clock")
+(genl machine made)
 (genl machine mechanism)
 
 (comment made "A tangible shaped by an agent's action, or by something made. Contrast natural.")
@@ -166,14 +168,15 @@
 ;; tangible denied made is concluded natural.
 (partition tangible made natural)
 
-(comment mechanism "A made physical object whose parts, in their arrangement, set up a characteristic causal operation: mechanical coupling, electronic circuitry, or both. Defined by its construction, not its use or whether it is running, so a stopped clock or an unplugged board is still one.")
+(comment mechanism "A physical object whose parts, in their arrangement, set up a characteristic causal operation: mechanical coupling, electronic circuitry, or both. Defined by its construction, not its use or whether it is running, so a stopped clock or an unplugged board is still one. Most mechanisms are made, but not all: a juvenile Issus planthopper grows interlocking gears on its hind legs.")
 (positiveExampleComment mechanism "a wind-up clock")
 (positiveExampleComment mechanism "a phone")
 (positiveExampleComment mechanism "a fan-cooled desktop")
 (positiveExampleComment mechanism "a stopped clock")
+(positiveExampleComment mechanism "the hind-leg gears of a juvenile Issus planthopper")
 (negativeExampleComment mechanism "a cloned sheep")
 (negativeExampleComment mechanism "steel")
-(genl mechanism made)
+(genl mechanism tangible)
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
