@@ -171,7 +171,7 @@ When choosing between a default rule with exceptions and an explicit list of eve
 
 These are considerations, not a gate. The more you'd expect or want the default to reach new, hypothesized and fictional members, the better a default with stated exceptions fits. Where it shouldn't reach them, enumerate the known cases and conclude nothing about new ones.
 
-**Example:** metal is a `solid` by default, with mercury as the stated exception. A newly found, hypothesized or fictional metal should come out solid.
+**Example:** `metal_stuff` is a `solid` by default, with mercury as the stated exception. A newly found, hypothesized or fictional metal should come out solid.
 
 ## catbus principle
 *Monotonic until a real fiction needs the overlap*

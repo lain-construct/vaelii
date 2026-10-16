@@ -46,6 +46,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix** (the same answers, sooner).
 
+### Breaking
+
+- **`metal` renames to `metal_stuff`.** A stuff type's name is a mass noun, as
+  `glass_stuff` is. "A metal" is a count noun, so a sentence such as `(disjoint metal
+  mechanism)` seemed to be about kinds of metal. `abstract.txt` declares `metal_stuff`
+  with the same comment, `genl` edges and `stuff_type_by_substance` membership,
+  `mercury` sits below it, and CxNormalPhysicalConditions' solid-by-default rule reads
+  `(metal_stuff ?x)`. No pair's disjointness changes.
+
+  *Class:* **Breaking** (shipped ontology content).
+  *Migration:* rename `metal` to `metal_stuff` in any KB text that names it.
+  *Breaks:* `metal`
+
 ### Additions
 
 - **`electronic_device` joins the made kinds, orthogonal to `machine`.**

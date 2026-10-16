@@ -73,7 +73,7 @@
     (tu/without-entailing
      (tu/with-terms [Wanda]
        (v/assert kb (list 'animal Wanda) N)
-       (doseq [s [(list 'hasCapability Wanda 'metal) (list 'capabilityType 'fish 'metal)]]
+       (doseq [s [(list 'hasCapability Wanda 'metal_stuff) (list 'capabilityType 'fish 'metal_stuff)]]
          (let [p (first (filter #(= :arg-genl (:type %)) (v/check kb s N)))]
            (is (= :arg-genl (:type p)) (str (pr-str s) " is convicted by genlArg"))
            (is (= 'event (:expected p)) (str (pr-str s) " is convicted against event"))))))))
@@ -1345,9 +1345,9 @@
     [disjoint boolean predicate CxUniverse "boolean genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
     [disjoint character predicate CxUniverse "character genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
     [disjoint glass_stuff stone CxUniverse "disjoint_metatype stuff_type_by_substance"]
-    [disjoint metal glass_stuff CxUniverse "disjoint_metatype stuff_type_by_substance"]
-    [disjoint metal stone CxUniverse "disjoint_metatype stuff_type_by_substance"]
-    [disjoint metal wood CxUniverse "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal_stuff glass_stuff CxUniverse "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal_stuff stone CxUniverse "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal_stuff wood CxUniverse "disjoint_metatype stuff_type_by_substance"]
     [disjoint wood glass_stuff CxUniverse "disjoint_metatype stuff_type_by_substance"]
     [disjoint wood stone CxUniverse "disjoint_metatype stuff_type_by_substance"]
     [genl reifiable_function function CxUniverse "partition function reifiable_function unreifiable_function"]

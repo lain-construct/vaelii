@@ -185,14 +185,14 @@
 (arg madeOf 1 tangible)
 (arg madeOf 2 substance)
 
-(comment metal "A hard, dense, conducting substance — iron, copper, gold.")
-(genl metal substance)
+(comment metal_stuff "A hard, dense, conducting substance — iron, copper, gold.")
+(genl metal_stuff substance)
 
 (comment mercury "The metallic element quicksilver, as stuff: the metal in an old thermometer, a barometer or a dental amalgam. Mercury is liquid at ordinary room temperature and pressure. Mercury freezes at about -39 °C, so its state of matter depends on the temperature a context assumes.")
-(genl mercury metal)
+(genl mercury metal_stuff)
 ;; A portion of mercury is an individual, so mercury is a first-order `type`.  Mercury is
 ;; not a stuff_type_by_substance: that metatype separates its members, and mercury is
-;; below metal, one of them.
+;; below metal_stuff, one of them.
 (type mercury)
 
 (comment natural "A tangible whose form no living thing's action gave it. Contrast made.")
@@ -456,7 +456,7 @@
 (comment plasma "A substance in the plasma state of matter — an ionized gas.")
 (comment solid "A substance in the solid state of matter.")
 (comment stuff_type_by_state_of_matter "A disjoint_metatype classifying substances by physical state — solid, liquid, gas, plasma.")
-(comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal, glass_stuff, stone.")
+(comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal_stuff, glass_stuff, stone.")
 ;; Neither an organism nor a part it grew is stuff; stated once of biological, it reaches
 ;; both parts and every kind below them.
 (set/monotonic (disjoint biological substance))
@@ -497,7 +497,7 @@
 (stuff_type_by_state_of_matter plasma)
 (stuff_type_by_state_of_matter solid)
 (stuff_type_by_substance glass_stuff)
-(stuff_type_by_substance metal)
+(stuff_type_by_substance metal_stuff)
 (stuff_type_by_substance stone)
 (stuff_type_by_substance wood)
 
