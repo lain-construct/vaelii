@@ -1574,49 +1574,45 @@
                 (str "integrity/rule-macro-findings — a rule-macro suggestion the rule's"
                      " context declines is not reported"))]
 
-     ;; The three worked-example annotations name their example sentex by handle.  Each is
-     ;; a `target_following_predicate` in core.txt, so retracting the example tears the
-     ;; annotation down with it — that mark's enforcement, reached through a declaration
-     ;; rather than through an arm keyed on these functors, which is why they stay inert
-     ;; while participating in a teardown.
+     ;; The three worked-example annotations quote their example sentence, (Quote S), and
+     ;; name no sentex, so they carry no target_following_predicate mark and nothing tears
+     ;; them down.  Their obligation is a test's: curation_test asks S in the example's
+     ;; context.
      ['positiveExample
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}
-              :notes (str "belief-following through target_following_predicate, and an"
-                          " integrity obligation — the named sentex is provable — held"
-                          " by curation_test rather than by any engine path.")}
-             (str "a curation meta-sentex naming, by handle, a sentex that is a true example"
+              :notes (str "an integrity obligation — the quoted sentence is provable in the"
+                          " example's context — held by curation_test rather than by any"
+                          " engine path.")}
+             (str "a curation fact quoting, as (Quote S), a sentence that is a true example"
                   " of a term's usage. Nothing reads the annotation for inference; its"
-                  " integrity (the named sentex is provable) is held by curation_test."
-                  " Belief-following via the target_following_predicate mark, so it does not"
-                  " outlive the example it names."))]
+                  " integrity (S is provable) is held by curation_test."))]
      ['negativeExample
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}
-              :notes (str "the same teardown and the mirror obligation: the named sentex is"
-                          " provable as its negation, which curation_test holds.")}
-             (str "the same, for a sentex whose negation is provable — a false example of"
-                  " a term's usage. Read by no check; its integrity is a test's, and it"
-                  " cascades with its target like positiveExample."))]
+              :notes (str "the mirror obligation: the quoted sentence is not provable in the"
+                          " example's context (unknown is enough), which curation_test holds.")}
+             (str "the same, quoting a sentence that is a false example of a term's usage."
+                  " Read by no check; its integrity (S is not provable) is a test's."))]
      ['borderlineExample
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}
-              :notes (str "the same teardown, and no obligation at all: truth-agnostic by"
-                          " design, so no regression reads its target.")}
-             (str "the same pointing shape, truth-agnostic: it names a sentex neither"
-                  " asserted true nor false, so it carries no provability obligation and no"
-                  " regression reads its target. Documentation only."))]
+              :notes (str "no obligation at all: truth-agnostic by design, so curation_test"
+                          " does not ask its sentence.")}
+             (str "the same shape, truth-agnostic: it quotes a sentence whose truth is"
+                  " arguable, so it carries no provability obligation and no test asks it."
+                  " Documentation only."))]
 
-     ;; The string siblings carry the example as text and name no sentex, so they carry
-     ;; no target_following_predicate mark, no teardown and no provability obligation.
+     ;; The string siblings carry the example as text, so no test reads it and they carry
+     ;; no provability obligation.
      ['positiveExampleComment
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}
               :notes (str "documentation the engine stores and never reads: a string, so no"
-                          " target to follow and no obligation for a test to hold.")}
+                          " obligation for a test to hold.")}
              (str "a curation annotation carrying a true example of a term's usage as a"
-                  " string, for an example with no stored sentex to name by handle. Read like"
-                  " comment and by nobody for inference."))]
+                  " string, for an example that is not a sentence the KB can state or prove."
+                  " Read like comment and by nobody for inference."))]
      ['negativeExampleComment
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}

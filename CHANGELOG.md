@@ -59,6 +59,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* rename `metal` to `metal_stuff` in any KB text that names it.
   *Breaks:* `metal`
 
+- **The example predicates quote their example sentence.** The second argument of
+  `positiveExample`, `negativeExample` and `borderlineExample` is a quoted sentence,
+  `(positiveExample ip_address (Quote (ip_address "192.0.2.1")))`, and no longer a
+  `(sentexHandle H)`. A KB text file can now state an example. The three are no longer
+  `target_following_predicate`, since an example names no sentex. `curation_test` asks
+  the quoted sentence in the example's own context. A `positiveExample`'s sentence must
+  be provable there. A `negativeExample`'s must not be provable, and unknown is enough,
+  where the KB used to have to prove its negation. A `borderlineExample` is not checked.
+
+  *Class:* **Breaking** (shipped vocabulary).
+  *Migration:* rewrite `(positiveExample T (sentexHandle H))` as `(positiveExample T
+  (Quote S))`, S being the sentence H holds, and the same for the other two. An example
+  is no longer torn down with the sentence it named. A `negativeExample` whose sentence
+  the KB proves now fails the check.
+  *Breaks:* `positiveExample`, `negativeExample`, `borderlineExample`
+
 ### Additions
 
 - **`electronic_device` joins the made kinds, orthogonal to `machine`.**

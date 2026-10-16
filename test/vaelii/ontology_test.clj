@@ -244,7 +244,7 @@
     '[closedExtentForArg3 2] "the argument value a closed extent is granted for: a term of any kind"}
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
               {[p 1] "an exemplified term"
-               [p 2] "the example, a sentence written as a term"}))
+               [p 2] "the example, a quoted sentence (Quote …)"}))
    ;; the string siblings type their text (arg … 2 string) and leave the term untyped
    (into {} (for [p '[positiveExampleComment negativeExampleComment borderlineExampleComment]]
               [[p 1] "an exemplified term"]))

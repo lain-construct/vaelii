@@ -354,7 +354,10 @@
 ;; CxWell, the context below every middle context) less each `relation?` there, so the five
 ;; relations CxUniverse puts under a `genl` edge (`orthogonal`, `siblingDisjointException`
 ;; and the three arity-class predicates) are not swept: 230 types, 26,335 pairs, 21,875
-;; of them disjoint (83.1%) and 1,848 unknown (7.0%). No opt-in theory's type is among the 228: CxWell does not see one, so the
+;; of them disjoint (83.1%) and 1,855 unknown (7.0%). The seven pairs of target_following_predicate
+;; with instance_relation_predicate, binary_predicate, bounded_arity, fixed_arity_predicate,
+;; binary, at_least_binary and fixed_arity read unknown since the example predicates, its
+;; only starter members, left it. No opt-in theory's type is among the 228: CxWell does not see one, so the
 ;; sweep does not either.
 
 (tu/deftest-kb disjointness-coverage-ratchet
@@ -369,5 +372,5 @@
         (format "disjoint pairs must not fall below 21875 (got %d)" disjoint))
     (is (>= disjoint-% 83.06)
         (format "disjoint coverage must not regress below 83.06%% (got %.2f%%)" disjoint-%))
-    (is (<= unknown-% 7.02)
-        (format "unknown pairs must not grow above 7.02%% (got %.2f%%)" unknown-%))))
+    (is (<= unknown-% 7.05)
+        (format "unknown pairs must not grow above 7.05%% (got %.2f%%)" unknown-%))))
