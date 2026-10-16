@@ -21,7 +21,7 @@
 ;; has no mass, so it is placed under computational_system, which is intangible.
 (comment computational_system "Software that computes when it runs.")
 (positiveExampleComment computational_system "a running Python interpreter")
-(positiveExampleComment computational_system "a database server")
+(positiveExampleComment computational_system "a running database server process")
 (positiveExampleComment computational_system "a running web service")
 (negativeExampleComment computational_system "the hardware that runs a computational system, which is a separate thing")
 (genl computational_system intangible)
@@ -42,23 +42,23 @@
 (genl command_line_tool software_tool)
 
 (comment mcp_tool "A software tool that a Model Context Protocol server lists and runs on request.")
-(positiveExampleComment mcp_tool "a file-reading tool")
-(positiveExampleComment mcp_tool "a calendar-lookup tool")
+(positiveExampleComment mcp_tool "a file-reading MCP tool")
+(positiveExampleComment mcp_tool "a calendar-lookup MCP tool")
 (genl mcp_tool software_tool)
 
 ;; The edges to acausal and causal separate the two kinds below, through core.txt's
 ;; (partition thing causal acausal), so no disjoint is stated between them.
 (comment read_only_software_tool "A software tool whose invocation reads state and changes none.")
-(positiveExampleComment read_only_software_tool "a text search")
-(positiveExampleComment read_only_software_tool "a directory listing")
-(positiveExampleComment read_only_software_tool "a DNS lookup")
+(positiveExampleComment read_only_software_tool "a text-search tool")
+(positiveExampleComment read_only_software_tool "a directory-listing tool")
+(positiveExampleComment read_only_software_tool "a DNS-lookup tool")
 (genl read_only_software_tool software_tool)
 (genl read_only_software_tool acausal)
 
 (comment write_capable_software_tool "A software tool whose invocation can change state outside the invocation.")
-(positiveExampleComment write_capable_software_tool "a file deletion")
-(positiveExampleComment write_capable_software_tool "a message send")
-(positiveExampleComment write_capable_software_tool "a database update")
+(positiveExampleComment write_capable_software_tool "a file-deletion tool")
+(positiveExampleComment write_capable_software_tool "a message-sending tool")
+(positiveExampleComment write_capable_software_tool "a database-update tool")
 (genl write_capable_software_tool software_tool)
 (genl write_capable_software_tool causal)
 

@@ -93,6 +93,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a reader that lists a term's examples by `positiveExampleComment` or
   `negativeExampleComment` reads `positiveExample` and `negativeExample` as well.
 
+- **String examples that could be misread are reworded.** `CxComputing.txt`'s tool
+  examples name tools, not acts (`"a text-search tool"`, not `"a text search"`), and its
+  MCP tool examples say MCP. A computational system's example is a running database
+  server process, not the hardware. The `time_interval`, `uninterrupted`, `acausal` and
+  `intangible` examples name particular intervals and times (`"the year 2024"`, `"the
+  time 3 PM on 14 October 2024"`), not durations. `acausal_event`'s examples name acts
+  (`"the receiving of a message"`), and `mechanism`'s says desktop computer.
+  `reflection.txt` and `core.txt` mention their expressions as expressions: `"the symbol
+  Muffet"`, `"the term (MotherFn Muffet)"`, `"a KB symbol"`.
+
+  *Class:* **Additive** (shipped documentation; no sentence's truth changes).
+  *Migration:* none.
+
 - **`electronic_device` joins the made kinds, orthogonal to `machine`.**
   `abstract.txt` declares `electronic_device`, a mechanism built around an electronic
   circuit, with `(genl electronic_device made)` and `(genl electronic_device

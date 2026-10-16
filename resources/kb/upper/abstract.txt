@@ -62,7 +62,7 @@
 (genl electronic_device made)
 (genl electronic_device mechanism)
 (set/monotonic (orthogonal electronic_device machine))
-(comment (orthogonal electronic_device machine) "A fan-cooled desktop is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
+(comment (orthogonal electronic_device machine) "A fan-cooled desktop computer is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
 
 (comment feather "A light keratin body part covering a bird.")
 (genl feather body_part)
@@ -171,7 +171,7 @@
 (comment mechanism "A physical object whose parts, in their arrangement, set up a characteristic causal operation: mechanical coupling, electronic circuitry, or both. Defined by its construction, not its use or whether it is running, so a stopped clock or an unplugged board is still one. Most mechanisms are made, but not all: a juvenile Issus planthopper grows interlocking gears on its hind legs.")
 (positiveExampleComment mechanism "a wind-up clock")
 (positiveExampleComment mechanism "a phone")
-(positiveExampleComment mechanism "a fan-cooled desktop")
+(positiveExampleComment mechanism "a fan-cooled desktop computer")
 (positiveExampleComment mechanism "a stopped clock")
 (positiveExampleComment mechanism "the hind-leg gears of a juvenile Issus planthopper")
 (negativeExampleComment mechanism "a cloned sheep")
@@ -256,9 +256,9 @@
 (comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
 
 (comment time_interval "A stretch of time as such, not something that happens in it. What the calendar constructors YearFn, MonthFn and DayFn name.")
-(positiveExampleComment time_interval "a year")
-(positiveExampleComment time_interval "a day")
-(positiveExampleComment time_interval "an hour")
+(positiveExampleComment time_interval "the year 2024")
+(positiveExampleComment time_interval "Monday 14 October 2024")
+(positiveExampleComment time_interval "9–10 AM on 14 October 2024")
 
 ;; A time is not a state of affairs in it.
 (set/monotonic (disjoint time situation))
@@ -293,7 +293,7 @@
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
 
 (comment acausal "A thing that cannot be a cause. The other side of the causal/acausal division of thing.")
-(positiveExampleComment acausal "a time")
+(positiveExampleComment acausal "the time 3 PM on 14 October 2024")
 (positiveExampleComment acausal "a property line")
 (positiveExampleComment acausal "an attribute")
 (positiveExampleComment acausal "the information a record or piece of evidence carries: a reading of it can cause, and the information itself causes nothing")
@@ -317,8 +317,8 @@
 (intersection causal_event causal event)
 
 (comment acausal_event "An event that is not a cause: the intersection of acausal and event.")
-(positiveExampleComment acausal_event "an observation")
-(positiveExampleComment acausal_event "a receipt")
+(positiveExampleComment acausal_event "the act of observing")
+(positiveExampleComment acausal_event "the receiving of a message")
 (intersection acausal_event acausal event)
 
 ;; --- travelling / flying: event kinds an ability names ------------------------
