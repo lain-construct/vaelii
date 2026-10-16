@@ -20,7 +20,7 @@
 ;; A software_tool is software that performs one bounded operation per invocation. It
 ;; has no mass, so it is placed under computational_system, which is intangible.
 (comment computational_system "Software that computes when it runs.")
-(positiveExampleComment computational_system "an interpreter")
+(positiveExampleComment computational_system "a running Python interpreter")
 (positiveExampleComment computational_system "a database server")
 (positiveExampleComment computational_system "a running web service")
 (negativeExampleComment computational_system "the hardware that runs a computational system, which is a separate thing")
