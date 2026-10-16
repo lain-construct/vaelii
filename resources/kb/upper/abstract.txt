@@ -52,14 +52,14 @@
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 
-(comment electronic_device "A made thing that contains an electronic circuit. Defined by what it contains, not by what it does, so it is rigid: a dead phone or an unplugged board is still one.")
+(comment electronic_device "A mechanism built around an electronic circuit: the circuit and the parts that carry it make up the whole object. An organism with an implanted circuit contains an electronic device but is not one. Defined by how it is built, not by what it does, so it is rigid: a dead phone or an unplugged board is still one.")
 (positiveExampleComment electronic_device "a phone")
 (positiveExampleComment electronic_device "a router")
 (positiveExampleComment electronic_device "a computer")
 (positiveExampleComment electronic_device "a bare circuit board")
 (positiveExampleComment electronic_device "a dead phone")
 (positiveExampleComment electronic_device "an unplugged board")
-(genl electronic_device made)
+(genl electronic_device mechanism)
 (set/monotonic (orthogonal electronic_device machine))
 (comment (orthogonal electronic_device machine) "A fan-cooled desktop is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
 
@@ -146,12 +146,12 @@
 (arg locatedIn 2 tangible)
 (set/monotonic (transitive locatedIn))
 
-(comment machine "A made thing with parts that move relative to each other, driven by an energy source. Defined by its parts, not its use, so a stopped clock is still one.")
+(comment machine "A mechanism with parts that move relative to each other, driven by an energy source. Defined by its parts, not its use, so a stopped clock is still one.")
 (positiveExampleComment machine "a wind-up clock")
 (positiveExampleComment machine "a car engine")
 (positiveExampleComment machine "a hand-cranked pencil sharpener")
 (positiveExampleComment machine "a stopped clock")
-(genl machine made)
+(genl machine mechanism)
 
 (comment made "A tangible shaped by an agent's action, or by something made. Contrast natural.")
 (positiveExampleComment made "a chair")
@@ -165,6 +165,15 @@
 ;; the genl edges from made and from natural to tangible, so neither edge is stated.  A
 ;; tangible denied made is concluded natural.
 (partition tangible made natural)
+
+(comment mechanism "A made physical object whose parts, in their arrangement, set up a characteristic causal operation: mechanical coupling, electronic circuitry, or both. Defined by its construction, not its use or whether it is running, so a stopped clock or an unplugged board is still one.")
+(positiveExampleComment mechanism "a wind-up clock")
+(positiveExampleComment mechanism "a phone")
+(positiveExampleComment mechanism "a fan-cooled desktop")
+(positiveExampleComment mechanism "a stopped clock")
+(negativeExampleComment mechanism "a cloned sheep")
+(negativeExampleComment mechanism "steel")
+(genl mechanism made)
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
@@ -453,11 +462,14 @@
 (set/monotonic (disjoint container organism))
 (set/monotonic (disjoint container person))
 (set/monotonic (disjoint container substance))
-;; An animal is never a building, a piece of clothing, a furniture or a machine.
+;; An animal is never a building, a piece of clothing or a furniture.
 (set/monotonic (disjoint animal building))
 (set/monotonic (disjoint animal clothing))
 (set/monotonic (disjoint animal furniture))
-(set/monotonic (disjoint animal machine))
+;; A mechanism is never an organism and never stuff. Stated once of mechanism, each
+;; reaches machine, electronic_device and every kind below them.
+(set/monotonic (disjoint mechanism organism))
+(set/monotonic (disjoint mechanism substance))
 ;; animal and vehicle are disjoint at the default strength rather than monotonic: a
 ;; fiction below CxWell may except the default and hold a term that is both. CxRealWorld
 ;; restates the same separation monotonic, so the real world can never hold the overlap.

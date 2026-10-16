@@ -1632,14 +1632,15 @@
 
 (tu/deftest-kb artifact-is-declared-nowhere-and-the-made-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
-  ;; container, electronic_device, furniture, machine and vehicle are kinds of made.
+  ;; container, electronic_device, furniture, machine, mechanism and vehicle are kinds of
+  ;; made.  electronic_device and machine reach made through mechanism.
   (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
   (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxUniverse))))
-  (doseq [t '[building clothing container electronic_device furniture machine vehicle]]
+  (doseq [t '[building clothing container electronic_device furniture machine mechanism vehicle]]
     (is (true? (v/genl? kb t 'made 'CxUniverse)) (str t " is made")))
-  (doseq [t '[clothing container electronic_device furniture machine vehicle]]
+  (doseq [t '[clothing container furniture mechanism vehicle]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxUniverse))
         (str "(genl " t " made) is stated"))))
 
@@ -1672,6 +1673,30 @@
       (is (true? (v/ask? kb (list 'made BoardComputer1) 'CxUniverse)))
       (is (not (v/ask? kb (list 'person BoardComputer1) 'CxUniverse))
           "an electronic device is not concluded a person"))))
+
+;; ---- mechanism ----------------------------------------------------------------
+;; mechanism is the common genl of machine and electronic_device, and their shared
+;; separations are stated once on it: a mechanism is never an organism and never stuff.
+
+(tu/deftest-kb mechanism-parents-machine-and-electronic-device
+  (is (= 1 (count (v/sentexes-matching kb '(comment mechanism ?text) 'CxUniverse))))
+  (doseq [t '[machine electronic_device]]
+    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'mechanism) 'CxUniverse))
+        (str "(genl " t " mechanism) is stated")))
+  (is (true? (v/genl? kb 'mechanism 'made 'CxUniverse)))
+  (doseq [t '[organism substance]]
+    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'disjoint 'mechanism t) 'CxUniverse))
+        (str "(disjoint mechanism " t ") is stated"))
+    (doseq [k '[mechanism machine electronic_device]]
+      (is (true? (v/disjoint? kb k t)) (str k " is disjoint with " t))))
+  (is (empty? (v/sentexes-matching kb '(disjoint animal machine) 'CxUniverse))
+      "the animal/machine separation is reached through mechanism, not restated")
+  (is (true? (v/disjoint? kb 'animal 'machine)))
+  (testing "an organism stated a mechanism is a clash"
+    (tu/with-terms [Sheep1]
+      (v/assert kb (list 'organism Sheep1) 'CxUniverse)
+      (v/assert kb (list 'electronic_device Sheep1) 'CxUniverse)
+      (is (tu/stored-in-clash? kb (list 'electronic_device Sheep1) 'CxUniverse)))))
 
 ;; ---- made and natural ------------------------------------------------------
 ;; made and natural partition tangible.  A formation is a natural tangible that nothing
