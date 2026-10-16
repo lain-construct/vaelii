@@ -1511,10 +1511,7 @@
 (tu/deftest-kb reifiable-and-unreifiable-partition-function
   (is (true? (v/disjoint? kb 'reifiable_function 'unreifiable_function 'CxUniverse)))
   (is (true? (v/genl? kb 'reifiable_function 'function 'CxUniverse)))
-  (is (true? (v/genl? kb 'unreifiable_function 'function 'CxUniverse)))
-  (testing "the separation is not quoting_function's: that mark crosses both parts"
-    (is (not (v/disjoint? kb 'quoting_function 'reifiable_function)))
-    (is (not (v/disjoint? kb 'quoting_function 'unreifiable_function)))))
+  (is (true? (v/genl? kb 'unreifiable_function 'function 'CxUniverse))))
 
 (tu/deftest-kb fixed-and-variable-order-partition-unary-predicate
   (is (true? (v/disjoint? kb 'fixed_order_type 'variable_order_type 'CxUniverse)))

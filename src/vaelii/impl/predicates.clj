@@ -762,9 +762,6 @@
                                           "taxonomy prop :reifiable — the gate that turns the nat reify pass on")]
      ['unreifiable_function     (enforced (prop :unreifiable :arg :function)
                                           "taxonomy prop :unreifiable — kept structural for a prover to compute")]
-     ['quoting_function         (enforced (prop :quoting     :arg :function)
-                                          (str "taxonomy prop :quoting — its arguments are a mention, held opaque to"
-                                               " identity congruence (res/representative-term spelling mode)"))]
      ['contextArgSubrelation   (enforced (wff-only [:function :position :predicate])
                                          (str "context-nat producer — sibling F-contexts differing at one arg are"
                                               " ordered by the sub-relation on that arg, materializing genlCx"))]
@@ -1157,8 +1154,9 @@
     [['Quote (enforced (collection
                         :notes (str "quasiquote.clj's quote-function — the literal symbol"
                                     " ensure-quasiquote-functions declares reifiable_function"
-                                    " and quoting_function on, and reduce-term mints a (Quote"
-                                    " E) mention from a reduced ground Quasiquote. Takes no"
+                                    " on, and reduce-term mints a (Quote E) mention from a"
+                                    " reduced ground Quasiquote. A quoting function fixed by"
+                                    " the engine (sx/quoting-functors). Takes no"
                                     " arg, result or metatype declaration of its own: what"
                                     " kind of expression (Quote X) is follows from X's shape,"
                                     " per its core.txt comment."))

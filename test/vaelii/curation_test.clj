@@ -301,7 +301,6 @@
   (let [ctx (scratch kb)]
     (tu/with-terms [parentOf Abe Homer]
       (v/assert kb '(reifiable_function Quote) 'CxUniverse)
-      (v/assert kb '(quoting_function Quote) 'CxUniverse)
       (v/assert kb (list parentOf Abe Homer) ctx)
       (v/assert kb (list 'positiveExample parentOf (quote-of (list parentOf Abe Homer))) ctx)
       (v/assert kb (list 'positiveExample parentOf (quote-of (list parentOf Homer Abe))) ctx)

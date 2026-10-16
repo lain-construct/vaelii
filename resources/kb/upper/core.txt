@@ -461,7 +461,7 @@
 
 (genl context nowhere_never)
 
-(comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape.")
+(comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape. X is a mention, held opaque to identity congruence: an equality merge rewrites it by a rewriteOf spelling rename only, never by a sameAs or equals coreference, so a quoted term does not fold onto its referent's class. Quote and Quasiquote are the quoting functions, fixed by the engine rather than declared. See docs/equality.md.")
 (positiveExampleComment Quote "(Quote Muffet), which names the symbol Muffet and not the dog")
 
 (comment interArg
@@ -1386,16 +1386,8 @@
 
 ;; A function is evaluated or denotes an object, never both and never neither: the two
 ;; marks are the two answers to whether an application is minted.  The partition installs
-;; each genl edge to function.  quoting_function is a separate axis and crosses both parts.
+;; each genl edge to function.
 (set/monotonic (partition function reifiable_function unreifiable_function))
-
-(comment quoting_function
-         "(quoting_function ?function) means that ?function's arguments are a mention — a term named as syntax rather than used. They are held opaque to identity congruence: an equality merge rewrites them by a rewriteOf spelling rename only, never by a sameAs or equals coreference, so a quoted term does not fold onto its referent's class. Orthogonal to reifiable_function/unreifiable_function, which decide whether the application is minted: Quote is reifiable and quoting, Quasiquote is unreifiable and quoting. Declared before use, like reifiable_function: opacity is applied when a mention is reified and again in the equality congruence, each gated on the mark being present then. So mark ?function quoting before the mentions it governs are asserted and before any identity merge over their referents: a reify or merge processed while the mark is absent — before it is declared, or after it is retracted — is not held opaque and folds the mention onto its referent's class. See docs/nat.md.")
-(positiveExampleComment quoting_function "Quote, which is reifiable and quoting")
-(positiveExampleComment quoting_function "Quasiquote, which is unreifiable and quoting")
-(unary_predicate quoting_function)
-(arg quoting_function 1 function)
-(genl quoting_function function)
 
 (comment contextArgSubrelation
          "(contextArgSubrelation ?function ?position ?subrelation) means that two contexts denoted by ?function and identical except at argument ?position are ordered by ?subrelation on that argument: the context whose argument is ?subrelation-below the other's is a spec (sub)context of it, and the producer materializes the genlCx edge. So (contextArgSubrelation CxTimeFn 2 subintervalOf) makes (CxTimeFn CxMonad (DatetimeFn \"2000-01\")) a subcontext of (CxTimeFn CxMonad (DatetimeFn \"2000\")) because January 2000 is a subinterval of 2000 — with nobody asserting that genlCx edge. ?position is 1-based over ?function's arguments. See docs/context-nat.md.")

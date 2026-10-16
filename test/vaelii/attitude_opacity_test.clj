@@ -126,7 +126,7 @@
           "while the proposition keeps every spelling it was written with"))))
 
 (tu/deftest-kb a-spelling-rename-does-reach-inside-the-quotation
-  ;; The `spelling?` half, exactly as a `quoting_function`'s arguments take it: `rewriteOf`
+  ;; The `spelling?` half, exactly as a quoting function's arguments take it: `rewriteOf`
   ;; retires a *name*, so the mention follows it; `sameAs` merges *referents*, so it does
   ;; not.  Both sides of a rename move, which is why the belief stays retrievable.
   (tu/with-terms [Oedipus Preferred Deprecated marriedTo]
