@@ -158,7 +158,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 
 | Route | Shows |
 |-------|-------|
-| `/` | the **upper ontology**: the reader's browsing history (the terms, literals and rules whose pages they opened, each list in visit order and capped at 50, held in the browser's localStorage by vaelii.js), what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
+| `/` | the **upper ontology**: the reader's browsing history (the terms, literals and rules whose pages they opened, each list in visit order and capped at 50, held in the browser's localStorage by vaelii.js, a literal drawn by `/history/literals` with its badge, its colours and its belief now), what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
 | `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each ledger violation naming the run that dropped it, and each `:forced-conclusion` entry, which `violations` reads off the stored firings, naming none. The contexts table and the three ledgers are one screen each and continue on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed; its clash list stops at 50 with a `showing 50 of N` line and does not continue |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (a query with no regex metacharacter is a case-insensitive substring match, so `DOG` finds `dog`; a query carrying one is a regular expression under `re-find`, so `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
 | `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:predicate-extent]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
@@ -193,6 +193,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/caches/scale` (POST) | **rescale the caches**: every count-bounded cache's shipped limit times the number the form sends (`v/set-cache-scale`, the dial `VAELII_CACHE_SCALE` sets at start). A write to the **whole process** — every KB loaded in it reads the one scale ([caches.md](caches.md#tuning-the-bounds)) — so a value that is not a finite number 0 or more, or no value, is a 400 (below) and changes nothing. Origin-checked and not behind `writing`, for `/caches/clear`'s reason |
 | `/kbs/memory` | the **memory strip** heading that panel, collapsed or (`?detail=1`) expanded into the per-KB breakdown. A read of the *process*, not of a KB, so it takes no view. Two requests reach it and they are different requests: the header line **toggles** (it asks for the state the panel is not in), while the panel **refreshes** at the state it is in, and only while a load is running — one element carrying both would poll the toggle and flip the breakdown open and shut every tick |
 | `/tree/rows?rel=<genl\|genlCx>&node=<term>` | one **level of a hierarchy**: that node's direct children, fetched the first time its disclosure is opened, and paged like any other list. `rel` reaches the index as a functor, so it is checked against the two transitivity relations rather than trusted |
+| `/history/literals?handles=` | the browsing history's **literals**: one entry per handle, in the order given, each with its badge and remove button. vaelii.js keeps only the handles, so the panel builds no markup from localStorage. A `handles` that does not read is an empty row |
 | `/term/rows`, `/find/rows`, `/levels/rows`, `/front/rows`, `/stats/rows`, `/funnel/rows` | **continuations**: one more page of rows for a capped list. Not pages — bare `<li>`s (the funnel's `<div>` cards) a list's sentinel fetches for itself (below). `/front/rows` and `/stats/rows` take a `?section=` naming which list on the page is continuing |
 | `/health`, `/op` (POST) | the **daemon protocol** over the active KB (above): a native client connects here as it would to `vaelii.serve` |
 | `/vaelii.css` | the stylesheet, re-read per request under the dev script and cached otherwise ([Chrome & typography](#chrome--typography)) |
@@ -1683,8 +1684,11 @@ A sentence is rendered structurally, not as one opaque string:
   inert rule — stored, and chaining in neither direction; its muted border is what
   separates it from a monotonic badge on the light theme. A **filled** circle is asserted
   and a **ring** is derived, which is what keeps a derived negation distinguishable from
-  an asserted one; a **dimmed** one is stored and not believed. Negation outranks every other case, because a reader who misses
-  a `not` has the sentex backwards and no other confusion costs that. Its `title` carries
+  an asserted one; a **dimmed** one is stored and not believed. The sentence behind the
+  badge dims with it (`.sx-out`), and each part keeps its role colour mixed toward the
+  ground. A sentence nested in a meta-sentex dims by its own belief, so an IN sentence
+  inside an OUT one reads at full colour. Negation outranks every other case, because a
+  reader who misses a `not` has the sentex backwards and no other confusion costs that. Its `title` carries
   the same reading in words and the handle, so the number and the scale are one hover
   away and lists stay scannable;
 - **each subterm is its own link** to `/term?q=<subterm>` — click the predicate,
@@ -1692,8 +1696,9 @@ A sentence is rendered structurally, not as one opaque string:
   listed individually under a sentex's *Subterms*);
 - terms are **colored by role** — type (pale amber), individual (violet), predicate
   (yellow-orange), context (blue), literal (white: a number or a string), variable
-  (grey). The word `in` between a sentence and its context is white too. A node of the genl taxonomy
-  colors by stored content: a predicate when `relation?` reads it as a relation of two or
+  (grey). The word `in` between a sentence and its context is white too, and a no-break
+  space joins it to the context, so a line never ends between the two. A node of the
+  genl taxonomy colors by stored content: a predicate when `relation?` reads it as a relation of two or
   more places, as for `orthogonal` under its `genl` edge, and a type otherwise, as for
   `dog`. A term outside the taxonomy colors by its spelling, so `parentOf` colors as a
   predicate. The node check comes **before** the non-symbol
@@ -1728,7 +1733,9 @@ mapped to would read as the same thing said twice. Weight is what separates them
 **opening paren links to the constant's page**, the one place its `termOfUnit` map, its
 materialized result types and its uses are listed — so the reified term stays reachable
 without ever being spelled out. Nesting works the same way at every level, and each
-level's paren links to its own constant.
+level's paren links to its own constant. A ground compound term left structural, headed
+by a function or a context spelling (`term-compound?`), keeps its depth-coloured parens,
+and its opening paren links to its own term page in the same way.
 
 It reaches past the prose, because a leak anywhere is a reader seeing a gensym: the page
 `<title>`, the concept graph's node label and its `aria-label`, the index key each group
@@ -1815,18 +1822,21 @@ accent pair, the term-role colours (`--t-*`) and the nine-step spectrum (`--rb1`
   stores or the terminal draws — sentences, terms, handles, index keys, frame titles,
   tables, buttons, the editor — so a KB is set in the same typeface as the code it resembles.
   [Atkinson Hyperlegible Next](https://www.brailleinstitute.org/freefont/) (proportional,
-  `--prose`) sets English written for a reader: a paragraph, a hint, a `comment` string
-  off the KB. Body copy is the only place the two meet, and the sheet names what keeps
-  `--mono` inside it — `.sx`, `.nat`, `code`, `pre`, a badge, a tag, a form control — so
-  a quoted sentence inside a paragraph is still set as a sentence. **Mono is set one step
-  larger**, by `font-size-adjust: .535` against Hasklig's own .486 x-height — about 10% up
+  `--prose`) sets English written for a reader: a paragraph, a hint, and the text of a
+  string argument between its quotes (`.str-text`). The quotes, and any term or formula
+  a `comment` marks up, keep `--mono`. The string's text keeps the sentence's
+  `--x-height`, so the two faces stand at one x-height on a line. Body copy is the only place the two meet, and the
+  sheet names what keeps `--mono` inside it — `.sx`, `.nat`, `code`, `pre`, a badge, a
+  tag, a form control — so a quoted sentence inside a paragraph is still set as a
+  sentence. **Mono is set one step larger**, by `font-size-adjust: .535` against
+  Hasklig's own .486 x-height — about 10% up
   — because at one px size a monospace face reads smaller than a proportional one beside
   it. It is `font-size-adjust` rather than a second px size because it adjusts the *used*
   size and leaves the computed one alone: a rule that scales its subtree with `em` still
   scales it, and a mono span inside a mono span does not compound. Both are vendored
   under `resources/public/font/` and served self-hosted, and each ships its **regular
   only** — two files, 102K, the whole webfont budget. The heavier levels the sheet asks
-  for (`font-weight: 600` on a frame title, the wordmark, a type term, an active menubar
+  for (`font-weight: 600` on a frame title, the wordmark, an active menubar
   link, a table head) are **synthesized**. Declaring each family at 400 alone is
   what keeps synthesis available — a `400 700` range would claim the face covers bold
   and flatten emphasis instead.

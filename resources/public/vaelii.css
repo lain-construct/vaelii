@@ -3,10 +3,10 @@
    Two typefaces, one job each.  Hasklig sets everything the KB stores or the terminal
    draws: sentences, terms, handles, index keys, frame titles, tables, buttons and the
    editor.  Atkinson Hyperlegible Next sets English written for a reader: a paragraph,
-   a hint, a `comment` string off the KB.  `font-weight: 600` on a title, a type term or
-   a table head is the browser synthesizing a heavier level, which is what declaring only
-   400 keeps on — a `font-weight: 400 700` range would claim a face covers bold and the
-   emphasis would flatten instead.
+   a hint, the text between a string argument's quotes.  `font-weight: 600` on a title or
+   a table head is the browser synthesizing a heavier level, which is what
+   declaring only 400 keeps on — a `font-weight: 400 700` range would claim a face
+   covers bold and the emphasis would flatten instead.
 
    The page is a **terminal**: a dark ground, square frames around every region, a title
    set into the top border of the frame it names, and the region's own numbers at the
@@ -420,9 +420,9 @@ header.site {
   width: .68em;
   height: .68em;
   margin-right: .45em;
-  border: 1px solid var(--badge-c, var(--muted));
+  border: 1px solid color-mix(in srgb, var(--badge-c, var(--muted)) var(--lit, 100%), var(--bg));
   border-radius: 50%;
-  background: var(--badge-c, var(--muted));
+  background: color-mix(in srgb, var(--badge-c, var(--muted)) var(--lit, 100%), var(--bg));
   vertical-align: .04em;
   user-select: none;
 }
@@ -438,11 +438,20 @@ header.site {
    says so by leaving it unlit.  Its border is what keeps it visible on either ground */
 .badge-inert     { --badge-c: #000; border-color: var(--muted); }
 /* a rule that runs both ways is both colours, split down the middle */
-.badge-both      { --badge-c: var(--rb8); background: linear-gradient(90deg, var(--rb7) 50%, var(--rb8) 50%); }
+.badge-both      { --badge-c: var(--rb8);
+                   background: linear-gradient(90deg,
+                     color-mix(in srgb, var(--rb7) var(--lit, 100%), var(--bg)) 50%,
+                     color-mix(in srgb, var(--rb8) var(--lit, 100%), var(--bg)) 50%); }
 /* derived, so the engine worked it out: the outline without the fill.  Two pixels of it,
    because one at this diameter carries too little of the hue to read as a colour */
 .badge-open      { background: none; border-width: 2px; }
-.badge-out       { opacity: .4; filter: grayscale(1); }  /* stored, not believed */
+/* Stored and not believed.  `--lit` is how much of its own colour a badge or a sentence
+   part keeps, mixed toward the ground, so an OUT one keeps its hue at a lower contrast.
+   `web/belief-span` puts `.sx-in` or `.sx-out` on every sentence it renders with a
+   badge; `--lit` inherits, so a sentence nested in a meta-sentex takes its own belief's
+   value and not the outer one's. */
+.badge-out, .sx-out { --lit: 55%; }
+.sx-in              { --lit: 100%; }
 
 /* A rule or a meta-sentex holding one is laid out across lines (`web/layout`).
    `pre-wrap` keeps the newlines and the counted indent, and still lets a line too long
@@ -460,15 +469,15 @@ header.site {
    depth counts along the spectrum from --rb1 and wraps at nine, so a matching pair is
    one colour and no pair is the colour of the one immediately inside it.  vaelii.com's
    stylesheet draws the same nine in the same order. */
-.rb1 { color: var(--rb1); }
-.rb2 { color: var(--rb2); }
-.rb3 { color: var(--rb3); }
-.rb4 { color: var(--rb4); }
-.rb5 { color: var(--rb5); }
-.rb6 { color: var(--rb6); }
-.rb7 { color: var(--rb7); }
-.rb8 { color: var(--rb8); }
-.rb9 { color: var(--rb9); }
+.rb1 { --sx-c: var(--rb1); }
+.rb2 { --sx-c: var(--rb2); }
+.rb3 { --sx-c: var(--rb3); }
+.rb4 { --sx-c: var(--rb4); }
+.rb5 { --sx-c: var(--rb5); }
+.rb6 { --sx-c: var(--rb6); }
+.rb7 { --sx-c: var(--rb7); }
+.rb8 { --sx-c: var(--rb8); }
+.rb9 { --sx-c: var(--rb9); }
 
 /* a small tag for a sentex's assumption strength / defeat class, rule flag, etc. */
 .tag {
@@ -531,14 +540,23 @@ header.site {
 .ref { color: var(--muted); font-size: .85em; margin-right: .2em; }
 
 /* term roles (vaelii.naming) */
-a.t-type    { color: var(--t-type); font-weight: 600; }  /* dog, physical_object */
-a.t-ind     { color: var(--t-ind); }                     /* Muffet, Tom            */
-a.t-pred    { color: var(--t-pred); }                    /* parentOf, genl       */
-a.t-context { color: var(--t-context); }                 /* CxUniverse      */
-a.t-num     { color: var(--t-num); }                     /* 1970                 */
-.t-str      { color: var(--t-num); }                     /* "a string"           */
-.cx-in      { color: var(--title); }                     /* (dog Fido) in CxWorld */
-.t-var      { color: var(--t-var); }                     /* ?x — not a link      */
+a.t-type    { --sx-c: var(--t-type); }                   /* dog, physical_object */
+a.t-ind     { --sx-c: var(--t-ind); }                    /* Muffet, Tom          */
+a.t-pred    { --sx-c: var(--t-pred); }                   /* parentOf, genl       */
+a.t-context { --sx-c: var(--t-context); }                /* CxUniverse           */
+a.t-num     { --sx-c: var(--t-num); }                    /* 1970                 */
+.t-str      { --sx-c: var(--t-num); }                    /* "a string"           */
+.cx-in      { --sx-c: var(--title); }                    /* (dog Fido) in CxWorld */
+.t-var      { --sx-c: var(--t-var); }                    /* ?x — not a link      */
+/* every sentence part above, and a depth paren (`.rb1`…), is its colour at `--lit` */
+:is(.rb1, .rb2, .rb3, .rb4, .rb5, .rb6, .rb7, .rb8, .rb9, a.t-type, a.t-ind, a.t-pred,
+    a.t-context, a.t-num, .t-str, .cx-in, .t-var) {
+  color: color-mix(in srgb, var(--sx-c) var(--lit, 100%), var(--bg));
+}
+/* a string's text is English, so it takes --prose between quotes that keep --mono; a
+   term, formula or variable a comment's text marks up is `.sx` or `.t-var` and keeps --mono.
+   It inherits `.sx`'s --x-height, so the prose stands at the height of the mono beside it */
+.t-str .str-text { font-family: var(--prose); }
 
 /* the front page's browsing history (vaelii.js): one row per kind, each entry a link
    whose remove button shows while the pointer or the focus is on it */
@@ -546,7 +564,10 @@ a.t-num     { color: var(--t-num); }                     /* 1970                
                 margin: .2rem 0; }
 .history-kind { min-width: 5rem; font-size: .85em; }
 .history-item { display: inline-flex; align-items: baseline; gap: .2em; max-width: 32rem; }
-.history-item a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* an entry's label: a term link, or a literal the server draws (`web/history-literals`) */
+.history-item > :first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis;
+                               white-space: nowrap; }
+.history-items { display: contents; }   /* the literal row's items stay flex items of the row */
 .history-x {
   visibility: hidden;
   padding: 0 .25em;

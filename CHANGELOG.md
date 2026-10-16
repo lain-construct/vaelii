@@ -63,6 +63,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   monotonic, and a context placed under CxNormalPhysicalConditions now also sees
   CxRealWorld's and CxWell's content.
 
+- **`why-not` of an inert denial names the literal it denies and what puts it on the
+  roster.** `:denies` carries the literal, its handle in the same context, whether that
+  context believes it, and the roster predicate, kind and declarations. The browser's
+  sentex page renders it. [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Additive**.
+
 ### Fixes: answers
 
 - **A membership in a type separated from `T` answers `(not (T x))`, and the cover family
