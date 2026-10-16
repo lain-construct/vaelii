@@ -110,7 +110,7 @@
 (comment ip_address "A string denoting an Internet Protocol network address.")
 (positiveExampleComment ip_address "192.0.2.1")
 (positiveExampleComment ip_address "2001:db8::1")
-(negativeExampleComment ip_address "a host name")
+(negativeExample ip_address (Quote (ip_address "example.org")))
 (genl ip_address string)
 
 (comment ipv4_address "A string denoting a 32-bit Internet Protocol version 4 address.")

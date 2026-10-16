@@ -204,7 +204,7 @@
 (comment keyword "An EDN keyword, :like_this. A term that names itself and carries no denotation the KB reasons about.")
 (comment boolean "True or false, written out.")
 (comment character "A single character, written \\a. A character and a one-letter string are separate EDN kinds and neither is below the other.")
-(negativeExampleComment character "a one-letter string")
+(negativeExample character (Quote (character "a")))
 (comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
 (genl integer number)
 ;; An integer is positive or not, and negative or not: two partitions of integer, with
@@ -577,25 +577,25 @@
 (set/monotonic (partition relation fixed_arity variable_arity))
 
 (comment bounded_arity "A relation whose number of arguments has an upper bound: one exact count, or a fixed range.")
-(positiveExampleComment bounded_arity "parentOf, which takes two arguments")
-(positiveExampleComment bounded_arity "functionCorrespondingPredicate, which takes two or three arguments")
+(positiveExample bounded_arity (Quote (bounded_arity parentOf)))
+(positiveExample bounded_arity (Quote (bounded_arity functionCorrespondingPredicate)))
 (unary_predicate bounded_arity)
 (arg bounded_arity 1 relation)
 (comment unbounded_arity "A relation that takes any number of arguments beyond its required ones.")
-(positiveExampleComment unbounded_arity "and")
-(positiveExampleComment unbounded_arity "or")
-(positiveExampleComment unbounded_arity "partition")
-(positiveExampleComment unbounded_arity "different")
-(positiveExampleComment unbounded_arity "greaterThan")
+(positiveExample unbounded_arity (Quote (unbounded_arity and)))
+(positiveExample unbounded_arity (Quote (unbounded_arity or)))
+(positiveExample unbounded_arity (Quote (unbounded_arity partition)))
+(positiveExample unbounded_arity (Quote (unbounded_arity different)))
+(positiveExample unbounded_arity (Quote (unbounded_arity greaterThan)))
 (unary_predicate unbounded_arity)
 (arg unbounded_arity 1 relation)
 (partition relation bounded_arity unbounded_arity)
 (genl fixed_arity bounded_arity)
 (genl unbounded_arity variable_arity)
 (comment unbounded_arity_predicate "An unbounded_arity relation that is a predicate.")
-(positiveExampleComment unbounded_arity_predicate "partition")
-(positiveExampleComment unbounded_arity_predicate "different")
-(positiveExampleComment unbounded_arity_predicate "greaterThan")
+(positiveExample unbounded_arity_predicate (Quote (unbounded_arity_predicate partition)))
+(positiveExample unbounded_arity_predicate (Quote (unbounded_arity_predicate different)))
+(positiveExample unbounded_arity_predicate (Quote (unbounded_arity_predicate greaterThan)))
 (unary_predicate unbounded_arity_predicate)
 (intersection unbounded_arity_predicate unbounded_arity predicate)
 (genl unbounded_arity_predicate variable_arity_predicate)
@@ -604,7 +604,7 @@
 (intersection unbounded_arity_function unbounded_arity function)
 (genl unbounded_arity_function variable_arity_function)
 (comment arityMax "(arityMax ?relation ?n) means that the bounded_arity relation ?relation takes at most ?n arguments.")
-(positiveExampleComment arityMax "(arityMax functionCorrespondingPredicate 3)")
+(positiveExample arityMax (Quote (arityMax functionCorrespondingPredicate 3)))
 (binary_predicate arityMax)
 (arg arityMax 1 bounded_arity)
 (arg arityMax 2 positive_integer)
@@ -800,7 +800,7 @@
 (modal_predicate believes)
 
 (comment binary_predicate     "A predicate of two arguments.")
-(positiveExampleComment binary_predicate "parentOf")
+(positiveExample binary_predicate (Quote (binary_predicate parentOf)))
 
 (comment comment
          "(comment ?term ?text) means that ?text documents ?term. Ordinary sentexes, so the KB documents itself in its own representation and a comment is queried, retracted and justified like anything else. Written as a signature and a definition, as this one is, so that first clause doubles as the template an English gloss of any (?term …) sentence is composed from; everything after it is prose for a reader and no machine reads it.")
@@ -1289,7 +1289,7 @@
 
 (comment functional
          "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value collides with the first: two symbols both known true (monotonic) derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them. Any other collision is a nogood each context reading the pair decides, a default fact losing to a monotonic one and two default facts being a dilemma: two non-symbols such as 1980 and 1990, since no merge can make two numbers one thing, and a pair with a default fact, since a merge rests on monotonic evidence alone. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property.")
-(positiveExampleComment functional "(functional birthYearOf)")
+(positiveExample functional (Quote (functional birthYearOf)))
 (unary_predicate functional)
 (decontextualized_predicate functional)
 (set/monotonic (genl functional binary_predicate))
@@ -1380,7 +1380,7 @@
 
 (comment unreifiable_function
          "(unreifiable_function ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence. The mark to reach for whenever the applications are UNBOUNDED, which is the other half of reifiable_function's criterion: (QuantityFn 5 Meter), (QuantityFn 5.001 Meter) and every magnitude between them run over the reals, and a minted constant apiece is a store nothing bounds. A measure function is the standing example, and is never reifiable however atomic its value reads. Also a type: (unreifiable_function F) classifies F as a function. See docs/nat.md.")
-(positiveExampleComment unreifiable_function "a measure function such as QuantityFn")
+(positiveExample unreifiable_function (Quote (unreifiable_function QuantityFn)))
 (unary_predicate unreifiable_function)
 (arg unreifiable_function 1 function)
 
@@ -1493,7 +1493,7 @@
 
 (comment inverse
          "(inverse ?predicate1 ?predicate2) means that ?predicate1 and ?predicate2 are inverse relations, so (?predicate1 a b) holds exactly when (?predicate2 b a) does. Answered by a prover that hands the swapped goal back to the engine rather than matching raw facts, so an inverse composes with its partner's transitivity.")
-(positiveExampleComment inverse "(inverse parentOf childOf)")
+(positiveExample inverse (Quote (inverse parentOf childOf)))
 (binary_predicate inverse)
 (set/monotonic (instance_relation_predicate inverse))
 (arg inverse 1 predicate)
@@ -1612,18 +1612,22 @@
 
 (comment irreflexive
          "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory: a one-member nogood that each context reading the mark decides, whichever of the mark and the tuple arrives first. A default self tuple is not believed there, and a monotonic one is a hard clash conflicts reports (docs/nmtms.md). The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple. Also a type: (irreflexive P) classifies P as a binary_predicate.")
-(positiveExampleComment irreflexive "a strict order such as largerThan")
+(positiveExample irreflexive (Quote (irreflexive largerThan)))
 (unary_predicate irreflexive)
 (decontextualized_predicate irreflexive)
 (set/monotonic (genl irreflexive binary_predicate))
 
 (comment relation_kind
          "(relation_kind ?predicate) means that ?predicate is one of the two relation kinds. The disjoint_metatype grouping instance_relation_predicate and type_relation_predicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are neither, and are left unmarked rather than forced. Marking one of those would make the metatype say something false, which costs more than the gap.")
-(negativeExampleComment relation_kind "implies, a connective that relates no things at all")
-(negativeExampleComment relation_kind "rewriteOf, which takes either role so long as its two sides agree with each other")
-(negativeExampleComment relation_kind "result, which relates a function to a type and so is mixed")
-(negativeExampleComment relation_kind "genlResult, which relates a function to a type and so is mixed")
-(negativeExampleComment relation_kind "functionCorrespondingPredicate, which relates a function to a predicate")
+;; Neither relation kind: implies is a connective that relates no things at all;
+;; rewriteOf takes either role so long as its two sides agree with each other; result and
+;; genlResult relate a function to a type and so are mixed; functionCorrespondingPredicate
+;; relates a function to a predicate.
+(negativeExample relation_kind (Quote (relation_kind implies)))
+(negativeExample relation_kind (Quote (relation_kind rewriteOf)))
+(negativeExample relation_kind (Quote (relation_kind result)))
+(negativeExample relation_kind (Quote (relation_kind genlResult)))
+(negativeExample relation_kind (Quote (relation_kind functionCorrespondingPredicate)))
 (unary_predicate relation_kind)
 (genlArg relation_kind 1 predicate)
 (set/monotonic (disjoint_metatype relation_kind))
@@ -1676,8 +1680,8 @@
 
 (comment symmetric
          "(symmetric ?predicate) means that ?predicate is symmetric. Whenever (?predicate a b) holds so does (?predicate b a), and the two spellings of a ground fact store as one sentex, since the arguments of a symmetric predicate are sorted into canonical order. Also a type: (symmetric P) classifies P as a binary_predicate.")
-(positiveExampleComment symmetric "(symmetric siblingOf)")
-(positiveExampleComment symmetric "(symmetric marriedTo)")
+(positiveExample symmetric (Quote (symmetric siblingOf)))
+(positiveExample symmetric (Quote (symmetric marriedTo)))
 (unary_predicate symmetric)
 (decontextualized_predicate symmetric)
 (set/monotonic (genl symmetric binary_predicate))
@@ -1755,7 +1759,7 @@
 
 (comment asymmetric
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")
-(positiveExampleComment asymmetric "a strict order such as largerThan, the usual case")
+(positiveExample asymmetric (Quote (asymmetric largerThan)))
 (unary_predicate asymmetric)
 (decontextualized_predicate asymmetric)
 
@@ -1781,7 +1785,7 @@
 (arg transitiveInArg 3 predicate)
 
 (comment ternary_predicate    "A predicate of three arguments.")
-(positiveExampleComment ternary_predicate "arg")
+(positiveExample ternary_predicate (Quote (ternary_predicate arg)))
 
 (comment target_following_predicate
          "(target_following_predicate ?predicate) means a (?predicate … (sentexHandle H) …) sentence is a meta-sentex that names sentex H and must not outlive it: retracting H retracts the meta with it (core/retract-following-metas!). Opt-in and belief-following — the engine's own except / exceptWhen deliberately do not carry it, so their orphan-on-retraction behavior is unchanged. koinii's reply acts declare it, so retracting a claim cascades to the replies about it, which a message bus cannot do.")
@@ -1796,8 +1800,8 @@
 
 (comment transitive
          "(transitive ?predicate) means that ?predicate is transitive, so (?predicate a b) and (?predicate b c) imply (?predicate a c). Answered by a generic closure prover rather than materialized, since writing the closure out is quadratic in the extent and nobody asserted it. Also a type: (transitive P) classifies P as a binary_predicate, so a KB can be queried for the transitive predicates.")
-(positiveExampleComment transitive "(transitive ancestorOf)")
-(positiveExampleComment transitive "(transitive partOf)")
+(positiveExample transitive (Quote (transitive ancestorOf)))
+(positiveExample transitive (Quote (transitive partOf)))
 (unary_predicate transitive)
 (decontextualized_predicate transitive)
 (set/monotonic (genl transitive binary_predicate))
@@ -1868,7 +1872,7 @@
 
 (comment typeToInstancePred
          "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")
-(positiveExampleComment typeToInstancePred "(typeToInstancePred partType partOf)")
+(positiveExample typeToInstancePred (Quote (typeToInstancePred partType partOf)))
 (binary_predicate typeToInstancePred)
 (set/monotonic (instance_relation_predicate typeToInstancePred))
 (arg typeToInstancePred 1 type_relation_predicate)

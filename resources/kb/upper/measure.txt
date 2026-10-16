@@ -218,7 +218,7 @@
 
 (comment sameQuantity
          "(sameQuantity ?measure1 ?measure2) means that ?measure1 and ?measure2 are the same quantity once both are normalized to their dimension's base unit. So a thousand grams and one kilogram are the same quantity though they are different terms. Computed by a prover from the dimensionOf and conversionFactor facts, never stored, and never an equality: the equality closure is a partition over symbols and holds no numbers or compounds, so this says two measures agree and not that two names denote one thing.")
-(positiveExampleComment sameQuantity "a thousand grams and one kilogram, the same quantity though they are different terms")
+(positiveExample sameQuantity (Quote (sameQuantity (QuantityFn 1000 Gram) (QuantityFn 1 Kilogram))))
 (binary_predicate sameQuantity)
 (set/monotonic (instance_relation_predicate sameQuantity))
 (arg sameQuantity 1 measure)

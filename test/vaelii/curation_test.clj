@@ -74,9 +74,12 @@
 
 (defn- examples-of
   "Every *believed* `pred` sentex in the KB, wherever it lives — asserted or deduced, and
-  excepted ones excluded, because `sentexes-matching` returns believed sentexes."
-  [kb pred]
-  (v/sentexes-matching kb (list pred '?term '?q) '?ctx))
+  excepted ones excluded, because `sentexes-matching` returns believed sentexes.  Given
+  `ctx`, only those stated in `ctx`: the fixture's own, apart from the shipped ones."
+  ([kb pred]
+   (v/sentexes-matching kb (list pred '?term '?q) '?ctx))
+  ([kb pred ctx]
+   (filterv #(= ctx (:context %)) (examples-of kb pred))))
 
 (defn- example-problem
   "Why the believed example `e` of `pred` fails its obligation, or nil when it holds.  The
@@ -94,13 +97,15 @@
   "Every believed example in `kb` that fails its obligation, as `[problem sentence
   context]`.  A `positiveExample` must quote a closed sentence the KB proves, a
   `negativeExample` a closed sentence it does not prove, and a `borderlineExample` a
-  closed sentence whatever its truth."
-  [kb]
-  (vec (for [pred '[positiveExample negativeExample borderlineExample]
-             e    (examples-of kb pred)
-             :let [problem (example-problem kb pred e)]
-             :when problem]
-         [problem (:sentence e) (:context e)])))
+  closed sentence whatever its truth.  Given `ctx`, only the examples stated in `ctx`."
+  ([kb]
+   (vec (for [pred '[positiveExample negativeExample borderlineExample]
+              e    (examples-of kb pred)
+              :let [problem (example-problem kb pred e)]
+              :when problem]
+          [problem (:sentence e) (:context e)])))
+  ([kb ctx]
+   (filterv #(= ctx (nth % 2)) (example-violations kb))))
 
 ;; ---- the vocabulary loads and names no target ------------------------------
 
@@ -156,9 +161,9 @@
       (let [s (list parentOf Abe Homer)]
         (v/assert kb s ctx)
         (v/assert kb (list 'positiveExample parentOf (quote-of s)) ctx)
-        (is (= [(quote-of s)] (map #(nth (:sentence %) 2) (examples-of kb 'positiveExample)))
+        (is (= [(quote-of s)] (map #(nth (:sentence %) 2) (examples-of kb 'positiveExample ctx)))
             "the example is stored with its quoted sentence as written")
-        (is (empty? (example-violations kb)) "the quoted sentence holds, so the example does")))))
+        (is (empty? (example-violations kb ctx)) "the quoted sentence holds, so the example does")))))
 
 (tu/deftest-kb a-positive-example-the-kb-does-not-prove-fails-the-check
   (let [ctx (scratch kb)]
@@ -167,7 +172,7 @@
       (let [wrong (list parentOf Homer Abe)]
         (v/assert kb (list 'positiveExample parentOf (quote-of wrong)) ctx)
         (is (= [[:not-provable (list 'positiveExample parentOf (quote-of wrong)) ctx]]
-               (example-violations kb))
+               (example-violations kb ctx))
             "a positive example whose sentence the KB does not prove is reported")))))
 
 (tu/deftest-kb a-positive-example-is-checked-in-its-own-context
@@ -179,7 +184,7 @@
       (let [s (list parentOf Abe Homer)]
         (v/assert kb s other)
         (v/assert kb (list 'positiveExample parentOf (quote-of s)) ctx)
-        (is (= [:not-provable] (map first (example-violations kb))))))))
+        (is (= [:not-provable] (map first (example-violations kb ctx))))))))
 
 ;; ---- negativeExample: the quoted sentence is not provable ------------------
 
@@ -192,8 +197,8 @@
       ;; and a sentence whose negation the KB proves is not provable either
       (v/assert kb (list 'not (list parentOf Bea Abe)) ctx {:strength :monotonic})
       (v/assert kb (list 'negativeExample parentOf (quote-of (list parentOf Bea Abe))) ctx)
-      (is (= 2 (count (examples-of kb 'negativeExample))))
-      (is (empty? (example-violations kb))
+      (is (= 2 (count (examples-of kb 'negativeExample ctx))))
+      (is (empty? (example-violations kb ctx))
           "neither quoted sentence is provable, so both negative examples hold"))))
 
 (tu/deftest-kb a-negative-example-the-kb-proves-fails-the-check
@@ -203,7 +208,7 @@
         (v/assert kb s ctx)
         (v/assert kb (list 'negativeExample parentOf (quote-of s)) ctx)
         (is (= [[:provable (list 'negativeExample parentOf (quote-of s)) ctx]]
-               (example-violations kb))
+               (example-violations kb ctx))
             "a negative example whose sentence the KB proves is reported")))))
 
 ;; ---- borderlineExample: unchecked ------------------------------------------
@@ -215,8 +220,8 @@
       (v/assert kb (list likes Cara Dora) ctx)
       (v/assert kb (list 'borderlineExample likes (quote-of (list likes Cara Dora))) ctx)
       (v/assert kb (list 'borderlineExample likes (quote-of (list likes Dora Cara))) ctx)
-      (is (= 2 (count (examples-of kb 'borderlineExample))))
-      (is (empty? (example-violations kb)) "the truth of a borderline example is not read"))))
+      (is (= 2 (count (examples-of kb 'borderlineExample ctx))))
+      (is (empty? (example-violations kb ctx)) "the truth of a borderline example is not read"))))
 
 ;; ---- the second argument must quote a closed sentence ----------------------
 
@@ -224,7 +229,7 @@
   (let [ctx (scratch kb)]
     (tu/with-terms [parentOf Abe]
       (v/assert kb (list 'borderlineExample parentOf Abe) ctx)
-      (is (= [:quotes-no-sentence] (map first (example-violations kb)))
+      (is (= [:quotes-no-sentence] (map first (example-violations kb ctx)))
           "a bare term in the second position is reported, even for borderlineExample"))))
 
 (tu/deftest-kb an-example-that-quotes-an-open-sentence-fails-the-check
@@ -233,7 +238,7 @@
     (tu/with-terms [parentOf Abe Homer]
       (v/assert kb (list parentOf Abe Homer) ctx)
       (v/assert kb (list 'positiveExample parentOf (quote-of (list parentOf Abe '?child))) ctx)
-      (is (= [:quotes-an-open-sentence] (map first (example-violations kb)))))))
+      (is (= [:quotes-an-open-sentence] (map first (example-violations kb ctx)))))))
 
 ;; ---- believed, not merely asserted: deduced in, excepted out -------------
 
@@ -247,8 +252,8 @@
                          (list 'positiveExample '?t (quote-of (list parentOf Homer Abe))))
                 ctx {:direction :forward})
       (v/assert kb (list marks_example parentOf) ctx)
-      (is (= 1 (count (examples-of kb 'positiveExample))) "the deduced example is believed")
-      (is (= [:not-provable] (map first (example-violations kb)))
+      (is (= 1 (count (examples-of kb 'positiveExample ctx))) "the deduced example is believed")
+      (is (= [:not-provable] (map first (example-violations kb ctx)))
           "and checked like an asserted one"))))
 
 (tu/deftest-kb a-negated-example-is-not-checked
@@ -258,9 +263,9 @@
     (tu/with-terms [parentOf Abe Homer]
       (let [e (list 'positiveExample parentOf (quote-of (list parentOf Homer Abe)))]
         (v/assert kb e ctx {:strength :default})
-        (is (= 1 (count (example-violations kb))) "checked while believed")
+        (is (= 1 (count (example-violations kb ctx))) "checked while believed")
         (v/assert kb (list 'not e) ctx {:strength :monotonic})
-        (is (empty? (example-violations kb)) "not believed once negated, so not checked")))))
+        (is (empty? (example-violations kb ctx)) "not believed once negated, so not checked")))))
 
 (tu/deftest-kb an-excepted-example-is-not-checked
   ;; An example an (except (sentexHandle H)) hides is not believed, so the check skips it.
@@ -268,9 +273,9 @@
     (tu/with-terms [parentOf Abe Homer]
       (let [h (v/assert kb (list 'positiveExample parentOf (quote-of (list parentOf Homer Abe)))
                         ctx)]
-        (is (= 1 (count (example-violations kb))) "checked before the except")
+        (is (= 1 (count (example-violations kb ctx))) "checked before the except")
         (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})
-        (is (empty? (example-violations kb)) "not believed once excepted, so not checked")))))
+        (is (empty? (example-violations kb ctx)) "not believed once excepted, so not checked")))))
 
 ;; ---- the example names no sentex, so nothing tears it down -----------------
 
@@ -282,10 +287,10 @@
       (let [s (list parentOf Abe Homer)
             p (v/assert kb s ctx)
             e (v/assert kb (list 'positiveExample parentOf (quote-of s)) ctx)]
-        (is (empty? (example-violations kb)))
+        (is (empty? (example-violations kb ctx)))
         (v/retract! kb p)
         (is (some? (v/sentex kb e)) "the example is still stored")
-        (is (= [:not-provable] (map first (example-violations kb)))
+        (is (= [:not-provable] (map first (example-violations kb ctx)))
             "and the check reports that its sentence no longer holds")))))
 
 ;; ---- a KB that reifies Quote ------------------------------------------------
@@ -301,9 +306,9 @@
       (v/assert kb (list 'positiveExample parentOf (quote-of (list parentOf Abe Homer))) ctx)
       (v/assert kb (list 'positiveExample parentOf (quote-of (list parentOf Homer Abe))) ctx)
       (is (every? #(nat/reified-nat-symbol? (nth (:sentence %) 2))
-                  (examples-of kb 'positiveExample))
+                  (examples-of kb 'positiveExample ctx))
           "both quoted sentences are reified")
-      (is (= [:not-provable] (map first (example-violations kb)))
+      (is (= [:not-provable] (map first (example-violations kb ctx)))
           "the provable one holds and the other is reported"))))
 
 ;; ---- the KB-integrity sweep over a fixture of every kind -------------------
@@ -318,9 +323,9 @@
       (v/assert kb (list 'positiveExample sibling (quote-of (list sibling Homer Bea))) ctx)
       (v/assert kb (list 'negativeExample parentOf (quote-of (list parentOf Homer Abe))) ctx)
       (v/assert kb (list 'borderlineExample parentOf (quote-of (list parentOf Bea Abe))) ctx)
-      (is (= 2 (count (examples-of kb 'positiveExample))) "the sweep found both positive examples")
-      (is (= 1 (count (examples-of kb 'negativeExample))) "and the negative one")
-      (is (empty? (example-violations kb)) (pr-str (example-violations kb))))))
+      (is (= 2 (count (examples-of kb 'positiveExample ctx))) "the sweep found both positive examples")
+      (is (= 1 (count (examples-of kb 'negativeExample ctx))) "and the negative one")
+      (is (empty? (example-violations kb ctx)) (pr-str (example-violations kb ctx))))))
 
 ;; ---- the shipped examples -------------------------------------------------
 
@@ -330,6 +335,10 @@
   ;; one.
   (let [kb (doto (tu/isolated-fresh) (tu/load-starter!))]
     (try
+      (is (<= 31 (count (examples-of kb 'positiveExample)))
+          "the starter states its formal positive examples")
+      (is (<= 7 (count (examples-of kb 'negativeExample)))
+          "and its formal negative examples")
       (is (empty? (example-violations kb)) (pr-str (example-violations kb)))
       (finally (tu/clear-kb! kb)))))
 

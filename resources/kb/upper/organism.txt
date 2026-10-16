@@ -102,10 +102,10 @@
 
 (comment folk_species
          "(folk_species ?type) means that ?type is a species-level kind of organism as everyday speech names it. A disjoint_metatype, so no organism is of two species, and never a class-level kind: a species is not a folk_biological_class.")
-(positiveExampleComment folk_species "cat")
-(positiveExampleComment folk_species "dog")
-(positiveExampleComment folk_species "oak")
-(positiveExampleComment folk_species "human")
+(positiveExample folk_species (Quote (folk_species cat)))
+(positiveExample folk_species (Quote (folk_species dog)))
+(positiveExample folk_species (Quote (folk_species oak)))
+(positiveExample folk_species (Quote (folk_species human)))
 (unary_predicate folk_species)
 (genlArg folk_species 1 organism)
 (metatype folk_species)
@@ -200,9 +200,9 @@
 
 (comment plant_class
          "(plant_class ?type) means that ?type is one of the folk classes of plant. A disjoint_metatype, so its members are pairwise disjoint: an oak is never a rose, and grass is neither. Not a partition of plant, since a fern or a moss is none of the three.")
-(positiveExampleComment plant_class "tree")
-(positiveExampleComment plant_class "flower")
-(positiveExampleComment plant_class "grass")
+(positiveExample plant_class (Quote (plant_class tree)))
+(positiveExample plant_class (Quote (plant_class flower)))
+(positiveExample plant_class (Quote (plant_class grass)))
 (unary_predicate plant_class)
 (genlArg plant_class 1 plant)
 (metatype plant_class)

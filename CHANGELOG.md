@@ -77,6 +77,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **38 shipped string examples become quoted-sentence examples that a test checks.**
+  `core.txt`, `organism.txt`, `measure.txt` and `CxComputing.txt` state 31
+  `positiveExample` and 7 `negativeExample` facts in place of the
+  `positiveExampleComment` and `negativeExampleComment` facts they replace, among them
+  `(positiveExample folk_species (Quote (folk_species cat)))`, `(positiveExample
+  sameQuantity (Quote (sameQuantity (QuantityFn 1000 Gram) (QuantityFn 1 Kilogram))))`
+  and `(negativeExample character (Quote (character "a")))`. An example was converted
+  only where the starter KB proves its sentence (a positive one) or does not prove it (a
+  negative one) in the example's context; `curation_test` now checks every one. The
+  reasons the five `relation_kind` negative examples gave move to a file comment above
+  them.
+
+  *Class:* **Additive** (shipped documentation; no sentence's truth changes).
+  *Migration:* a reader that lists a term's examples by `positiveExampleComment` or
+  `negativeExampleComment` reads `positiveExample` and `negativeExample` as well.
+
 - **`electronic_device` joins the made kinds, orthogonal to `machine`.**
   `abstract.txt` declares `electronic_device`, a mechanism built around an electronic
   circuit, with `(genl electronic_device made)` and `(genl electronic_device
