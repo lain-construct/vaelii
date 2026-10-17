@@ -877,6 +877,43 @@
 (arity_type at_least_ternary)
 (typeOrthogonal arity_type abducible_predicate)
 
+;; The rigidity kinds classify a relation by whether its instances could lose it and go
+;; on existing: OntoClean's rigidity (+R, -R, ~R) read modally and lifted from types to
+;; every relation, functions included.  A type's instances are its members; a
+;; predicate's are its tuples, a function's its argument-value pairs.  The three kinds
+;; partition relation.  possibly_time_invariant_relation is the invariant and agnostic
+;; kinds together, the side time_varying_relation is partitioned against, and the
+;; inheritance hangs on that pair: possible invariance is preserved UP genl, since a
+;; genl of a type some of whose members could never lose it has those members too, and
+;; time variance DOWN genl, since every member of a spec is a member of the genl that
+;; each could lose.  So a time_varying_relation is never a genl of a
+;; possibly_time_invariant one: (genl person student) over an invariant person and a
+;; varying student clashes both ways, which is the static check the kinds exist for.
+;; rigidity_kind names the three kinds as one classifier.  partitionedByType is not
+;; stated beside it: the partition already installs the genl edges and separates the
+;; kinds, and carries the coverage half partitionedByType draws no rule for.
+(comment time_invariant_relation "A relation no instance of which could lose it and still exist: OntoClean's rigid (+R). A person is a person for as long as it exists, so person is time-invariant. With time_agnostic_relation and time_varying_relation it partitions relation, and it is a kind of possibly_time_invariant_relation, which genl inherits upward.")
+(comment time_agnostic_relation "A relation some instances of which could lose it and still exist while others could not: OntoClean's semi-rigid (-R). With time_invariant_relation and time_varying_relation it partitions relation, and it is a kind of possibly_time_invariant_relation, which genl inherits upward.")
+(comment time_varying_relation "A relation every instance of which could lose it and still exist: OntoClean's anti-rigid (~R). A student can stop being a student and go on existing, so student is time-varying. A claim of it may carry a witness context: the context describing an instance that loses the relation and goes on existing. Preserved down genl by (transitiveInArgInverse time_varying_relation 1 genl), so every spec of a time-varying relation is time-varying, and with possibly_time_invariant_relation it partitions relation, so it is never a genl of a time-invariant or time-agnostic relation.")
+(comment possibly_time_invariant_relation "A relation some instance of which could not lose it and still exist: time_invariant_relation and time_agnostic_relation together, the complement of time_varying_relation within relation. Preserved up genl by (transitiveInArg possibly_time_invariant_relation 1 genl): a genl of a relation one of whose instances could never lose it has that instance too.")
+(comment rigidity_kind "A kind of relation by whether its instances could lose it and still exist: time_invariant_relation, time_agnostic_relation or time_varying_relation.")
+(unary_predicate time_invariant_relation)
+(unary_predicate time_agnostic_relation)
+(unary_predicate time_varying_relation)
+(unary_predicate possibly_time_invariant_relation)
+(set/monotonic (partition relation time_invariant_relation time_agnostic_relation time_varying_relation))
+(set/monotonic (partition relation time_varying_relation possibly_time_invariant_relation))
+(set/monotonic (partition possibly_time_invariant_relation time_invariant_relation time_agnostic_relation))
+(set/monotonic (transitiveInArg possibly_time_invariant_relation 1 genl))
+(set/monotonic (transitiveInArgInverse time_varying_relation 1 genl))
+;; Each rigidity kind holds types and predicates alike, so the members of rigidity_kind
+;; are of more than one order, and rigidity_kind is at_least_metatype, as arity_type is.
+(at_least_metatype rigidity_kind)
+(typeGenl rigidity_kind relation)
+(set/monotonic (rigidity_kind time_invariant_relation))
+(set/monotonic (rigidity_kind time_agnostic_relation))
+(set/monotonic (rigidity_kind time_varying_relation))
+
 (set/forwardRule
  (implies
   (and
