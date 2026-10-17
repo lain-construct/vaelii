@@ -39,6 +39,7 @@
 (positiveExampleComment software_tool "a Model Context Protocol tool")
 (positiveExampleComment software_tool "a web API endpoint")
 (genl software_tool computational_system)
+(set/monotonic (time_invariant_relation software_tool))
 
 (comment command_line_tool "A software tool invoked by a command line that a shell runs.")
 (positiveExampleComment command_line_tool "a text-search program")
