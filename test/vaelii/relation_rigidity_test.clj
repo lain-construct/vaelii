@@ -135,13 +135,18 @@
       (is (= {:status :audited :candidate-count 0}
              (v/kb-integrity kb #{} U {:categories correspondence}))))
     (testing "two different kinds are reported"
+      ;; The correspondence rule also gives the function the predicate's kind, so the
+      ;; function is believed of both, and the pair is reported.
       (v/assert kb (list 'time_varying_relation hiveQueenOf) U mono)
-      (is (= {:status :gap :candidate-count 0
-              :rigidity-correspondence
-              [{:function HiveQueenFn :predicate hiveQueenOf
-                :function-kinds #{'time_invariant_relation}
-                :predicate-kinds #{'time_varying_relation}}]}
-             (v/kb-integrity kb #{} U {:categories correspondence}))))
+      (let [r (v/kb-integrity kb #{} U {:categories correspondence})
+            [finding & more] (:rigidity-correspondence r)]
+        (is (= :gap (:status r)))
+        (is (nil? more))
+        (is (= [HiveQueenFn hiveQueenOf #{'time_varying_relation}]
+               ((juxt :function :predicate :predicate-kinds) finding)))
+        (is (every? (:function-kinds finding)
+                    '[time_invariant_relation time_varying_relation])
+            "the stated kind and the kind the correspondence gives")))
     (testing "the default sweep runs the pass"
       (is (contains? (v/kb-integrity kb #{} U) :rigidity-correspondence)))))
 
