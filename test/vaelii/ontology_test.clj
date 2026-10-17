@@ -669,7 +669,8 @@
   ;; temporalIndexArg rule makes a relation time-indexed, so time-invariant.  A function
   ;; corresponding to two predicates of two kinds, or a time-indexed function whose
   ;; predicate is not time-invariant, is a clash the facts owe, and an exception would
-  ;; hide it.
+  ;; hide it.  CxNormalPhysicalConditions' default rules make a metal solid and mercury
+  ;; liquid, and the metal rule states mercury as its exception.
   (let [pairs       (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds       (frequencies (map :kind pairs))
         root-denial '(implies (properPartOf ?part ?whole) (not (partOf ?whole ?part)))
@@ -677,10 +678,10 @@
         rigidity    '#{time_invariant_relation time_agnostic_relation time_varying_relation
                        time_indexed_relation}
         rigidity?   (fn [pair] (every? #(contains? rigidity (first (nth % 2))) (:sentences pair)))]
-    (is (= {:negation 6 :disjoint 5} kinds)
+    (is (= {:negation 6 :disjoint 6} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
-    (is (every? rigidity? (filter #(= :disjoint (:kind %)) pairs))
-        "every disjoint pair is two rules concluding a rigidity kind")
+    (is (every? :excepted (remove rigidity? (filter #(= :disjoint (:kind %)) pairs)))
+        "the one other disjoint pair, a metal solid and mercury liquid, is excepted")
     (is (every? :excepted (remove definition? (filter #(= :negation (:kind %)) pairs)))
         "negation clashes are excepted")
     (is (= 2 (count (filter definition? pairs)))
