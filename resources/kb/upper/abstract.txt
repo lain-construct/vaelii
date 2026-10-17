@@ -180,6 +180,15 @@
 ;; parthood relation is below properPartOf, and a denial of partOf denies each spec's tuple.
 (set/forwardRule (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
 
+(comment permanentPartOf
+         "(permanentPartOf ?part ?whole) means that ?part is a part of ?whole that could not stop being one while both exist. A region's parts and a situation's parts are permanent parts. A wheel is a part of a car and no permanent part, since it can come off. Declared transitive, and both positions are untyped, as partOf's are.")
+(binary_predicate permanentPartOf)
+(set/monotonic (instance_relation_predicate permanentPartOf))
+(set/monotonic (time_invariant_relation permanentPartOf))
+(set/monotonic (transitive permanentPartOf))
+(set/monotonic (reflexive permanentPartOf))
+(genl permanentPartOf partOf)
+
 (comment tangiblePartOf
          "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
 (binary_predicate tangiblePartOf)
@@ -273,7 +282,7 @@
 (arg subSituationOf 2 situation)
 (set/monotonic (transitive subSituationOf))
 (set/monotonic (reflexive subSituationOf))
-(genl subSituationOf partOf)
+(genl subSituationOf permanentPartOf)
 
 (comment properSubSituationOf
          "(properSubSituationOf ?part ?whole) means that the situation ?part is a part of the situation ?whole and ?whole is not a part of ?part.")

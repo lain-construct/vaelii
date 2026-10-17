@@ -264,7 +264,9 @@
     '[partOf 1]             "a part of any kind: a component of an object, a region, a stage of a situation"
     '[partOf 2]             "a whole of any kind: an object, a region, a situation"
     '[properPartOf 1]       "a proper part of any kind, as partOf's part is of any kind"
-    '[properPartOf 2]       "a whole of any kind, as partOf's whole is of any kind"}
+    '[properPartOf 2]       "a whole of any kind, as partOf's whole is of any kind"
+    '[permanentPartOf 1]    "a permanent part of any kind: a region, a stage of a situation"
+    '[permanentPartOf 2]    "a whole of any kind, as partOf's whole is of any kind"}
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
               {[p 1] "an exemplified term"
                [p 2] "the example, a sentence written as a term"}))

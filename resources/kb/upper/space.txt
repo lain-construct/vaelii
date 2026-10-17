@@ -301,7 +301,7 @@
 (arg partOfRegion 2 spatial)
 (set/inert (inverse partOfRegion hasRegionPart))
 (set/monotonic (reflexive partOfRegion))
-(genl partOfRegion partOf)
+(genl partOfRegion permanentPartOf)
 
 (comment properPartOfRegion
          "(properPartOfRegion ?region1 ?region2) means that ?region1 is part of ?region2 and not the whole of it. RCC-8's PP, denoting TPP or NTPP.")
