@@ -917,7 +917,10 @@ placeholder functor, audited on demand for the members with no filler. The *Spec
 pair (`predAllSpecified` / `predSpecifiedAll`) is an on-demand integrity audit reporting
 the instances with no determinate filler — binary, the filler's required type derived
 from the predicate's own slot contract rather than restated, and a predicate with no
-visible slot typing reported as an explicit declaration-contract gap. See
+visible slot typing reported as an explicit declaration-contract gap. `typeAllSpecified`
+is the Specified pair's counterpart for a classification: every instance must be believed
+a member of some member of a classifier
+([integrity.md](integrity.md#what-a-type-specified-finding-means)). See
 [predall.md](predall.md).
 
 **Predicate extent** ![backend](../.github/badges/cat-backend.svg): The count trie
