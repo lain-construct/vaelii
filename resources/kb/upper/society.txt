@@ -12,6 +12,7 @@
 (comment knows
          "(knows ?person1 ?person2) means that ?person1 is acquainted with ?person2. Deliberately NOT symmetric: a great many people know someone who does not know them, and declaring the symmetry would make the KB assert that back. Derived from friendship, marriage and parenthood by rules, so most knows facts are consequences rather than claims anyone wrote.")
 (set/monotonic (instance_relation_predicate knows))
+(set/monotonic (time_varying_relation knows))
 (arg knows 1 person)
 (arg knows 2 person)
 

@@ -21,11 +21,13 @@
 (comment asleep
          "(asleep ?animal) means that ?animal is sleeping. Stated rather than derived, and what blocks the awake default; a rule concludes (not (awake ?x)) from it, so the two cannot both be believed of one animal and neither has to be retracted for the other to be told.")
 (unary_predicate asleep)
+(set/monotonic (time_varying_relation asleep))
 (genl asleep animal)
 
 (comment awake
          "(awake ?animal) means that ?animal is awake and able to act. True by default of an animal and blocked for one known to be asleep — the same shape as flight and penguins, on a state that changes rather than a species that does not.")
 (unary_predicate awake)
+(set/monotonic (time_varying_relation awake))
 (genl awake animal)
 
 (comment birthYearOf
@@ -58,6 +60,7 @@
 (comment eats
          "(eats ?animal ?food) means that ?animal takes ?food as nourishment. Both arguments are individuals — a particular animal and a particular food — and the fact says nothing about when or how often, there being no time argument to say it with. A whole kind's diet is a different sentence: state it of the kind, and declare (transitiveInArgInverse eats 1 genl) if it should reach that kind's members.")
 (set/monotonic (instance_relation_predicate eats))
+(set/monotonic (time_varying_relation eats))
 (arg eats 1 animal)
 (arg eats 2 food)
 
@@ -96,6 +99,7 @@
          "(hasCapability ?doer ?happeningKind) means that ?doer can be the doer of a happening of kind ?happeningKind, the doer being the one doneBy names. The first position holds anything causal that can be such a doer: an animal, a machine, an organization. An instrument is not thereby a doer: a pencil is used in writing and does not write, so being usable in a kind of event is not a capability. The instance-level reading: (hasCapability Tweety flying) says this bird can fly and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relation_kind because it is MIXED — the first position holds one causal thing and takes arg, the second names a happening KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArg along genl on the second position, which carries a claim up the genl hierarchy of happening kinds: flying is a kind of travelling, so whatever can fly can travel.")
 (binary_predicate hasCapability)
 (arg hasCapability 1 causal)
+(set/monotonic (time_varying_relation hasCapability))
 (genlArg hasCapability 2 happening)
 (transitiveInArg hasCapability 2 genl)
 
@@ -110,6 +114,7 @@
 (comment livesIn
          "(livesIn ?animal ?place) means that ?animal makes its home in ?place. Where the animal belongs rather than where it is at this moment, which is what locatedIn says. A default rule carries the one to the other, so an animal that lives somewhere is taken to be there unless something better is known.")
 (set/monotonic (instance_relation_predicate livesIn))
+(set/monotonic (time_varying_relation livesIn))
 (arg livesIn 1 animal)
 (arg livesIn 2 tangible)
 
