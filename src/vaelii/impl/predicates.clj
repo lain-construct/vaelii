@@ -1733,6 +1733,18 @@
                              " binary, filler type derived from ?pred's slot-1 contract.")}
                 (str "vaelii.core/specified-violations with :first — audits ?pred's"
                      " first position, the argument-swapped twin"))]
+     ['typeAllSpecified
+      (enforced {:shape {:args [:type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "an on-demand audit, not a stored constraint: nothing fires on"
+                             " assert, and kb-integrity's :type-specified-violations pass reads"
+                             " it. Every ?indep instance needs a believed membership in some"
+                             " ?classifier member; a classifier with no member is a gap the"
+                             " audit reports explicitly.")}
+                (str "vaelii.impl.predall/type-specified-violations — kb-integrity's"
+                     " :type-specified-violations pass reads the declaration and returns the"
+                     " instances of ?indep no member of ?classifier is believed to hold;"
+                     " stamps no rule"))]
      ['PredAllExistsFn
       (enforced (collection :notes (str "a function constant, never a sentence functor; its"
                                         " unreifiable_function mark keeps a ground"

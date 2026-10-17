@@ -28,21 +28,34 @@
   "The options `kb-integrity` reads: three cooperative bounds and the categories to run."
   #{:max-work :max-ms :max-results :categories})
 
-(defn- specified-findings
-  "Audit one declared predicate at a time, stopping after the first finding beyond
-  `remaining` proves that the result bound truncated the sweep."
-  [kb context remaining]
-  (loop [audits (predall/specified-declaration-audits kb context)
+(defn- declaration-findings
+  "Fold a lazy stream of `[declaration result]` audits under `category`, one declaration
+  at a time, keeping each gap or non-empty violation set and stopping after the first
+  finding beyond `remaining` proves that the result bound truncated the sweep."
+  [category audits remaining]
+  (loop [audits   audits
          findings {}]
     (if-let [[declaration result] (first audits)]
       (if (or (= :gap (:status result)) (seq (:violations result)))
         (if (and remaining (>= (count findings) remaining))
           {:status :truncated :reason :max-results :findings findings}
           (do
-            (budget/record! :all-specified-violations [declaration result])
+            (budget/record! category [declaration result])
             (recur (rest audits) (assoc findings declaration result))))
         (recur (rest audits) findings))
       {:status :complete :findings findings})))
+
+(defn- specified-findings
+  "Audit one declared predicate at a time (`declaration-findings`)."
+  [kb context remaining]
+  (declaration-findings :all-specified-violations
+                        (predall/specified-declaration-audits kb context) remaining))
+
+(defn- type-specified-findings
+  "Audit one `typeAllSpecified` declaration at a time (`declaration-findings`)."
+  [kb context remaining]
+  (declaration-findings :type-specified-violations
+                        (predall/type-specified-declaration-audits kb context) remaining))
 
 ;; ---- genl-arg-widening: a predicate genl edge that widens an argument type ----
 
@@ -993,6 +1006,8 @@
   [[:definition-inconsistencies provers/definition-inconsistencies]
    [:all-specified-violations (fn [kb _ context remaining]
                                 (specified-findings kb context remaining))]
+   [:type-specified-violations (fn [kb _ context remaining]
+                                 (type-specified-findings kb context remaining))]
    [:genl-arg-widening (fn [kb _ context remaining]
                          (widening-findings kb context remaining))]
    [:not-under-thing not-under-thing-findings]
@@ -1051,12 +1066,14 @@
           (recur more (some-> remaining (- (count (:findings result))))))))))
 
 (defn- report-categories
-  "The non-empty categories of a meter's findings, the specified category as a map."
+  "The non-empty categories of a meter's findings, the two specified categories as maps."
   [found]
   (into {}
         (keep (fn [[k xs]]
                 (when (seq xs)
-                  [k (if (= :all-specified-violations k) (into {} xs) xs)])))
+                  [k (if (#{:all-specified-violations :type-specified-violations} k)
+                       (into {} xs)
+                       xs)])))
         found))
 
 (defn kb-integrity

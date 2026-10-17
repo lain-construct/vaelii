@@ -161,7 +161,10 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; tuple [functor pred a b], displacing nothing
 (kb-integrity kb candidate-terms ctx)
 (kb-integrity kb candidate-terms ctx opts)       ; the bounded checkpoint sweep: the complete specified
-                                                ; audit above, query-only definition clashes over an
+                                                ; audit above, every visible (typeAllSpecified
+                                                ; classifier indep) requirement, each instance of indep
+                                                ; with no believed membership in a member of classifier,
+                                                ; query-only definition clashes over an
                                                 ; explicit finite set of ground terms, every visible
                                                 ; predicate genl edge whose spec declares an arg type its
                                                 ; genl's constraint does not subsume, every candidate
@@ -182,6 +185,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
+                                                ; :type-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
                                                 ; :orthogonal-over-separation, :rule-macro,
