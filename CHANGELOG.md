@@ -125,6 +125,26 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **The rigidity kinds of relation.** core.txt partitions `relation` into
+  `time_invariant_relation`, `time_agnostic_relation` and `time_varying_relation`
+  (OntoClean's +R, -R and ~R, read modally), with `possibly_time_invariant_relation` the
+  first two together. Possible invariance is preserved up `genl` and time variance down
+  it, so a time-varying genl of a time-invariant type is an inherited clash `conflicts`
+  reports. `rigidity_kind` names the three kinds.
+
+  *Class:* **Additive**.
+
+- **`typeAllSpecified`, a classification requirement `kb-integrity` audits.**
+  `(typeAllSpecified ?classifier ?indep)` requires every instance of `?indep` to have a
+  believed membership in some member of `?classifier`; a partition does not satisfy it.
+  The sweep reports it in a new default category, `:type-specified-violations`. core.txt
+  states `(typeAllSpecified rigidity_kind relation)`, and no shipped relation is
+  classified yet, so a default sweep over CxUniverse now answers `:gap` with that one
+  requirement.
+  [integrity.md](docs/integrity.md#what-a-type-specified-finding-means).
+
+  *Class:* **Additive**.
+
 - **`+with-postgres`, `+with-sqlite` and `+with-foreign` add the published siblings to any
   lein task, the uberjar included.** `lein with-profile +with-postgres browser` opens a
   `:pg-*` KB from this checkout, `lein with-profile +with-postgres,+with-sqlite uberjar`
