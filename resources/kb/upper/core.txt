@@ -411,6 +411,12 @@
 (intersection static_situation uninterrupted fluent)
 (intersection event uninterrupted happening)
 (set/monotonic (partition uninterrupted_situation static_situation event))
+;; A time is the time it is for as long as it exists, and a situation is the situation it
+;; is: an event cannot stop being an event and go on existing.  So every spec of time and
+;; every spec of situation is time-invariant, time and situation included.  The
+;; unary_predicate literal types ?type, so the rules' firings are read as relations.
+(set/forwardRule (implies (and (unary_predicate ?type) (genl ?type time)) (time_invariant_relation ?type)))
+(set/forwardRule (implies (and (unary_predicate ?type) (genl ?type situation)) (time_invariant_relation ?type)))
 ;; A situation may have a place: a boulder rolling, thin ice.  orthogonal is not
 ;; inherited, so the pair is stated for uninterrupted_situation as well.
 (set/monotonic (orthogonal situation spatial))
