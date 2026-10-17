@@ -9,6 +9,7 @@
 (unary_predicate alive)
 (arg alive 1 biological)
 (genl alive organism)
+(set/monotonic (stable_once_false alive))
 
 (comment ancestorOf
          "(ancestorOf ?ancestor ?descendant) means that ?ancestor is a parent of ?descendant, or a parent of an ancestor of ?descendant. Both arguments are individual organisms. Declared transitive, so the chain is walked by the closure prover rather than materialized, and the base link is derived from parentOf by a rule — an ancestorOf fact normally follows from kinship rather than being asserted.")
@@ -59,6 +60,7 @@
 (unary_predicate dead)
 (arg dead 1 biological)
 (genl dead organism)
+(set/monotonic (stable_once_true dead))
 
 (comment eats
          "(eats ?animal ?food) means that ?animal takes ?food as nourishment. Both arguments are individuals — a particular animal and a particular food — and the fact says nothing about when or how often, there being no time argument to say it with. A whole kind's diet is a different sentence: state it of the kind, and declare (transitiveInArgInverse eats 1 genl) if it should reach that kind's members.")
