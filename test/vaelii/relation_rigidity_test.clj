@@ -93,3 +93,19 @@
                                    (list 'possibly_time_invariant_relation student_kind)
                                    (list 'time_varying_relation student_kind)))
           "possible invariance inherited up to student clashes with its variance"))))
+
+(tu/deftest-kb every-relation-is-required-to-have-a-rigidity-kind
+  ;; The partition says every relation IS of one kind; typeAllSpecified says the KB must
+  ;; KNOW which.  Classifying the shipped relations is a to-do the sweep lists, so only
+  ;; fictional relations are read here.
+  (is (v/ask? kb '(typeAllSpecified rigidity_kind relation) 'CxUniverse))
+  (tu/with-terms [ownsPet admiresPet]
+    (v/assert kb (list 'binary_predicate ownsPet) U mono)
+    (v/assert kb (list 'binary_predicate admiresPet) U mono)
+    (v/assert kb (list 'time_varying_relation ownsPet) U mono)
+    (let [r (get (:type-specified-violations
+                  (v/kb-integrity kb #{} U {:categories #{:type-specified-violations}}))
+                 '[typeAllSpecified rigidity_kind relation])]
+      (is (= :audited (:status r)))
+      (is (contains? (:violations r) admiresPet) "an unclassified relation is reported")
+      (is (not (contains? (:violations r) ownsPet)) "a classified one is not"))))
