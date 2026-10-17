@@ -43,7 +43,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
   states `(typeAllSpecified rigidity_kind relation)`, and not every shipped relation is
-- **The shipped relations' rigidity kinds.** 323 of the starter's 547 relations now
+- **The shipped relations' rigidity kinds.** 323 of the starter's 570 relations now
   have a rigidity kind visible from CxUniverse: 263 time-invariant, 50 time-agnostic
   and 10 time-varying. Types over numbers, expressions, relations and types, every
   metatype, the folk kinds, the meta, logical and type-relation predicates, and kinship
