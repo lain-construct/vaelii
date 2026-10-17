@@ -764,7 +764,7 @@
 (comment time_agnostic_relation "A relation some instances of which could lose it and still exist while others could not: OntoClean's semi-rigid (-R). With time_invariant_relation and time_varying_relation it partitions relation, and it is a kind of possibly_time_invariant_relation, which genl inherits upward.")
 (comment time_varying_relation "A relation every instance of which could lose it and still exist: OntoClean's anti-rigid (~R). A student can stop being a student and go on existing, so student is time-varying. A claim of it may carry a witness context: the context describing an instance that loses the relation and goes on existing. Preserved down genl by (transitiveInArgInverse time_varying_relation 1 genl), so every spec of a time-varying relation is time-varying, and with possibly_time_invariant_relation it partitions relation, so it is never a genl of a time-invariant or time-agnostic relation.")
 (comment possibly_time_invariant_relation "A relation some instance of which could not lose it and still exist: time_invariant_relation and time_agnostic_relation together, the complement of time_varying_relation within relation. Preserved up genl by (transitiveInArg possibly_time_invariant_relation 1 genl): a genl of a relation one of whose instances could never lose it has that instance too.")
-(comment rigidity_kind "A kind of relation by whether its instances could lose it and still exist: time_invariant_relation, time_agnostic_relation or time_varying_relation.")
+(comment rigidity_kind "A kind of relation by whether its instances could lose it and still exist: time_invariant_relation, time_agnostic_relation or time_varying_relation. (typeAllSpecified rigidity_kind relation) requires the KB to know which of the three each relation is.")
 (unary_predicate time_invariant_relation)
 (unary_predicate time_agnostic_relation)
 (unary_predicate time_varying_relation)
@@ -781,6 +781,9 @@
 (set/monotonic (rigidity_kind time_invariant_relation))
 (set/monotonic (rigidity_kind time_agnostic_relation))
 (set/monotonic (rigidity_kind time_varying_relation))
+;; The partition says every relation IS of one kind; the requirement says the KB must know
+;; which.  Most shipped relations are not yet classified, so kb-integrity reports them.
+(typeAllSpecified rigidity_kind relation)
 
 (set/forwardRule
  (implies
