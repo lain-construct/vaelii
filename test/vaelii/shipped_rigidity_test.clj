@@ -146,3 +146,10 @@
   (doseq [r '[parentOf birthYearOf]]
     (is (not (v/ask? kb (list 'stable_once_true r) 'CxUniverse)))
     (is (not (v/ask? kb (list 'stable_once_false r) 'CxUniverse)))))
+
+(tu/deftest-kb kin-and-making-are-time-invariant-and-the-life-states-time-varying
+  ;; A grandparent stays one and a statue stays made of its clay.  An animal can stop
+  ;; breathing air and a predator can stop preying on a species, each going on existing.
+  (all-of-kind kb 'time_invariant_relation '[grandparentOf madeOf] 'CxUniverse)
+  (all-of-kind kb 'time_invariant_relation '[relativeOf originatorOf] 'CxSocial)
+  (all-of-kind kb 'time_varying_relation '[breathes_air preysOn] 'CxUniverse))
