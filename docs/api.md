@@ -1464,7 +1464,7 @@ topology is three levels, most general (top) to most specific (bottom).
 upper layer: `core.txt`, the vocabulary and the top of the ontology; `abstract.txt`, the
 kinds below the skeleton `core.txt` holds, body parts and substances,
 `tangiblePartOf`/`locatedIn`/`madeOf`, and the two **type-level** relations
-`largerThan`/`partType`; `organism.txt`, the biological taxonomy and its disjointness;
+`typeLargerThan`/`partType`; `organism.txt`, the biological taxonomy and its disjointness;
 `life.txt`, the organism relations and states; `society.txt`, the social relations;
 `measure.txt`, the theory of measurement; `reflection.txt`, the expression lattice and
 the use/mention vocabulary; `space.txt`, the four spatial calculi of
@@ -1501,7 +1501,7 @@ a variable so they join — grandparentOf, part-location, owns-parts).
 **A binary predicate says which level it relates at, unless its two ends disagree.**
 `relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
 `type_relation_predicate`: `parentOf`, `northOf` and `madeOf` relate individuals; `genl`,
-`disjoint`, `orthogonal`, `largerThan`, `partType` and `capabilityType` relate kinds. *At most* one, not
+`disjoint`, `orthogonal`, `typeLargerThan`, `partType` and `capabilityType` relate kinds. *At most* one, not
 exactly one — the unmarked are those whose two ends sit at different levels, or at no
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
@@ -1511,7 +1511,7 @@ relates one causal thing to an event kind). The mark is not decoration: an
 on one is refused `:arg-constraint-kind`. A `type_relation_predicate` takes `genlArg` and
 `arg` both: the kinds it relates are subtypes of what `genlArg` names and instances of
 what `arg` names. The distinction is
-what `typeToInstancePred` is stated over, and it is the difference between `(largerThan
+what `typeToInstancePred` is stated over, and it is the difference between `(typeLargerThan
 dog cat)` — dogs are bigger than cats — and a claim about two particular animals.
 
 **Contingent data lives in the tests.** The starter ships no cast: individuals, facts,

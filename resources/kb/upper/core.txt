@@ -2193,7 +2193,7 @@
 
 (comment irreflexive
          "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory: a one-member nogood that each context reading the mark decides, whichever of the mark and the tuple arrives first. A default self tuple is not believed there, and a monotonic one is a hard clash conflicts reports (docs/nmtms.md). The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple. Also a type: (irreflexive P) classifies P as a binary_predicate.")
-(positiveExample irreflexive (Quote (irreflexive largerThan)))
+(positiveExample irreflexive (Quote (irreflexive typeLargerThan)))
 (unary_predicate irreflexive)
 (decontextualized_predicate irreflexive)
 (set/monotonic (time_invariant_relation irreflexive))
@@ -2350,7 +2350,7 @@
 
 (comment asymmetric
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")
-(positiveExample asymmetric (Quote (asymmetric largerThan)))
+(positiveExample asymmetric (Quote (asymmetric typeLargerThan)))
 (unary_predicate asymmetric)
 (decontextualized_predicate asymmetric)
 (set/monotonic (time_invariant_relation asymmetric))
@@ -2364,7 +2364,7 @@
 (set/monotonic (genl anti_symmetric binary_predicate))
 
 (comment transitiveInArgInverse
-         "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved against the arrow of the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and the reach is the closure under all their relations together; a ?predicate itself declared transitive is one more such relation. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
+         "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved against the arrow of the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (typeLargerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and the reach is the closure under all their relations together; a ?predicate itself declared transitive is one more such relation. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
 (ternary_predicate transitiveInArgInverse)
 (set/monotonic (time_invariant_relation transitiveInArgInverse))
 (arg transitiveInArgInverse 1 predicate)

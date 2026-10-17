@@ -39,6 +39,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a client storing its own `:principal` provenance field renames it.
   *Breaks:* `:principal`, `:add-provenance`
 
+### Breaking: renamed identifiers
+
+- **`largerThan` is `typeLargerThan`.** The relation compares two kinds, as a
+  `type_relation_predicate`, and the new name keeps it from reading as a sibling of
+  `tallerThan` and `heavierThan`, which compare two individuals. Its declarations, its
+  facts in CxSize and its comment are unchanged apart from the name.
+
+  *Class:* **Breaking** (KB vocabulary renamed).
+  *Migration:* write `typeLargerThan` for `largerThan` in every fact, rule and query.
+  *Breaks:* `largerThan`
+
 ### Additive: ASP
 
 - **`VAELII_CLASP_BIN` (or `-Dvaelii.clasp.bin`) names the executable the subprocess
