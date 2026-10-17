@@ -130,3 +130,19 @@
   (tu/with-terms [Kitchen House]
     (v/assert kb (list 'partOfRegion Kitchen House) 'CxUniverse)
     (is (true? (v/ask? kb (list 'permanentPartOf Kitchen House) 'CxUniverse)))))
+
+(tu/deftest-kb stable-once-true-and-stable-once-false-are-time-varying-and-never-invariant
+  ;; Once an organism is dead it stays dead, and once it is not alive it is never alive
+  ;; again.  Each persistence kind is a kind of time-varying relation: a relation no
+  ;; instance could lose is not one of them.
+  (doseq [k '[stable_once_true stable_once_false]]
+    (is (seq (v/ask kb (list 'comment k '?c) 'CxUniverse)) (str k " is commented"))
+    (is (v/genl? kb k 'time_varying_relation) (str k " is below time_varying_relation"))
+    (is (v/disjoint? kb k 'time_invariant_relation 'CxUniverse)
+        (str "no time-invariant relation is " k)))
+  (is (v/ask? kb '(stable_once_true dead) 'CxUniverse))
+  (is (v/ask? kb '(stable_once_false alive) 'CxUniverse))
+  (all-of-kind kb 'time_varying_relation '[dead alive] 'CxUniverse)
+  (doseq [r '[parentOf birthYearOf]]
+    (is (not (v/ask? kb (list 'stable_once_true r) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'stable_once_false r) 'CxUniverse)))))
