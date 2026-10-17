@@ -163,3 +163,21 @@
              :predicate-kinds #{'time_invariant_relation}}]
            (:rigidity-correspondence
             (v/kb-integrity kb #{} U {:categories correspondence}))))))
+
+;; ---- a relation with a temporal index is time-invariant ---------------------------
+
+(tu/deftest-kb a-relation-with-a-temporal-index-argument-is-time-indexed-and-time-invariant
+  ;; (temporalIndexArg R n) says argument n of R names the time the rest of the tuple
+  ;; holds at, so a tuple carries its own time and nothing can lose it.
+  (is (v/ask? kb '(genl time_indexed_relation time_invariant_relation) U))
+  (tu/with-terms [salaryAt]
+    (v/assert kb (list 'ternary_predicate salaryAt) U mono)
+    (v/assert kb (list 'temporalIndexArg salaryAt 3) U mono)
+    (is (v/ask? kb (list 'time_indexed_relation salaryAt) U) "the index makes it time-indexed")
+    (is (v/ask? kb (list 'time_invariant_relation salaryAt) U) "and so time-invariant")
+    (is (not (v/ask? kb (list 'time_varying_relation salaryAt) U)))))
+
+(tu/deftest-kb the-temporal-index-vocabulary-is-commented-and-classified
+  (doseq [t '[temporalIndexArg time_indexed_relation]]
+    (is (seq (v/ask kb (list 'comment t '?c) U)) (str t " is commented"))
+    (is (v/ask? kb (list 'time_invariant_relation t) U) (str t " is time-invariant"))))
