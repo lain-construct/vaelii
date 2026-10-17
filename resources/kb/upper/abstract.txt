@@ -123,6 +123,7 @@
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is the spatial calculi's business, and partOfRegion is the relation to reach for there.")
 (binary_predicate locatedIn)
 (set/monotonic (instance_relation_predicate locatedIn))
+(set/monotonic (time_varying_relation locatedIn))
 (arg locatedIn 1 tangible)
 (arg locatedIn 2 tangible)
 (set/monotonic (transitive locatedIn))
