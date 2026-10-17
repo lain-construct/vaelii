@@ -70,6 +70,7 @@
          "(greaterInMagnitudeThan ?quantity1 ?quantity2) means that ?quantity1 is further from zero than ?quantity2, whichever side of zero each falls on. Between two QUANTITIES, which is what separates it from quantityGreaterThan: that one compares two ground measure terms and is computed from the unit table, where this is a stated claim about quantities nobody has put a figure on. It exists for the one ambiguous entry in the sign addition table: a positive and a negative sum to the sign of whichever is larger, and this is what says which. Transitive and asymmetric, a strict order, so a cycle of magnitude claims is a contradiction the KB reports rather than a chain it walks.")
 (positiveExampleComment greaterInMagnitudeThan "the tap running faster than the drain")
 (set/monotonic (instance_relation_predicate greaterInMagnitudeThan))
+(set/monotonic (time_varying_relation greaterInMagnitudeThan))
 (arg greaterInMagnitudeThan 1 quantity)
 (arg greaterInMagnitudeThan 2 quantity)
 (set/monotonic (transitive greaterInMagnitudeThan))
@@ -126,6 +127,7 @@
 (comment qualitativeDifference
          "(qualitativeDifference ?a ?b ?q) means that quantity ?q is ?a minus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers — there are no numbers in the sign theory at all — and what the sign prover reads to give ?q a sign from the signs of ?a and ?b. Read as ?a plus the negation of ?b, so it shares the addition table and its one ambiguity, with the cases turned round: two quantities of the SAME sign are the ambiguous difference, and greaterInMagnitudeThan is what resolves it.")
 (ternary_predicate qualitativeDifference)
+(set/monotonic (time_varying_relation qualitativeDifference))
 (arg qualitativeDifference 1 quantity)
 (arg qualitativeDifference 2 quantity)
 (arg qualitativeDifference 3 quantity)
@@ -133,6 +135,7 @@
 (comment qualitativeProduct
          "(qualitativeProduct ?a ?b ?q) means that quantity ?q is ?a times ?b. The one arithmetic relation that is never ambiguous: anything times nothing is nothing, like signs give a positive and opposite signs a negative, and magnitudes do not come into it — so no greaterInMagnitudeThan is ever read for a product and a product of two known signs is always a known sign.")
 (ternary_predicate qualitativeProduct)
+(set/monotonic (time_varying_relation qualitativeProduct))
 (arg qualitativeProduct 1 quantity)
 (arg qualitativeProduct 2 quantity)
 (arg qualitativeProduct 3 quantity)
@@ -140,6 +143,7 @@
 (comment qualitativeSum
          "(qualitativeSum ?a ?b ?q) means that quantity ?q is ?a plus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers. The sign prover reads it to give ?q a sign from the signs of ?a and ?b: two positives give a positive and two negatives a negative, a zero is the identity, and a positive with a negative gives the sign of whichever is larger — which is all three values, and so no answer at all, until a greaterInMagnitudeThan says which. Never a guess between the three.")
 (ternary_predicate qualitativeSum)
+(set/monotonic (time_varying_relation qualitativeSum))
 (arg qualitativeSum 1 quantity)
 (arg qualitativeSum 2 quantity)
 (arg qualitativeSum 3 quantity)
