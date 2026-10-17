@@ -645,12 +645,24 @@
   ;; where the facts already contradict the root rule: a part whose whole is stated a proper
   ;; part of it.  Both rules are strict definitions, so that clash is the one the facts owe,
   ;; and an exception would hide it.
+  ;;
+  ;; Five `:disjoint` pairs are left on purpose too.  The rigidity-correspondence rules give
+  ;; a function its corresponding predicate's kind, one rule per kind, and the
+  ;; temporalIndexArg rule makes a relation time-indexed, so time-invariant.  A function
+  ;; corresponding to two predicates of two kinds, or a time-indexed function whose
+  ;; predicate is not time-invariant, is a clash the facts owe, and an exception would
+  ;; hide it.
   (let [pairs       (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds       (frequencies (map :kind pairs))
         root-denial '(implies (properPartOf ?part ?whole) (not (partOf ?whole ?part)))
-        definition? #(some #{root-denial} (:sentences %))]
-    (is (= {:negation 6} kinds)
+        definition? #(some #{root-denial} (:sentences %))
+        rigidity    '#{time_invariant_relation time_agnostic_relation time_varying_relation
+                       time_indexed_relation}
+        rigidity?   (fn [pair] (every? #(contains? rigidity (first (nth % 2))) (:sentences pair)))]
+    (is (= {:negation 6 :disjoint 5} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
+    (is (every? rigidity? (filter #(= :disjoint (:kind %)) pairs))
+        "every disjoint pair is two rules concluding a rigidity kind")
     (is (every? :excepted (remove definition? (filter #(= :negation (:kind %)) pairs)))
         "negation clashes are excepted")
     (is (= 2 (count (filter definition? pairs)))

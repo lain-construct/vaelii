@@ -863,6 +863,15 @@
 ;; The partition says every relation IS of one kind; the requirement says the KB must know
 ;; which.  Not every shipped relation is classified yet, so kb-integrity reports the rest.
 (typeAllSpecified rigidity_kind relation)
+;; A function and its corresponding predicate state one relationship, so an instance
+;; could lose the one exactly when it could lose the other.  A generator stamps, per
+;; rigidity kind, a forward rule giving the function the kind of its predicate, a kind the
+;; predicate inherits down genl included.
+(implies (rigidity_kind ?kind)
+         (set/forwardRule
+          (implies (and (functionCorrespondingPredicate ?function ?predicate) (?kind ?predicate))
+                   (?kind ?function))))
+
 ;; A relation can carry the time a tuple holds at as one of its own arguments: salaryAt
 ;; relates a person, a salary and the moment it was paid.  A tuple of such a relation
 ;; states no implicit now, so nothing can lose it, and every time_indexed_relation is
