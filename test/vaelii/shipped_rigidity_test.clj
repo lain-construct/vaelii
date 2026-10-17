@@ -102,3 +102,19 @@
                '[disjoint partition covering separating orthogonal intersection genl genlCx
                  typeGenl typeOrthogonal arg genlArg result defnIff transitiveInArg]
                'CxUniverse))
+
+(tu/deftest-kb every-spec-of-time-and-of-situation-is-time-invariant
+  ;; A moment is a moment and an event an event for as long as either exists.  Two rules
+  ;; classify every spec of time and every spec of situation, time and situation included.
+  (all-of-kind kb 'time_invariant_relation
+               '[time uninterrupted_time intermittent_time time_interval time_point
+                 situation uninterrupted_situation fluent happening event static_situation
+                 causal_event]
+               'CxUniverse)
+  (testing "a spec stated after the rules"
+    (tu/with-terms [lunchHour lunchBreak]
+      (doseq [t [lunchHour lunchBreak]]
+        (v/assert kb (list 'unary_predicate t) 'CxUniverse))
+      (v/assert kb (list 'genl lunchHour 'time_interval) 'CxUniverse)
+      (v/assert kb (list 'genl lunchBreak 'event) 'CxUniverse)
+      (all-of-kind kb 'time_invariant_relation [lunchHour lunchBreak] 'CxUniverse))))
