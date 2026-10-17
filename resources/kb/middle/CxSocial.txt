@@ -23,8 +23,9 @@
 (set/forwardRule (implies (and (worksFor ?x ?o)) (memberOf ?x ?o)))
 
 ;; ---- relationships: family, romance, work ---------------------------------
-;; relativeOf, coworkerOf and roommateOf each specialize knows, the way friendOf
-;; and marriedTo do above; romanticPartnerOf specializes friendOf. No edge
+;; coworkerOf and roommateOf each specialize knows, the way friendOf and marriedTo
+;; do above, and relativeOf reads knows by default; romanticPartnerOf specializes
+;; friendOf. No edge
 ;; relates marriedTo to romanticPartnerOf: friendOf and marriedTo reach knows
 ;; by separate rules above because this theory does not claim every marriage
 ;; is a friendship, and a marriedTo-under-romanticPartnerOf-under-friendOf
@@ -41,7 +42,13 @@
 (set/monotonic (symmetric relativeOf))
 (arg relativeOf 1 person)
 (arg relativeOf 2 person)
-(genl relativeOf knows)
+;; Two relatives need not have met: a great-aunt who died before a child was born is
+;; still the child's relative.  So knows follows from relativeOf by default, and a
+;; stated denial overrides it.  The rule-macro pass suggests the genl edge the rule
+;; would be if it were strict, and the suggestion is declined.
+(set/defaultRule (set/forwardRule (implies (and (relativeOf ?x ?y)) (knows ?x ?y))))
+(declined_rule_macro (genl relativeOf knows))
+(implementationNote relativeOf "knows follows from relativeOf by a default rule, not a genl edge, since two relatives need not have met. The rule-macro suggestion (genl relativeOf knows) is recorded declined.")
 
 (comment romanticPartnerOf
          "(romanticPartnerOf ?x ?y) means ?x and ?y are in a romantic relationship: dating, life partnership, or any other romantic connection.")
