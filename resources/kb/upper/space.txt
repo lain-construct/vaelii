@@ -268,7 +268,7 @@
 (comment partOfRegion
          "(partOfRegion ?region1 ?region2) means that ?region1 is part of ?region2. RCC-8's P, which denotes TPP, NTPP or EQ. A derived relation: it is entailed by any of those three and asserts none of them in particular.")
 (set/monotonic (instance_relation_predicate partOfRegion))
-(set/monotonic (time_agnostic_relation partOfRegion))
+(set/monotonic (time_invariant_relation partOfRegion))
 (arg partOfRegion 1 spatial)
 (arg partOfRegion 2 spatial)
 (set/inert (inverse partOfRegion hasRegionPart))
