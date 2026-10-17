@@ -196,6 +196,7 @@
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
 (set/monotonic (instance_relation_predicate madeOf))
+(set/monotonic (time_invariant_relation madeOf))
 (arg madeOf 1 tangible)
 (arg madeOf 2 substance)
 
