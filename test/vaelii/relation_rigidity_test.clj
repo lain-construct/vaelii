@@ -181,3 +181,22 @@
   (doseq [t '[temporalIndexArg time_indexed_relation]]
     (is (seq (v/ask kb (list 'comment t '?c) U)) (str t " is commented"))
     (is (v/ask? kb (list 'time_invariant_relation t) U) (str t " is time-invariant"))))
+
+;; ---- a function takes its corresponding predicate's rigidity kind -----------------
+
+(tu/deftest-kb a-function-takes-the-rigidity-kind-of-its-corresponding-predicate
+  ;; One generator over rigidity_kind stamps, per kind K, a forward rule concluding
+  ;; (K F) from (functionCorrespondingPredicate F P) and (K P).
+  (testing "a kind stated of the predicate"
+    (tu/with-terms [HiveQueenFn hiveQueenOf]
+      (corresponding-pair! kb HiveQueenFn hiveQueenOf nil)
+      (v/assert kb (list 'time_agnostic_relation hiveQueenOf) U mono)
+      (is (v/ask? kb (list 'time_agnostic_relation HiveQueenFn) U))))
+  (testing "a kind the predicate only inherits down genl"
+    (tu/with-terms [NestKeeperFn nestKeeperOf keeperOf]
+      (corresponding-pair! kb NestKeeperFn nestKeeperOf nil)
+      (v/assert kb (list 'binary_predicate keeperOf) U mono)
+      (v/assert kb (list 'time_varying_relation keeperOf) U mono)
+      (v/assert kb (list 'genl nestKeeperOf keeperOf) U mono)
+      (is (v/ask? kb (list 'time_varying_relation nestKeeperOf) U) "the predicate inherits it")
+      (is (v/ask? kb (list 'time_varying_relation NestKeeperFn) U) "and the function takes it"))))
