@@ -2240,8 +2240,13 @@
   position — a quoting function's arguments, or the proposition an attitude attributes to
   its agent — a symbol is retired by a *spelling* rename and not by a `sameAs` / `equals`
   identity merge, which makes the flat per-symbol shortcut unsound there and would retire a
-  belief nobody renamed.  Whether the sentence quotes at all is asked first
-  (`any-mention-position?`), so an ordinary sentence keeps the flat read.
+  belief nobody renamed.  Whether the sentence quotes at all is asked only of a sentence
+  the flat read finds a displaced symbol in, since that is necessary for either read to
+  move it: a symbol a spelling rename moves has its identity representative moved too (a
+  `rewriteOf` loser is never elected, and a component's preferred heads are heads of the
+  class holding it), and an unmerged one is its own representative and its own spelling.
+  So a sentence in normal form answers false on the one `merged?` walk the flat read
+  takes, and never pays for `any-mention-position?`.
 
   **An equality relation's arguments are mentions too** (`equality-mention-heads`): a
   `sameAs` merge does not restate `(not (sameAs A B))`, so the flat read, which would
@@ -2257,16 +2262,18 @@
       (equation? sentence)
       false
 
+      (not (sx/some-symbol? (fn [t]
+                              (and (merged? t) (not (sx/variable? t))
+                                   (not= t (representative-in kb @visible t))))
+                            sentence))
+      false
+
       (any-mention-position? marks sentence)
       (not= (representative-term-mention kb @visible marks sentence false) sentence)
 
       :else
-      (and (sx/some-symbol? (fn [t]
-                              (and (merged? t) (not (sx/variable? t))
-                                   (not= t (representative-in kb @visible t))))
-                            sentence)
-           (or (not (names-equality-relation? sentence))
-               (not= (representative-term-plain kb @visible sentence) sentence))))))
+      (or (not (names-equality-relation? sentence))
+          (not= (representative-term-plain kb @visible sentence) sentence)))))
 
 (defn without-retired
   "Drop the matches whose stored spelling `view-context` has **retired** — the
