@@ -183,3 +183,10 @@
   (all-of-kind kb 'time_varying_relation
                '[greaterInMagnitudeThan qualitativeSum qualitativeProduct qualitativeDifference]
                'CxUniverse))
+
+(tu/deftest-kb a-software-tool-is-time-invariant-and-a-phase-of-matter-time-varying
+  ;; Ice melts and the water goes on existing.  Every member of
+  ;; stuff_type_by_state_of_matter is time-varying, through one genl edge.
+  (is (v/ask? kb '(genl stuff_type_by_state_of_matter time_varying_relation) 'CxUniverse))
+  (all-of-kind kb 'time_varying_relation '[solid liquid gas plasma] 'CxUniverse)
+  (all-of-kind kb 'time_invariant_relation '[software_tool] 'CxTra))
