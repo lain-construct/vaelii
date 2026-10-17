@@ -712,7 +712,7 @@ exception is about another, so the sentence could not narrow the right firings a
 
 - **Argument preservation, from the relation's side.** `TransitiveInArgProver` answers by
   walking the *arguments'* reach, so `(genl chihuahua dog)` flips an exception on
-  `largerThan` with neither endpoint anywhere near it.
+  `typeLargerThan` with neither endpoint anywhere near it.
   `special/recheck-preserving-along` queues every rule whose exception mentions a
   predicate declared `(transitiveInArg P n R)` whenever `R`'s extent moves.
   A membership of a type a separation holds apart from a unary `P` denies `P`'s goal at

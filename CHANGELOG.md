@@ -40,6 +40,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   which `(disjoint time situation)` refuses.
   *Breaks:* `subintervalOf`, `properSubintervalOf`
 
+- **`largerThan` is `typeLargerThan`.** The relation compares two kinds, as a
+  `type_relation_predicate`, and the new name keeps it from reading as a sibling of
+  `tallerThan` and `heavierThan`, which compare two individuals. Its declarations, its
+  facts in CxSize and its comment are unchanged apart from the name.
+
+  *Class:* **Breaking** (KB vocabulary renamed).
+  *Migration:* write `typeLargerThan` for `largerThan` in every fact, rule and query.
+  *Breaks:* `largerThan`
+
 - **`partitionedByType` is binary, `(partitionedByType ?whole ?classifier)`, and draws
   inference.** The members of `?classifier` partition `?whole`. A core.txt generator places
   each member under `?whole`, and a rule concludes `(disjoint_metatype ?classifier)`. No

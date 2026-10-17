@@ -139,9 +139,9 @@
   edge moved.  Queue every rule whose exception mentions a declaring `P`.
 
   This is the argument-side twin of the predicate keying below.  An exception on
-  `largerThan` is answered by `TransitiveInArgProver` walking the *arguments'* reach, so
+  `typeLargerThan` is answered by `TransitiveInArgProver` walking the *arguments'* reach, so
   `(genl chihuahua dog)` can flip it with neither `chihuahua` nor `dog` appearing
-  anywhere near `largerThan` — the genls walk cannot see that, and the firings that
+  anywhere near `typeLargerThan` — the genls walk cannot see that, and the firings that
   predate the edge would keep a block the firings after it correctly drop.
 
   `:all`, never a narrowing trigger: the sentence that moved is on `rel`, and the
@@ -702,7 +702,7 @@
   inference, a declared-transitive relation's own facts — and those are exactly
   what the genls walk covers.  With one exception, and it is why this set is not the
   whole story: argument-position preservation reads the closure of the **arguments**,
-  so `(genl chihuahua dog)` flips an exception on `largerThan` with neither endpoint
+  so `(genl chihuahua dog)` flips an exception on `typeLargerThan` with neither endpoint
   anywhere near it.  Which predicates those are is a property of the KB rather than
   of the code, so they cannot be listed here — `recheck-preserving-along` reads them
   per KB and this set is unioned with what it finds."

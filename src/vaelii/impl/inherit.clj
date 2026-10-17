@@ -4,7 +4,7 @@
   "**Argument-position preservation** — when a claim about one term licenses the same
   claim about another.
 
-  `(largerThan dog cat)` says something about two *kinds*.  Whether it also says
+  `(typeLargerThan dog cat)` says something about two *kinds*.  Whether it also says
   something about a golden retriever and a maine coon is not decidable from the
   sentence: it depends on whether the relation distributes over the kinds' members.
   Some relations do (`disjoint` — subtypes of disjoint types are disjoint) and some
@@ -32,11 +32,11 @@
 
   ## Preservation stays on one side of the type/instance line
 
-  `genl` relates **types**, so `(largerThan dog cat)` preserved along `genl` reaches
+  `genl` relates **types**, so `(typeLargerThan dog cat)` preserved along `genl` reaches
   `golden_retriever` and `maine_coon` and stops there.  It says nothing about Rex and
   Whiskers, and that is not a gap here to fill: `relation_kind` is a `disjoint_metatype`
   over `type_relation_predicate` and `instance_relation_predicate`, so one predicate
-  symbol relates kinds *or* instances and never both.  A `largerThan` that inherited
+  symbol relates kinds *or* instances and never both.  A `typeLargerThan` that inherited
   across the line would be a predicate of both kinds at once, which the KB's own
   meta-ontology refuses.
 
@@ -67,7 +67,7 @@
   ## Strict versus typical, for free
 
   A `:monotonic` claim is **never** undercut.  Strength already propagates from a
-  justification's antecedents, so `(largerThan dog cat)` asserted `{:strength
+  justification's antecedents, so `(typeLargerThan dog cat)` asserted `{:strength
   :monotonic}` inherits as known-true and a contrary specific claim is a
   contradiction, while `(typicallyLargerThan dog cat)` at the default `:default`
   inherits defeasibly and yields to the specific claim.  One declaration, both
@@ -366,7 +366,7 @@
 
   The `genl` walk is **scoped to `context`**, exactly as `fact-reach` is: a claim
   travels along the edges the asking context can see and no others, or a context
-  would inherit `(largerThan dog cat)` down to a subtype some invisible theory
+  would inherit `(typeLargerThan dog cat)` down to a subtype some invisible theory
   declared.  `genlCx` stays global — the context closure is (docs/taxonomy.md,
   the stated exception), and a preservation along it is a claim about the topology,
   which is universal.
@@ -2405,8 +2405,8 @@
   licenses — every rule carrying an antecedent on one — or nil.
 
   Keyed on the antecedent index rather than on the arriving sentence's predicate,
-  because the two are unrelated: `(genl chihuahua dog)` licenses a `largerThan`
-  antecedent and no walk from `genl` reaches `largerThan`.  That is the same shape the
+  because the two are unrelated: `(genl chihuahua dog)` licenses a `typeLargerThan`
+  antecedent and no walk from `genl` reaches `typeLargerThan`.  That is the same shape the
   qualitative re-join has, for the same reason, and `special/recheck-preserving-along`
   reads the same declarations to close the exception side of the identical channel."
   [kb sen]
