@@ -1187,8 +1187,14 @@
   ;; and each position of the six grants is declared.
   (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3
                  closedExtentForArg4 closedExtentForArg5}]
-    (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse)))
-        "the default passes find nothing")
+    ;; Beside the rigidity classification still open for every relation, which the
+    ;; type-specified pass reports whatever the candidates are.
+    (let [report (v/kb-integrity kb terms 'CxUniverse)]
+      (is (= {:status :gap :candidate-count (count terms)}
+             (dissoc report :type-specified-violations))
+          "the default passes find nothing")
+      (is (= ['[typeAllSpecified rigidity_kind relation]]
+             (keys (:type-specified-violations report)))))
     (let [missing (:missing-arg (v/kb-integrity kb terms 'CxUniverse {:categories #{:missing-arg}}))]
       (is (empty? (for [{:keys [predicate missing]} missing
                         :when (contains? terms predicate)
