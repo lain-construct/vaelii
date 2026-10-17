@@ -159,3 +159,21 @@
   ;; the thing goes on.
   (all-of-kind kb 'time_invariant_relation '[contains length totalDuration overlapDuration]
                'CxUniverse))
+
+(tu/deftest-kb the-integrity-requirements-placeholders-and-contradicts-are-classified
+  ;; A requirement on what the KB must know, and a placeholder's naming fact, cannot
+  ;; change.  A world statement such as "every cat has a tail" follows its inner
+  ;; predicate, and so does whether two sentences contradict across a context's time.
+  (all-of-kind kb 'time_invariant_relation
+               '[typeAllSpecified predAllSpecified predSpecifiedAll
+                 predAllExistsPlaceholder predExistsAllPlaceholder
+                 predExistsInstancePlaceholder predInstanceExistsPlaceholder]
+               'CxUniverse)
+  (testing "each Pred...Fn takes its placeholder's kind through the correspondence"
+    (all-of-kind kb 'time_invariant_relation
+                 '[PredAllExistsFn PredExistsAllFn PredExistsInstanceFn PredInstanceExistsFn]
+                 'CxUniverse))
+  (all-of-kind kb 'time_agnostic_relation
+               '[predAllExists predAllInstance predExistsAll predExistsInstance
+                 predInstanceAll predInstanceExists contradicts]
+               'CxUniverse))
