@@ -190,3 +190,10 @@
   (is (v/ask? kb '(genl stuff_type_by_state_of_matter time_varying_relation) 'CxUniverse))
   (all-of-kind kb 'time_varying_relation '[solid liquid gas plasma] 'CxUniverse)
   (all-of-kind kb 'time_invariant_relation '[software_tool] 'CxTra))
+
+(tu/deftest-kb acquaintance-place-eating-capability-and-sleep-are-time-varying
+  (all-of-kind kb 'time_varying_relation
+               '[knows livesIn locatedIn eats hasCapability asleep awake]
+               'CxUniverse)
+  (all-of-kind kb 'time_varying_relation '[chosenSiblingOf nestingPartnerOf]
+               'CxSocialExtension))
