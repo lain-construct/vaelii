@@ -153,3 +153,9 @@
   (all-of-kind kb 'time_invariant_relation '[grandparentOf madeOf] 'CxUniverse)
   (all-of-kind kb 'time_invariant_relation '[relativeOf originatorOf] 'CxSocial)
   (all-of-kind kb 'time_varying_relation '[breathes_air preysOn] 'CxUniverse))
+
+(tu/deftest-kb contains-and-the-durations-are-time-invariant
+  ;; A temporal thing's length is its whole temporal extent, which does not grow while
+  ;; the thing goes on.
+  (all-of-kind kb 'time_invariant_relation '[contains length totalDuration overlapDuration]
+               'CxUniverse))
