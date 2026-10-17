@@ -118,3 +118,15 @@
       (v/assert kb (list 'genl lunchHour 'time_interval) 'CxUniverse)
       (v/assert kb (list 'genl lunchBreak 'event) 'CxUniverse)
       (all-of-kind kb 'time_invariant_relation [lunchHour lunchBreak] 'CxUniverse))))
+
+(tu/deftest-kb permanent-parthood-is-a-time-invariant-spec-of-partOf
+  ;; A region's parts and a situation's parts cannot come off it, so partOfRegion and
+  ;; subSituationOf are below permanentPartOf, which is below partOf.
+  (all-of-kind kb 'time_invariant_relation '[permanentPartOf] 'CxUniverse)
+  (is (v/genl? kb 'permanentPartOf 'partOf))
+  (is (v/genl? kb 'partOfRegion 'permanentPartOf))
+  (is (v/genl? kb 'subSituationOf 'permanentPartOf))
+  (is (not (v/genl? kb 'tangiblePartOf 'permanentPartOf)) "a wheel can come off a car")
+  (tu/with-terms [Kitchen House]
+    (v/assert kb (list 'partOfRegion Kitchen House) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'permanentPartOf Kitchen House) 'CxUniverse)))))
