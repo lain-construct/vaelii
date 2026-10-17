@@ -123,6 +123,20 @@
   (testing "and at the member, by its own rule"
     (is (seq (v/sentexes-matching kb '(not (hasCapability Tweety flying)) N)))))
 
+(tu/deftest-kb a-life-stage-takes-a-kind-claim-of-its-own
+  ;; One lineage, two stages: the adult flies and the larva does not.  Both stages are
+  ;; kinds of the lineage, and each stage carries its own capability claim.
+  (testing "the stages are kinds of the lineage, named by their stage relation"
+    (is (v/ask? kb '(genl caterpillar lepidopteran) B))
+    (is (v/ask? kb '(genl butterfly lepidopteran) B))
+    (is (v/ask? kb '(larvalFormOf caterpillar lepidopteran) B))
+    (is (v/ask? kb '(adultFormOf butterfly lepidopteran) B)))
+  (testing "the adult flies"
+    (is (v/ask? kb '(capabilityType butterfly flying) B)))
+  (testing "the larva does not, and the KB says so rather than staying silent"
+    (is (not (v/ask? kb '(capabilityType caterpillar flying) B)))
+    (is (seq (v/sentexes-matching kb '(not (capabilityType caterpillar flying)) '?ctx)))))
+
 (tu/deftest-kb a-claim-about-a-kind-does-not-reach-its-members-on-its-own
   ;; The bridge is a rule, written once and deliberately, because "every bird flies" and
   ;; "this bird flies" differ by a quantifier the KB will not guess (typeToInstancePred).
@@ -1593,11 +1607,19 @@
   ;; a plant_class beside tree and flower, so it is apart from each and from oak and rose.
   ;; The seven biology properties life.txt places under biological, organism and animal are
   ;; states and capacities of an organism rather than kinds of one, so they are left out: each
-  ;; crosses the folk taxonomy, and its pairs with it stay unknown.
+  ;; crosses the folk taxonomy, and its pairs with it stay unknown.  Two life stages of one
+  ;; kind (caterpillar and butterfly) are neither: one organism is both, one after the other,
+  ;; so their pair is left unknown on purpose and only pairs of stages of a kind are skipped.
   (let [props   '#{alive dead mortal asleep awake breathes_air warm_blooded}
         org     (set (remove props (filter #(v/genl? kb % 'organism) (v/types kb))))
+        stage-of (fn [s] (set (for [r '[larvalFormOf adultFormOf]
+                                    k org
+                                    :when (v/ask? kb (list r s k) B)]
+                                k)))
+        same-kind-stages? (fn [a b] (boolean (some (stage-of a) (stage-of b))))
         unknown (for [{:keys [a b status]} (:pairs-data (v/disjointness-audit kb))
-                      :when (and (org a) (org b) (= :unknown status))]
+                      :when (and (org a) (org b) (= :unknown status)
+                                 (not (same-kind-stages? a b)))]
                   (set [a b]))]
     (is (every? org folk-species) "every species is an organism")
     (is (true? (v/disjoint? kb 'grass 'oak)) "grass is not a tree, so not an oak")
