@@ -2,7 +2,7 @@
 ;; objects, substances, made things, body parts, events and their kinds), the
 ;; physical-structure relations tangiblePartOf/locatedIn/madeOf, the event relations
 ;; doneBy/performedBy and input/output, and the two type-level relations
-;; largerThan/partType. Loaded into CxUniverse with the rest of kb/upper/.
+;; typeLargerThan/partType. Loaded into CxUniverse with the rest of kb/upper/.
 
 (comment body_part "A part an organism grew. It stays a body part once transplanted into another organism or shed from its own.")
 (positiveExampleComment body_part "a wing")
@@ -136,15 +136,15 @@
 (comment language "A system of signs a person speaks, writes or signs in.")
 (set/monotonic (time_invariant_relation language))
 
-(comment largerThan
-         "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArgInverse on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
-(set/monotonic (type_relation_predicate largerThan))
-(genlArg largerThan 1 tangible)
-(genlArg largerThan 2 tangible)
-(set/monotonic (transitive largerThan))
-(set/monotonic (asymmetric largerThan))
-(set/monotonic (transitiveInArgInverse largerThan 1 genl))
-(set/monotonic (transitiveInArgInverse largerThan 2 genl))
+(comment typeLargerThan
+         "(typeLargerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (typeLargerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArgInverse on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about typeLargerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
+(set/monotonic (type_relation_predicate typeLargerThan))
+(genlArg typeLargerThan 1 tangible)
+(genlArg typeLargerThan 2 tangible)
+(set/monotonic (transitive typeLargerThan))
+(set/monotonic (asymmetric typeLargerThan))
+(set/monotonic (transitiveInArgInverse typeLargerThan 1 genl))
+(set/monotonic (transitiveInArgInverse typeLargerThan 2 genl))
 
 (comment leaf "A flat green body part a plant photosynthesizes with.")
 (genl leaf body_part)

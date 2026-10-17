@@ -20,6 +20,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
+### Breaking: renamed identifiers
+
+- **`largerThan` is `typeLargerThan`.** The relation compares two kinds, as a
+  `type_relation_predicate`, and the new name keeps it from reading as a sibling of
+  `tallerThan` and `heavierThan`, which compare two individuals. Its declarations, its
+  facts in CxSize and its comment are unchanged apart from the name.
+
+  *Class:* **Breaking** (KB vocabulary renamed).
+  *Migration:* write `typeLargerThan` for `largerThan` in every fact, rule and query.
+  *Breaks:* `largerThan`
+
 ### Additive: vocabulary and reasoning
 
 - **The rigidity kinds of relation.** core.txt partitions `relation` into
