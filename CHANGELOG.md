@@ -82,7 +82,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `vertebrate` by default. `physical` is new: a location in the physical space of our
   universe, below `spatial`. `spatiotemporal` is below `physical` and `temporal`, and
   reaches `spatial` through `physical`. `implementationNote` is a
-  sibling of `comment` for how a term is implemented, and 15 core.txt terms carry one.
+  sibling of `comment` for how a term is implemented, and 17 core.txt terms carry one.
   [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
 
   *Class:* **Additive**.
@@ -155,16 +155,23 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
   states `(typeAllSpecified rigidity_kind relation)`, and not every shipped relation is
-- **The shipped relations' rigidity kinds.** 323 of the starter's 570 relations now
-  have a rigidity kind visible from CxUniverse: 263 time-invariant, 50 time-agnostic
-  and 10 time-varying. Types over numbers, expressions, relations and types, every
-  metatype, the folk kinds, the meta, logical and type-relation predicates, and kinship
-  are time-invariant. `(genl folk_species time_invariant_relation)`,
+- **The shipped relations' rigidity kinds.** 388 of the starter's 575 relations now
+  have a rigidity kind visible from CxUniverse: 302 time-invariant, 57 time-agnostic
+  and 29 time-varying. Types over numbers, expressions, relations and types, every
+  metatype, the folk kinds, the meta, logical and type-relation predicates, kinship,
+  `madeOf`, `contains`, `length`, `totalDuration`, `overlapDuration`, the integrity
+  requirements and the predall placeholders are time-invariant.
+  `(genl folk_species time_invariant_relation)`,
   `(genl folk_biological_class time_invariant_relation)` and
   `(genl arity_type time_invariant_relation)` classify those families with one edge
-  each. The social relations and a quantity's sign, trend and derivative are
-  time-varying, and the fifty spatial relations are time-agnostic. CxSocial and
-  CxComputing classify their own six relations, which CxUniverse does not see.
+  each. The social relations, `knows`, `livesIn`, `locatedIn`, `eats`,
+  `hasCapability`, `asleep`, `awake`, `breathes_air`, `preysOn`, a quantity's sign,
+  trend and derivative, `greaterInMagnitudeThan` and the qualitative arithmetic are
+  time-varying, and `(genl stuff_type_by_state_of_matter time_varying_relation)` makes
+  every phase of matter time-varying. The fifty spatial relations, the six predall
+  world-statement cells and `contradicts` are time-agnostic. CxSocial,
+  CxSocialExtension and CxComputing classify their own relations, which CxUniverse does
+  not see.
 
   *Class:* **Additive**.
 
@@ -174,6 +181,51 @@ it — `git show v0.16.0:CHANGELOG.md`.
   and of different kinds. A pair with an unclassified side is left to
   `:type-specified-violations`.
   [integrity.md](docs/integrity.md#what-a-rigidity-correspondence-finding-means).
+
+  *Class:* **Additive**.
+
+- **Every spec of `time` and every spec of `situation` is time-invariant.** Two
+  core.txt forward rules classify `time`, `situation` and each type below either, a
+  type stated later included.
+
+  *Class:* **Additive**.
+
+- **`temporalIndexArg` and `time_indexed_relation`.** `(temporalIndexArg ?relation
+  ?position)` names the argument that carries the time a tuple holds at. A forward rule
+  concludes `(time_indexed_relation ?relation)` from it, and
+  `(genl time_indexed_relation time_invariant_relation)` makes each such relation
+  time-invariant.
+
+  *Class:* **Additive**.
+
+- **A function takes the rigidity kind of its corresponding predicate.** A generator over
+  `rigidity_kind` stamps one forward rule per kind, concluding `(?kind ?function)` from
+  `(functionCorrespondingPredicate ?function ?predicate)` and `(?kind ?predicate)`, a kind
+  the predicate inherits down `genl` included. Each `Pred…Fn` takes its placeholder's
+  kind this way. A function believed of a second kind is reported by
+  `:rigidity-correspondence`.
+
+  *Class:* **Additive**.
+
+- **`permanentPartOf`, a time-invariant spec of `partOf`.** `partOfRegion` and
+  `subSituationOf` are below it, and `tangiblePartOf` is not, since a wheel can come off
+  a car. It is transitive, reflexive and untyped, as `partOf` is.
+  [glossary.md](docs/glossary.md).
+
+  *Class:* **Additive**.
+
+- **`stable_once_true` and `stable_once_false`, two kinds of time-varying relation.** A
+  `stable_once_true` relation that holds at a time holds at every later time, and a
+  `stable_once_false` relation that fails at a time fails at every later time. Both are
+  below `time_varying_relation`, so no time-invariant relation is either. `dead` is
+  `stable_once_true` and `alive` is `stable_once_false`. No rule states either
+  definition, since the KB has no sentence for a relation holding at a time.
+
+  *Class:* **Additive**.
+
+- **A new OE principle, "consistent at each commit".** Assume the KB is consistent, and
+  revise a theory in one atomic commit, so consistency and soundness hold at each commit.
+  [oe-principles.md](docs/oe-principles.md).
 
   *Class:* **Additive**.
 
@@ -192,6 +244,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   +with-foreign <task>`.
 
 ### Fix: answers
+
+- **`knows` follows from `relativeOf` by a default rule, not a `genl` edge.** Two
+  relatives need not have met. A stated `(not (knows ?x ?y))` now overrides the default,
+  where the edge made every relative an acquaintance.
+  `(declined_rule_macro (genl relativeOf knows))` records the declined suggestion.
+
+  *Class:* **Fix** (shipped ontology content).
+  *Migration:* none for a KB that only reads `knows`. A query for the `genl` edge from
+  `relativeOf` to `knows` answers no.
+
+- **CxNormalPhysicalConditions states each room-temperature phase as a default rule.** A
+  phase is a state a portion of stuff is in, not a kind it is. Four default rules replace
+  `(genl stone solid)`, `(genl wood solid)`, `(genl glass_stuff solid)` and
+  `(genl mercury liquid)`, and each suggestion is recorded with `declined_rule_macro`.
+
+  *Class:* **Fix** (shipped ontology content).
+  *Migration:* none for a KB that reads a portion's phase. A query for one of the four
+  `genl` edges answers no.
 
 - **`kb-quality`'s clash reading drops a pair whose antecedents put a literal beside a
   denial of a predicate it is a spec of.** A tuple of a spec is a tuple of the predicate
