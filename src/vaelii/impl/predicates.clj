@@ -1310,7 +1310,12 @@
            [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]
            [spatiality_type "ontology, not grammar: the at_least_metatype holding spatial and aspatial. The orthogonalMetatypes and partitionedByType rules read its memberships as any membership is; no engine check names it."]
            [temporality_type "ontology, not grammar: the at_least_metatype holding temporal and atemporal. The orthogonalMetatypes and partitionedByType rules read its memberships as any membership is; no engine check names it."]
-           [arity_type "ontology, not grammar: the at_least_metatype of the relation-level arity types, e.g. binary and variable_arity. The typeOrthogonal rule reads its memberships as any membership is; no engine check names it."]])
+           [arity_type "ontology, not grammar: the at_least_metatype of the relation-level arity types, e.g. binary and variable_arity. The typeOrthogonal rule reads its memberships as any membership is; no engine check names it."]
+           [time_invariant_relation "ontology, not grammar: a relation no instance of which could lose it and still exist (OntoClean +R), one part of the rigidity partition of relation. No engine check names it."]
+           [time_agnostic_relation "ontology, not grammar: a relation some instances of which could lose it and still exist and some not (OntoClean -R), one part of the rigidity partition of relation. No engine check names it."]
+           [time_varying_relation "ontology, not grammar: a relation every instance of which could lose it and still exist (OntoClean ~R), preserved down genl by transitiveInArgInverse. No engine check names it."]
+           [possibly_time_invariant_relation "ontology, not grammar: time_invariant_relation and time_agnostic_relation together, preserved up genl by transitiveInArg. No engine check names it."]
+           [rigidity_kind "ontology, not grammar: the at_least_metatype holding the three rigidity kinds of relation. No engine check names it."]])
 
     ;; ---- the two halves of unary_predicate ---------------------------------
     ;; `empty` and `nonempty` partition `unary_predicate`.  The disjointness audit reads
