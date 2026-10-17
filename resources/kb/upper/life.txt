@@ -46,6 +46,7 @@
 (unary_predicate breathes_air)
 (arg breathes_air 1 animal)
 (genl breathes_air animal)
+(set/monotonic (time_varying_relation breathes_air))
 
 (comment childOf
          "(childOf ?child ?parent) means that ?parent is a biological parent of ?child. Declared the inverse of parentOf and never asserted alongside it: (parentOf Ann Tom) answers (childOf Tom Ann) through the inverse prover, and retracting the one withdraws the other.")
@@ -90,6 +91,7 @@
          "(grandparentOf ?grandparent ?grandchild) means that ?grandparent is a parent of a parent of ?grandchild. Derived by a joined rule over two parentOf facts rather than asserted, so it is believed exactly as long as both links are.")
 (binary_predicate grandparentOf)
 (set/monotonic (instance_relation_predicate grandparentOf))
+(set/monotonic (time_invariant_relation grandparentOf))
 (arg grandparentOf 1 organism)
 (arg grandparentOf 2 organism)
 
@@ -176,6 +178,7 @@
          "(preysOn ?predator ?prey) means that ?predator hunts and eats ?prey. Between two particular animals; what a whole kind preys on is a claim about kinds and not this predicate. Declared asymmetric, so the mirror of a hunt denies it and a KB told both ways round has a contradiction to report rather than a food chain to walk.")
 (binary_predicate preysOn)
 (set/monotonic (instance_relation_predicate preysOn))
+(set/monotonic (time_varying_relation preysOn))
 (arg preysOn 1 animal)
 (arg preysOn 2 animal)
 (set/monotonic (asymmetric preysOn))
