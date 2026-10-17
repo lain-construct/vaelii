@@ -40,6 +40,7 @@
 (comment contains
          "(contains ?interval1 ?interval2) means that ?interval1 begins strictly before ?interval2 and ends strictly after it. So ?interval2 falls wholly inside ?interval1 with room either side. The converse of during.")
 (set/monotonic (instance_relation_predicate contains))
+(set/monotonic (time_invariant_relation contains))
 (arg contains 1 temporal)
 (arg contains 2 temporal)
 
@@ -275,8 +276,9 @@
 (arg latestStartOf 2 time_point)
 
 (comment length
-         "(length ?interval ?measure) means that ?interval lasts ?measure. Exact as (QuantityFn 2 Hour), and bounded as (QuantityIntervalFn 1 2 Hour) when only bounds are known. An interval's one primitive duration and the only quantitative fact stated about it, since totalDuration and overlapDuration are both computed from these. A duration, not a spatial extent.")
+         "(length ?interval ?measure) means that ?interval lasts ?measure. Exact as (QuantityFn 2 Hour), and bounded as (QuantityIntervalFn 1 2 Hour) when only bounds are known. An interval's one primitive duration and the only quantitative fact stated about it, since totalDuration and overlapDuration are both computed from these. A duration, not a spatial extent. The length of a temporal thing is its whole temporal extent, viewed from outside time, so it does not grow while the thing goes on and length is time-invariant.")
 (set/monotonic (instance_relation_predicate length))
+(set/monotonic (time_invariant_relation length))
 (arg length 1 temporal)
 (arg length 2 measure)
 
@@ -309,6 +311,7 @@
 (comment overlapDuration
          "(overlapDuration ?interval1 ?interval2 ?duration) means that ?duration is how long ?interval1 and ?interval2 overlap. Computed from their lengths and the Allen relations still possible between them: zero when they are temporallyDisjoint, the contained length when one is a subintervalOf the other, and the bounded (QuantityIntervalFn 0 shorter unit) otherwise, so an over-approximation renders as an interval and says as much. Computed by a prover, never stored.")
 (ternary_predicate overlapDuration)
+(set/monotonic (time_invariant_relation overlapDuration))
 (arg overlapDuration 1 temporal)
 (arg overlapDuration 2 temporal)
 (arg overlapDuration 3 measure)
@@ -431,6 +434,7 @@
 (comment totalDuration
          "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is read as a description instead of substituted into. Computed by a prover, never stored.")
 (set/monotonic (instance_relation_predicate totalDuration))
+(set/monotonic (time_invariant_relation totalDuration))
 (arg totalDuration 1 temporal)
 (arg totalDuration 2 measure)
 
