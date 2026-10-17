@@ -1018,6 +1018,20 @@
 (set/monotonic (time_invariant_relation time_indexed_relation))
 (set/monotonic (genl time_indexed_relation time_invariant_relation))
 (set/forwardRule (implies (temporalIndexArg ?relation ?position) (time_indexed_relation ?relation)))
+;; Some time-varying relations change one way only.  An organism that is dead stays
+;; dead, and one that is not alive is never alive again.  Each is a kind of
+;; time_varying_relation, so a relation no instance could lose is neither.
+(comment stable_once_true "A time-varying relation that, once it holds of some arguments at a time, holds of them at every later time: dead is one. A tuple false at a time is false at every earlier time. A kind of time_varying_relation, so no time-invariant relation is one.")
+(comment stable_once_false "A time-varying relation that, once it fails to hold of some arguments at a time, fails at every later time: alive is one. A tuple true at a time is true at every earlier time. The temporal dual of stable_once_true, and a kind of time_varying_relation, so no time-invariant relation is one.")
+(unary_predicate stable_once_true)
+(unary_predicate stable_once_false)
+(set/monotonic (time_invariant_relation stable_once_true))
+(set/monotonic (time_invariant_relation stable_once_false))
+(set/monotonic (genl stable_once_true time_varying_relation))
+(set/monotonic (genl stable_once_false time_varying_relation))
+(implementationNote stable_once_true "No rule states the definition or its contrapositive. The KB has no sentence for a relation holding of its arguments at a time, so the once-true-stays-true reading is stated in the comment only.")
+(implementationNote stable_once_false "No rule states the definition or its contrapositive. The KB has no sentence for a relation holding of its arguments at a time, so the once-false-stays-false reading is stated in the comment only.")
+(termsRelated stable_once_true stable_once_false)
 
 (set/forwardRule
  (implies
