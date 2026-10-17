@@ -983,6 +983,7 @@
 (comment contradicts
          "(contradicts (sentexHandle ?h1) (sentexHandle ?h2) …) means that the sentexes it names are the members of a nogood: each is believed in the network and the contexts stating them and the grounds the detection read have a common descendant. The engine derives it at each maximal common descendant of those contexts where no except in force hides a member or a ground, justified by the members, the grounds and the genlCx edges the placement is seen over, so retracting any of them takes it OUT. One argument per member, in content order (sentence, then context), never handle order, so two detections of one nogood store one sentex; a self-clash names one member and an anti_transitive clash three. A nogood with a unique weakest member stores the defeat of that member beside it; a dilemma or a conflict stores the contradicts alone. The reports that (conflicts kb) and (contradictions kb) return compose a contradicts form over the member sentences instead.")
 (variable_arity_predicate contradicts)
+(set/monotonic (time_agnostic_relation contradicts))
 (unbounded_arity_predicate contradicts)
 (arityMin contradicts 1)
 
@@ -1210,6 +1211,7 @@
 (comment predAllInstance
          "(predAllInstance ?pred ?indep ?fixed) means that every instance of collection ?indep bears ?pred to the fixed filler ?fixed at ?pred's first position: for all x in ?indep, (?pred x ?fixed). A rule generator (docs/generators.md), not a defn: it stamps the rule (implies (?indep ?x) (?pred ?x ?fixed)) — a defaultRule, bidirectional — with ?pred/?indep/?fixed ground, so a member arriving later fires it and the conclusion retracts and belief-follows like any derived fact. Forward, the stamped rule fires when membership is believed; backward, its antecedent is discharged inside a query/prove proof — including a bare literal's membership via the evaluative defnSufficient prover, so (predAllInstance sign negative_integer \"negative\") proves (sign -212 \"negative\") from the bare literal under query. Under ask the goal answers false by contract: the registry expands no rule (docs/levels.md).")
 (ternary_predicate predAllInstance)
+(set/monotonic (time_agnostic_relation predAllInstance))
 (arg predAllInstance 1 binary_predicate)
 (genlArg predAllInstance 2 thing)
 (implies (predAllInstance ?pred ?indep ?fixed)
@@ -1218,6 +1220,7 @@
 (comment predInstanceAll
          "(predInstanceAll ?pred ?fixed ?dep) means that the fixed filler ?fixed bears ?pred to every instance of collection ?dep at ?pred's second position: for all y in ?dep, (?pred ?fixed y). The argument-swapped twin of predAllInstance. A rule generator that stamps the bidirectional defaultRule (implies (?dep ?y) (?pred ?fixed ?y)) with the holes ground, so the descent to members is ordinary chain inference (docs/generators.md).")
 (ternary_predicate predInstanceAll)
+(set/monotonic (time_agnostic_relation predInstanceAll))
 (arg predInstanceAll 1 binary_predicate)
 (genlArg predInstanceAll 3 thing)
 (implies (predInstanceAll ?pred ?fixed ?dep)
@@ -1262,6 +1265,7 @@
 (comment predAllExistsPlaceholder
          "(predAllExistsPlaceholder ?pred ?indep ?dep ?subject ?placeholder) means that ?placeholder is the term (PredAllExistsFn ?pred ?indep ?dep ?subject) names: the ?dep filler that ?subject bears ?pred to under a predAllExists declaration over the first three arguments. PredAllExistsFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
 (fixed_arity_predicate predAllExistsPlaceholder)
+(set/monotonic (time_invariant_relation predAllExistsPlaceholder))
 (arity predAllExistsPlaceholder 5)
 (arg predAllExistsPlaceholder 1 binary_predicate)
 (genlArg predAllExistsPlaceholder 2 thing)
@@ -1284,6 +1288,7 @@
 (comment predExistsAllPlaceholder
          "(predExistsAllPlaceholder ?pred ?dep ?indep ?subject ?placeholder) means that ?placeholder is the term (PredExistsAllFn ?pred ?dep ?indep ?subject) names: the ?dep filler that bears ?pred to ?subject under a predExistsAll declaration over the first three arguments. PredExistsAllFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
 (fixed_arity_predicate predExistsAllPlaceholder)
+(set/monotonic (time_invariant_relation predExistsAllPlaceholder))
 (arity predExistsAllPlaceholder 5)
 (arg predExistsAllPlaceholder 1 binary_predicate)
 (genlArg predExistsAllPlaceholder 2 thing)
@@ -1303,6 +1308,7 @@
 (comment predExistsInstancePlaceholder
          "(predExistsInstancePlaceholder ?pred ?indep ?fixed ?placeholder) means that ?placeholder is the term (PredExistsInstanceFn ?pred ?indep ?fixed) names: the ?indep member a predExistsInstance declaration over the first three arguments requires. PredExistsInstanceFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
 (fixed_arity_predicate predExistsInstancePlaceholder)
+(set/monotonic (time_invariant_relation predExistsInstancePlaceholder))
 (arity predExistsInstancePlaceholder 4)
 (arg predExistsInstancePlaceholder 1 binary_predicate)
 (genlArg predExistsInstancePlaceholder 2 thing)
@@ -1320,6 +1326,7 @@
 (comment predInstanceExistsPlaceholder
          "(predInstanceExistsPlaceholder ?pred ?fixed ?dep ?placeholder) means that ?placeholder is the term (PredInstanceExistsFn ?pred ?fixed ?dep) names: the ?dep member a predInstanceExists declaration over the first three arguments requires ?fixed to bear ?pred to. PredInstanceExistsFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
 (fixed_arity_predicate predInstanceExistsPlaceholder)
+(set/monotonic (time_invariant_relation predInstanceExistsPlaceholder))
 (arity predInstanceExistsPlaceholder 4)
 (arg predInstanceExistsPlaceholder 1 binary_predicate)
 (genlArg predInstanceExistsPlaceholder 3 thing)
@@ -1328,6 +1335,7 @@
 (comment predAllExists
          "(predAllExists ?pred ?indep ?dep) means that every instance of collection ?indep bears ?pred, at position 1, to some member of collection ?dep: for all x in ?indep, exists y in ?dep, (?pred x y). Inferentially inert (see the Exists header): the declaration is a stored, queryable record and the engine derives nothing from it — no rule, no witness, no membership. (PredAllExistsFn ?pred ?indep ?dep ?subject) is the sanctioned placeholder an author may use to name the filler the declaration requires of the member ?subject.")
 (ternary_predicate predAllExists)
+(set/monotonic (time_agnostic_relation predAllExists))
 (arg predAllExists 1 binary_predicate)
 (genlArg predAllExists 2 thing)
 (genlArg predAllExists 3 thing)
@@ -1335,6 +1343,7 @@
 (comment predExistsAll
          "(predExistsAll ?pred ?dep ?indep) means that every instance of collection ?indep has some member of collection ?dep bearing ?pred to it, at position 1: for all x in ?indep, exists y in ?dep, (?pred y x). (predExistsAll worksFor person company) means that every company has at least one person who works for it. predAllExists with ?pred's argument positions swapped: the universal sits in ?pred's second position and the existential filler in its first. The universal outscopes the existential, as in every cell of the family that quantifies both positions. Inferentially inert like the whole Exists class; (PredExistsAllFn ?pred ?dep ?indep ?subject) is the sanctioned placeholder an author may use to name the filler the declaration requires for the member ?subject.")
 (ternary_predicate predExistsAll)
+(set/monotonic (time_agnostic_relation predExistsAll))
 (arg predExistsAll 1 binary_predicate)
 (genlArg predExistsAll 2 thing)
 (genlArg predExistsAll 3 thing)
@@ -1342,12 +1351,14 @@
 (comment predExistsInstance
          "(predExistsInstance ?pred ?indep ?fixed) means that some member of collection ?indep bears ?pred, at position 1, to the fixed filler ?fixed: exists x in ?indep, (?pred x ?fixed). A pure existential — no universal to range over — expressible precisely because the Exists class is inert: a stored record, nothing derived. (PredExistsInstanceFn ?pred ?indep ?fixed) is its sanctioned placeholder.")
 (ternary_predicate predExistsInstance)
+(set/monotonic (time_agnostic_relation predExistsInstance))
 (arg predExistsInstance 1 binary_predicate)
 (genlArg predExistsInstance 2 thing)
 
 (comment predInstanceExists
          "(predInstanceExists ?pred ?fixed ?dep) means that the fixed subject ?fixed bears ?pred, at position 1, to some member of collection ?dep: exists y in ?dep, (?pred ?fixed y). The argument-swapped twin of predExistsInstance, inert like the whole class; (PredInstanceExistsFn ?pred ?fixed ?dep) is its sanctioned placeholder.")
 (ternary_predicate predInstanceExists)
+(set/monotonic (time_agnostic_relation predInstanceExists))
 (arg predInstanceExists 1 binary_predicate)
 (genlArg predInstanceExists 3 thing)
 
@@ -1384,18 +1395,21 @@
 (comment predAllSpecified
          "(predAllSpecified ?pred ?indep) declares the integrity requirement that every instance of collection ?indep have a determinate filler at ?pred's second position: for all x in ?indep there is a believed (?pred x y) with y determinate and y satisfying ?pred's own slot-2 argument contract. The required filler type is DERIVED, never restated: every visible (arg ?pred 2 ?t) constrains y to be a member of ?t, every visible (genlArg ?pred 2 ?t) constrains y to be a subtype of ?t, and the constraints compose as the assert-time checker composes them. A ?pred with no visible slot-2 typing is a declaration-contract gap the audit reports explicitly — never silently audited unconstrained. An audit, not an inference — vaelii.core/specified-violations reads the declaration and returns the instances of ?indep with no determinate filler. Indeterminate terms are skolems plus any declared indeterminate_term kind (none ships by default); an author-asserted *Exists* placeholder is a determinate filler, so predAllSpecified is the antagonist of predAllExists. The declaration stamps no rule and concludes nothing.")
 (binary_predicate predAllSpecified)
+(set/monotonic (time_invariant_relation predAllSpecified))
 (arg predAllSpecified 1 binary_predicate)
 (genlArg predAllSpecified 2 thing)
 
 (comment predSpecifiedAll
          "(predSpecifiedAll ?pred ?indep) is the argument-swapped twin of predAllSpecified: it requires that every instance of collection ?indep have a determinate filler at ?pred's FIRST position — for all x in ?indep there is a believed (?pred y x) with y determinate and y satisfying ?pred's slot-1 argument contract, derived from the visible (arg ?pred 1 ?t) / (genlArg ?pred 1 ?t) declarations exactly as the twin derives slot 2. An audit read by vaelii.core/specified-violations with :first, not a stored rule (docs above).")
 (binary_predicate predSpecifiedAll)
+(set/monotonic (time_invariant_relation predSpecifiedAll))
 (arg predSpecifiedAll 1 binary_predicate)
 (genlArg predSpecifiedAll 2 thing)
 
 (comment typeAllSpecified
          "(typeAllSpecified ?classifier ?indep) declares the integrity requirement that every instance of collection ?indep have a believed membership in some member of the metatype ?classifier: for all x in ?indep there is a member K of ?classifier with (K x) believed, stated or reached through genl or argument preservation alike. predAllSpecified's counterpart for a classification rather than a filler. A partition of ?indep into ?classifier's members does not imply it: the partition says every instance IS in some member, and this requirement says the KB must KNOW which. An audit, not an inference: kb-integrity reads each visible declaration and reports the instances of ?indep no member of ?classifier is believed to hold, or a gap when ?classifier has no visible member. The declaration stamps no rule and concludes nothing. e.g. (typeAllSpecified rigidity_kind relation) requires every relation to be classified time_invariant_relation, time_agnostic_relation or time_varying_relation. See docs/integrity.md.")
 (binary_predicate typeAllSpecified)
+(set/monotonic (time_invariant_relation typeAllSpecified))
 (arg typeAllSpecified 1 at_least_metatype)
 (genlArg typeAllSpecified 2 thing)
 
