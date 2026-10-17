@@ -131,6 +131,12 @@
     (is (v/ask? kb '(genl butterfly lepidopteran) B))
     (is (v/ask? kb '(larvalFormOf caterpillar lepidopteran) B))
     (is (v/ask? kb '(adultFormOf butterfly lepidopteran) B)))
+  (testing "never both at once, though one organism is each in turn"
+    (is (v/ask? kb '(diachronicallyDisjoint caterpillar butterfly) B))
+    (is (v/ask? kb '(diachronicallyDisjoint butterfly caterpillar) B) "symmetric")
+    (is (not (true? (v/disjoint? kb 'caterpillar 'butterfly))) "and not timelessly disjoint"))
+  (testing "a timeless disjoint is also a diachronic one"
+    (is (v/ask? kb '(diachronicallyDisjoint quantity situation) B)))
   (testing "the adult flies"
     (is (v/ask? kb '(capabilityType butterfly flying) B)))
   (testing "the larva does not, and the KB says so rather than staying silent"

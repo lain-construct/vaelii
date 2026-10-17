@@ -1516,6 +1516,15 @@
      ;; like any fact and read for inference by nothing.  Inert is the decision rather than
      ;; the omission — the grammar documents itself in its own representation, and a
      ;; cross-reference earns a stored sentex whether or not a check ever keys on it.
+     ['diachronicallyDisjoint
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "(diachronicallyDisjoint ?type1 ?type2): nothing is an instance of both"
+                          " at the same time, though one thing can be each in turn. disjoint is a"
+                          " genl of it. Stated and queryable; memberships are checked without time,"
+                          " so no clash check can read it yet.")}
+             (str "aspirational: enforcing it needs time-indexed membership, which the engine"
+                  " does not have. No inference path beyond the genl from disjoint."))]
      ['typeGenl
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}

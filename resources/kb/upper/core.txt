@@ -829,6 +829,15 @@
 (genlArg disjoint 1 thing)
 (genlArg disjoint 2 thing)
 
+(comment diachronicallyDisjoint
+         "(diachronicallyDisjoint ?type1 ?type2) means that nothing is an instance of both types at the same time, though one thing can be an instance of each at different times: caterpillar and butterfly, a child and an adult. disjoint is a genl of it, because never sharing an instance means never sharing one at once. Stated and queryable, not enforced: memberships are checked without time, so the engine cannot yet tell an instance that is both at once from one that is each in turn.")
+(binary_predicate diachronicallyDisjoint)
+(set/monotonic (symmetric diachronicallyDisjoint))
+(set/monotonic (type_relation_predicate diachronicallyDisjoint))
+(genlArg diachronicallyDisjoint 1 thing)
+(genlArg diachronicallyDisjoint 2 thing)
+(genl disjoint diachronicallyDisjoint)
+
 (comment disjoint_metatype
          "(disjoint_metatype ?metatype) means that every pair of ?metatype's member types is disjoint. The clique is consulted rather than stored, so it adds no work quadratic and retraction reaches all of it: dropping ?metatype releases every pair at once, and dropping one member releases exactly that member's pairs.")
 (unary_predicate disjoint_metatype)

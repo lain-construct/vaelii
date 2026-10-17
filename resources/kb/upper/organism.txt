@@ -65,9 +65,10 @@
 (genl cat mammal)
 (set/monotonic (folk_species cat))
 
-(comment caterpillar "The larval stage of a lepidopteran: a soft, many-legged crawler that will become a butterfly or a moth. Not a species of its own, so not a folk_species, and not disjoint from butterfly: the same organism is a caterpillar and later a butterfly.")
+(comment caterpillar "The larval stage of a lepidopteran: a soft, many-legged crawler that will become a butterfly or a moth. Not a species of its own, so not a folk_species, and diachronicallyDisjoint from butterfly rather than disjoint: the same organism is a caterpillar and later a butterfly.")
 (genl caterpillar lepidopteran)
 (larvalFormOf caterpillar lepidopteran)
+(diachronicallyDisjoint caterpillar butterfly)
 
 (comment cow "A large domesticated mammal kept for milk and meat.")
 (genl cow mammal)
