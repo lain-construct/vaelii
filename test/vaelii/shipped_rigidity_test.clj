@@ -177,3 +177,9 @@
                '[predAllExists predAllInstance predExistsAll predExistsInstance
                  predInstanceAll predInstanceExists contradicts]
                'CxUniverse))
+
+(tu/deftest-kb magnitude-comparison-and-qualitative-arithmetic-are-time-varying
+  ;; They relate quantities, and a quantity changes.
+  (all-of-kind kb 'time_varying_relation
+               '[greaterInMagnitudeThan qualitativeSum qualitativeProduct qualitativeDifference]
+               'CxUniverse))
