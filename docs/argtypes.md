@@ -193,10 +193,14 @@ answers, so the constraint-only reading stays one `binding` away.
 **An `arg`-family declaration may type an argument `thing`.** `(arg P n thing)` says that
 position `n` holds a term of any kind and that no narrower type is right for it. It
 rejects nothing under the constraint-only reading, and under the entailing one it derives
-only `(thing X)`. A `(genlArg P n thing)` declaration says position `n` holds a type, and
-the constraint-only reading convicts an individual there. A position that holds a term
-taken as written declares an expression type with `quotedArg`, as
-`(quotedArg comment 1 denotational_term)` does.
+only `(thing X)`. The second slots of the happening-participant predicates `actor`,
+`thingPerceived`, `doneBy`, `input`, `destroyedInput`, `preservedInput` and `output` are
+such positions. Their bounds stay explicit on each predicate even where inherited, so a
+parent's revision cannot silently change a child's declared constraint. A
+`(genlArg P n thing)` declaration says position `n` holds a type, and the constraint-only
+reading convicts an individual there. A position that holds a term taken as written
+declares an expression type with `quotedArg`, as `(quotedArg comment 1 denotational_term)`
+does.
 
 **Both readings prove the same sentences over the shipped ontology.** A membership or
 `genl` edge an argument declaration in `resources/kb/` derives is written in a KB file
