@@ -253,6 +253,11 @@
     (is (v/isa? kb 'interArg 'at_least_binary))
     (is (v/isa? kb 'interArg 'at_least_ternary)
         "an arity no exact class maps to reaches the floors through the arity rules"))
+  (testing "a binary_predicate member is at least binary through binary's genl edge"
+    ;; doneBy is declared only (binary_predicate doneBy): binary_predicate ⊂ binary ⊂
+    ;; at_least_binary
+    (is (v/isa? kb 'doneBy 'at_least_binary))
+    (is (not (v/isa? kb 'doneBy 'at_least_ternary))))
   (testing "a unary relation is at neither floor"
     (is (not (v/isa? kb 'person 'at_least_binary))))
   (testing "the ternary floor specializes the binary floor"
