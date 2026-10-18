@@ -1719,6 +1719,19 @@
                               (v/assert kb (list 'genlCx (c i) (c (inc i))) 'CxUniverse M))))
                    n)))))
 
+(defn- recover-over-a-context-chain
+  "One `recover` of a KB holding a chain of n `genlCx` edges and nothing else, per edge,
+  eight readings.  No family holds a nogood, so no placement reads the pass's `genlCx`
+  moves, and `chain/place-nogoods!` leaves unforced the `:reach` whose `:below` walks
+  each lower end's ancestor set (`special/drain-context-moves!`)."
+  [n]
+  (let [kb (fresh-kb)
+        c  #(pctx "RcN" %)]
+    (v/with-deferred-settle kb
+      (doseq [i (range (dec n))]
+        (v/assert kb (list 'genlCx (c i) (c (inc i))) 'CxUniverse {})))
+    (doall (for [_ (range 8)] (quot (nanos (v/recover kb)) n)))))
+
 (defn- context-ring!
   "Put n contexts `CxPr0 … CxPr(n-1)` into one `genlCx` cycle, `CxPr(i) → CxPr(i+1)` and
   `CxPr(n-1) → CxPr0`: the chain asserted, the closing edge written past the checks
@@ -3735,6 +3748,30 @@
              :let [sub (symbol (str "CxGsdX" i))]]
          (do (v/assert kb (list 'genlCx sub 'CxGsdR) 'CxUniverse m)
              (nanos (v/assert kb (list 'genlCx sub 'CxGsdY) 'CxUniverse m))))))))
+
+(defn- genlcx-edge-showing-an-empty-context
+  "One `(genlCx CxGecR sub)` edge to a fresh `sub` that stores nothing and sees no context,
+  where `CxGecR` sees `CxGecTop`, which states an `arg` declaration and n facts of the
+  declared predicate.
+
+  The claim is that `special/entail-under-context-edge` reads no fact when the contexts
+  the edge newly shows `CxGecR` store nothing.  The n facts are in the move's `:below`,
+  since `sub` sees none of them, so a reading that grows with n is the arm drawing each
+  of them again.  Each reading asserts the edge to a fresh `sub`."
+  [n]
+  (binding [checks/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          m  {:strength :monotonic}]
+      (doseq [[s g] '[[CxGecTop CxUniverse] [CxGecR CxGecTop]]]
+        (v/assert kb (list 'genlCx s g) 'CxUniverse m))
+      (v/assert kb '(genl gec_kind thing) 'CxUniverse m)
+      (v/assert kb '(arg gecRel 1 gec_kind) 'CxGecTop m)
+      (v/bulk-assert-facts! kb (for [i (range n)]
+                                 (list 'gecRel (symbol (str "GecA" i)) 'GecThing))
+                            'CxGecTop)
+      (doall
+       (for [i (range 60)]
+         (nanos (v/assert kb (list 'genlCx 'CxGecR (symbol (str "CxGecS" i))) 'CxUniverse m)))))))
 
 (defn- fact-beside-distant-declarations
   "A fact asserted into `CxFdF`, which sits under `CxFdTop` and has one child, beside n
@@ -6325,6 +6362,16 @@
     :max-ratio 16.0
     :run       genlcx-chain-moved-beside-a-nogood}
 
+   ;; Both ends measured under `--only`, 2026-10-18: healthy 1.02x (0.027 against 0.028
+   ;; ms/op); with `chain/place-nogoods!` forcing the reach for the arity refresh alone,
+   ;; 8.11x (0.238 against 1.929).
+   {:name      :recover-over-a-context-chain
+    :group     :recover
+    :claim     "a recover over 8x the genlCx edges in one chain costs under 2x per edge when no nogood is held"
+    :sizes     [256 2048]
+    :max-ratio 2.0
+    :run       recover-over-a-context-chain}
+
    ;; The baseline is 32 for `retract-nat-scaling`'s reason, which is `clash-arbitration`'s:
    ;; a retraction has a fixed cost of its own — the storage teardown, the settle, the feed
    ;; event — and the small size has to be one where that still dominates, or a baseline
@@ -6723,6 +6770,13 @@
     :sizes     [64 2048]
     :max-ratio 2.0
     :run       genlcx-edge-beside-seen-declared-facts}
+
+   {:name      :genlcx-edge-showing-an-empty-context
+    :group     :argtypes
+    :claim     "32x the declared facts a genlCx edge's sub sees costs under 2x per edge to an empty context"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       genlcx-edge-showing-an-empty-context}
 
    ;; The declarations a fact arriving reads below its context.  Flat by construction:
    ;; no declaration shares a descendant with the fact's context at either n.  Calibrated

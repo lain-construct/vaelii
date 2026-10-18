@@ -32,6 +32,34 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **The browser's history lists only what the active KB holds.** The front page's
+  Browsed panel is kept in the browser's localStorage, so a switch to another KB left it
+  listing terms and sentexes the new one does not hold, each a link to an empty page.
+  `/history/known` answers which of a history's terms and handles the active KB holds,
+  and vaelii.js forgets the rest each time it draws the panel. A KB whose load is running
+  or stopped part-way is not judged, so nothing is forgotten until its load is `:done`.
+  Switching back does not restore what was forgotten. [web.md](docs/web.md).
+
+- **`relation-arity` answers a predicate's exact arity, and the browser colours a
+  predicate of three or more places red-orange and a logical connective green.** A
+  connective is a `logical_connective` member: `and`, `or`, `not`, `implies`.
+  `(relation-arity kb 'arg)` is `3`; a `variable_arity` relation, or a term no length
+  binds, answers nil. `vaelii.client` and the daemon serve it. [api.md](docs/api.md),
+  [web.md](docs/web.md).
+
+- **General happening roles admit interrupted occurrences; `invokesTool` is renamed
+  `toolInvoked`.** `actor` relates a happening to a meaningful participant, and
+  `thingPerceived` relates it to what is perceptually taken in. `doneBy`, `performedBy`,
+  `input`, `destroyedInput`, `preservedInput`, `output`, `tangibleOutput` and
+  `intangibleOutput` now declare `happening` rather than `event` in position 1. Participation
+  alone concludes neither intentional doing nor perception. The tool relation retains
+  its invocation-first argument order and `tool_invocation`/`software_tool` bounds.
+
+  *Migration:* update stored tool facts, rules, queries and writers to `toolInvoked`;
+  this change does not migrate a live store. Callers inspecting the eight role domains
+  must expect `happening`; state `event` separately when uninterrupted occurrence is
+  required. Existing participant subtype bounds remain in force.
+
 - **`+with-postgres`, `+with-sqlite` and `+with-foreign` add the published siblings to any
   lein task, the uberjar included.** `lein with-profile +with-postgres browser` opens a
   `:pg-*` KB from this checkout, `lein with-profile +with-postgres,+with-sqlite uberjar`
@@ -58,6 +86,23 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A caller reading `:unsupported` off such a handle reads `:excepted`.
 
 ### Fix: performance
+
+- **A settle that owes only the arity refresh does not read what its `genlCx` moves
+  reach.** The nogood placement walked the ancestor set of every context a moved edge
+  sits under whenever any nogood family had work, though only the membership, negation,
+  related-types and tuple families read the walk. A chain of 4,096 `genlCx` edges
+  asserted in one pass took 15.3 s and its `recover` 18.3 s; they now take 3.1 s and
+  0.2 s. *Migration:* none.
+  [nmtms.md](docs/nmtms.md#the-nogood-families). Perf check
+  `recover-over-a-context-chain` measures the growth.
+
+- **A `genlCx` edge to a context that stores nothing draws no argument types.** The
+  edge's argument-type sweep drew every declared fact in the contexts its lower end
+  already saw again, though a context storing nothing gives no fact a new declaration or
+  route. A koinii agent joining a channel whose agents speak `CxSpeechActs` took 1.8 s,
+  rereading the upper ontology in CxUniverse, and now takes under 20 ms.
+  *Migration:* none. [argtypes.md](docs/argtypes.md#where-a-mint-is-placed).
+  Perf check `genlcx-edge-showing-an-empty-context` measures the growth.
 
 - **A goal on a predicate with many sub-predicates reads only the members that can answer
   it.** A literal's matches are read once per member of its functor's fan, so a ground

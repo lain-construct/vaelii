@@ -3248,7 +3248,10 @@
   leaves below a more general one is dropped by the settle (`surplus-placements`).
 
   Off unless `*assertive-arg-types?*` and `*entail-moves?*` hold and some predicate
-  declares.  The facts are read from the smaller of two sides, compared by index counts: the facts stored in the
+  declares.  Off too when no context of `m`'s `:moved` stores a sentex older than the
+  `:floor` (any sentex, without one): every reader under `sub` then sees the content it
+  saw before the move, so no fact meets a new ingredient (`lein perf`'s
+  `genlcx-edge-showing-an-empty-context`).  The facts are read from the smaller of two sides, compared by index counts: the facts stored in the
   contexts of `below`, kept when a declaration reaches their functor, or the extent in
   `below` of each functor a declaration reaches (`reads/as-stored-with-functor-in`),
   priced at the lesser of the declared extent and one probe per functor and context.  So
@@ -3268,36 +3271,39 @@
              (seq (declaring-predicates kb)))
     (let [recs    (:records kb)
           idx     (:index kb)
-          before? (if-let [f (:floor m)] #(< (long %) (long f)) (constantly true))
-          below   (into @(:under m) @(:below m))
-          ctxs  (nm/sort-by-content-key nm/name-key compare below)
-          by-cx (reduce + 0 (map #(reads/stored-count-in-context idx %) ctxs))
-          ;; a `sub` storing nothing below it reads no declared functor
-          fs    (if (zero? by-cx) [] (declared-functors kb))
-          ;; the functor side reads each functor's extent in `below` alone, so it costs
-          ;; at most its extent and at most one probe per functor and context
-          by-fn (min (reduce + 0 (map #(reads/stored-count-with-functor idx %) fs))
-                     (* (count fs) (count ctxs)))
-          facts (if (<= by-cx by-fn)
-                  (let [fset (set fs)]
-                    (into []
-                          (comp (mapcat #(reads/as-stored-in-context idx %))
-                                (filter before?)
-                                (keep #(p/get-sentex recs %))
-                                (filter #(contains? fset (nm/functor (:sentence %)))))
-                          ctxs))
-                  (let [cset (set ctxs)]
-                    (into []
-                          (comp (mapcat #(reads/as-stored-with-functor-in idx % cset))
-                                (distinct)
-                                (filter before?)
-                                (keep #(p/get-sentex recs %)))
-                          fs)))]
-      (let [done  (:entailed m)
-            facts (if done (into [] (remove #(contains? @done (:id %))) facts) facts)]
-        (some-> done (vswap! into (map :id) facts))
-        (merge-with into (entail-over kb facts)
-                    (declarations-meeting kb below (:moved m) before?))))))
+          before? (if-let [f (:floor m)] #(< (long %) (long f)) (constantly true))]
+      (when (some #(and (pos? (reads/stored-count-in-context idx %))
+                        (some before? (reads/as-stored-in-context idx %)))
+                  (:moved m))
+        (let [below (into @(:under m) @(:below m))
+              ctxs  (nm/sort-by-content-key nm/name-key compare below)
+              by-cx (reduce + 0 (map #(reads/stored-count-in-context idx %) ctxs))
+              ;; a `sub` storing nothing below it reads no declared functor
+              fs    (if (zero? by-cx) [] (declared-functors kb))
+              ;; the functor side reads each functor's extent in `below` alone, so it costs
+              ;; at most its extent and at most one probe per functor and context
+              by-fn (min (reduce + 0 (map #(reads/stored-count-with-functor idx %) fs))
+                         (* (count fs) (count ctxs)))
+              facts (if (<= by-cx by-fn)
+                      (let [fset (set fs)]
+                        (into []
+                              (comp (mapcat #(reads/as-stored-in-context idx %))
+                                    (filter before?)
+                                    (keep #(p/get-sentex recs %))
+                                    (filter #(contains? fset (nm/functor (:sentence %)))))
+                              ctxs))
+                      (let [cset (set ctxs)]
+                        (into []
+                              (comp (mapcat #(reads/as-stored-with-functor-in idx % cset))
+                                    (distinct)
+                                    (filter before?)
+                                    (keep #(p/get-sentex recs %)))
+                              fs)))]
+          (let [done  (:entailed m)
+                facts (if done (into [] (remove #(contains? @done (:id %))) facts) facts)]
+            (some-> done (vswap! into (map :id) facts))
+            (merge-with into (entail-over kb facts)
+                        (declarations-meeting kb below (:moved m) before?))))))))
 
 (defn- trigger-shaped?
   "Is `sx` a stored literal that can be a trigger: a membership, or a record that
