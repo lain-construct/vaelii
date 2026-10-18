@@ -1,14 +1,14 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.perception-test
-  "CxPerception: the perception relations, shipped as an opt-in theory below
-  CxUniverse. CxWell does not see the theory, so the everyday contexts below CxWell
-  take in no perception relation, and a user's own context opts in by placing itself
-  under CxPerception.
+  "The perception vocabulary of CxTra: the perception relations, shipped in the opt-in
+  theory CxTra below CxUniverse. CxWell does not see the theory, so the everyday contexts
+  below CxWell take in no perception relation, and a user's own context opts in by
+  placing itself under CxTra.
 
   `sees` specializes `perceives` through a `genl` edge stated inside the theory, and
   `seeImage` and `watchVideo` conclude `sees` by a rule guarded by `sees`'s `spatial`
-  second argument. A context under CxPerception reads the whole chain for a spatial
+  second argument. A context under CxTra reads the whole chain for a spatial
   image or video; a context that does not see the theory reads only the fact asserted
   there."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -18,7 +18,7 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private PCP 'CxPerception)
+(def ^:private PCP 'CxTra)
 
 ;; Each reader answers a boolean, so a failing `is` prints the question and not the KB.
 (defn- holds-ask  [s ctx]         (boolean (v/ask? tu/*kb* s ctx)))
@@ -51,7 +51,7 @@
     (is (not (holds-ask (list 'sees Ann Img) CxRoom)))))
 
 (tu/deftest-kb cxwell-concludes-no-specialization
-  ;; CxWell does not see CxPerception: a fact asserted at the narrowest predicate is
+  ;; CxWell does not see CxTra: a fact asserted at the narrowest predicate is
   ;; itself visible there (an assert is never refused), but it specializes nothing.
   (tu/with-terms [Viewer Image Watcher Video]
     (v/assert kb (list 'seeImage Viewer Image) 'CxWell)
@@ -64,7 +64,7 @@
       (is (not (holds-ask (list 'perceives Viewer Image) 'CxWell)))
       (is (not (holds-ask (list 'sees Watcher Video) 'CxWell))))))
 
-(tu/deftest-kb a-user-context-under-cxperception-derives-the-chain
+(tu/deftest-kb a-user-context-under-cxtra-derives-the-chain
   (tu/with-terms [CxRoom Viewer Image Watcher Video Seer Scene]
     (v/assert kb (list 'genlCx CxRoom 'CxWell) 'CxUniverse)
     (v/assert kb (list 'genlCx CxRoom PCP) 'CxUniverse)
@@ -95,7 +95,7 @@
     (is (holds-genl 'image_viewing 'acausal PCP))
     (is (not (holds-genl 'image_viewing 'acausal_event 'CxUniverse)))))
 
-(tu/deftest-kb a-user-context-under-cxperception-derives-hascapability-of-image-viewing
+(tu/deftest-kb a-user-context-under-cxtra-derives-hascapability-of-image-viewing
   (tu/with-terms [CxRoom Viewer]
     (v/assert kb (list 'genlCx CxRoom 'CxWell) 'CxUniverse)
     (v/assert kb (list 'genlCx CxRoom PCP) 'CxUniverse)
