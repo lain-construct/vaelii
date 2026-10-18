@@ -696,22 +696,24 @@
 (arg arityMin 2 non_negative_integer)
 
 (comment admitsArgnum
-         "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. Answered at query time from the relation's declared arity and variable-arity mark. The inert rules below state the same definition; the prover, not the rules, answers it.")
+         "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. Answered at query time from the relation's declared arity and variable-arity mark. The backward rules below state the same definition, so an answer can be justified from them.")
 (binary_predicate admitsArgnum)
 (set/monotonic (instance_relation_predicate admitsArgnum))
 (arg admitsArgnum 1 relation)
 (arg admitsArgnum 2 positive_integer)
-;; admitsArgnum's definition, as set/inertRule: stored, believed and browsable, and run by
-;; neither engine, because the prover already answers every admitsArgnum goal and a forward
+;; admitsArgnum's definition, as set/backwardRule.  The prover answers a ground admitsArgnum
+;; goal from the relation's arity, and these rules state the same conclusions in the logic.
+;; A query with the relation or the position open is answered by the rules, and its proof
+;; cites the rule that derives each answer.  The rules run backward only, because a forward
 ;; rule would store a fact per relation and position.  The first three are the rules a
 ;; predAllInstance would stamp; they are written as rules because predAllInstance stamps a
 ;; forward default rule.
-(set/inertRule (implies (relation ?relation) (admitsArgnum ?relation 1)))
-(set/inertRule (implies (at_least_binary ?relation) (admitsArgnum ?relation 2)))
-(set/inertRule (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3)))
-(set/inertRule (implies (and (unbounded_arity ?relation) (positive_integer ?position)) (admitsArgnum ?relation ?position)))
-(set/inertRule (implies (and (bounded_arity ?relation) (arityMax ?relation ?max) (positive_integer ?position) (not (greaterThan ?position ?max))) (admitsArgnum ?relation ?position)))
-(set/inertRule (implies (and (arity ?relation ?arity) (positive_integer ?position) (not (greaterThan ?position ?arity))) (admitsArgnum ?relation ?position)))
+(set/backwardRule (implies (relation ?relation) (admitsArgnum ?relation 1)))
+(set/backwardRule (implies (at_least_binary ?relation) (admitsArgnum ?relation 2)))
+(set/backwardRule (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3)))
+(set/backwardRule (implies (and (unbounded_arity ?relation) (positive_integer ?position)) (admitsArgnum ?relation ?position)))
+(set/backwardRule (implies (and (bounded_arity ?relation) (arityMax ?relation ?max) (positive_integer ?position) (not (greaterThan ?position ?max))) (admitsArgnum ?relation ?position)))
+(set/backwardRule (implies (and (arity ?relation ?arity) (positive_integer ?position) (not (greaterThan ?position ?arity))) (admitsArgnum ?relation ?position)))
 
 (comment at_least_binary
          "The type of relations of arity 2 or greater, fixed or variable. Derived from arity and from arityMin.")
