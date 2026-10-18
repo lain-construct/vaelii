@@ -78,6 +78,32 @@
            (is (= :arg-genl (:type p)) (str (pr-str s) " is convicted by genlArg"))
            (is (= 'event (:expected p)) (str (pr-str s) " is convicted against event"))))))))
 
+(tu/deftest-kb the-first-position-of-hasCapability-takes-any-causal-doer
+  ;; A doer is whatever doneBy can name, and that is wider than animal: a machine or an
+  ;; organization can be the doer of an event.  What cannot is an acausal thing, which
+  ;; can occupy no cause slot.  Pinned to the constraint-only reading, where `check`
+  ;; reports the conviction.
+  (tu/without-entailing
+   (tu/with-terms [Pump Acme Noon]
+     (v/assert kb (list 'machine Pump) N)
+     (v/assert kb (list 'organization Acme) N)
+     (v/assert kb (list 'time Noon) N)
+     (testing "the declaration, which names causal and not animal"
+       (is (v/ask? kb '(arg hasCapability 1 causal)))
+       (is (not (v/ask? kb '(arg hasCapability 1 animal)))))
+     (testing "the doers that are not animals"
+       (is (v/genl? kb 'machine 'causal))
+       (is (v/genl? kb 'organization 'causal))
+       (is (= [] (v/check kb (list 'hasCapability Pump 'travelling) N)) "a machine")
+       (is (= [] (v/check kb (list 'hasCapability Acme 'event) N)) "an organization"))
+     (testing "an acausal thing is still refused, against causal"
+       (is (v/genl? kb 'time 'acausal))
+       (let [p (first (filter #(= :arg-type (:type %))
+                              (v/check kb (list 'hasCapability Noon 'travelling) N)))]
+         (is (some? p) "a time can be the doer of nothing")
+         (is (= 1 (:position p)))
+         (is (= 'causal (:expected p))))))))
+
 (tu/deftest-kb a-bird-that-flies-travels
   ;; flying genl travelling, and (transitiveInArg hasCapability 2 genl) carries a
   ;; claim about flying up to travelling at retrieval.
@@ -161,17 +187,17 @@
   ;; the entailing reading: the derivation is the subject
   (tu/with-entailing
     ;; One symbol read at both levels has to pick one argument check for both, and whichever
-    ;; it picks convicts the half it was not written for: `arg … 1 animal` is right for
+    ;; it picks convicts the half it was not written for: `arg … 1 causal` is right for
     ;; `(… Tweety flying)` and wrong for `(… bird flying)`, since a kind is not a member of
     ;; the type it lies under.  So: two predicates, the kind-level one marked, and the pair
     ;; named in prose because the predicate that names pairs cannot take a mixed half.
     (testing "the kind-level half relates kinds, and says so"
       (is (v/ask? kb '(type_relation_predicate capabilityType))))
-    (testing "the instance-level half is MIXED — one animal to one event kind — so it
+    (testing "the instance-level half is MIXED — one causal thing to one event kind — so it
             carries no relation_kind, and its two positions take different checks"
       (is (not (v/ask? kb '(instance_relation_predicate hasCapability))))
       (is (not (v/ask? kb '(type_relation_predicate hasCapability))))
-      (is (v/ask? kb '(arg hasCapability 1 animal)))
+      (is (v/ask? kb '(arg hasCapability 1 causal)))
       (is (v/ask? kb '(genlArg hasCapability 2 event))))
     (testing "so declaring the pairing would mark the mixed half — typeToInstancePred
             types its second argument an instance half, and derives that mark"
