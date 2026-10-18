@@ -3736,6 +3736,30 @@
          (do (v/assert kb (list 'genlCx sub 'CxGsdR) 'CxUniverse m)
              (nanos (v/assert kb (list 'genlCx sub 'CxGsdY) 'CxUniverse m))))))))
 
+(defn- genlcx-edge-showing-an-empty-context
+  "One `(genlCx CxGecR sub)` edge to a fresh `sub` that stores nothing and sees no context,
+  where `CxGecR` sees `CxGecTop`, which states an `arg` declaration and n facts of the
+  declared predicate.
+
+  The claim is that `special/entail-under-context-edge` reads no fact when the contexts
+  the edge newly shows `CxGecR` store nothing.  The n facts are in the move's `:below`,
+  since `sub` sees none of them, so a reading that grows with n is the arm drawing each
+  of them again.  Each reading asserts the edge to a fresh `sub`."
+  [n]
+  (binding [checks/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          m  {:strength :monotonic}]
+      (doseq [[s g] '[[CxGecTop CxUniverse] [CxGecR CxGecTop]]]
+        (v/assert kb (list 'genlCx s g) 'CxUniverse m))
+      (v/assert kb '(genl gec_kind thing) 'CxUniverse m)
+      (v/assert kb '(arg gecRel 1 gec_kind) 'CxGecTop m)
+      (v/bulk-assert-facts! kb (for [i (range n)]
+                                 (list 'gecRel (symbol (str "GecA" i)) 'GecThing))
+                            'CxGecTop)
+      (doall
+       (for [i (range 60)]
+         (nanos (v/assert kb (list 'genlCx 'CxGecR (symbol (str "CxGecS" i))) 'CxUniverse m)))))))
+
 (defn- fact-beside-distant-declarations
   "A fact asserted into `CxFdF`, which sits under `CxFdTop` and has one child, beside n
   `arg` declarations of its predicate, each in its own context under `CxFdTop` that shares
@@ -6723,6 +6747,13 @@
     :sizes     [64 2048]
     :max-ratio 2.0
     :run       genlcx-edge-beside-seen-declared-facts}
+
+   {:name      :genlcx-edge-showing-an-empty-context
+    :group     :argtypes
+    :claim     "32x the declared facts a genlCx edge's sub sees costs under 2x per edge to an empty context"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       genlcx-edge-showing-an-empty-context}
 
    ;; The declarations a fact arriving reads below its context.  Flat by construction:
    ;; no declaration shares a descendant with the fact's context at either n.  Calibrated

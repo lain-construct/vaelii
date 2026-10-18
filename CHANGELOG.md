@@ -74,6 +74,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fix: performance
 
+- **A `genlCx` edge to a context that stores nothing draws no argument types.** The
+  edge's argument-type sweep drew every declared fact in the contexts its lower end
+  already saw again, though a context storing nothing gives no fact a new declaration or
+  route. A koinii agent joining a channel whose agents speak `CxSpeechActs` took 1.8 s,
+  rereading the upper ontology in CxUniverse, and now takes under 20 ms.
+  *Migration:* none. [argtypes.md](docs/argtypes.md#where-a-mint-is-placed).
+  Perf check `genlcx-edge-showing-an-empty-context` measures the growth.
+
 - **A goal on a predicate with many sub-predicates reads only the members that can answer
   it.** A literal's matches are read once per member of its functor's fan, so a ground
   `(different A B)` under 3,054 sub-predicates and 3,050 `genlInverse` ones cost 76 ms,
