@@ -110,6 +110,7 @@ not it loads the upper layer:
 | `except` | taking one OUT un-hides its target, so what a reader hides would shrink ([reference.md](reference.md#decisions) 2 and 14) |
 | `rewriteOf`, `sameAs`, `equals` | taking one OUT un-merges two terms, so what a reader hides would shrink |
 | `injection`, `surjection`, `bijection` | premises of `core.txt`'s rules concluding `functional`, `functionalInArg`, `injection` and `surjection` (decision 17) |
+| `functionCorrespondingPredicate`, `result` | premises of `core.txt`'s rules concluding `(arg P n T)` from a function's `result`, since `arg` is on the roster |
 | `fixed_arity`, `fixed_arity_predicate`, `fixed_arity_function`, `bounded_arity`, `unbounded_arity`, `at_least_binary`, `at_least_ternary`, `arityMax`, `admitsArgnum` | the arity policies, read beside the arity bindings, so a policy goes OUT only by retraction as a length does |
 | `relation`, `predicate`, `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`, `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`, `character`, `keyword`, `number`, `integer` and its four sign classes, `string`) | the term kinds: a clash between two of them is a conflict and never a defeat, so a `:default` `(predicate X)` beside a `:default` `(string X)` is reported in `conflicts` with both believed |
 | `greaterThan`, `lessThan` | the numeric comparators: each holds of numbers only, and `core.txt`'s rules concluding `at_least_binary` and `at_least_ternary` read `greaterThan` beside `arity` and `arityMin` |
