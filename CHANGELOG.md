@@ -170,6 +170,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* rename `metal` to `metal_stuff` in any KB text that names it.
   *Breaks:* `metal`
 
+- **CxComputing and CxPerception merge into one opt-in context, CxTra.**
+  `kb/middle/CxTra.txt` states every form the two files stated, with `(genlCx CxTra
+  CxUniverse)`, so CxTra sees what each of the two saw and CxWell does not see CxTra.
+  `core.txt` states `(context CxTra)` in place of the two `context` memberships, and
+  `CxTra.txt` states a `comment` on CxTra. A context is a unit of visibility. Both theories were opt-in
+  and CxWell saw neither, so one opt-in context holds both vocabularies. No relation,
+  kind, rule or declaration changes.
+
+  *Class:* **Breaking** (shipped ontology content).
+  *Migration:* rename `CxComputing` and `CxPerception` to `CxTra` in any `genlCx` edge,
+  `ist` or context argument that names them; a context placed under both needs one edge
+  to CxTra.
+  *Breaks:* `CxComputing`, `CxPerception`
+
 - **The example predicates quote their example sentence.** The second argument of
   `positiveExample`, `negativeExample` and `borderlineExample` is a quoted sentence,
   `(positiveExample ip_address (Quote (ip_address "192.0.2.1")))`, and no longer a
@@ -189,7 +203,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
 ### Additions
 
 - **38 shipped string examples become quoted-sentence examples that a test checks.**
-  `core.txt`, `organism.txt`, `measure.txt` and `CxComputing.txt` state 31
+  `core.txt`, `organism.txt`, `measure.txt` and `CxTra.txt` state 31
   `positiveExample` and 7 `negativeExample` facts in place of the
   `positiveExampleComment` and `negativeExampleComment` facts they replace, among them
   `(positiveExample folk_species (Quote (folk_species cat)))`, `(positiveExample
@@ -204,7 +218,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a reader that lists a term's examples by `positiveExampleComment` or
   `negativeExampleComment` reads `positiveExample` and `negativeExample` as well.
 
-- **String examples that could be misread are reworded.** `CxComputing.txt`'s tool
+- **String examples that could be misread are reworded.** `CxTra.txt`'s tool
   examples name tools, not acts (`"a text-search tool"`, not `"a text search"`), and its
   MCP tool examples say MCP. A computational system's example is a running database
   server process, not the hardware. The `time_interval`, `uninterrupted`, `acausal` and
@@ -258,7 +272,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 - **The shipped comments state their examples as example facts.** 101 comments
   across `core.txt`, `abstract.txt`, `reflection.txt`, `life.txt`, `measure.txt`,
-  `organism.txt`, `time.txt`, `CxComputing.txt` and `CxSocial.txt` named examples of
+  `organism.txt`, `time.txt`, `CxTra.txt` and `CxSocial.txt` named examples of
   their own term. Each keeps its definition, and its examples are 227
   `positiveExampleComment` and 25 `negativeExampleComment` facts beside it, in the
   comment's own context. Nine comments keep an example that explains the definition and

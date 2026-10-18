@@ -1,15 +1,16 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.computing-test
-  "CxComputing: the relations over software tools, their invocations and receipts, media
-  resources and network names, shipped as an opt-in theory below CxUniverse.  CxWell does
-  not see the theory, so a context below CxWell reads no computing relation, and a user's own context opts in by placing itself under CxComputing.
+  "The computing vocabulary of CxTra: the relations over software tools, their invocations
+  and receipts, media resources and network names, shipped in the opt-in theory CxTra
+  below CxUniverse.  CxWell does not see the theory, so a context below CxWell reads no
+  computing relation, and a user's own context opts in by placing itself under CxTra.
 
   The ten relations, their argument declarations and the sixteen kinds the relations are
-  typed over are all stated in CxComputing, so a context reads a kind's `genl` edges and
+  typed over are all stated in CxTra, so a context reads a kind's `genl` edges and
   its disjointness only where it sees the theory: CxUniverse and CxWell read none.
-  CxComputing states no rule: an invocation is concluded neither causal nor acausal from
-  its tool."
+  The computing relations state no rule: an invocation is concluded neither causal nor
+  acausal from its tool."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -17,7 +18,7 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private CPT 'CxComputing)
+(def ^:private CPT 'CxTra)
 
 (def ^:private binary-relations
   '[toolName toolInvoked resourceUrl receipt probesPredicate dnsResolvesTo agentHasTool])
@@ -119,7 +120,7 @@
       (is (v/isa? kb Clip 'information_bearing_thing CxDesk)))
     ;; Two rewrites reach a rule concluding either side from a tool.  Unbounded, the node
     ;; engine expands every CxWell rule concluding a spec of `causal`, about 30x per level.
-    (testing "the theory states no rule, so an invocation is concluded neither side from its tool"
+    (testing "no rule of the theory concludes either side of an invocation from its tool"
       (doseq [call [CallOne CallTwo] side '[causal acausal]]
         (is (false? (v/provable? kb (list side call) CxDesk {:max-depth 2})) (str call " " side))))
     (testing "no clash is reported"
