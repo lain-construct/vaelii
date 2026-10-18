@@ -74,6 +74,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fix: performance
 
+- **A settle that owes only the arity refresh does not read what its `genlCx` moves
+  reach.** The nogood placement walked the ancestor set of every context a moved edge
+  sits under whenever any nogood family had work, though only the membership, negation,
+  related-types and tuple families read the walk. A chain of 4,096 `genlCx` edges
+  asserted in one pass took 15.3 s and its `recover` 18.3 s; they now take 3.1 s and
+  0.2 s. *Migration:* none.
+  [nmtms.md](docs/nmtms.md#the-nogood-families). Perf check
+  `recover-over-a-context-chain` measures the growth.
+
 - **A `genlCx` edge to a context that stores nothing draws no argument types.** The
   edge's argument-type sweep drew every declared fact in the contexts its lower end
   already saw again, though a context storing nothing gives no fact a new declaration or
