@@ -87,6 +87,23 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fix: performance
 
+- **A settle that owes only the arity refresh does not read what its `genlCx` moves
+  reach.** The nogood placement walked the ancestor set of every context a moved edge
+  sits under whenever any nogood family had work, though only the membership, negation,
+  related-types and tuple families read the walk. A chain of 4,096 `genlCx` edges
+  asserted in one pass took 15.3 s and its `recover` 18.3 s; they now take 3.1 s and
+  0.2 s. *Migration:* none.
+  [nmtms.md](docs/nmtms.md#the-nogood-families). Perf check
+  `recover-over-a-context-chain` measures the growth.
+
+- **A `genlCx` edge to a context that stores nothing draws no argument types.** The
+  edge's argument-type sweep drew every declared fact in the contexts its lower end
+  already saw again, though a context storing nothing gives no fact a new declaration or
+  route. A koinii agent joining a channel whose agents speak `CxSpeechActs` took 1.8 s,
+  rereading the upper ontology in CxUniverse, and now takes under 20 ms.
+  *Migration:* none. [argtypes.md](docs/argtypes.md#where-a-mint-is-placed).
+  Perf check `genlcx-edge-showing-an-empty-context` measures the growth.
+
 - **A goal on a predicate with many sub-predicates reads only the members that can answer
   it.** A literal's matches are read once per member of its functor's fan, so a ground
   `(different A B)` under 3,054 sub-predicates and 3,050 `genlInverse` ones cost 76 ms,

@@ -3910,7 +3910,8 @@
   relabelled that `read` (a volatile set) does not hold yet, which this adds, the handles
   an except of which arrived or left and what rests on them, the placed `contradicts`
   among them, and what the pass's `genlCx` moves reach (`moves`' `:reach`,
-  `special/drain-context-moves!`, a delay forced here).  Reads nothing while no family
+  `special/drain-context-moves!`, a delay forced only when a family other than the arity
+  refresh has work).  Reads nothing while no family
   holds a nogood or queued one and no `orthogonal` is stored."
   [kb region read {:keys [reach first?]}]
   (let [c (decide/synced kb)
@@ -3930,7 +3931,8 @@
                     (seq rmoved) (related/orthogonals? kb (decide/write-view tax))
                     (seq tmoved) (tuple/held? tax c) (related/held? kb c))]
     (when (or others? (arity/moved? tax c) (arity/relabel-owed? kb (remove @read @region)))
-      (let [reach  @reach
+      (let [;; the `:below` walk is quadratic in a chain of edges moved in one pass
+            reach  (when others? @reach)
             fresh  (into [] (comp (distinct) (remove @read)) @region)
             _      (vswap! read into fresh)
             ;; an except arriving or leaving moves a placement with no relabel of the
