@@ -2,15 +2,12 @@
 ;; sight. Sees the shared upper ontology via CxUniverse. CxWell does not see it: a
 ;; context opts in by placing itself under CxPerception.
 ;;
-;; Arg 1 of every relation here names the perceiver and carries no arg declaration:
-;; vaelii's `registered_agent` names a registered koinii participant
-;; (resources/kb/koinii/CxRegistry.txt), which is a membership mark for an
-;; adjudication registry rather than a general type for an entity with agency, and
-;; the upper ontology ships no such type, so no type below `thing` covers the
-;; position (`ontology_test`'s `untyped-positions` roster, which `(arg … 1 thing)`
-;; would convict: `starter_test`/`no-shipped-declaration-makes-an-argument-a-thing`).
-;; `seeImage` and `watchVideo`'s second argument is the same: a thing of any kind, so
-;; it carries no declaration either.
+;; Arg 1 of every relation here names the perceiver and declares `thing`: vaelii's
+;; `registered_agent` names a registered koinii participant
+;; (resources/kb/koinii/CxRegistry.txt), which is a membership mark for an adjudication
+;; registry rather than a general type for an entity with agency, and the upper ontology
+;; ships no such type.  `seeImage` and `watchVideo`'s second argument is a thing of any
+;; kind, so it declares `thing` too.
 ;;
 ;; `sees` types its second argument `spatial`, and an image or a video need not be
 ;; located.  A genl edge from seeImage or watchVideo to sees would carry that declaration
@@ -23,17 +20,21 @@
 (comment perceives
          "(perceives ?perceiver ?perceived) means ?perceiver takes in ?perceived through some sense. The most general perception relation; sees specializes it, and seeImage and watchVideo reach it through sees for a spatial second argument.")
 (set/monotonic (instance_relation_predicate perceives))
+(arg perceives 1 thing)
 (arg perceives 2 spatial)
 
 (comment sees
          "(sees ?seer ?seen) means ?seer takes in ?seen through sight. Spec of perceives.")
 (set/monotonic (instance_relation_predicate sees))
+(arg sees 1 thing)
 (arg sees 2 spatial)
 (genl sees perceives)
 
 (comment seeImage
          "(seeImage ?seer ?image) means ?seer takes in a static image through sight and perceives what it shows. Its second argument is the image itself, which need not be located, so it concludes sees only of a spatial image (the rule below).")
 (set/monotonic (instance_relation_predicate seeImage))
+(arg seeImage 1 thing)
+(arg seeImage 2 thing)
 (set/forwardRule
   (implies (and (seeImage ?x ?y) (spatial ?y))
            (sees ?x ?y)))
@@ -41,6 +42,8 @@
 (comment watchVideo
          "(watchVideo ?watcher ?video) means ?watcher takes in a video, a temporal sequence of images, through sight. The video need not be located, so it concludes sees only of a spatial video (the rule below).")
 (set/monotonic (instance_relation_predicate watchVideo))
+(arg watchVideo 1 thing)
+(arg watchVideo 2 thing)
 (set/forwardRule
   (implies (and (watchVideo ?x ?y) (spatial ?y))
            (sees ?x ?y)))

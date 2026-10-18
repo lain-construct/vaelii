@@ -350,16 +350,18 @@
 
 ;; --- doneBy / performedBy: an event's doer -----------------------------------
 (comment doneBy
-         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position declares no type: agent names a registered participant rather than something that can act, and no type below thing covers every doer. performedBy is the intentional case.")
+         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position declares thing: agent names a registered participant rather than something that can act, and no type below thing covers every doer. performedBy is the intentional case.")
 (binary_predicate doneBy)
 (set/monotonic (instance_relation_predicate doneBy))
 (arg doneBy 1 event)
+(arg doneBy 2 thing)   ;; an event's doer: a person, an animal, a machine or a process
 
 (comment performedBy
          "(performedBy ?event ?doer) means that ?doer intentionally initiated ?event. Specializes doneBy through a genl edge, so every performing is a doing and a doing is not concluded a performing.")
 (binary_predicate performedBy)
 (set/monotonic (instance_relation_predicate performedBy))
 (arg performedBy 1 event)
+(arg performedBy 2 thing)   ;; an event's doer: a person, an animal, a machine or a process
 (genl performedBy doneBy)
 
 ;; --- input / output: what went into an event and what it left behind -----------
@@ -376,6 +378,7 @@
 (binary_predicate input)
 (set/monotonic (instance_relation_predicate input))
 (arg input 1 event)
+(arg input 2 thing)   ;; what went into an event: a thing of any kind
 (termsRelated input output)
 
 (comment destroyedInput "(destroyedInput ?event ?thing) means that ?thing went into ?event and ceased to exist there.")
@@ -386,12 +389,14 @@
 (binary_predicate destroyedInput)
 (set/monotonic (instance_relation_predicate destroyedInput))
 (arg destroyedInput 1 event)
+(arg destroyedInput 2 thing)   ;; what went into an event: a thing of any kind
 (genl destroyedInput input)
 
 (comment preservedInput "(preservedInput ?event ?thing) means that ?thing went into ?event and still exists when ?event ends: the lettuce in a salad, the thread in a woven cloth.")
 (binary_predicate preservedInput)
 (set/monotonic (instance_relation_predicate preservedInput))
 (arg preservedInput 1 event)
+(arg preservedInput 2 thing)   ;; what went into an event: a thing of any kind
 (genl preservedInput input)
 ;; No thing is both a destroyed and a preserved input of one event.  The KB does not
 ;; state the disjointness, because a separation over two relations constrains no tuple.
@@ -405,6 +410,7 @@
 (binary_predicate output)
 (set/monotonic (instance_relation_predicate output))
 (arg output 1 event)
+(arg output 2 thing)   ;; what an event left behind, tangible or intangible
 
 (comment tangibleOutput
          "(tangibleOutput ?event ?thing) means that ?thing is a tangible output of ?event.")

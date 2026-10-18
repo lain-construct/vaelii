@@ -285,12 +285,3 @@
       (is (v/ask? kb (list 'unit_of_measure unit) c) (str unit))
       (is (v/ask? kb (list 'physical_dimension dimension) c) (str dimension))
       (is (nil? (v/handle-of kb (list 'thing unit) c)) (str unit)))))
-
-(deftest no-shipped-declaration-makes-an-argument-a-thing
-  ;; `genlArg … thing` is not in the roster: it says the position holds a type
-  (let [declares #{'arg 'arg1 'arg2 'arg3 'arg4 'arg5 'args 'argAndRest 'quotedArg}
-        bare     #(if (and (seq? %) (= 'set/monotonic (first %))) (second %) %)]
-    (is (empty? (for [[c s] (authored-sentences)
-                      :let  [s (bare s)]
-                      :when (and (seq? s) (declares (first s)) (= 'thing (last s)))]
-                  [c s])))))

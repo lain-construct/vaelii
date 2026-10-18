@@ -29,6 +29,7 @@
 (ternary_predicate closedExtentForArg)
 (arg closedExtentForArg 1 predicate)
 (arg closedExtentForArg 2 positive_integer)
+(arg closedExtentForArg 3 thing)   ;; the argument value a closed extent is granted for: a term of any kind
 ;; A whole-predicate closure entails the per-argument closure at every admitted position and
 ;; every value.  Inert: a forward rule would store one grant per value.  (thing ?value) binds
 ;; ?value, which range restriction requires of a consequent variable, and is true of every
@@ -39,6 +40,7 @@
          "(closedExtentForArg1 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 1 ?value). The two rules below state the equivalence. The rule deriving the ternary is a forward rule, so the engine reads only the ternary; the rule deriving the binary spelling is inert, so a ternary grant mints no binary twin.")
 (binary_predicate closedExtentForArg1)
 (arg closedExtentForArg1 1 predicate)
+(arg closedExtentForArg1 2 thing)   ;; the argument value: a term of any kind
 (set/forwardRule (implies (and (closedExtentForArg1 ?predicate ?value)) (closedExtentForArg ?predicate 1 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 1 ?value)) (closedExtentForArg1 ?predicate ?value)))
 
@@ -46,6 +48,7 @@
          "(closedExtentForArg2 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 2 ?value).")
 (binary_predicate closedExtentForArg2)
 (arg closedExtentForArg2 1 predicate)
+(arg closedExtentForArg2 2 thing)   ;; the argument value: a term of any kind
 (set/forwardRule (implies (and (closedExtentForArg2 ?predicate ?value)) (closedExtentForArg ?predicate 2 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 2 ?value)) (closedExtentForArg2 ?predicate ?value)))
 
@@ -53,6 +56,7 @@
          "(closedExtentForArg3 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 3 ?value).")
 (binary_predicate closedExtentForArg3)
 (arg closedExtentForArg3 1 predicate)
+(arg closedExtentForArg3 2 thing)   ;; the argument value: a term of any kind
 (set/forwardRule (implies (and (closedExtentForArg3 ?predicate ?value)) (closedExtentForArg ?predicate 3 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 3 ?value)) (closedExtentForArg3 ?predicate ?value)))
 
@@ -421,6 +425,7 @@
 (ternary_predicate argN)
 (arg argN 2 non_negative_integer)
 (quotedArg argN 3 formula)
+(quotedArg argN 1 expression)   ;; the form found at a position of a formula, taken as written
 
 ;; measure names what a QuantityFn or QuantityIntervalFn application denotes, and
 ;; measure.txt states it as their result.  measure.txt (weightOf, heightOf, the five
@@ -797,6 +802,7 @@
 (binary_predicate believes)
 (set/monotonic (instance_relation_predicate believes))
 (arg believes 2 sentence)
+(arg believes 1 thing)   ;; a believer, whose type the upper ontology does not name
 (modal_predicate believes)
 
 (comment binary_predicate     "A predicate of two arguments.")
@@ -807,6 +813,7 @@
 (binary_predicate comment)
 (set/monotonic (instance_relation_predicate comment))
 (arg comment 2 string)
+(quotedArg comment 1 denotational_term)   ;; the commented term as written: a type, a predicate, an individual or a context
 
 (comment contradicts
          "(contradicts (sentexHandle ?h1) (sentexHandle ?h2) …) means that the sentexes it names are the members of a nogood: each is believed in the network and the contexts stating them and the grounds the detection read have a common descendant. The engine derives it at each maximal common descendant of those contexts where no except in force hides a member or a ground, justified by the members, the grounds and the genlCx edges the placement is seen over, so retracting any of them takes it OUT. One argument per member, in content order (sentence, then context), never handle order, so two detections of one nogood store one sentex; a self-clash names one member and an anti_transitive clash three. A nogood with a unique weakest member stores the defeat of that member beside it; a dilemma or a conflict stores the contradicts alone. The reports that (conflicts kb) and (contradictions kb) return compose a contradicts form over the member sentences instead.")
@@ -1040,6 +1047,7 @@
 (ternary_predicate predAllInstance)
 (arg predAllInstance 1 binary_predicate)
 (genlArg predAllInstance 2 thing)
+(arg predAllInstance 3 thing)   ;; the fixed filler: a term of any kind
 (implies (predAllInstance ?pred ?indep ?fixed)
          (set/defaultRule (set/forwardRule (implies (?indep ?x) (?pred ?x ?fixed)))))
 
@@ -1048,6 +1056,7 @@
 (ternary_predicate predInstanceAll)
 (arg predInstanceAll 1 binary_predicate)
 (genlArg predInstanceAll 3 thing)
+(arg predInstanceAll 2 thing)   ;; the fixed filler: a term of any kind
 (implies (predInstanceAll ?pred ?fixed ?dep)
          (set/defaultRule (set/forwardRule (implies (?dep ?y) (?pred ?fixed ?y)))))
 
@@ -1134,6 +1143,7 @@
 (arity predExistsInstancePlaceholder 4)
 (arg predExistsInstancePlaceholder 1 binary_predicate)
 (genlArg predExistsInstancePlaceholder 2 thing)
+(arg predExistsInstancePlaceholder 3 thing)   ;; the fixed filler: a term of any kind
 (argArg predExistsInstancePlaceholder 4 2)
 
 (comment PredInstanceExistsFn
@@ -1151,6 +1161,7 @@
 (arity predInstanceExistsPlaceholder 4)
 (arg predInstanceExistsPlaceholder 1 binary_predicate)
 (genlArg predInstanceExistsPlaceholder 3 thing)
+(arg predInstanceExistsPlaceholder 2 thing)   ;; the fixed filler: a term of any kind
 (argArg predInstanceExistsPlaceholder 4 3)
 
 (comment predAllExists
@@ -1172,12 +1183,14 @@
 (ternary_predicate predExistsInstance)
 (arg predExistsInstance 1 binary_predicate)
 (genlArg predExistsInstance 2 thing)
+(arg predExistsInstance 3 thing)   ;; the fixed filler: a term of any kind
 
 (comment predInstanceExists
          "(predInstanceExists ?pred ?fixed ?dep) means that the fixed subject ?fixed bears ?pred, at position 1, to some member of collection ?dep: exists y in ?dep, (?pred ?fixed y). The argument-swapped twin of predExistsInstance, inert like the whole class; (PredInstanceExistsFn ?pred ?fixed ?dep) is its sanctioned placeholder.")
 (ternary_predicate predInstanceExists)
 (arg predInstanceExists 1 binary_predicate)
 (genlArg predInstanceExists 3 thing)
+(arg predInstanceExists 2 thing)   ;; the fixed filler: a term of any kind
 
 ;; --- indeterminate_term: the determinacy category the Specified audit reads ---
 ;; An EXTENSIBLE category of terms whose identity is not pinned down: a term that stands
@@ -1226,6 +1239,7 @@
 (binary_predicate evaluate)
 (set/monotonic (instance_relation_predicate evaluate))
 (arg evaluate 1 number)
+(arg evaluate 2 thing)   ;; the expression: a number or an application
 
 (comment forced_decontextualized_predicate
          "(forced_decontextualized_predicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
@@ -1410,28 +1424,36 @@
 (binary_predicate termOfUnit)
 (set/monotonic (instance_relation_predicate termOfUnit))
 (arg termOfUnit 2 non_atomic_term)
+(arg termOfUnit 1 thing)   ;; the reified constant: a term of any kind
 
 (comment rewriteOf
          "(rewriteOf ?term ?expression) means that the term expression ?expression reifies to the existing ?term rather than to a fresh constant. A quoting predicate in that reading. With a plain symbol in the second position it is instead the equality relation retiring that symbol in favour of the first: the retired spelling stays stored but stops being believed and stops matching, every sentex naming it gains a rewritten twin, and retracting the rewriteOf gives the original back.")
 (binary_predicate rewriteOf)
+(arg rewriteOf 1 thing)   ;; either side of a rewriteOf: a term of any kind
+(arg rewriteOf 2 thing)
 
 (comment sameAs
          "(sameAs ?individual1 ?individual2) means that the two named individuals are one, in OWL's sense: reflexive, symmetric, transitive and substitutive. The merge feeds the one equivalence closure rewriteOf and equals feed, and neither name is deprecated by it. The closure elects a representative by content rather than by arrival order. A goal of sameAs is answered from the closure. See docs/equality.md.")
 (binary_predicate sameAs)
+(arg sameAs 1 thing)   ;; either side of a sameAs: a term of any kind
+(arg sameAs 2 thing)
 
 (comment equals
          "(equals ?term1 ?term2) means that ?term1 and ?term2 denote one thing. Any two terms may be equated, where sameAs follows OWL in equating individuals. The merge feeds the one equivalence closure rewriteOf and sameAs feed. A goal of equals is answered from the closure. A collision under functional, functionalInArg or anti_symmetric between two monotonic symbols derives an equals. See docs/equality.md.")
 (binary_predicate equals)
+(arg equals 1 thing)   ;; either side of an equals: a term of any kind
+(arg equals 2 thing)
 
 ;; different is the unique-name assumption read as a relation.  The engine answers it and
 ;; never stores it: wff refuses an assert of it, and provers/DifferentProver answers a
 ;; ground goal of two or more arguments.  So the declarations below declare the relation
-;; the prover answers at the arity the prover answers it, with no type on its positions.
+;; the prover answers at the arity the prover answers it, with thing on every position.
 (comment different
          "(different ?term1 ?term2 ...) means that no two of the named terms denote one thing. Answered by the different prover from the equality closure under the unique-name assumption: distinct names denote distinct things until a rewriteOf, sameAs or equals merges them, and a merge the reading context cannot see leaves the two names different there. The unique-name assumption is suspended for an unpinned indeterminate_term, so a goal naming one is not provable against a determinate term until a rewriteOf pins it. A query operator: an assert of it is refused, and only a ground goal of two or more arguments is answered. Commutative, since the answer does not depend on the order of the terms. See docs/equality.md.")
 (variable_arity_predicate different)
 (unbounded_arity_predicate different)
 (arityMin different 2)
+(args different thing)   ;; every side of a different: a term of any kind
 (commutative different)
 
 (comment result
@@ -1928,6 +1950,8 @@
          "(seeAlso ?term1 ?term2) means that ?term1 and ?term2 are worth reading together — an editorial 'see also' cross-reference between two terms. Directional: (seeAlso a b) points a reader from a to b, and the reverse is a separate assertion, not implied. Documentation only, like comment: nothing in the engine reads it and it draws no inference.")
 (binary_predicate seeAlso)
 (set/monotonic (instance_relation_predicate seeAlso))
+(quotedArg seeAlso 1 denotational_term)   ;; a cross-referenced term, taken as written
+(quotedArg seeAlso 2 denotational_term)
 
 ;; ---- in-KB worked examples -----------------------------------------------
 ;; Facts annotating a term with a true / false / borderline example of its usage.  The
@@ -1949,16 +1973,19 @@
          "(positiveExample ?term (Quote ?sentence)) means that ?sentence is a TRUE example of ?term's usage. The second argument is only a quoted sentence, closed and written in full: (positiveExample ip_address (Quote (ip_address \"192.0.2.1\"))). Tested by curation_test, which asks ?sentence in the context this fact is stated in and requires it to be provable there. Names no sentex, so it is not target_following_predicate: retracting what made ?sentence provable leaves the example standing and turns that test red. ?term is the term being exemplified.")
 (binary_predicate positiveExample)
 (set/monotonic (instance_relation_predicate positiveExample))
+(quotedArg positiveExample 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment negativeExample
          "(negativeExample ?term (Quote ?sentence)) means that ?sentence is a FALSE example of ?term's usage — a use of ?term that does not hold. The second argument is only a quoted sentence, closed and written in full, as for positiveExample. Tested by curation_test, which asks ?sentence in the context this fact is stated in and requires it NOT to be provable there; unknown is enough, so the KB need not prove the negation. Names no sentex, so it is not target_following_predicate. ?term is the term being exemplified.")
 (binary_predicate negativeExample)
 (set/monotonic (instance_relation_predicate negativeExample))
+(quotedArg negativeExample 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment borderlineExample
          "(borderlineExample ?term (Quote ?sentence)) means that ?sentence is a BORDERLINE example of ?term's usage — a case where whether it holds is arguable. The second argument is only a quoted sentence, closed and written in full, as for positiveExample. Truth-agnostic by design: curation_test does not check whether ?sentence is provable. Names no sentex, so it is not target_following_predicate.")
 (binary_predicate borderlineExample)
 (set/monotonic (instance_relation_predicate borderlineExample))
+(quotedArg borderlineExample 1 denotational_term)   ;; the exemplified term, taken as written
 
 (termsRelated positiveExample negativeExample borderlineExample)
 
@@ -1970,18 +1997,21 @@
 (binary_predicate positiveExampleComment)
 (set/monotonic (instance_relation_predicate positiveExampleComment))
 (arg positiveExampleComment 2 string)
+(quotedArg positiveExampleComment 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment negativeExampleComment
          "(negativeExampleComment ?term ?text) means that ?text describes, as a string, a FALSE example of ?term: something ?term does not hold of, or a use of ?term that is false. The string sibling of negativeExample, for an example that is not a sentence the KB can state. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and no test checks ?text against the KB.")
 (binary_predicate negativeExampleComment)
 (set/monotonic (instance_relation_predicate negativeExampleComment))
 (arg negativeExampleComment 2 string)
+(quotedArg negativeExampleComment 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment borderlineExampleComment
          "(borderlineExampleComment ?term ?text) means that ?text describes, as a string, a BORDERLINE example of ?term: a case where whether ?term holds is arguable. The string sibling of borderlineExample, for an example that is not a sentence the KB can state. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and no test checks ?text against the KB.")
 (binary_predicate borderlineExampleComment)
 (set/monotonic (instance_relation_predicate borderlineExampleComment))
 (arg borderlineExampleComment 2 string)
+(quotedArg borderlineExampleComment 1 denotational_term)   ;; the exemplified term, taken as written
 
 (termsRelated positiveExample positiveExampleComment)
 (termsRelated negativeExample negativeExampleComment)

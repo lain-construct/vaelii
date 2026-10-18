@@ -190,11 +190,13 @@ entailment is a derived, justified, retractable sentex under truth maintenance.
 constraint-only reading). Entailing changes what a KB *contains*, not only what it
 answers, so the constraint-only reading stays one `binding` away.
 
-**No shipped `arg`-family declaration types an argument `thing`.** Such a declaration
+**An `arg`-family declaration may type an argument `thing`.** `(arg P n thing)` says that
+position `n` holds a term of any kind and that no narrower type is right for it. It
 rejects nothing under the constraint-only reading, and under the entailing one it derives
-only `(thing X)` (`starter_test/no-shipped-declaration-makes-an-argument-a-thing`). A
-`(genlArg P n thing)` declaration says position `n` holds a type, and the constraint-only
-reading convicts an individual there.
+only `(thing X)`. A `(genlArg P n thing)` declaration says position `n` holds a type, and
+the constraint-only reading convicts an individual there. A position that holds a term
+taken as written declares an expression type with `quotedArg`, as
+`(quotedArg comment 1 denotational_term)` does.
 
 **Both readings prove the same sentences over the shipped ontology.** A membership or
 `genl` edge an argument declaration in `resources/kb/` derives is written in a KB file
@@ -422,12 +424,13 @@ it again (`special/rederive-descended`), as for a `genl` route.
 
 The starter's `(arg parentOf 1 organism)` lives in CxUniverse (`life.txt`) while the individuals live in
 `CxNaturalWorld`, below it, so a `parentOf` fact there derives `(organism X)` in
-`CxNaturalWorld`. Every argument position in the shipped ontology is declared, so a
-toggle-on starter load derives a membership per declared position, less the ones
-pruning withholds (the table under [Cost](#cost)). The root's own `genl` supertype
-position is the single undeclared one, and `core.txt` says why beside it: `thing` cannot be
-a proper subtype of itself, so the constraint the root would fail is the wrong constraint
-rather than a missing one.
+`CxNaturalWorld`. A toggle-on starter load derives a membership per declared position,
+less the ones pruning withholds (the table under [Cost](#cost)). Each argument position
+of arity 2 and up in the shipped ontology is declared, except the ones `ontology_test`'s
+`undeclared-positions` names: the two `genl` positions, the example predicates' quoted
+sentence and the aggregation operators' slots. `core.txt` says why beside `genl`: `thing`
+cannot be a proper subtype of itself, so the constraint the root would fail is the wrong
+constraint rather than a missing one.
 
 ### Where a mint is placed
 
