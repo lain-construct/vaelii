@@ -1576,7 +1576,9 @@ one. The mechanism has three parts, and a family adds one row to each:
    discovery found (`inherited/install-inherited!`).
 2. **Read by the placement pass.** `chain/place-nogoods!` reads each family's
    candidates the pass moved, and a moved `genlCx` edge's reach reads the candidates
-   stated there (`decide/handles-at`).
+   stated there (`decide/handles-at`). The pass computes the reach only when a family
+   other than the arity refresh has work, since the arity refresh reads none of it
+   (`lein perf`'s `recover-over-a-context-chain`).
 3. **Placed with the verdict the network's classes give.** The pass stores the
    `contradicts` and, for a unique weakest `:default` member, its `defeat` at each
    vantage, and drops the placements the current state no longer gives. A read applies

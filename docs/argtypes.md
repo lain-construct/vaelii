@@ -468,7 +468,9 @@ Each arrival direction reaches the placement:
 - a **`genlCx` edge arriving** draws over the facts stated in the contexts a context under
   its `sub` sees and its `super` does not, and the declarations stated there over the facts
   stated where the edge newly shows `sub` (`entail-under-context-edge`), which `lein
-  perf`'s `genlcx-edge-beside-seen-declared-facts` holds;
+  perf`'s `genlcx-edge-beside-seen-declared-facts` holds. An edge whose newly shown
+  contexts store nothing draws nothing, which `genlcx-edge-showing-an-empty-context`
+  holds;
 - a **`genlCx` edge leaving** takes the mints that named it, and `rederive-descended`
   draws the pair again at the placements that stand. A context under its `sub` can also
   become a maximal common descendant of a pair placed in a context it saw only through the
