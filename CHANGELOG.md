@@ -148,6 +148,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* `scripts/with-foreign.sh <task>` is gone; run `lein with-profile
   +with-foreign <task>`.
 
+- **`admitsArgnum`'s six definition rules run backward, so an answer has a proof in the
+  logic.** core.txt states them as `set/backwardRule` where it stated them as
+  `set/inertRule`. `query (admitsArgnum doneBy ?n)` answers `1` and `2`, and
+  `(admitsArgnum ?r 7)` answers each `unbounded_arity` relation; each answer's
+  `{:proof? true}` tree cites the rule that derives it. A ground goal is still answered by
+  `AdmitsArgnumProver`, which now runs beside the rules rather than alone. The rules store
+  no `admitsArgnum` fact. A test pins `(at_least_binary doneBy)`, reached through
+  `(genl binary at_least_binary)`. [inference.md](docs/inference.md).
+
 ### Fix: answers
 
 - **`why-not` of a handle answers `:excepted` for a conclusion stored with a guard
