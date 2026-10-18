@@ -1,20 +1,25 @@
-;; CxComputing — a vocabulary of software tools, their invocations and receipts, media
-;; resources and network names. Sees the shared upper ontology via CxUniverse. CxWell
-;; does not see it, so the everyday contexts below CxWell read no computing relation. A
-;; context opts in by placing itself under CxComputing. CxComputing states no rule.
+;; CxTra — vocabulary that is generally useful but specific to one domain, outside the
+;; starter contexts CxWell sees: software tools, their invocations and receipts, media
+;; resources and network names, and perception relations. Sees the shared upper
+;; ontology via CxUniverse. CxWell does not see it, so the everyday contexts below CxWell
+;; read none of this vocabulary. A context opts in by placing itself under CxTra.
+
+(genlCx CxTra CxUniverse)
+(comment CxTra "The opt-in middle context for vocabulary that is generally useful but specific to one domain, such as computing and perception, and so is not in a starter context that CxWell sees. CxTra sees CxUniverse. CxWell does not see CxTra, so a context reads the vocabulary only by placing itself under CxTra.")
+
+;; ==== computing ===========================================================
+;; The computing relations state no rule.
 ;;
 ;; The sixteen computing kinds that the relations here are typed over
 ;; (computational_system, software_tool, tool_invocation, media_resource, ip_address and
 ;; the kinds below them) are stated here too, with their comments, genl edges and
-;; disjointness. A context that does not see CxComputing reads none of them.
+;; disjointness. A context that does not see CxTra reads none of them.
 ;;
 ;; Two positions declare no type and are rows of ontology_test's untyped-positions
 ;; roster. Position 1 of agentHasTool holds whatever can invoke a tool, and the upper
 ;; ontology ships no type for that: registered_agent names a registered koinii
 ;; participant (resources/kb/koinii/CxRegistry.txt). Position 3 of toolArgType holds a
 ;; type of any kind.
-
-(genlCx CxComputing CxUniverse)
 
 ;; ---- the computing kinds: the types the relations below are typed over ----
 ;; A software_tool is software that performs one bounded operation per invocation. It
@@ -184,3 +189,57 @@
 (set/monotonic (instance_relation_predicate dnsResolvesTo))
 (quotedArg dnsResolvesTo 1 string)
 (quotedArg dnsResolvesTo 2 string)
+
+;; ==== perception ==========================================================
+;; Arg 1 of every perception relation names the perceiver and carries no arg declaration:
+;; vaelii's `registered_agent` names a registered koinii participant
+;; (resources/kb/koinii/CxRegistry.txt), which is a membership mark for an
+;; adjudication registry rather than a general type for an entity with agency, and
+;; the upper ontology ships no such type, so no type below `thing` covers the
+;; position (`ontology_test`'s `untyped-positions` roster, which `(arg … 1 thing)`
+;; would convict: `starter_test`/`no-shipped-declaration-makes-an-argument-a-thing`).
+;; `seeImage` and `watchVideo`'s second argument is the same: a thing of any kind, so
+;; it carries no declaration either.
+;;
+;; `sees` types its second argument `spatial`, and an image or a video need not be
+;; located.  A genl edge from seeImage or watchVideo to sees would carry that declaration
+;; down and mint `(spatial Img)` from `(seeImage Ann Img)`, so a rule guarded by the
+;; argument type concludes `sees` instead.
+
+;; ---- the perception chain ------------------------------------------------
+(comment perceives
+         "(perceives ?perceiver ?perceived) means ?perceiver takes in ?perceived through some sense. The most general perception relation; sees specializes it, and seeImage and watchVideo reach it through sees for a spatial second argument.")
+(set/monotonic (instance_relation_predicate perceives))
+(arg perceives 2 spatial)
+
+(comment sees
+         "(sees ?seer ?seen) means ?seer takes in ?seen through sight. Spec of perceives.")
+(set/monotonic (instance_relation_predicate sees))
+(arg sees 2 spatial)
+(genl sees perceives)
+
+(comment seeImage
+         "(seeImage ?seer ?image) means ?seer takes in a static image through sight and perceives what it shows. Its second argument is the image itself, which need not be located, so it concludes sees only of a spatial image (the rule below).")
+(set/monotonic (instance_relation_predicate seeImage))
+(set/forwardRule
+  (implies (and (seeImage ?x ?y) (spatial ?y))
+           (sees ?x ?y)))
+
+(comment watchVideo
+         "(watchVideo ?watcher ?video) means ?watcher takes in a video, a temporal sequence of images, through sight. The video need not be located, so it concludes sees only of a spatial video (the rule below).")
+(set/monotonic (instance_relation_predicate watchVideo))
+(set/forwardRule
+  (implies (and (watchVideo ?x ?y) (spatial ?y))
+           (sees ?x ?y)))
+
+;; ---- image_viewing: the ability, read as an event kind -------------------
+;; life.txt's hasCapability takes an event kind as its second argument
+;; (resources/kb/upper/life.txt): (hasCapability ?x ?eventKind) means ?x can be the
+;; doer of an event of that kind. image_viewing pairs with seeImage the way flying
+;; pairs with flies: the relation states who is looking, the event kind states the
+;; ability to be its doer. Taking in an image changes nothing about what it depicts,
+;; so image_viewing is a kind of acausal_event, abstract.txt's intersection of acausal
+;; and event, whose own comment names an observation as an example.
+(comment image_viewing
+         "An event of taking in a static image through sight and perceiving what it shows. The event-kind counterpart of seeImage: (hasCapability ?x image_viewing) means ?x can be the doer of one.")
+(genl image_viewing acausal_event)

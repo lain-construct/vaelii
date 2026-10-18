@@ -44,11 +44,6 @@
         - CxChange.txt    — a simple event calculus: a state persists until an
                                  event ends it, so holdsAt is inertia over what
                                  initiates and terminates say.
-        - CxComputing.txt — relations over software tools, their invocations and
-                                 receipts, media resources and DNS names, and
-                                 the kinds the relations are typed over.
-                                 Opt-in: it sees CxUniverse and CxWell does not
-                                 see it.
         - CxKinship.txt   — grandparentOf, ancestorOf, olderThan, and parenthood
                                  from maternity and paternity.
         - CxMereology.txt — a part is located where its whole is; owning a whole
@@ -58,9 +53,6 @@
                                  mercury is liquid, metal_stuff is solid by default.
                                  Opt-in: it sees CxUniverse and CxWell does not
                                  see it.
-        - CxPerception.txt — perception relations: perceives, sees, seeImage,
-                                 watchVideo. Opt-in: it sees CxUniverse and CxWell
-                                 does not see it.
         - CxSize.txt      — comparative size: stated between kinds, computed
                                  between objects from their measures.
         - CxSocial.txt    — what acquaintance follows from; employment as one way
@@ -73,6 +65,13 @@
                                  an existing starter theory with vocabulary
                                  most contexts under the base theory have no
                                  occasion to see.
+        - CxTra.txt       — vocabulary that is generally useful but specific to
+                                 one domain: relations over software tools, their
+                                 invocations and receipts, media resources and DNS
+                                 names, the kinds the relations are typed over, and
+                                 the perception relations perceives, sees, seeImage
+                                 and watchVideo. Opt-in: it sees CxUniverse and
+                                 CxWell does not see it.
 
   The topology, most general (top) to most specific (bottom): CxUniverse holds the upper
   ontology; each middle context sees CxUniverse and not the other middle contexts; and
