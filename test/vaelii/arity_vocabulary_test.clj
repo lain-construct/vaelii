@@ -240,7 +240,7 @@
     (is (v/genl? kb 'at_least_ternary 'at_least_binary))))
 
 (def ^:private admits-argnum-definition
-  "admitsArgnum's defining rules as CxUniverse states them, inert."
+  "admitsArgnum's defining rules as CxUniverse states them, backward."
   '[(implies (relation ?relation) (admitsArgnum ?relation 1))
     (implies (at_least_binary ?relation) (admitsArgnum ?relation 2))
     (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3))
@@ -253,20 +253,63 @@
                   (not (greaterThan ?position ?arity)))
              (admitsArgnum ?relation ?position))])
 
-(tu/deftest-kb admits-argnum-states-its-definition-as-inert-rules
-  (testing "each defining rule is stored in CxUniverse, believed, and run by neither engine"
+(tu/deftest-kb admits-argnum-states-its-definition-as-backward-rules
+  (testing "each defining rule is stored in CxUniverse, believed, and run backward only"
     (doseq [r admits-argnum-definition]
-      (let [h (v/handle-of kb (list 'set/inertRule r) 'CxUniverse)]
+      (let [h (v/handle-of kb (list 'set/backwardRule r) 'CxUniverse)]
         (is (some? h) (str "stored: " (pr-str r)))
         (when h
           (is (v/in? kb h))
-          (is (= #{} (:engines (v/sentex kb h))))))))
-  (testing "and none fires: no admitsArgnum fact is stored"
+          (is (= #{:backward} (:engines (v/sentex kb h))))))))
+  (testing "and none forward-chains: no admitsArgnum fact is stored"
     (is (empty? (v/sentexes-matching kb '(admitsArgnum ?r ?n) 'CxWell))))
   (testing "while the prover answers as it did"
     (is (v/ask? kb '(admitsArgnum parentOf 2) 'CxWell))
     (is (not (v/ask? kb '(admitsArgnum parentOf 3) 'CxWell)))
     (is (v/ask? kb '(admitsArgnum partition 40) 'CxWell))))
+
+(defn- cited-rules
+  "The rule handles a `query` proof tree cites, at any depth."
+  [tree]
+  (cond (map? tree)        (cond-> (into #{} (mapcat cited-rules) (:because tree))
+                             (= :rule (:via tree)) (conj (:rule tree)))
+        (sequential? tree) (into #{} (mapcat cited-rules) tree)
+        :else              #{}))
+
+(defn- admitted-with-proofs
+  "Each answer to the admitsArgnum `goal`, as its bindings mapped to the rule handles its
+  proof cites."
+  [kb goal]
+  (into {} (map (juxt :bindings (comp cited-rules :proof)))
+        (v/query kb goal 'CxUniverse {:max-depth 1 :proof? true})))
+
+(tu/deftest-kb admits-argnum-answers-are-justified-by-its-definition-rules
+  ;; The prover answers a ground (admitsArgnum R n).  A goal with the relation or the
+  ;; position open is answered by the definition rules, and each answer's proof cites the
+  ;; rule that derives it.  The four relations below differ in their arity signature.
+  (let [[relation-rule binary-rule ternary-rule unbounded-rule]
+        (mapv #(v/handle-of kb (list 'set/backwardRule %) 'CxUniverse) admits-argnum-definition)
+        cites? (fn [answers bindings rule] (contains? (get answers bindings #{}) rule))]
+    (testing "doneBy, a binary_predicate: 1 through relation, 2 through at_least_binary, no 3"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum doneBy ?n))]
+        (is (cites? answers '{?n 1} relation-rule))
+        (is (cites? answers '{?n 2} binary-rule))
+        (is (not (contains? answers '{?n 3}))))
+      (is (not (v/ask? kb '(admitsArgnum doneBy 3) 'CxUniverse))))
+    (testing "arg, a ternary_predicate: 3 through at_least_ternary, no 4"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum arg ?n))]
+        (is (cites? answers '{?n 1} relation-rule))
+        (is (cites? answers '{?n 2} binary-rule))
+        (is (cites? answers '{?n 3} ternary-rule))
+        (is (not (contains? answers '{?n 4}))))
+      (is (not (v/ask? kb '(admitsArgnum arg 4) 'CxUniverse))))
+    (testing "functionCorrespondingPredicate, bounded variable arity 2 to 3: 1 and 2"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum functionCorrespondingPredicate ?n))]
+        (is (cites? answers '{?n 1} relation-rule))
+        (is (cites? answers '{?n 2} binary-rule))))
+    (testing "different, unbounded variable arity: 2 through at_least_binary, 7 through unbounded_arity"
+      (is (cites? (admitted-with-proofs kb '(admitsArgnum different ?n)) '{?n 2} binary-rule))
+      (is (cites? (admitted-with-proofs kb '(admitsArgnum ?r 7)) '{?r different} unbounded-rule)))))
 
 (tu/deftest-kb admits-argnum-answers-the-position-query
   ;; #68: (admitsArgnum R n) is answered at query time from R's declared arity and
