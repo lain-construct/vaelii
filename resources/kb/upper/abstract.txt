@@ -54,11 +54,14 @@
 (orthogonal biological container)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
+(set/monotonic (time_invariant_relation building))
 
 (comment clothing "An artifact worn on the body.")
+(set/monotonic (time_invariant_relation clothing))
 (genl clothing made)
 
 (comment container "A made thing whose function is to hold other objects in its interior. Every container is made and hollow.")
+(set/monotonic (time_invariant_relation container))
 (positiveExampleComment container "a cup")
 (positiveExampleComment container "a box")
 (positiveExampleComment container "a bag")
@@ -90,8 +93,10 @@
 (genl fin body_part)
 
 (comment food "A physical object eaten by an animal for nourishment.")
+(set/monotonic (time_agnostic_relation food))
 
 (comment formation "A natural tangible whose form came from physical processes, neither grown nor made.")
+(set/monotonic (time_invariant_relation formation))
 (positiveExampleComment formation "a rock")
 (positiveExampleComment formation "a crystal")
 (positiveExampleComment formation "a river")
@@ -107,12 +112,14 @@
 (genl fur body_part)
 
 (comment furniture "An artifact for use in a room.")
+(set/monotonic (time_invariant_relation furniture))
 (positiveExampleComment furniture "a chair")
 (positiveExampleComment furniture "a table")
 (positiveExampleComment furniture "a bed")
 (genl furniture made)
 
 (comment glass_stuff "A hard, brittle, transparent substance.")
+(set/monotonic (time_invariant_relation glass_stuff))
 (genl glass_stuff substance)
 
 (comment hollow "Has, at that time, an interior space that other things can occupy. A thing can stop being hollow and still exist: a box crushed flat stops being hollow, and a hand is hollow only while it is cupped. What a thing is shaped like, not what it is for, and a container is one kind of made hollow thing. Spatiotemporal rather than tangible, since a cave is a space in rock and is made of nothing.")
@@ -170,6 +177,7 @@
 (set/monotonic (transitive locatedIn))
 
 (comment machine "A mechanism with parts that move relative to each other, driven by an energy source. Defined by its parts, not its use, so a stopped clock is still one.")
+(set/monotonic (time_invariant_relation machine))
 (positiveExampleComment machine "a wind-up clock")
 (positiveExampleComment machine "a car engine")
 (positiveExampleComment machine "a hand-cranked pencil sharpener")
@@ -178,6 +186,7 @@
 (genl machine mechanism)
 
 (comment made "A tangible shaped by an agent's action, or by something made. Contrast natural.")
+(set/monotonic (time_invariant_relation made))
 (positiveExampleComment made "a chair")
 (positiveExampleComment made "a widget from a factory machine")
 (positiveExampleComment made "steel")
@@ -208,9 +217,11 @@
 (arg madeOf 2 substance)
 
 (comment metal_stuff "A hard, dense, conducting substance — iron, copper, gold.")
+(set/monotonic (time_invariant_relation metal_stuff))
 (genl metal_stuff substance)
 
 (comment mercury "The metallic element quicksilver, as stuff: the metal in an old thermometer, a barometer or a dental amalgam. Mercury is liquid at ordinary room temperature and pressure. Mercury freezes at about -39 °C, so its state of matter depends on the temperature a context assumes.")
+(set/monotonic (time_invariant_relation mercury))
 (genl mercury metal_stuff)
 ;; A portion of mercury is an individual, so mercury is a first-order `type`.  Mercury is
 ;; not a stuff_type_by_substance: that metatype separates its members, and mercury is
@@ -218,6 +229,7 @@
 (type mercury)
 
 (comment natural "A tangible whose form no living thing's action gave it. Contrast made.")
+(set/monotonic (time_invariant_relation natural))
 (positiveExampleComment natural "a wild sheep")
 (positiveExampleComment natural "a coral reef")
 (positiveExampleComment natural "a rock")
@@ -225,6 +237,7 @@
 (positiveExampleComment natural "a star")
 
 (comment organization "A group of people acting as one body.")
+(set/monotonic (time_invariant_relation organization))
 (positiveExampleComment organization "a company")
 (positiveExampleComment organization "a school")
 (positiveExampleComment organization "a team")
@@ -303,9 +316,11 @@
 (genl root body_part)
 
 (comment stone "A hard mineral substance.")
+(set/monotonic (time_invariant_relation stone))
 (genl stone substance)
 
 (comment substance "A homogeneous stuff (water, iron) rather than a countable object.")
+(set/monotonic (time_invariant_relation substance))
 (genl substance tangible)
 ;; substance's instances are individuals, so it is a first-order `type`; the interArg on
 ;; typeGenl requires this because the stuff metatypes classify it (typeGenl … substance).
@@ -547,6 +562,7 @@
 (set/forwardRule (implies (and (tangibleOutput ?e ?x) (doneBy ?e ?d) (made ?d)) (made ?x)))
 
 (comment vehicle "An artifact for transporting people or goods.")
+(set/monotonic (time_invariant_relation vehicle))
 (genl vehicle made)
 
 (comment wing "A body part an animal flies with, such as a bird's, a bat's or an insect's.")
@@ -556,6 +572,7 @@
 (comment (disjoint wing fur) "A bat's wing has fur on it: the fur is part of the wing, and nothing is both a wing and fur.")
 
 (comment wood "The fibrous substance a tree is made of.")
+(set/monotonic (time_invariant_relation wood))
 (genl wood substance)
 
 ;; --- Lacuna proposals (upper ontology overhaul) ---

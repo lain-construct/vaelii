@@ -107,6 +107,7 @@
 
 (comment dwelling
          "A residential unit.")
+(set/monotonic (time_varying_relation dwelling))
 (positiveExampleComment dwelling "a house")
 (positiveExampleComment dwelling "an apartment")
 (positiveExampleComment dwelling "a room")
