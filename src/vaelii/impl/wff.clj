@@ -570,6 +570,14 @@
         " which vaelii does not build) — ask it instead: (ask? kb '(different "
         (str/join " " args) "))")])
 
+(defn common-genl-problems
+  "`minCommonGenl` and `maxCommonSpec` are **not assertible**.  Each is computed from the
+  `genl` closure by the prover that answers it (`provers/CommonGenlProver`), which reads
+  no stored fact, so a stored one would be a fact no read returns."
+  [_ [f & args] _context]
+  [(str f " is not assertible: it is computed from the genl closure and never stored —"
+        " assert the genl edges and ask it, e.g. (ask? kb '(" f " " (str/join " " args) "))")])
+
 (defn brave-cautious-problems
   "`bravely` and `cautiously` are **not assertible**.  Each is a *read* on the current
   dilemmas — `(cautiously S)` is S in every optimal labeling, `(bravely S)` in some —

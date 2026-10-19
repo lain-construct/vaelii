@@ -2248,6 +2248,13 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   summed, an upper bound on the answer that costs a cached closure read per partner.
   **Complete (100)**: the caches are built from the stored declarations and follow
   belief, so they hold what a fact or a forward rule could say.
+- **CommonGenlProver** — `(minCommonGenl ?x t1 t2 …)` and `(maxCommonSpec ?x t1 t2 …)`,
+  every input type ground. An open first argument binds each member of
+  `taxonomy/min-common-genls` (or `max-common-specs`) of the inputs, read through the
+  edges the asking context sees. A ground first argument holds when it is a member, and
+  `(not (minCommonGenl x t1 …))` holds when it is not, so `argue` answers `:false` for a
+  type outside the set rather than `:unknown`. Both predicates are refused as stored
+  facts. `:lookup`, 100.
 - **Generic relation provers** — from predicate metadata: `TransitivePredicateProver`
   (transitive closure over facts for a declared-`transitive` predicate; `:compute`, **70**
   — it reads the stored facts and the rule conclusions already among them, but not a rule

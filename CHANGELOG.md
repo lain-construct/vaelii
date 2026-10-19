@@ -32,6 +32,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **`minCommonGenl` and `maxCommonSpec` answer the minimal common supertypes and maximal
+  common subtypes of their later arguments.** `CommonGenlProver` computes both from the
+  `genl` closure through the edges the asking context sees. `(minCommonGenl ?x dog
+  cat)` binds `?x` to each member of `(min-common-genls kb [dog cat])`. A
+  ground first argument proves true when it is a member and proves false when it is not,
+  so `argue` answers `:false` for a type outside the set rather than `:unknown`.
+  `maxCommonSpec` answers `max-common-specs` the same way. `core.txt` declares both
+  variable-arity with `arityMin` 2, and both are query operators: asserting one is
+  refused as `:not-well-formed`. [inference.md](docs/inference.md).
+
 - **`common-genls`, `common-specs`, `min-common-genls` and `max-common-specs` read the
   supertypes and subtypes a collection of types shares.** `(common-genls kb [a b])` is the
   intersection of `(genls kb a)` and `(genls kb b)`, reflexive as `genls` is, and

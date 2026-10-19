@@ -870,7 +870,7 @@
   `cat` the set is where a new type above both would sit.  Not reflexive: for `dog`
   and `mammal` under `dog ⊂ mammal ⊂ animal` the set is `#{animal}`.  One distinct type
   gives `min-genls` of it, exactly.  A set.  With a `context`, only edges visible from it
-  count.
+  count.  `(minCommonGenl ?x t1 t2 …)` asks the same question as a query.
 
   The short arity reads the KB-wide edge set, as `genls`' does."
   ([kb types] (tax/min-common-genls-global (reasoning/taxonomy kb) types))
@@ -879,7 +879,8 @@
 (defn max-common-specs
   "The **maximal** common subtypes of `types`: the members of `common-specs` that are no
   member of `types` and have no other such member strictly above them.  One distinct type
-  gives `max-specs` of it, exactly.  `min-common-genls`, the other direction.
+  gives `max-specs` of it, exactly.  `min-common-genls`, the other direction, and
+  `(maxCommonSpec ?x t1 t2 …)` as a query.
 
   The short arity reads the KB-wide edge set, as `genls`' does."
   ([kb types] (tax/max-common-specs-global (reasoning/taxonomy kb) types))

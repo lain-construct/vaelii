@@ -7532,6 +7532,10 @@
     'defnIff        {:wff defn-wff-problems}
     ;; `different` is never stored at all — its wff arm *is* the refusal
     'different      {:wff wff/different-problems}
+    ;; the minimal common genls and maximal common specs, computed from the genl closure
+    ;; by provers/CommonGenlProver and never stored
+    'minCommonGenl  {:wff wff/common-genl-problems}
+    'maxCommonSpec  {:wff wff/common-genl-problems}
     ;; ...and the query operators, never stored either, for the same reason: negation as
     ;; failure (docs/naf.md) and the five aggregates below, which are the same family and
     ;; take the same arm (docs/aggregate.md).  `forall` is sugar for a nested `unknown`

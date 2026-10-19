@@ -2,13 +2,15 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.common-genls-test
   "The common supertypes and common subtypes of several types, read through the API
-  (`common-genls`, `min-common-genls`, `common-specs`, `max-common-specs`).
+  (`common-genls`, `min-common-genls`, `common-specs`, `max-common-specs`) and through
+  the two computed predicates `minCommonGenl` and `maxCommonSpec`.
 
   The hierarchy every test builds has a diamond and a chain under one top:
 
       a ⊂ left, a ⊂ right, b ⊂ left, b ⊂ right, left ⊂ top, right ⊂ top
       c ⊂ mid, d ⊂ mid, mid ⊂ top, top ⊂ thing"
   (:require [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -93,3 +95,60 @@
       (is (not (contains? (v/common-genls kb [a b] 'CxUniverse) side_kind)))
       (is (= #{a b} (v/max-common-specs kb [side_kind top] CxSide)))
       (is (= #{} (v/max-common-specs kb [side_kind top] 'CxUniverse))))))
+
+(defn- answers
+  "The values `query` binds `?x` to for `goal` in `context`, as a set."
+  [kb goal context]
+  (into #{} (map #(get % '?x)) (v/query kb goal context)))
+
+;; ---- the predicates ----------------------------------------------------------
+
+(tu/deftest-kb min-common-genl-with-an-open-first-argument-binds-each-minimum
+  (with-hierarchy
+    (is (= #{left right} (answers kb (list 'minCommonGenl '?x a b) 'CxUniverse)))
+    (is (= #{mid} (answers kb (list 'minCommonGenl '?x c d) 'CxUniverse)))
+    (is (= #{top} (answers kb (list 'minCommonGenl '?x a b c) 'CxUniverse)))
+    (testing "one input type: the bindings are its min-genls"
+      (is (= (v/min-genls kb a) (answers kb (list 'minCommonGenl '?x a) 'CxUniverse))))))
+
+(tu/deftest-kb max-common-spec-with-an-open-first-argument-binds-each-maximum
+  (with-hierarchy
+    (is (= #{a b} (answers kb (list 'maxCommonSpec '?x left right) 'CxUniverse)))
+    (is (= #{c d} (answers kb (list 'maxCommonSpec '?x mid top) 'CxUniverse)))
+    (is (= #{} (answers kb (list 'maxCommonSpec '?x a c) 'CxUniverse)))))
+
+(tu/deftest-kb a-closed-first-argument-proves-true-or-proves-false
+  (with-hierarchy
+    (testing "a minimum proves true"
+      (is (= :true (:verdict (v/argue kb (list 'minCommonGenl left a b) 'CxUniverse))))
+      (is (= :true (:verdict (v/argue kb (list 'maxCommonSpec a left right) 'CxUniverse)))))
+    (testing "a common genl that is not minimal proves false, not unknown"
+      (is (= :false (:verdict (v/argue kb (list 'minCommonGenl top a b) 'CxUniverse))))
+      (is (v/ask? kb (list 'not (list 'minCommonGenl top a b)) 'CxUniverse)))
+    (testing "a type that is no common genl at all proves false"
+      (is (= :false (:verdict (v/argue kb (list 'minCommonGenl mid a b) 'CxUniverse))))
+      (is (= :false (:verdict (v/argue kb (list 'maxCommonSpec c left right) 'CxUniverse)))))))
+
+(tu/deftest-kb the-predicates-read-the-edges-the-asking-context-sees
+  (with-hierarchy
+    (tu/with-terms [CxSide side_kind]
+      (v/assert kb (list 'genlCx CxSide 'CxUniverse) 'CxUniverse)
+      (edges! kb 'CxUniverse [[side_kind 'thing]])
+      (edges! kb CxSide [[a side_kind] [b side_kind]])
+      (is (= #{left right side_kind} (answers kb (list 'minCommonGenl '?x a b) CxSide)))
+      (is (= #{left right} (answers kb (list 'minCommonGenl '?x a b) 'CxUniverse)))
+      (is (= :true (:verdict (v/argue kb (list 'minCommonGenl side_kind a b) CxSide))))
+      (is (= :false (:verdict (v/argue kb (list 'minCommonGenl side_kind a b) 'CxUniverse)))))))
+
+(tu/deftest-kb the-predicates-are-declared-variable-arity-and-are-not-assertible
+  (with-hierarchy
+    (doseq [p '[minCommonGenl maxCommonSpec]]
+      (testing (str p)
+        (is (v/ask? kb (list 'variable_arity_predicate p) 'CxUniverse))
+        (is (v/ask? kb (list 'arityMin p 2) 'CxUniverse))
+        (is (:enforced (v/interpreted p)))
+        (let [e (try (v/assert kb (list p top a b) 'CxUniverse)
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :not-well-formed (:type (ex-data e))))
+          (is (str/includes? (str (ex-message e)) (str p " is not assertible"))))))))

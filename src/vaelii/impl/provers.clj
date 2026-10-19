@@ -13,7 +13,8 @@
   `ask` runs the cheapest *complete* prover alone (fewest `est-bindings`);
   otherwise it unions the applicable provers cheapest first by `cost` tier.
   Built-in provers: transitivity (genl/genlCx,
-  complete via the cached closures), disjointness (complete), `different` (the
+  complete via the cached closures), disjointness (complete), `minCommonGenl` and
+  `maxCommonSpec` (complete, read off the same closures), `different` (the
   unique-name assumption read off the equality closure — ground only, see
   docs/equality.md), facts (the index), and rules (backward chaining through the same
   engine).
@@ -398,6 +399,62 @@
         ;; `Duplicate key` the transitivity prover above states its way past
         (= a b) (map (fn [x] {a x}) (self-disjoint tx context))
         :else (map (fn [[x y]] {a x b y}) (disjoint-cross tx context))))))
+
+;; ---- the minimal common genls and maximal common specs -------------------
+;;
+;; `(minCommonGenl ?x t1 t2 …)` binds `?x` to each member of `tax/min-common-genls` of the
+;; input types, and `(maxCommonSpec ?x t1 t2 …)` to each member of `tax/max-common-specs`.
+;; With argument 1 ground the goal is a membership test, and its negation `(not
+;; (minCommonGenl x t1 …))` holds when `x` is no member: the set is computed from the
+;; closure in full, so a type outside it is proved outside it rather than left unknown.
+;; Both predicates are query-only (`wff/common-genl-problems`), so no stored fact or rule
+;; conclusion answers either one beside this prover.
+
+(def common-genl-predicates
+  "The predicates `CommonGenlProver` answers, each to the taxonomy read that computes it."
+  {'minCommonGenl tax/min-common-genls
+   'maxCommonSpec tax/max-common-specs})
+
+(defn- common-genl-goal
+  "`[read result types]` when `goal` is `(P result t1 t2 …)` for a `common-genl-predicates`
+  functor `P`, every input type ground and `result` a variable or a ground term, else nil."
+  [goal]
+  (when (and (sequential? goal) (<= 3 (count goal)))
+    (when-let [read (get common-genl-predicates (first goal))]
+      (let [[_ result & types] goal]
+        (when (and (every? ground? types) (or (pvar? result) (ground? result)))
+          [read result types])))))
+
+(defn- common-genl-negation
+  "The `common-genl-goal` reading of a negated goal `(not (P result t1 …))` whose
+  `result` is ground, else nil."
+  [goal]
+  (when (and (rules/negative-literal? goal) (empty? (sx/free-vars goal)))
+    (common-genl-goal (second goal))))
+
+(defrecord CommonGenlProver []
+  Prover
+  (applicable? [_ _ goal _]
+    (boolean (or (common-genl-goal goal) (common-genl-negation goal))))
+  (est-bindings [_ kb goal context]
+    (if-let [[read result types] (common-genl-goal goal)]
+      (if (pvar? result) (count (read (reasoning/taxonomy kb) types context)) 1)
+      1))
+  (cost         [_ _ _ _] :lookup)
+  ;; Authoritative: the predicates are refused as stored facts, so nothing else reads a
+  ;; source this prover misses, and the set it tests against is complete over the closure.
+  (completeness [_ _ _ _] 100)
+  ;; scoped: the closures are read through the edges the asking context sees, and a
+  ;; `?ctx` context is the unscoped read, as for `genl`
+  (solve [_ kb goal context]
+    (let [tx (reasoning/taxonomy kb)]
+      (if-let [[read result types] (common-genl-goal goal)]
+        (let [found (read tx types context)]
+          (if (pvar? result)
+            (map (fn [t] {result t}) (nm/sort-by-content-key identity found))
+            (if (contains? found result) [{}] [])))
+        (let [[read result types] (common-genl-negation goal)]
+          (if (contains? (read tx types context) result) [] [{}]))))))
 
 ;; ---- generic relation reasoners (predicate metadata) --------------------
 
@@ -3056,7 +3113,7 @@
 ;; ---- the engine ---------------------------------------------------------
 
 (def default-provers
-  [(->TransitivityProver) (->DisjointnessProver)
+  [(->TransitivityProver) (->DisjointnessProver) (->CommonGenlProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
    (->EvaluableProver) (->ExpressionKindProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
