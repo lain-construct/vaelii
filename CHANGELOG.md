@@ -25,6 +25,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(relation X)`, now takes `animal` OUT, where `relation` was the one held in the clash.
   `greaterThan` is on the roster so that the `core.txt` rules concluding `at_least_binary`
   and `at_least_ternary` from `arity` and `arityMin` read roster antecedents only.
+  `at_least_ternary`, the quantity comparators (`quantityGreaterThan`,
+  `quantityGreaterThanOrEqual`, `quantityLessThan`, `quantityLessThanOrEqual`,
+  `sameQuantity`) and the argument declarations (`arg`, `arg1`, `arg2`, `arg3`) are on the
+  roster too, and `forced_monotonic_between_predicates` is declared of `genlInverse`, so a
+  `genlInverse` between two predicates is forced as a `genl` between them is, and a
+  denial of an `arg` declaration is never believed.
   [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
 
   *Migration:* retract one of two clashing arity policies; a defeat no longer picks one.

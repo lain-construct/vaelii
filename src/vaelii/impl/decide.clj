@@ -75,10 +75,20 @@
     bounded_arity         "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     unbounded_arity       "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     at_least_binary       "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    at_least_ternary      "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     arityMax              "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     admitsArgnum          "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     greaterThan           "a numeric comparator, a premise of core.txt's rules concluding (at_least_binary R) and (at_least_ternary R)"
-    lessThan              "a numeric comparator, the stored spelling of greaterThan"})
+    lessThan              "a numeric comparator, the stored spelling of greaterThan"
+    quantityGreaterThan        "a quantity comparator, computed from the unit table as greaterThan is from the numbers"
+    quantityGreaterThanOrEqual "a quantity comparator, computed from the unit table as greaterThan is from the numbers"
+    quantityLessThan           "a quantity comparator, computed from the unit table as lessThan is from the numbers"
+    quantityLessThanOrEqual    "a quantity comparator, computed from the unit table as lessThan is from the numbers"
+    sameQuantity               "a quantity comparator, computed from the unit table"
+    arg                   "an argument declaration, read beside the arity bindings"
+    arg1                  "a binary projection of arg, concluded from it and concluding it"
+    arg2                  "a binary projection of arg, concluded from it and concluding it"
+    arg3                  "a binary projection of arg, concluded from it and concluding it"})
 
 (def baseline-roster
   "The engine's own roster, `{kind #{predicate …}}`: every family's `:grounds` and every

@@ -468,17 +468,20 @@
     (is (= 1 (:stranded-count (stranded kb))))
     (is (= 4 (:position (first (:stranded (stranded kb))))))))
 
-(tu/deftest-kb a-disbelieved-declaration-is-not-listed
-  ;; a stored declaration that nobody believes constrains nothing for a reason that has
-  ;; nothing to do with its position, and naming it here would report the wrong defect
+(tu/deftest-kb a-denied-declaration-stays-listed-and-a-retracted-one-does-not
+  ;; arg is on the forced-monotonic roster, so a denial of a declaration is never
+  ;; believed and the declaration stays in belief and in the census: it is still the
+  ;; stranded position its author wrote.  It leaves the census only by retraction.
   (tu/with-terms [parentOf a_type]
     (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 3 a_type) 'CxUniverse {:strength :default})
-    (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
-    (is (= 1 (:stranded-count (stranded kb))))
-    (v/assert kb (list 'not (list 'arg parentOf 3 a_type)) 'CxUniverse
-              {:strength :monotonic})
-    (is (zero? (:stranded-count (stranded kb))) "out of belief, out of the census")))
+    (let [h (v/assert kb (list 'arg parentOf 3 a_type) 'CxUniverse {:strength :default})]
+      (v/assert kb (list 'binary_predicate parentOf) 'CxUniverse)
+      (is (= 1 (:stranded-count (stranded kb))))
+      (v/assert kb (list 'not (list 'arg parentOf 3 a_type)) 'CxUniverse
+                {:strength :monotonic})
+      (is (= 1 (:stranded-count (stranded kb))) "a denial of a roster literal is inert")
+      (v/retract! kb h)
+      (is (zero? (:stranded-count (stranded kb))) "out of the store, out of the census"))))
 
 (tu/deftest-kb the-limit-caps-the-stranded-list-and-not-its-count
   (tu/with-terms [a_type]
