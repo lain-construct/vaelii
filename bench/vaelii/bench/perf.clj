@@ -3200,6 +3200,25 @@
     (doall (for [_ (range 5)]
              (nanos (do (decide/rebuild-candidates! kb) (decide/synced kb)))))))
 
+(defn- genl-chain-child-first-in-one-batch
+  "A chain of n `genl` edges asserted child first in one `with-deferred-settle` batch,
+  the closing settle included, per edge, three readings on a KB each.
+
+  Each edge lifts its lower end above its new upper end and breaks the edge under it, so
+  the batch leaves the relation without a depth potential (`tax/local-lift`).  The settle
+  repairs it (`tax/restore-depths`) before its passes read `genl?`, which walks a
+  relation without one unpruned.  No rule reads a negated antecedent, so no edge reads
+  its lower end's spec closure (`special/negative-subsumption-seeds`)."
+  [n]
+  (doall (for [_ (range 3)]
+           (let [kb (fresh-kb)
+                 M  {:strength :monotonic}
+                 ch #(symbol (str "pGcf" %))]
+             (quot (nanos (v/with-deferred-settle kb
+                            (dotimes [i (dec n)]
+                              (v/assert kb (list 'genl (ch i) (ch (inc i))) 'CxPerf M))))
+                   n)))))
+
 (defn- arity-refresh-under-bound-chain
   "A chain of n predicates, each bound to two arguments in CxUniverse, then the arity
   shapes owed whole as `recover` owes them and settled (`decide/rebuild-candidates!`,
@@ -6170,6 +6189,17 @@
     :sizes     [250 4000]
     :max-ratio 2.0
     :run       arity-refresh-under-bound-chain}
+
+   ;; Both ends measured under `--only`, 2026-10-18, load 22-38: healthy 1.05x and 1.25x
+   ;; (0.196 against 0.206 ms/op).  With the negated-antecedent keys read after the spec
+   ;; closure, 4.85x (0.275 against 1.332).  With the depth repair in `settle-finish`
+   ;; alone, 3.60x at [256 2048] (1.213 against 4.366).
+   {:name      :genl-chain-child-first-in-one-batch
+    :group     :taxonomy
+    :claim     "a chain of 16x the genl edges asserted child first in one batch costs under 2x per edge"
+    :sizes     [256 4096]
+    :max-ratio 2.0
+    :run       genl-chain-child-first-in-one-batch}
 
    ;; Measured 2026-10-14 per hundred predicates: 0.844 ms at 256 and 0.486 ms at 4,096
    ;; (0.58x).  With the lengths below each predicate held in the bounded length entries,

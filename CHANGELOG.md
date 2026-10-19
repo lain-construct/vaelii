@@ -113,6 +113,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fix: performance
 
+- **A `genl` hierarchy loaded child first in one batch settles in time linear in its
+  edges.** A chain of 4,096 `genl` edges asserted in one `with-deferred-settle` batch took
+  46 s and grew 4x per doubling; it now takes 1.5 s. The settle repairs the depth
+  potential before its passes read `genl?`, and an edge reads its lower end's spec closure
+  for the negated-antecedent seeds only when a stored rule reads a negated antecedent.
+  *Migration:* none.
+  [taxonomy.md](docs/taxonomy.md#what-a-batch-does-to-the-depth-potential). Perf check
+  `genl-chain-child-first-in-one-batch` measures the growth.
+
 - **A settle that owes only the arity refresh does not read what its `genlCx` moves
   reach.** The nogood placement walked the ancestor set of every context a moved edge
   sits under whenever any nogood family had work, though only the membership, negation,

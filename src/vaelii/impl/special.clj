@@ -3587,9 +3587,11 @@
   The `genls` read is unscoped: a seed over-approximates, and the firing it triggers
   is placed in a context the join decides."
   [kb sub super]
-  (let [specs (signed-all (reasoning/taxonomy kb) :down sub)]
-    (when (some (fn [k] (and (vector? k) (contains? specs (second k))))
-                (reads/as-stored-rule-keys (:index kb)))
+  ;; the keys first: `sub`'s spec closure costs its subtree, and a KB reading no negated
+  ;; antecedent needs none of it
+  (let [nkeys (into [] (filter vector?) (reads/as-stored-rule-keys (:index kb)))
+        specs (when (seq nkeys) (signed-all (reasoning/taxonomy kb) :down sub))]
+    (when (some #(contains? specs (second %)) nkeys)
       (let [idx  (:index kb)
             recs (:records kb)
             tms  (reasoning/tms kb)]

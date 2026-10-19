@@ -2490,6 +2490,7 @@ write entry point (assert / retract)                          bound
 
 settle*
  ├─ 2  the reconcile a caller's relabel owes                  O(r)
+ ├─ restore-depths (only after a deferred batch)              O(V + E) of the taxonomy, once
  └─ passes, until one queues, revives and releases nothing, at most 16
      ├─ 3  class-moved-merge-seeds (only under a merge mark)  O(r)
      ├─ 4  place-inherited!: one discovery
@@ -2503,7 +2504,7 @@ settle*
                                                               a blanket re-join is O(fact extent) per rule
 
 settle-finish
- ├─ restore-depths (only after a deferred batch)              O(V + E) of the taxonomy, once
+ ├─ restore-depths (only after a pass left it loose)          O(V + E) of the taxonomy, once
  ├─ refresh-beliefs (only when belief moved)                  O(caches a supporter in r feeds)
  ├─ refresh-supersessions (only after an except or an         O(data the except reaches + classes moved)
  │   equality edge moved in belief)
@@ -2558,7 +2559,8 @@ placed `contradicts` (`clashes/read-clashes`).
 
 `settle-finish` runs once, after the last pass, in this order:
 
-1. `restore-depths`, the depth repair a `with-deferred-settle` batch owes.
+1. `restore-depths`, for a depth potential the passes left loose. The repair a
+   `with-deferred-settle` batch owes runs before the passes.
 2. `refresh-beliefs` over the region, only when belief moved: a defeat, a revival, a
    pass that moved the blocked set, or a relabel before the settle
    (`belief-moved?`). Those are the only label flips a settle sees. The last is
