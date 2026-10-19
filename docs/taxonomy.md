@@ -66,13 +66,13 @@ arguments, while only predicates hold or fail and only functions denote values. 
 policy and the exact `arity` table are therefore relation-wide.
 
 `fixed_arity` and `variable_arity` partition `relation` into two policies, with predicate
-and function specializations for each. Unsuffixed `unary`, `binary` and `ternary` classify
-exact relations; `unary_predicate` / `unary_function` and their binary and ternary peers
-specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
+and function specializations for each. Unsuffixed `unary`, `binary`, `ternary`,
+`quaternary` and `quinary` classify exact relations; `unary_predicate` / `unary_function`
+and their binary through quinary peers specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
 `predicateTypeByArity` and `functionTypeByArity` are its `genl` specializations, and one
 generator stamps, per mapping fact, the rule classifying a relation from its asserted
-`arity`, with no parallel rule families. `core.txt` ships **three** mapping facts, over
-`unary`, `binary` and `ternary`. The predicate and function types reach them through
+`arity`, with no parallel rule families. `core.txt` ships **five** mapping facts, over
+`unary`, `binary`, `ternary`, `quaternary` and `quinary`. The predicate and function types reach them through
 their `genl` edges, so a `(predicateTypeByArity unary_predicate 1)` beside them would
 classify a unary function as a predicate. The two specializations stay declared for a KB
 mapping an arity the relation-wide table has no class for. `bounded_arity` and
@@ -90,9 +90,10 @@ it with other than two or three arguments, the third an optional argument positi
 also `bounded_arity` with `(arityMax functionCorrespondingPredicate 3)`, which states that
 bound in the KB.
 
-`at_least_binary` and `at_least_ternary` are the generic derived classes of relations of
-arity 2 or greater and 3 or greater, fixed or variable. `binary` and `ternary` are below
-them, and rules over `arity` and `arityMin` derive them. Callers can conjoin them with
+`at_least_binary`, `at_least_ternary`, `at_least_quaternary` and `at_least_quinary` are
+the generic derived classes of relations of arity 2, 3, 4 and 5 or greater, fixed or
+variable. Each specializes the one before it, each exact class from `binary` to `quinary`
+is below its floor, and rules over `arity` and `arityMin` derive them. Callers can conjoin them with
 `predicate` or `function` instead of maintaining duplicate predicate/function classes. `admitsArgnum` names the
 separate question of whether one positive argument position exists. No WFF/query reader
 currently consumes it, and no parallel finite position roster is inferred.
@@ -102,7 +103,7 @@ shipped variable predicates state their lower bound with `arityMin` instead of c
 an exact binary classification.
 
 The mapping's rule runs one way: `(arity R 2)` concludes `(binary R)`, and no rule
-concludes an arity. `arity`, the nine exact-arity classes, `variable_arity` with its two
+concludes an arity. `arity`, the fifteen exact-arity classes, `variable_arity` with its two
 specializations and `arityMin` are on the forced-monotonic roster
 ([nmtms.md](nmtms.md#the-forced-monotonic-roster)): each is never the loser of a nogood
 whatever strength it was written at, and a firing concluding one from a non-roster
@@ -125,13 +126,13 @@ and is a `predicate`. None of them says that a relation which is `binary` **and*
 would say it, and the six of them measure 748 justifications and 600 ms of a 3.2 s
 starter load for 36 memberships: `(predicate ?x)` matches every class membership of
 every predicate by subsumption, once per `genl` route between the two, so one conclusion
-collects a justification per route. The nine exact classes cost that once each; the
+collects a justification per route. The fifteen exact classes cost that once each; the
 intersection would cost it again for a membership nothing reads.
 
 The classification is read for its arity, and the relation-wide class answers that
 without the intersection: `(arity P 2)` derives `(binary P)` through the generator above,
 and `tax/exact-arity-classes` — the roster the inert-tuple test and the quality readings
-share — holds all nine spellings, so `(binary P)`, `(binary_predicate P)` and
+share — holds all fifteen spellings, so `(binary P)`, `(binary_predicate P)` and
 `(binary_function F)` each declare an arity a reader enforces. A KB that wants the kind membership as well writes the
 `defnSufficient` itself, in its own context, and pays for it there.
 
@@ -1788,14 +1789,16 @@ Predicates are **reified** and classified in the genl hierarchy under `predicate
 (itself a `thing`):
 
 - by arity — `unary_predicate` (every type, plus one-place properties like `flies`),
-  `binary_predicate` (relations like `parentOf`), `ternary_predicate` (`arg`);
+  `binary_predicate` (relations like `parentOf`), `ternary_predicate` (`arg`),
+  `quaternary_predicate` (`calendarDay`), `quinary_predicate` (`interArg`);
 - by algebra — `symmetric` / `asymmetric` / `transitive` / `reflexive` / `functional`,
   each a subtype of `binary_predicate`.
 
-**The three arity classes separate each other**, as three `(disjoint …)` pairs in `core.txt`.
+**The five arity classes separate each other**, as one
+`(separating fixed_arity unary binary ternary quaternary quinary)` roster in `core.txt`.
 A predicate takes one number of arguments, so a second classification is refused where it
 is written (`:disjoint`) rather than stored and convicted a step later as two values in
-the `functional` `(arity P N)` table. It is stated pairwise and **not** as
+the `functional` `(arity P N)` table. It is stated over the named classes and **not** as
 `(sibling_disjoint predicate)`: `predicate`'s specializations are every classification of a
 relation there is, and a predicate is rightly several of those at once — `arity` is a
 `binary_predicate` and an `instance_relation_predicate` — so the mark would separate pairs
@@ -2014,7 +2017,7 @@ already says about its predicate:
 - **A position the predicate does not have** — `(arg parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
   enforced while enforcing nothing. The arity comes from `(arity P N)` or from a
-  `unary_predicate` / `binary_predicate` / `ternary_predicate` membership. A rule
+  `unary_predicate` through `quinary_predicate` membership. A rule
   concludes the class from `(arity P N)` and no rule concludes an arity
   ([Arity](#arity)), so a predicate written only as a class member has no `arity`
   sentex, and the check reads both spellings (`arity/relation-length`). **`variable_arity`

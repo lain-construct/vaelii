@@ -77,7 +77,7 @@
         (is (not (v/isa? kb chainOf 'binary))))))
   (testing "an arity no class maps to concludes no class at all"
     (is (v/ask? kb '(arity InstantFn 6) 'CxUniverse))
-    (doseq [type '[unary binary ternary]]
+    (doseq [type '[unary binary ternary quaternary quinary]]
       (is (not (v/isa? kb 'InstantFn type))))))
 
 (tu/deftest-kb exact-arity-and-variable-floors-are-distinct
@@ -92,13 +92,16 @@
           (str relation " is not overloaded as exactly binary")))))
 
 (tu/deftest-kb relation-wide-types-own-the-arity-rules
-  ;; Three mapping facts, not nine.  The predicate and function members are mapped by
-  ;; their genl edges to unary / binary / ternary, and a per-member fact would stamp a
-  ;; rule classifying a function of that arity as a predicate.
-  (doseq [[type arity] '[[unary 1] [binary 2] [ternary 3]]]
+  ;; Five mapping facts, not fifteen.  The predicate and function members are mapped by
+  ;; their genl edges to unary / binary / ternary / quaternary / quinary, and a
+  ;; per-member fact would stamp a rule classifying a function of that arity as a
+  ;; predicate.
+  (doseq [[type arity] '[[unary 1] [binary 2] [ternary 3] [quaternary 4] [quinary 5]]]
     (is (v/ask? kb (list 'relationTypeByArity type arity) 'CxUniverse)))
   (doseq [type '[unary_predicate binary_predicate ternary_predicate
-                 unary_function binary_function ternary_function]]
+                 quaternary_predicate quinary_predicate
+                 unary_function binary_function ternary_function
+                 quaternary_function quinary_function]]
     (is (empty? (v/sentexes-matching kb (list 'relationTypeByArity type '?arity) 'CxUniverse))
         (str type " is mapped by its genl edge rather than by a fact of its own")))
   (is (v/genl? kb 'predicateTypeByArity 'relationTypeByArity)
@@ -110,9 +113,17 @@
   (is (v/genl? kb 'unary_function 'unary))
   (is (v/genl? kb 'binary_function 'binary))
   (is (v/genl? kb 'ternary_function 'ternary))
-  (doseq [type '[unary_predicate binary_predicate ternary_predicate]]
+  (is (v/genl? kb 'quaternary_predicate 'quaternary))
+  (is (v/genl? kb 'quinary_predicate 'quinary))
+  (is (v/genl? kb 'quaternary_function 'quaternary))
+  (is (v/genl? kb 'quinary_function 'quinary))
+  (doseq [type '[quaternary quinary]]
+    (is (v/genl? kb type 'fixed_arity)))
+  (doseq [type '[unary_predicate binary_predicate ternary_predicate
+                 quaternary_predicate quinary_predicate]]
     (is (v/genl? kb type 'fixed_arity_predicate)))
-  (doseq [type '[unary_function binary_function ternary_function]]
+  (doseq [type '[unary_function binary_function ternary_function
+                 quaternary_function quinary_function]]
     (is (v/genl? kb type 'fixed_arity_function)))
   (is (v/isa? kb 'parentOf 'fixed_arity_predicate))
   (is (v/isa? kb 'MotherFn 'fixed_arity_function)))
@@ -193,7 +204,11 @@
 (tu/deftest-kb relation-wide-exact-classes-clash-with-each-other
   (doseq [[first-type second-type] '[[unary binary] [binary unary]
                                      [unary ternary] [ternary unary]
-                                     [binary ternary] [ternary binary]]]
+                                     [binary ternary] [ternary binary]
+                                     [unary quaternary] [quinary unary]
+                                     [binary quinary] [quaternary binary]
+                                     [ternary quaternary] [quinary ternary]
+                                     [quaternary quinary] [quinary quaternary]]]
     (tu/with-terms [candidateRelation]
       (v/assert kb (list first-type candidateRelation) 'CxUniverse)
       (is (tu/stored-in-clash? kb (list second-type candidateRelation) 'CxUniverse)
@@ -202,6 +217,43 @@
     (v/assert kb (list 'unary compatibleRelation) 'CxUniverse)
     (is (v/assert kb (list 'fixed_arity compatibleRelation) 'CxUniverse)
         "an exact class and its fixed policy are compatible")))
+
+(tu/deftest-kb four-and-five-argument-relations-have-exact-classes
+  (testing "an arity of four or five concludes its relation-wide class"
+    (doseq [[type arity] '[[quaternary 4] [quinary 5]]]
+      (tu/with-terms [wideRelation]
+        (let [h (v/assert kb (list 'arity wideRelation arity) 'CxUniverse)]
+          (is (v/isa? kb wideRelation type) (str "arity " arity " concludes " type))
+          (is (v/isa? kb wideRelation 'fixed_arity))
+          (v/retract! kb h)
+          (is (not (v/isa? kb wideRelation type)))))))
+  (testing "a membership of a four- or five-argument class is read as the arity"
+    (doseq [[type arity] '[[quaternary 4] [quinary 5]
+                           [quaternary_predicate 4] [quinary_predicate 5]]]
+      (tu/with-terms [wideRelation]
+        (let [h (v/assert kb (list type wideRelation) 'CxUniverse)]
+          (is (= arity (v/relation-arity kb wideRelation)) (str type " reads as " arity))
+          (v/retract! kb h))))
+    (doseq [[type arity] '[[quaternary_function 4] [quinary_function 5]]]
+      (tu/with-terms [WideFn]
+        (let [h (v/assert kb (list type WideFn) 'CxUniverse)]
+          (is (= arity (v/relation-arity kb WideFn)) (str type " reads as " arity))
+          (is (v/isa? kb WideFn 'function))
+          (v/retract! kb h)))))
+  (testing "the shipped four- and five-argument predicates carry their kind's class"
+    (doseq [[predicate type] '[[calendarDay quaternary_predicate]
+                               [measureRangeInUnit quaternary_predicate]
+                               [predExistsInstancePlaceholder quaternary_predicate]
+                               [predInstanceExistsPlaceholder quaternary_predicate]
+                               [interArg quinary_predicate]
+                               [predAllExistsPlaceholder quinary_predicate]
+                               [predExistsAllPlaceholder quinary_predicate]]]
+      (is (v/isa? kb predicate type) (str predicate " is " type))))
+  (testing "an arity above five has no named class"
+    (is (v/isa? kb 'calendarInstant 'fixed_arity_predicate))
+    (is (= 7 (v/relation-arity kb 'calendarInstant)))
+    (doseq [type '[unary binary ternary quaternary quinary]]
+      (is (not (v/isa? kb 'calendarInstant type))))))
 
 (tu/deftest-kb fixed-and-variable-arity-have-relation-kind-specializations
   (testing "a predicate carrying an exact arity declaration is classified"
@@ -228,13 +280,12 @@
                               [DayFn ternary_function]
                               [QuantityIntervalFn ternary_function]
                               [PredExistsInstanceFn ternary_function]
-                              [PredInstanceExistsFn ternary_function]]]
+                              [PredInstanceExistsFn ternary_function]
+                              [PredAllExistsFn quaternary_function]
+                              [PredExistsAllFn quaternary_function]]]
       (is (v/isa? kb function type) (str function " is " type)))
     (is (v/isa? kb 'InstantFn 'fixed_arity_function)
-        "the six-argument function stays explicitly fixed without minting a named family")
-    (doseq [function '[PredAllExistsFn PredExistsAllFn]]
-      (is (v/isa? kb function 'fixed_arity_function)
-          (str "and so does the four-argument " function))))
+        "the six-argument function stays explicitly fixed without minting a named family"))
   (testing "a function may use the relation-wide variable vocabulary"
     (tu/with-terms [RepeatFn]
       (v/assert kb (list 'variable_arity_function RepeatFn) 'CxUniverse)
@@ -251,8 +302,7 @@
     (is (v/isa? kb 'parentOf 'at_least_binary))
     (is (not (v/isa? kb 'parentOf 'at_least_ternary)))
     (is (v/isa? kb 'interArg 'at_least_binary))
-    (is (v/isa? kb 'interArg 'at_least_ternary)
-        "an arity no exact class maps to reaches the floors through the arity rules"))
+    (is (v/isa? kb 'interArg 'at_least_ternary)))
   (testing "a binary_predicate member is at least binary through binary's genl edge"
     ;; doneBy is declared only (binary_predicate doneBy): binary_predicate ⊂ binary ⊂
     ;; at_least_binary
@@ -263,11 +313,47 @@
   (testing "the ternary floor specializes the binary floor"
     (is (v/genl? kb 'at_least_ternary 'at_least_binary))))
 
+(tu/deftest-kb four-and-five-argument-floors-follow-the-ternary-floor
+  (testing "each floor specializes the one below it, and each exact class reaches its floor"
+    (is (v/genl? kb 'at_least_quaternary 'at_least_ternary))
+    (is (v/genl? kb 'at_least_quinary 'at_least_quaternary))
+    (is (v/genl? kb 'quaternary 'at_least_quaternary))
+    (is (v/genl? kb 'quinary 'at_least_quinary)))
+  (testing "a shipped exact arity reaches its floor and no higher one"
+    (is (v/isa? kb 'calendarDay 'at_least_quaternary))
+    (is (not (v/isa? kb 'calendarDay 'at_least_quinary)))
+    (is (v/isa? kb 'interArg 'at_least_quinary))
+    (is (not (v/isa? kb 'arg 'at_least_quaternary))))
+  (testing "each floor is disjoint from every exact class below it"
+    (doseq [[floor below] '[[at_least_binary [unary]]
+                            [at_least_ternary [unary binary]]
+                            [at_least_quaternary [unary binary ternary]]
+                            [at_least_quinary [unary binary ternary quaternary]]]
+            class below]
+      (is (v/disjoint? kb floor class) (str floor " and " class)))
+    (is (not (v/disjoint? kb 'at_least_ternary 'quinary))))
+  (testing "an arity above five reaches the five-argument floor through the arity rules"
+    (is (v/isa? kb 'calendarInstant 'at_least_quinary)))
+  (testing "a minimum of four or five derives the floors up to it"
+    (doseq [[minimum floors non-floors] '[[4 [at_least_ternary at_least_quaternary] [at_least_quinary]]
+                                          [5 [at_least_quaternary at_least_quinary] []]]]
+      (tu/with-terms [longChainOf]
+        (v/assert kb (list 'variable_arity_predicate longChainOf) 'CxUniverse)
+        (let [h (v/assert kb (list 'arityMin longChainOf minimum) 'CxUniverse)]
+          (doseq [floor floors]
+            (is (v/isa? kb longChainOf floor) (str "minimum " minimum " derives " floor)))
+          (doseq [floor non-floors]
+            (is (not (v/isa? kb longChainOf floor)) (str "minimum " minimum " stops below " floor)))
+          (v/retract! kb h)
+          (is (not (v/isa? kb longChainOf 'at_least_quaternary))))))))
+
 (def ^:private admits-argnum-definition
   "admitsArgnum's defining rules as CxUniverse states them, backward."
   '[(implies (relation ?relation) (admitsArgnum ?relation 1))
     (implies (at_least_binary ?relation) (admitsArgnum ?relation 2))
     (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3))
+    (implies (at_least_quaternary ?relation) (admitsArgnum ?relation 4))
+    (implies (at_least_quinary ?relation) (admitsArgnum ?relation 5))
     (implies (and (unbounded_arity ?relation) (positive_integer ?position))
              (admitsArgnum ?relation ?position))
     (implies (and (bounded_arity ?relation) (arityMax ?relation ?max) (positive_integer ?position)
@@ -310,8 +396,8 @@
 (tu/deftest-kb admits-argnum-answers-are-justified-by-its-definition-rules
   ;; The prover answers a ground (admitsArgnum R n).  A goal with the relation or the
   ;; position open is answered by the definition rules, and each answer's proof cites the
-  ;; rule that derives it.  The four relations below differ in their arity signature.
-  (let [[relation-rule binary-rule ternary-rule unbounded-rule]
+  ;; rule that derives it.  The six relations below differ in their arity signature.
+  (let [[relation-rule binary-rule ternary-rule quaternary-rule quinary-rule unbounded-rule]
         (mapv #(v/handle-of kb (list 'set/backwardRule %) 'CxUniverse) admits-argnum-definition)
         cites? (fn [answers bindings rule] (contains? (get answers bindings #{}) rule))]
     (testing "doneBy, a binary_predicate: 1 through relation, 2 through at_least_binary, no 3"
@@ -327,6 +413,18 @@
         (is (cites? answers '{?n 3} ternary-rule))
         (is (not (contains? answers '{?n 4}))))
       (is (not (v/ask? kb '(admitsArgnum arg 4) 'CxUniverse))))
+    (testing "calendarDay, a quaternary_predicate: 4 through at_least_quaternary, no 5"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum calendarDay ?n))]
+        (is (cites? answers '{?n 3} ternary-rule))
+        (is (cites? answers '{?n 4} quaternary-rule))
+        (is (not (contains? answers '{?n 5}))))
+      (is (not (v/ask? kb '(admitsArgnum calendarDay 5) 'CxUniverse))))
+    (testing "interArg, a quinary_predicate: 5 through at_least_quinary, no 6"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum interArg ?n))]
+        (is (cites? answers '{?n 4} quaternary-rule))
+        (is (cites? answers '{?n 5} quinary-rule))
+        (is (not (contains? answers '{?n 6}))))
+      (is (not (v/ask? kb '(admitsArgnum interArg 6) 'CxUniverse))))
     (testing "functionCorrespondingPredicate, bounded variable arity 2 to 3: 1 and 2"
       (let [answers (admitted-with-proofs kb '(admitsArgnum functionCorrespondingPredicate ?n))]
         (is (cites? answers '{?n 1} relation-rule))

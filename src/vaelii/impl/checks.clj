@@ -3075,9 +3075,10 @@
                :unforced-definitional-declaration
                '[disjoint covering partition sibling_disjoint orthogonal siblingDisjointException]
                :unforced-arity-binding
-               '[arity unary binary ternary unary_predicate binary_predicate
-                 ternary_predicate unary_function binary_function ternary_function
-                 variable_arity variable_arity_predicate variable_arity_function arityMin]
+               '[arity unary binary ternary quaternary quinary unary_predicate
+                 binary_predicate ternary_predicate quaternary_predicate quinary_predicate
+                 unary_function binary_function ternary_function quaternary_function
+                 quinary_function variable_arity variable_arity_predicate variable_arity_function arityMin]
                :unforced-equality '[rewriteOf sameAs equals]}
               p preds]
           [['forced_monotonic_predicate p] missing])))

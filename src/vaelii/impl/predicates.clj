@@ -358,10 +358,10 @@
   (assoc spec :facets #{:inert} :inert why))
 
 (def ^:private arity-note
-  "The clause every exact-arity class's note ends with — nine classes say one thing, and
-  a sentence written nine times is a sentence that drifts in eight of them."
-  (str " — tax/exact-arity-classes — plus the disjointness that separates the"
-       " relation-wide three, which the kind specializations inherit through their genl"
+  "The clause every exact-arity class's note ends with — fifteen classes say one thing,
+  and a sentence written fifteen times is a sentence that drifts in fourteen of them."
+  (str " — tax/exact-arity-classes — plus the separating roster that separates the"
+       " relation-wide five, which the kind specializations inherit through their genl"
        " edges. Read as storage by the inert-tuple test (arity/relation-length)."))
 
 ;; ---- the entries ---------------------------------------------------------
@@ -585,7 +585,7 @@
                  :family nil :facets #{:reach :convicts}
                  :notes (str "floors a variable_arity relation: a shorter tuple is held inert in"
                              " the :out forced set. Ordinary core.txt rules"
-                             " also derive the at_least_binary and at_least_ternary classifications.")}
+                             " also derive the at_least_binary through at_least_quinary classifications.")}
                 "arity/drain! floors a variable-arity tuple at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
@@ -1258,6 +1258,12 @@
      ['ternary (enforced (collection :facets #{:convicts :reach}
                                      :notes (str "the same, at three" arity-note))
                          "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
+     ['quaternary (enforced (collection :facets #{:convicts :reach}
+                                        :notes (str "the same, at four" arity-note))
+                            "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
+     ['quinary (enforced (collection :facets #{:convicts :reach}
+                                     :notes (str "the same, at five" arity-note))
+                         "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
 
      ;; ---- the predicate types --------------------------------------------
      ['unary_predicate   (enforced (collection :facets #{:convicts :reach}
@@ -1273,6 +1279,14 @@
                                                :notes (str "the same, at three" arity-note))
                                    (str "tax/exact-arity-classes — a predicate's membership spelling of"
                                         " an arity"))]
+     ['quaternary_predicate (enforced (collection :facets #{:convicts :reach}
+                                                  :notes (str "the same, at four" arity-note))
+                                      (str "tax/exact-arity-classes — a predicate's membership spelling of"
+                                           " an arity"))]
+     ['quinary_predicate (enforced (collection :facets #{:convicts :reach}
+                                               :notes (str "the same, at five" arity-note))
+                                   (str "tax/exact-arity-classes — a predicate's membership spelling of"
+                                        " an arity"))]
      ['unary_function
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the function specialization of unary, and a"
@@ -1286,9 +1300,17 @@
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the same, at three" arity-note))
                 "tax/exact-arity-classes — a function's membership spelling of an arity")]
+     ['quaternary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the same, at four" arity-note))
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
+     ['quinary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the same, at five" arity-note))
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
      ['fixed_arity       (enforced (collection
                                     :notes (str "classifies one exact argument policy; exact"
-                                                " arity declarations and the unary/binary/ternary"
+                                                " arity declarations and the unary through quinary"
                                                 " families specialize it."))
                                    "generic taxonomy classification and ordinary core.txt arity rule")]
      ['fixed_arity_predicate
@@ -1321,6 +1343,15 @@
      ['at_least_ternary
       (enforced (collection :notes (str "derived by core.txt rules from arity or arityMin greater"
                                         " than two, and through (genl ternary at_least_ternary)."))
+                "ordinary core.txt rule inference from arity and arityMin")]
+     ['at_least_quaternary
+      (enforced (collection :notes (str "derived by core.txt rules from arity or arityMin greater"
+                                        " than three, and through (genl quaternary"
+                                        " at_least_quaternary)."))
+                "ordinary core.txt rule inference from arity and arityMin")]
+     ['at_least_quinary
+      (enforced (collection :notes (str "derived by core.txt rules from arity or arityMin greater"
+                                        " than four, and through (genl quinary at_least_quinary)."))
                 "ordinary core.txt rule inference from arity and arityMin")]
      ['relation_kind     (enforced (collection :notes "a disjoint_metatype, so its two members separate each other.")
                                    "generic: a disjoint_metatype, so its two members separate each other")]

@@ -472,7 +472,7 @@
 (comment interArg
          "(interArg ?relation ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?relation is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Silence about the trigger argument's type leaves the constraint dormant rather than firing it. Once the trigger holds, the target is derived a ?type2 under assertive argument types, and under the constraint-only reading it is convicted when the KB places it outside ?type2. Read through genl transitivity from the writing context, like arg. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (arity interArg 5)
-(fixed_arity_predicate interArg)
+(quinary_predicate interArg)
 (arg interArg 1 relation)
 (arg interArg 2 positive_integer)
 (arg interArg 3 unary_predicate)
@@ -626,6 +626,14 @@
 (unary_predicate ternary)
 (genl ternary fixed_arity)
 
+(comment quaternary "A relation of exactly four arguments.")
+(unary_predicate quaternary)
+(genl quaternary fixed_arity)
+
+(comment quinary "A relation of exactly five arguments.")
+(unary_predicate quinary)
+(genl quinary fixed_arity)
+
 (comment unary_function "A function of exactly one argument.")
 (unary_predicate unary_function)
 (set/monotonic (genl unary_function unary))
@@ -638,8 +646,17 @@
 (unary_predicate ternary_function)
 (set/monotonic (genl ternary_function ternary))
 
+(comment quaternary_function "A function of exactly four arguments.")
+(positiveExample quaternary_function (Quote (quaternary_function PredAllExistsFn)))
+(unary_predicate quaternary_function)
+(set/monotonic (genl quaternary_function quaternary))
+
+(comment quinary_function "A function of exactly five arguments.")
+(unary_predicate quinary_function)
+(set/monotonic (genl quinary_function quinary))
+
 (comment relationTypeByArity
-         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its three declarations drive the rule that classifies a relation from its asserted arity.")
+         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its five declarations drive the rule that classifies a relation from its asserted arity.")
 (binary_predicate relationTypeByArity)
 (set/monotonic (instance_relation_predicate relationTypeByArity))
 (set/monotonic (functional relationTypeByArity))
@@ -663,6 +680,8 @@
 (relationTypeByArity unary 1)
 (relationTypeByArity binary 2)
 (relationTypeByArity ternary 3)
+(relationTypeByArity quaternary 4)
+(relationTypeByArity quinary 5)
 
 ;; The predicate and function mappings are specializations of the relation-wide mapping:
 ;; a genl edge between the predicates says so once, and every predicateTypeByArity or
@@ -671,15 +690,15 @@
 (genl predicateTypeByArity relationTypeByArity)
 (genl functionTypeByArity relationTypeByArity)
 
-;; The three relation-wide mappings are the only ones SHIPPED, and the predicate and
-;; function members are mapped by their genl edges rather than by six more facts.
+;; The five relation-wide mappings are the only ones SHIPPED, and the predicate and
+;; function members are mapped by their genl edges rather than by ten more facts.
 ;; (predicateTypeByArity unary_predicate 1) would stamp (implies (arity ?r 1)
 ;; (unary_predicate ?r)), which classifies a unary function as a predicate.  The two
 ;; specialization predicates stay declared for a KB that maps an arity the relation-wide
 ;; table has no class for.
 
 (comment arity
-         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary and three to ternary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
+         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
 (binary_predicate arity)
 (set/monotonic (instance_relation_predicate arity))
 (set/monotonic (functional arity))
@@ -705,12 +724,14 @@
 ;; goal from the relation's arity, and these rules state the same conclusions in the logic.
 ;; A query with the relation or the position open is answered by the rules, and its proof
 ;; cites the rule that derives each answer.  The rules run backward only, because a forward
-;; rule would store a fact per relation and position.  The first three are the rules a
+;; rule would store a fact per relation and position.  The first five are the rules a
 ;; predAllInstance would stamp; they are written as rules because predAllInstance stamps a
 ;; forward default rule.
 (set/backwardRule (implies (relation ?relation) (admitsArgnum ?relation 1)))
 (set/backwardRule (implies (at_least_binary ?relation) (admitsArgnum ?relation 2)))
 (set/backwardRule (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3)))
+(set/backwardRule (implies (at_least_quaternary ?relation) (admitsArgnum ?relation 4)))
+(set/backwardRule (implies (at_least_quinary ?relation) (admitsArgnum ?relation 5)))
 (set/backwardRule (implies (and (unbounded_arity ?relation) (positive_integer ?position)) (admitsArgnum ?relation ?position)))
 (set/backwardRule (implies (and (bounded_arity ?relation) (arityMax ?relation ?max) (positive_integer ?position) (not (greaterThan ?position ?max))) (admitsArgnum ?relation ?position)))
 (set/backwardRule (implies (and (arity ?relation ?arity) (positive_integer ?position) (not (greaterThan ?position ?arity))) (admitsArgnum ?relation ?position)))
@@ -730,6 +751,26 @@
 (genl at_least_ternary at_least_binary)
 (genl ternary at_least_ternary)
 
+(comment at_least_quaternary
+         "The type of relations of arity 4 or greater, fixed or variable. Every such relation is also an at_least_ternary.")
+(unary_predicate at_least_quaternary)
+(genl at_least_quaternary at_least_ternary)
+(genl quaternary at_least_quaternary)
+
+(comment at_least_quinary
+         "The type of relations of arity 5 or greater, fixed or variable. Every such relation is also an at_least_quaternary.")
+(unary_predicate at_least_quinary)
+(genl at_least_quinary at_least_quaternary)
+(genl quinary at_least_quinary)
+
+;; Each floor is disjoint from the exact class one below it.  The floors specialize one
+;; another, so a floor is disjoint from every exact class below it through genl, and a
+;; further floor adds one disjoint.
+(set/monotonic (disjoint at_least_binary unary))
+(set/monotonic (disjoint at_least_ternary binary))
+(set/monotonic (disjoint at_least_quaternary ternary))
+(set/monotonic (disjoint at_least_quinary quaternary))
+
 (set/forwardRule
  (implies
   (and
@@ -747,6 +788,20 @@
 (set/forwardRule
  (implies
   (and
+   (arityMin ?relation ?arity)
+   (greaterThan ?arity 3))
+  (at_least_quaternary ?relation)))
+
+(set/forwardRule
+ (implies
+  (and
+   (arityMin ?relation ?arity)
+   (greaterThan ?arity 4))
+  (at_least_quinary ?relation)))
+
+(set/forwardRule
+ (implies
+  (and
    (arity ?relation ?arity)
    (greaterThan ?arity 1))
   (at_least_binary ?relation)))
@@ -757,6 +812,20 @@
    (arity ?relation ?arity)
    (greaterThan ?arity 2))
   (at_least_ternary ?relation)))
+
+(set/forwardRule
+ (implies
+  (and
+   (arity ?relation ?arity)
+   (greaterThan ?arity 3))
+  (at_least_quaternary ?relation)))
+
+(set/forwardRule
+ (implies
+  (and
+   (arity ?relation ?arity)
+   (greaterThan ?arity 4))
+  (at_least_quinary ?relation)))
 
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every
@@ -784,7 +853,7 @@
 (implies (relationTypeByArity ?type ?arity)
          (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
 
-;; The three relation-wide classifications separate each other: a relation takes ONE
+;; The five relation-wide classifications separate each other: a relation takes ONE
 ;; exact number of arguments, so a second classification is a contradiction rather than
 ;; a second fact.  This keeps the (arity ?relation ?n) table single-valued at its source:
 ;; two exact classes would derive two arities, and (functional arity) would otherwise
@@ -792,12 +861,13 @@
 ;;
 ;; The predicate and function specializations inherit that separation through their genl
 ;; edges to the relation-wide classes (unary_predicate genl unary, and so on): restating
-;; the three predicate pairs here would only duplicate it.  Nothing marks predicate as
+;; the predicate pairs here would only duplicate it.  Nothing marks predicate as
 ;; (sibling_disjoint predicate) — its specializations include many compatible
-;; classifications, and only the exact-arity classes exclude one another.
-(set/monotonic (disjoint unary binary))
-(set/monotonic (disjoint unary ternary))
-(set/monotonic (disjoint binary ternary))
+;; classifications, and only the exact-arity classes exclude one another.  One separating
+;; roster states the separation, so a further exact class adds one part and no pairwise
+;; disjoint.  The roster claims no coverage: a relation of six arguments is fixed_arity
+;; and in none of the five classes.  The roster is stated below separating's own
+;; declaration.
 
 (comment believes
          "(believes ?agent ?sentence) means that ?agent holds ?sentence true in its own context — answered by proving ?sentence in ?agent's context (CxAgent<agent>) rather than in the asker's, so two agents may believe contradictory things without the KB being inconsistent. A modal_predicate: the projection is what BeliefProjectionProver does, and the marker is what turns it on (docs/belief.md). An ordinary relation for the rest — assertible and storable like any fact, so an asserted (believes a p) is answerable as a stored fact too; the projector augments, it does not shadow.")
@@ -901,6 +971,9 @@
 (argAndRestGenl separating 2 thing)
 (arityMin separating 3)
 (commutativeInArgAndRest separating 2)
+
+;; The exact-arity classes separate each other (see the arity block above).
+(set/monotonic (separating fixed_arity unary binary ternary quaternary quinary))
 
 (comment partition
          "(partition ?whole ?part1 ?part2 ...) means that the named parts cover ?whole and that no two of them share an instance. The coverage half is covering's exactly, and both declarations are recorded under one roster, so the coverage inference reads a partition as the cover it is. The separation half is recorded the way a disjoint_metatype's member set is — consulted by the disjointness test, never written out as a (disjoint …) sentex per pair — so a siblingDisjointException over two parts exempts that pair as it exempts two metatype members, and dropping the declaration releases every pair at once. disjoint_metatype keeps its own meaning and claims no coverage.")
@@ -1094,7 +1167,7 @@
 (comment PredAllExistsFn
          "(PredAllExistsFn ?pred ?indep ?dep ?subject) denotes the sanctioned placeholder for the ?dep filler that ?subject, a member of ?indep, bears ?pred to under a predAllExists declaration: (PredAllExistsFn owns person dog Muffet) is the dog that (predAllExists owns person dog) requires Muffet to own. The subject is an argument because the filler a predAllExists declaration requires varies with the member it is required of. An unreifiable_function, so a ground application stays a structural NAT the reader keeps readable inside the sentence, and distinct from the other Exists cells' placeholders. An ontological marker, not a skolem witness: the engine never asserts it, and an application an author writes is determinate, so it satisfies a predAllSpecified audit. See docs/predall.md.")
 (unreifiable_function PredAllExistsFn)
-(fixed_arity_function PredAllExistsFn)
+(quaternary_function PredAllExistsFn)
 (arity PredAllExistsFn 4)
 (arg PredAllExistsFn 1 binary_predicate)
 (genlArg PredAllExistsFn 2 thing)
@@ -1105,7 +1178,7 @@
 
 (comment predAllExistsPlaceholder
          "(predAllExistsPlaceholder ?pred ?indep ?dep ?subject ?placeholder) means that ?placeholder is the term (PredAllExistsFn ?pred ?indep ?dep ?subject) names: the ?dep filler that ?subject bears ?pred to under a predAllExists declaration over the first three arguments. PredAllExistsFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
-(fixed_arity_predicate predAllExistsPlaceholder)
+(quinary_predicate predAllExistsPlaceholder)
 (arity predAllExistsPlaceholder 5)
 (arg predAllExistsPlaceholder 1 binary_predicate)
 (genlArg predAllExistsPlaceholder 2 thing)
@@ -1116,7 +1189,7 @@
 (comment PredExistsAllFn
          "(PredExistsAllFn ?pred ?dep ?indep ?subject) denotes the sanctioned placeholder for the ?dep filler that bears ?pred to ?subject, a member of ?indep, under a predExistsAll declaration: (PredExistsAllFn worksFor person company Acme) is the person (predExistsAll worksFor person company) requires to work for Acme. The subject is an argument because the filler a predExistsAll declaration requires varies with the member it is required for, exactly as under predAllExists with the argument positions swapped. An unreifiable_function, so a ground application stays a structural NAT the reader keeps readable inside the sentence, and distinct from the other Exists cells' placeholders. An ontological marker, not a skolem witness: the engine never asserts it. See docs/predall.md.")
 (unreifiable_function PredExistsAllFn)
-(fixed_arity_function PredExistsAllFn)
+(quaternary_function PredExistsAllFn)
 (arity PredExistsAllFn 4)
 (arg PredExistsAllFn 1 binary_predicate)
 (genlArg PredExistsAllFn 2 thing)
@@ -1127,7 +1200,7 @@
 
 (comment predExistsAllPlaceholder
          "(predExistsAllPlaceholder ?pred ?dep ?indep ?subject ?placeholder) means that ?placeholder is the term (PredExistsAllFn ?pred ?dep ?indep ?subject) names: the ?dep filler that bears ?pred to ?subject under a predExistsAll declaration over the first three arguments. PredExistsAllFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
-(fixed_arity_predicate predExistsAllPlaceholder)
+(quinary_predicate predExistsAllPlaceholder)
 (arity predExistsAllPlaceholder 5)
 (arg predExistsAllPlaceholder 1 binary_predicate)
 (genlArg predExistsAllPlaceholder 2 thing)
@@ -1146,7 +1219,7 @@
 
 (comment predExistsInstancePlaceholder
          "(predExistsInstancePlaceholder ?pred ?indep ?fixed ?placeholder) means that ?placeholder is the term (PredExistsInstanceFn ?pred ?indep ?fixed) names: the ?indep member a predExistsInstance declaration over the first three arguments requires. PredExistsInstanceFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
-(fixed_arity_predicate predExistsInstancePlaceholder)
+(quaternary_predicate predExistsInstancePlaceholder)
 (arity predExistsInstancePlaceholder 4)
 (arg predExistsInstancePlaceholder 1 binary_predicate)
 (genlArg predExistsInstancePlaceholder 2 thing)
@@ -1164,7 +1237,7 @@
 
 (comment predInstanceExistsPlaceholder
          "(predInstanceExistsPlaceholder ?pred ?fixed ?dep ?placeholder) means that ?placeholder is the term (PredInstanceExistsFn ?pred ?fixed ?dep) names: the ?dep member a predInstanceExists declaration over the first three arguments requires ?fixed to bear ?pred to. PredInstanceExistsFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
-(fixed_arity_predicate predInstanceExistsPlaceholder)
+(quaternary_predicate predInstanceExistsPlaceholder)
 (arity predInstanceExistsPlaceholder 4)
 (arg predInstanceExistsPlaceholder 1 binary_predicate)
 (genlArg predInstanceExistsPlaceholder 3 thing)
@@ -1254,7 +1327,7 @@
 (genl forced_decontextualized_predicate predicate)
 
 (comment forced_monotonic_predicate
-         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the roster applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary, at_least_ternary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1, arg2, arg3), the correspondence premises (functionCorrespondingPredicate, result), except and the equality relations, every one of which the engine holds on the roster whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators, the argument declarations and the correspondence premises is refused. See docs/nmtms.md.")
+         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the roster applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary through at_least_quinary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1, arg2, arg3), the correspondence premises (functionCorrespondingPredicate, result), except and the equality relations, every one of which the engine holds on the roster whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators, the argument declarations and the correspondence premises is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_predicate)
 ;; Every member of the roster is a predicate.
 (genl forced_monotonic_predicate predicate)
@@ -1284,18 +1357,30 @@
 (set/monotonic (decontextualized_predicate binary))
 (forced_monotonic_predicate ternary)
 (set/monotonic (decontextualized_predicate ternary))
+(forced_monotonic_predicate quaternary)
+(set/monotonic (decontextualized_predicate quaternary))
+(forced_monotonic_predicate quinary)
+(set/monotonic (decontextualized_predicate quinary))
 (forced_monotonic_predicate unary_predicate)
 (set/monotonic (decontextualized_predicate unary_predicate))
 (forced_monotonic_predicate binary_predicate)
 (set/monotonic (decontextualized_predicate binary_predicate))
 (forced_monotonic_predicate ternary_predicate)
 (set/monotonic (decontextualized_predicate ternary_predicate))
+(forced_monotonic_predicate quaternary_predicate)
+(set/monotonic (decontextualized_predicate quaternary_predicate))
+(forced_monotonic_predicate quinary_predicate)
+(set/monotonic (decontextualized_predicate quinary_predicate))
 (forced_monotonic_predicate unary_function)
 (set/monotonic (decontextualized_predicate unary_function))
 (forced_monotonic_predicate binary_function)
 (set/monotonic (decontextualized_predicate binary_function))
 (forced_monotonic_predicate ternary_function)
 (set/monotonic (decontextualized_predicate ternary_function))
+(forced_monotonic_predicate quaternary_function)
+(set/monotonic (decontextualized_predicate quaternary_function))
+(forced_monotonic_predicate quinary_function)
+(set/monotonic (decontextualized_predicate quinary_function))
 (forced_monotonic_predicate variable_arity)
 (set/monotonic (decontextualized_predicate variable_arity))
 (forced_monotonic_predicate variable_arity_predicate)
@@ -1313,6 +1398,8 @@
 (forced_monotonic_predicate unbounded_arity)
 (forced_monotonic_predicate at_least_binary)
 (forced_monotonic_predicate at_least_ternary)
+(forced_monotonic_predicate at_least_quaternary)
+(forced_monotonic_predicate at_least_quinary)
 (forced_monotonic_predicate arityMax)
 (forced_monotonic_predicate admitsArgnum)
 ;; The term kinds.  What kind of term a term is does not admit exceptions: a term that is
@@ -1340,9 +1427,9 @@
 (forced_monotonic_predicate positive_integer)
 (forced_monotonic_predicate string)
 ;; The numeric comparators.  Each holds of numbers only (arg 1 and 2 number), so its truth
-;; is computed from the numbers themselves and admits no exception.  The at_least_binary and
-;; at_least_ternary rules read greaterThan beside arity and arityMin, so a comparator off the
-;; roster would leave those rules with an antecedent that is not a roster member.
+;; is computed from the numbers themselves and admits no exception.  The at_least_binary
+;; through at_least_quinary rules read greaterThan beside arity and arityMin, so a comparator
+;; off the roster would leave those rules with an antecedent that is not a roster member.
 (forced_monotonic_predicate greaterThan)
 (forced_monotonic_predicate lessThan)
 ;; The quantity comparators.  The measure twins of greaterThan and lessThan: each compares
@@ -1911,6 +1998,12 @@
 (comment ternary_predicate    "A predicate of three arguments.")
 (positiveExample ternary_predicate (Quote (ternary_predicate arg)))
 
+(comment quaternary_predicate "A predicate of four arguments.")
+(positiveExample quaternary_predicate (Quote (quaternary_predicate calendarDay)))
+
+(comment quinary_predicate    "A predicate of five arguments.")
+(positiveExample quinary_predicate (Quote (quinary_predicate interArg)))
+
 (comment target_following_predicate
          "(target_following_predicate ?predicate) means a (?predicate … (sentexHandle H) …) sentence is a meta-sentex that names sentex H and must not outlive it: retracting H retracts the meta with it (core/retract-following-metas!). Opt-in and belief-following — the engine's own except / exceptWhen deliberately do not carry it, so their orphan-on-retraction behavior is unchanged. koinii's reply acts declare it, so retracting a claim cascades to the replies about it, which a message bus cannot do.")
 (unary_predicate target_following_predicate)
@@ -2017,21 +2110,29 @@
 ;; ternary_predicate's instances are individual predicates, so it is a `type`, as
 ;; binary_predicate is.
 (set/monotonic (type ternary_predicate))
+(set/monotonic (genl quaternary_predicate quaternary))
+(genl quaternary_predicate fixed_arity_predicate)
+(set/monotonic (type quaternary_predicate))
+(set/monotonic (genl quinary_predicate quinary))
+(genl quinary_predicate fixed_arity_predicate)
+(set/monotonic (type quinary_predicate))
 
 (genl unary_function fixed_arity_function)
 (genl binary_function fixed_arity_function)
 (genl ternary_function fixed_arity_function)
+(genl quaternary_function fixed_arity_function)
+(genl quinary_function fixed_arity_function)
 
-;; The six exact classes derive DOWNWARD only, through the genl edges above: a
+;; The ten kind-specific exact classes derive DOWNWARD only, through the genl edges above: a
 ;; binary_predicate is binary and is a predicate, and nothing says that a relation which
 ;; is binary and a predicate is a binary_predicate.  The upward half is not stated,
 ;; because the engine reads the relation-wide class and the intersection would be paid
 ;; by every load: a (defnSufficient binary_predicate (and (arity ?x 2) (predicate ?x)))
 ;; matches every class membership of every predicate by subsumption, once per genl route
-;; between the two, so the six of them add 36 memberships to the shipped starter and 748
+;; between the two, so the six unary, binary and ternary ones add 36 memberships to the shipped starter and 748
 ;; justifications to carry them, and lengthen the load by 600 ms of 3.2 s.  The
-;; arity is answered without them — checks/exact-arity-classes reads unary / binary /
-;; ternary, which the relation-wide converse rule above concludes from (arity ?r ?n) —
+;; arity is answered without them — checks/exact-arity-classes reads the five relation-wide
+;; classes, which the relation-wide converse rule above concludes from (arity ?r ?n) —
 ;; and a KB wanting the membership as well writes the defnSufficient itself.
 
 ;; ---- curation cross-reference --------------------------------------------
