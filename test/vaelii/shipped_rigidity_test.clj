@@ -276,3 +276,8 @@
                'CxUniverse)
   (testing "each quantity function takes its predicate's kind through the correspondence"
     (all-of-kind kb 'time_invariant_relation '[QuantityFn QuantityIntervalFn] 'CxUniverse)))
+
+(tu/deftest-kb height-weight-and-their-comparisons-are-time-varying
+  ;; A tangible thing can grow or shrink and go on existing.
+  (all-of-kind kb 'time_varying_relation '[heightOf weightOf tallerThan heavierThan]
+               'CxUniverse))
