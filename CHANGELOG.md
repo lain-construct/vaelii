@@ -159,7 +159,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   disjoint from the exact class one below it, and so from every exact class below it
   through `genl`. `kb-quality`'s rule-clash reading drops a pair in which one term is
   bounded above the exact arity it is claimed to have, so a floor rule and an
-  exact-class rule are no clash in waiting. `arg4` and `arg5` project `arg` at positions
+  exact-class rule are no clash in waiting: the shipped KB reads four excepted
+  `:negation` pairs, where it would read 86. `arg4` and `arg5` project `arg` at positions
   4 and 5, and `closedExtentForArg4` and `closedExtentForArg5` spell `closedExtentForArg`
   at those positions. `at_least_quaternary`, `at_least_quinary`, `arg4` and `arg5` are on
   the forced-monotonic roster beside the floors and projections below them. `calendarDay`,
@@ -180,6 +181,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   answers each `unbounded_arity` relation. Each answer's `{:proof? true}` tree cites the
   rule that derives it. `AdmitsArgnumProver` answers a ground goal beside the rules. The
   rules store no `admitsArgnum` fact. [inference.md](docs/inference.md).
+
+- **`exceptWhen` is on the forced-monotonic roster, as `except` is.** `decide/held-members`
+  names it, since taking an `exceptWhen` meta-sentex OUT unblocks the firings of the rule it
+  names. `core.txt` states `(forced_monotonic_predicate exceptWhen)`, `(binary_predicate
+  exceptWhen)` for the two arguments of the stored meta-sentex, and a `comment` of
+  `exceptWhen`, and `retract!` refuses the declaration with `:type :uncleared-forcing` and
+  `:missing :unforced-exception`. [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
 
 ### Fix: answers
 
