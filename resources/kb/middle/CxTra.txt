@@ -146,6 +146,7 @@
 ;; ---- a media resource's address ------------------------------------------
 (comment resourceUrl "(resourceUrl ?resource ?url) means that ?resource is retrievable at ?url, e.g. an https address.")
 (set/monotonic (instance_relation_predicate resourceUrl))
+(set/monotonic (time_varying_relation resourceUrl))
 (arg resourceUrl 1 media_resource)
 (quotedArg resourceUrl 2 string)
 
@@ -206,6 +207,7 @@
 (comment dnsResolvesTo "(dnsResolvesTo ?name ?address) means that DNS resolves the host name ?name to the address ?address, under the resolver in effect where the fact is stated. One name can resolve to several addresses.")
 (positiveExampleComment dnsResolvesTo "example.org resolved to 192.0.2.1")
 (set/monotonic (instance_relation_predicate dnsResolvesTo))
+(set/monotonic (time_varying_relation dnsResolvesTo))
 (quotedArg dnsResolvesTo 1 string)
 (quotedArg dnsResolvesTo 2 string)
 

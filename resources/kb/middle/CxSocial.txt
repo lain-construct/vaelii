@@ -92,6 +92,7 @@
 (comment relationshipLabel
          "(relationshipLabel ?namer ?named ?label) means ?namer calls their relationship with ?named by ?label. Perspectival: the label ?named would give the same relationship need not be the same string.")
 (ternary_predicate relationshipLabel)
+(set/monotonic (time_varying_relation relationshipLabel))
 (arg relationshipLabel 1 person)
 (arg relationshipLabel 2 person)
 (quotedArg relationshipLabel 3 string)
