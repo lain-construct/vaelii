@@ -92,7 +92,7 @@
   ;; plane can never move, so some instances could lose the relation and some could not.
   (all-of-kind kb 'time_agnostic_relation
                '[veryFarFrom moderatelyFarFrom northwestOf behindRightOf eastOf
-                 regionConnectedTo partOfRegion withinNearDistanceOf]
+                 regionConnectedTo withinNearDistanceOf]
                'CxUniverse))
 
 (tu/deftest-kb type-relation-and-argument-declaration-predicates-are-time-invariant
@@ -122,7 +122,7 @@
 (tu/deftest-kb permanent-parthood-is-a-time-invariant-spec-of-partOf
   ;; A region's parts and a situation's parts cannot come off it, so partOfRegion and
   ;; subSituationOf are below permanentPartOf, which is below partOf.
-  (all-of-kind kb 'time_invariant_relation '[permanentPartOf] 'CxUniverse)
+  (all-of-kind kb 'time_invariant_relation '[permanentPartOf partOfRegion] 'CxUniverse)
   (is (v/genl? kb 'permanentPartOf 'partOf))
   (is (v/genl? kb 'partOfRegion 'permanentPartOf))
   (is (v/genl? kb 'subSituationOf 'permanentPartOf))
