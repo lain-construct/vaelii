@@ -4312,7 +4312,9 @@
     closedExtentForArg      4
     closedExtentForArg1     3
     closedExtentForArg2     3
-    closedExtentForArg3     3})
+    closedExtentForArg3     3
+    closedExtentForArg4     3
+    closedExtentForArg5     3})
 
 (defn check-closed-extent-stratified
   "Throw unless declaring `(closed_extent_predicate P)`, `(closedExtentForArg P n v)` or a

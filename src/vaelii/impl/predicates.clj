@@ -753,6 +753,18 @@
                  :notes "the binary spelling of (closedExtentForArg ?p 3 ?v) — see closedExtentForArg1."}
                 (str "the CxUniverse forward rule deriving (closedExtentForArg P 3 V); see"
                      " closedExtentForArg1"))]
+     ['closedExtentForArg4
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 4 ?v) — see closedExtentForArg1."}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 4 V); see"
+                     " closedExtentForArg1"))]
+     ['closedExtentForArg5
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 5 ?v) — see closedExtentForArg1."}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 5 V); see"
+                     " closedExtentForArg1"))]
      ['modal_predicate (enforced (prop :modal)
                                  (str "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide"
                                       " which predicates project their sentence into the agent's context"))]

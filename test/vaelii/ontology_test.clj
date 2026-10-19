@@ -1084,8 +1084,9 @@
 (tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
   ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
   ;; declares it.  The review-only :missing-arg pass reports every undeclared position,
-  ;; and each position of the four grants is declared.
-  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3}]
+  ;; and each position of the six grants is declared.
+  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3
+                 closedExtentForArg4 closedExtentForArg5}]
     (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse)))
         "the default passes find nothing")
     (let [missing (:missing-arg (v/kb-integrity kb terms 'CxUniverse {:categories #{:missing-arg}}))]
@@ -1093,7 +1094,7 @@
                         :when (contains? terms predicate)
                         i     missing]
                     [predicate i]))
-          "every position of the four grants is declared"))))
+          "every position of the six grants is declared"))))
 
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.

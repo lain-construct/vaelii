@@ -60,7 +60,23 @@
 (set/forwardRule (implies (and (closedExtentForArg3 ?predicate ?value)) (closedExtentForArg ?predicate 3 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 3 ?value)) (closedExtentForArg3 ?predicate ?value)))
 
-(termsRelated closed_extent_predicate closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3)   ;; the closed-extent grants
+(comment closedExtentForArg4
+         "(closedExtentForArg4 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 4 ?value).")
+(binary_predicate closedExtentForArg4)
+(arg closedExtentForArg4 1 predicate)
+(arg closedExtentForArg4 2 thing)   ;; the argument value: a term of any kind
+(set/forwardRule (implies (and (closedExtentForArg4 ?predicate ?value)) (closedExtentForArg ?predicate 4 ?value)))
+(set/inertRule (implies (and (closedExtentForArg ?predicate 4 ?value)) (closedExtentForArg4 ?predicate ?value)))
+
+(comment closedExtentForArg5
+         "(closedExtentForArg5 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 5 ?value).")
+(binary_predicate closedExtentForArg5)
+(arg closedExtentForArg5 1 predicate)
+(arg closedExtentForArg5 2 thing)   ;; the argument value: a term of any kind
+(set/forwardRule (implies (and (closedExtentForArg5 ?predicate ?value)) (closedExtentForArg ?predicate 5 ?value)))
+(set/inertRule (implies (and (closedExtentForArg ?predicate 5 ?value)) (closedExtentForArg5 ?predicate ?value)))
+
+(termsRelated closed_extent_predicate closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3 closedExtentForArg4 closedExtentForArg5)   ;; the closed-extent grants
 
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
