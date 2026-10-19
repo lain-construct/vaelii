@@ -285,3 +285,12 @@
 (tu/deftest-kb the-type-level-claims-are-time-invariant
   ;; Each says what a kind is like, and a kind does not change.
   (all-of-kind kb 'time_invariant_relation '[partType capabilityType] 'CxUniverse))
+
+(tu/deftest-kb parthood-is-time-agnostic-tangible-parthood-time-varying-and-situation-parthood-time-invariant
+  ;; A wheel can come off a car and both go on existing, while a part of an event or a
+  ;; region cannot stop being one.
+  (all-of-kind kb 'time_agnostic_relation '[partOf] 'CxUniverse)
+  (all-of-kind kb 'time_varying_relation '[tangiblePartOf] 'CxUniverse)
+  (all-of-kind kb 'time_invariant_relation '[subSituationOf] 'CxUniverse)
+  (testing "properTangiblePartOf is time-varying through its genl edge to tangiblePartOf"
+    (all-of-kind kb 'time_varying_relation '[properTangiblePartOf] 'CxUniverse)))

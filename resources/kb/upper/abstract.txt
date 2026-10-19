@@ -249,6 +249,7 @@
 (set/monotonic (instance_relation_predicate partOf))
 (set/monotonic (transitive partOf))
 (set/monotonic (reflexive partOf))
+(set/monotonic (time_agnostic_relation partOf))
 ;; Antisymmetry was weighed and declined: two coextensive regions stay two regions, so
 ;; two things each part of the other are not thereby one.  anti_symmetric is
 ;; forced-monotonic, so the denial is believed while no (anti_symmetric partOf) is, and
@@ -282,6 +283,7 @@
 (comment tangiblePartOf
          "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
 (set/monotonic (instance_relation_predicate tangiblePartOf))
+(set/monotonic (time_varying_relation tangiblePartOf))
 (arg tangiblePartOf 1 tangible)
 (arg tangiblePartOf 2 tangible)
 (set/monotonic (transitive tangiblePartOf))
@@ -377,6 +379,7 @@
 ;; --- subSituationOf: a situation that is part of another ---------------------
 (comment subSituationOf
          "(subSituationOf ?part ?whole) means that the situation ?part is a part of the situation ?whole. Declared transitive, so a part of a part is a part. A part's time is within its whole's time. The converse does not hold: two situations sharing a time are not thereby parts of one another. subSituationOf supplies parthood only. It rolls no role of the part up to the whole, and it closes no situation under the sum of its parts.")
+(set/monotonic (time_invariant_relation subSituationOf))
 (implementationNote subSituationOf "No rule concludes the temporal containment of a part in its whole. The upper ontology has no relation for one time falling within another that covers an intermittent time.")
 (set/monotonic (instance_relation_predicate subSituationOf))
 (arg subSituationOf 1 situation)
