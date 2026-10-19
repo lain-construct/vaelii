@@ -320,3 +320,9 @@
                '[toolInvoked receipt probesPredicate toolArgComment toolArgType]
                'CxTra)
   (all-of-kind kb 'time_varying_relation '[agentHasTool] 'CxTra))
+
+(tu/deftest-kb name-resolution-addresses-and-relationship-labels-are-time-varying
+  ;; A host name can be pointed at a new address and a resource moved to a new URL, and
+  ;; a person can start calling a relationship by another name.
+  (all-of-kind kb 'time_varying_relation '[dnsResolvesTo resourceUrl] 'CxTra)
+  (all-of-kind kb 'time_varying_relation '[relationshipLabel] 'CxSocial))
