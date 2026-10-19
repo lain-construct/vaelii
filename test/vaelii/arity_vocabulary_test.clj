@@ -255,6 +255,31 @@
     (doseq [type '[unary binary ternary quaternary quinary]]
       (is (not (v/isa? kb 'calendarInstant type))))))
 
+(def ^:private arity-classes
+  "The relation-wide classes an arity is read from: the five exact ones and the variable
+  policy."
+  '[unary binary ternary quaternary quinary variable_arity])
+
+(tu/deftest-kb every-shipped-predicate-declares-an-arity-class
+  ;; A predicate is read by its arity, so every shipped one is in an exact class or is
+  ;; variable_arity.  A fixed arity above five has no named class, and its fixed_arity
+  ;; membership with its (arity P n) stands in for one.
+  (testing "every predicate is in an arity class, or is fixed_arity above five arguments"
+    (is (empty? (for [term (v/terms kb)
+                      :when (and (symbol? term)
+                                 (v/isa? kb term 'predicate)
+                                 (not-any? #(v/isa? kb term %) arity-classes)
+                                 (not (and (v/isa? kb term 'fixed_arity)
+                                           (some-> (v/relation-arity kb term) (> 5)))))]
+                  term))))
+  (testing "every term carrying an argument or arity declaration is a relation"
+    (is (empty? (for [[pattern] '[[(arg ?p ?n ?t)] [(genlArg ?p ?n ?t)] [(quotedArg ?p ?n ?t)]
+                                  [(arity ?p ?n)] [(arityMin ?p ?n)]]
+                      s (v/sentexes-matching kb pattern '?ctx)
+                      :let [term (second (:sentence s))]
+                      :when (and (symbol? term) (not (v/isa? kb term 'relation)))]
+                  term)))))
+
 (tu/deftest-kb fixed-and-variable-arity-have-relation-kind-specializations
   (testing "a predicate carrying an exact arity declaration is classified"
     (is (v/isa? kb 'interArg 'fixed_arity_predicate))
