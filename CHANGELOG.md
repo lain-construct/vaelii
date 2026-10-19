@@ -32,6 +32,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **A shipped argument position that holds a term of any kind declares `thing`.** `(arg P
+  n thing)` states that position `n` of `P` holds a term of any kind and that no narrower
+  type is right for it. `core.txt`, `abstract.txt`, `reflection.txt`, `society.txt`,
+  `CxPerception.txt`, `CxComputing.txt` and `CxSpeechActs.txt` state 51 such `arg`
+  declarations, among them `(arg equals 1 thing)`, `(arg doneBy 2 thing)` and `(arg
+  believes 1 thing)`, and `(args different thing)` types every position of `different`.
+  `(genlArg toolArgType 3 thing)` types the third position of `toolArgType` a type. A
+  documentation position holds the term it documents taken as written, so `comment`,
+  `seeAlso`, the three example predicates and their three string siblings declare
+  `(quotedArg P 1 denotational_term)`. `seeAlso` declares its second position the same
+  way, and `argN` declares `(quotedArg argN 1 expression)`. A fixed-arity predicate's
+  position of arity 2 and up is declared, or `ontology_test`'s `undeclared-positions`
+  names it with its reason. The two `genl` positions, the example predicates' quoted
+  sentence and the aggregation operators' slots are the positions it names. [argtypes.md](docs/argtypes.md#constraint-and-entailment-readings).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none. Under the entailing reading, a symbol at one of these positions with
+  no narrower membership derives `(thing X)`.
+
 - **The browser's history lists only what the active KB holds.** The front page's
   Browsed panel is kept in the browser's localStorage, so a switch to another KB left it
   listing terms and sentexes the new one does not hold, each a link to an empty page.

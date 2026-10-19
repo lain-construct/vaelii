@@ -19,7 +19,7 @@
     (is (:enforced (v/interpreted 'different)))
     (is (true? (v/ask? kb '(variable_arity_predicate different) U)))
     (is (true? (v/ask? kb '(arityMin different 2) U)))
-    (is (empty? (v/sentexes-matching kb '(args different ?t) '?ctx)))
+    (is (true? (v/ask? kb '(args different thing) U)) "every side is a term of any kind")
     (is (true? (v/ask? kb '(commutative different) U))))
   (testing "two distinct names are different in either order"
     (tu/with-terms [Alpha Beta]
@@ -29,12 +29,14 @@
 
 ;; ---- the equality relations and the rule and strength wrappers -------------
 
-(tu/deftest-kb the-equality-relations-are-declared-binary-with-untyped-positions
+(tu/deftest-kb the-equality-relations-are-declared-binary-with-thing-positions
   (doseq [r '[sameAs equals]]
     (is (:enforced (v/interpreted r)) (str r " is classified enforced"))
     (is (true? (v/ask? kb (list 'binary_predicate r) U)) (str r " is a binary_predicate"))
-    (is (empty? (v/sentexes-matching kb (list 'arg r '?n '?t) '?ctx))
-        (str r " declares no type: either side is a term of any kind")))
+    (is (= #{[1 'thing] [2 'thing]}
+           (set (for [{[_ _ n t] :sentence} (v/sentexes-matching kb (list 'arg r '?n '?t) '?ctx)]
+                  [n t])))
+        (str r " declares thing at both positions: either side is a term of any kind")))
   (testing "a merge under either relation still answers from the closure"
     (tu/with-terms [Alpha Beta Gamma Delta]
       (v/assert kb (list 'sameAs Alpha Beta) U)

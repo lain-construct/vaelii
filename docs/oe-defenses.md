@@ -57,13 +57,13 @@ An entry names the alternative, says what the KB states instead, and gives the r
 **Why:** an ability is an ability to take part in a kind of event, and the event vocabulary already carries the structure abilities need. `(genl flying travelling)` makes "can fly implies can travel" fall out of the event hierarchy with no parallel ability hierarchy to keep in step, and travelling being a `causal_event` is stated once, for the events and the abilities together.
 
 
-### An event's doer has no type
+### An event's doer is a thing
 
 **Alternative:** type `doneBy`'s second argument as `agent`, `animal` or `organism`, so that only something that can act brings an event about.
 
-**Instead:** `abstract.txt` declares no type on the second argument of `doneBy` or of its spec `performedBy`.
+**Instead:** `abstract.txt` declares `thing` on the second argument of `doneBy` and of its spec `performedBy`.
 
-**Why:** a machine, a process or a storm brings events about as well as a person or an animal does. `agent` names a registered participant rather than something that can act, and no type below `thing` covers every doer. A type on the position would conclude every doer a member of it under the assertive reading, a machine included. `performedBy`, the intentional case, carries the narrower claim.
+**Why:** a machine, a process or a storm brings events about as well as a person or an animal does. `agent` names a registered participant rather than something that can act, and no type below `thing` covers every doer. A narrower type on the position would conclude every doer a member of it under the assertive reading, a machine included. `performedBy`, the intentional case, carries the narrower claim.
 
 
 ### Food and body part overlap

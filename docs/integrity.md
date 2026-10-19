@@ -591,11 +591,10 @@ types:
 - **Arity conflicts.** A predicate told two different arities is skipped, as
   `kb/relation-arity` reads it.
 
-The shipped contexts leave undeclared each position that holds a term of any kind,
-because no type below `thing` covers it and no `arg`-family declaration names `thing`
+The shipped contexts declare `thing` at each position that holds a term of any kind
 ([argtypes.md](argtypes.md#constraint-and-entailment-readings)). `:missing-arg` reports
-those positions on the starter, and `ontology_test`'s `untyped-positions` roster gives
-the reason for each fixed-arity one.
+the positions the starter leaves undeclared, and `ontology_test`'s `undeclared-positions`
+gives the reason for each fixed-arity one.
 
 `:missing-arg` is review-only: a sweep without `:categories` skips it, and `:categories`
 names it to run it. The pass reads one census of arity declarations, then each
