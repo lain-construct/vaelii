@@ -84,6 +84,15 @@ An entry names the alternative, says what the KB states instead, and gives the r
 **Why:** only a living kind of thing can be alive, asleep or warm-blooded. Without a genl, nothing stops `(warm_blooded Rock1)`, and every pair of these properties with the kinds below `organism` reads `:unknown` in the audit. With the genl, a misapplied property is caught as a type clash. `alive` and `dead` go under `biological` rather than `organism`, so a dead leaf is not concluded to be an organism.
 
 
+### A kind may sit below a property
+
+**Alternative:** let a biology property have a genl but no spec, on the rule that a property is said of a kind and so nothing may be placed under it.
+
+**Instead:** a kind may be placed under a property it always has. Whether a name is spelled as a noun or as an adjective is a style hint, not a rule of the hierarchy.
+
+**Why:** "every bird is warm-blooded" is a genl edge from `bird` to `warm_blooded`, and nothing in it makes `warm_blooded` a kind that birds are a sort of. OntoClean allows a non-sortal above a sortal. What it forbids is an anti-rigid type above a rigid one: a property a thing can stop having cannot subsume a kind a thing never stops being.
+
+
 ### Metal is solid by default, and mercury is the stated exception
 
 **Alternative:** state that every metal is solid, or leave `metal_stuff`'s state of matter unstated.
