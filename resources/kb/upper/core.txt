@@ -2153,6 +2153,10 @@
 ;; A tangible is uninterrupted by default.  The edge is a default because a tangible
 ;; can be intermittent, e.g. a watch taken apart and rebuilt.
 (genl tangible uninterrupted)
+;; An intermittent thing is intangible by default.  The default above keeps a tangible
+;; out of intermittent, and the partition of thing into tangible and intangible leaves
+;; intangible as the other part.
+(genl intermittent intangible)
 ;; A thing either can be a cause or cannot, and a cause is in time.  abstract.txt comments
 ;; causal and acausal; the partition and the edges are stated here with the other three
 ;; partitions of thing.  The partitions separate atemporal from causal but install no genl edge
@@ -2160,3 +2164,7 @@
 (set/monotonic (partition thing causal acausal))
 (genl causal temporal)
 (genl atemporal acausal)
+;; An acausal thing is intangible.  abstract.txt's (genl tangible causal) keeps every
+;; tangible out of acausal, and the partition of thing into tangible and intangible
+;; leaves intangible as the other part.
+(genl acausal intangible)
