@@ -281,3 +281,7 @@
   ;; A tangible thing can grow or shrink and go on existing.
   (all-of-kind kb 'time_varying_relation '[heightOf weightOf tallerThan heavierThan]
                'CxUniverse))
+
+(tu/deftest-kb the-type-level-claims-are-time-invariant
+  ;; Each says what a kind is like, and a kind does not change.
+  (all-of-kind kb 'time_invariant_relation '[partType capabilityType] 'CxUniverse))
