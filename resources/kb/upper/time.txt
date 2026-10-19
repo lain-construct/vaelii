@@ -27,6 +27,7 @@
 (comment clipped
          "(clipped ?instant1 ?fluent ?instant2) means that some event terminating ?fluent happens strictly between ?instant1 and ?instant2. What breaks inertia: a fluent an event started at ?instant1 still holds at ?instant2 exactly while nothing clipped it in between. Derived by CxChange and never stated — an event and its terminates fact are what a KB says, and the interval this covers is what follows from them. See docs/time.md.")
 (ternary_predicate clipped)
+(set/monotonic (time_invariant_relation clipped))
 (arg clipped 1 time_point)
 (arg clipped 2 fluent)
 (arg clipped 3 time_point)
@@ -34,6 +35,7 @@
 (comment clippedBefore
          "(clippedBefore ?fluent ?instant) means that some event terminating ?fluent happens before ?instant, with no lower bound on when. The half-open reading of clipped, and what an initially-true fluent needs: nothing named the moment such a fluent began, so there is no first instant to bound the interval with. Derived by CxChange and never stated. See docs/time.md.")
 (set/monotonic (instance_relation_predicate clippedBefore))
+(set/monotonic (time_invariant_relation clippedBefore))
 (arg clippedBefore 1 fluent)
 (arg clippedBefore 2 time_point)
 
@@ -137,6 +139,7 @@
 (comment happens
          "(happens ?event ?instant) means that ?event occurs at ?instant. The one thing a narrative states about an event's place in time; whether the event changes anything is initiates and terminates, said separately, so an event nobody has said anything else about still has a time. See docs/time.md.")
 (set/monotonic (instance_relation_predicate happens))
+(set/monotonic (time_invariant_relation happens))
 (arg happens 1 temporal)
 (arg happens 2 time_point)
 
@@ -149,6 +152,7 @@
 (comment holdsAt
          "(holdsAt ?fluent ?instant) means that ?fluent is the case at ?instant. Derived by CxChange and never stated: it follows from an event that initiated the fluent earlier and nothing having terminated it since, which is inertia — a state persists until something ends it. Backward-only, because a fluent holds at every moment between its start and its end and materializing one fact per moment would store an unbounded extent for a question anybody can ask directly. See docs/time.md.")
 (set/monotonic (instance_relation_predicate holdsAt))
+(set/monotonic (time_invariant_relation holdsAt))
 (arg holdsAt 1 fluent)
 (arg holdsAt 2 time_point)
 
@@ -167,6 +171,7 @@
 (comment initiates
          "(initiates ?event ?fluent ?instant) means that ?fluent is the case from ?instant onwards because ?event happened then. Stated of the event and the fluent together, since the same event can start one state and end another — waking starts being awake and ends being asleep. Says nothing on its own about whether the event occurred: that is happens, and both are needed. See docs/time.md.")
 (ternary_predicate initiates)
+(set/monotonic (time_invariant_relation initiates))
 (arg initiates 1 causal)
 (arg initiates 2 fluent)
 (arg initiates 3 time_point)
@@ -407,6 +412,7 @@
 (comment terminates
          "(terminates ?event ?fluent ?instant) means that ?fluent stops being the case at ?instant because ?event happened then. The converse half of initiates, and what a later-arriving event uses to withdraw a conclusion inertia had already drawn — retract the event and the conclusion comes back. See docs/time.md.")
 (ternary_predicate terminates)
+(set/monotonic (time_invariant_relation terminates))
 (arg terminates 1 causal)
 (arg terminates 2 fluent)
 (arg terminates 3 time_point)
