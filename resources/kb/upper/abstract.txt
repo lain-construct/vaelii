@@ -432,10 +432,14 @@
           (instantNotAfter (StartFn ?cause) (StartFn ?effect))))
 
 ;; --- actor / thingPerceived: a happening's participants ---------------------
-(comment actor "(actor ?happening ?participant) means that ?participant participates meaningfully in ?happening.")
+(comment actor "(actor ?situation ?participant) means that ?participant participates meaningfully in ?situation.")
 (set/monotonic (instance_relation_predicate actor))
-(arg actor 1 happening)
+(arg actor 1 situation)
 (arg actor 2 thing)
+;; A situation is a whole that timeOf places in time and nothing slices by time, so whoever
+;; takes part in one takes part in it for as long as both exist: every spec of actor is
+;; time-invariant.
+(set/forwardRule (implies (genl ?relation actor) (time_invariant_relation ?relation)))
 
 (comment thingPerceived "(thingPerceived ?happening ?thing) means that ?thing is what is perceptually taken in during ?happening.")
 (set/monotonic (instance_relation_predicate thingPerceived))
