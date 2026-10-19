@@ -294,3 +294,9 @@
   (all-of-kind kb 'time_invariant_relation '[subSituationOf] 'CxUniverse)
   (testing "properTangiblePartOf is time-varying through its genl edge to tangiblePartOf"
     (all-of-kind kb 'time_varying_relation '[properTangiblePartOf] 'CxUniverse)))
+
+(tu/deftest-kb mechanisms-are-time-invariant-and-hollow-time-varying
+  ;; A stopped clock is still a mechanism and a dead phone still an electronic device,
+  ;; but a box crushed flat is no longer hollow and is still a box.
+  (all-of-kind kb 'time_invariant_relation '[mechanism electronic_device] 'CxUniverse)
+  (all-of-kind kb 'time_varying_relation '[hollow] 'CxUniverse))
