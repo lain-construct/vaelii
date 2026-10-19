@@ -62,6 +62,7 @@
   roster (docs/nmtms.md, \"The forced-monotonic roster\")."
   '{genlCx     "every context's ancestor set reads the stored edges"
     except     "withdrawing one un-hides its target, so the OUT set of a round would shrink"
+    exceptWhen "withdrawing one unblocks the firings of the rule it names, so the OUT set of a round would shrink"
     orthogonal "the one member of the related-types family's clash of it, which is a conflict and never a defeat"
     rewriteOf  "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
     sameAs     "withdrawing one un-merges two terms, so the OUT set of a round would shrink"

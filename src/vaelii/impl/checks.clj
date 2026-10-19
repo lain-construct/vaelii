@@ -3067,7 +3067,8 @@
   missing semantics (docs/nmtms.md, \"The forced-monotonic roster\")."
   (into {['forced_monotonic_between_predicates 'genl] :unforced-predicate-genl
          ['forced_monotonic_predicate 'genlCx]        :unforced-context-edge
-         ['forced_monotonic_predicate 'except]        :unforced-except}
+         ['forced_monotonic_predicate 'except]        :unforced-except
+         ['forced_monotonic_predicate 'exceptWhen]    :unforced-exception}
         (for [[missing preds]
               {:unforced-relation-mark
                '[irreflexive anti_symmetric asymmetric functional functionalInArg
