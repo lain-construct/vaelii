@@ -511,6 +511,9 @@
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)
 (metatype stuff_type_by_substance)
+;; Every member of either metatype is a first-order type, whose instances are portions of stuff.
+(genl stuff_type_by_state_of_matter type)
+(genl stuff_type_by_substance type)
 (genl building container)
 (genl gas substance)
 (genl plasma substance)
