@@ -372,5 +372,5 @@
         (format "disjoint pairs must not fall below 21875 (got %d)" disjoint))
     (is (>= disjoint-% 83.04)
         (format "disjoint coverage must not regress below 83.04%% (got %.2f%%)" disjoint-%))
-    (is (<= unknown-% 7.20)
-        (format "unknown pairs must not grow above 7.20%% (got %.2f%%)" unknown-%))))
+    (is (<= unknown-% 7.12)
+        (format "unknown pairs must not grow above 7.12%% (got %.2f%%)" unknown-%))))

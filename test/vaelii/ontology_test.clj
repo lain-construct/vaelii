@@ -387,8 +387,9 @@
   ;; The naming rules make `alive` and `mortal` legal unary predicates, and nothing in
   ;; them says where a name sits in the genl hierarchy.  Each of these properties is
   ;; said of one kind, so it is placed under that kind: only an animal is warm-blooded,
-  ;; and `(warm_blooded Rock1)` is a type clash.  A kind may sit below one of them, and
-  ;; the kind a property is said of never does.  Spelling a type as a noun and a
+  ;; and `(warm_blooded Rock1)` is a type clash.  A kind may sit below one of them, as
+  ;; `bird` and `mammal` sit below `warm_blooded`, and the kind a property is said of
+  ;; never does.  Spelling a type as a noun and a
   ;; property as an adjective is a style hint, not a rule of the hierarchy.
   (testing "the properties the biology theory concludes are placed under their kind"
     (doseq [[p kind] biology-properties]
@@ -397,6 +398,17 @@
       (is (v/isa? kb p 'unary_predicate)
           (str p " is still a one-place predicate"))
       (is (not (v/genl? kb kind p)) (str kind " is not placed under " p))))
+  (testing "a kind may sit below one: every bird and every mammal is warm-blooded"
+    (doseq [t '[bird mammal penguin dog]]
+      (is (v/genl? kb t 'warm_blooded) (str t " is placed under warm_blooded")))
+    (tu/with-terms [Pingu Rex Nemo]
+      (v/assert kb (list 'penguin Pingu) 'CxWell)
+      (v/assert kb (list 'dog Rex) 'CxWell)
+      (v/assert kb (list 'fish Nemo) 'CxWell)
+      (is (v/ask? kb (list 'warm_blooded Pingu) 'CxWell) "a penguin is warm-blooded")
+      (is (v/ask? kb (list 'warm_blooded Rex) 'CxWell) "a dog is warm-blooded")
+      (is (v/ask? kb (list 'not (list 'warm_blooded Nemo)) 'CxWell)
+          "a fish is not, by the rule that denies it")))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person tangible event flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))

@@ -103,10 +103,12 @@
 
 ;; ---- warm-bloodedness, read off the class --------------------------------
 ;; Never asserted of any particular animal: the five vertebrate classes are pairwise
-;; disjoint, so exactly one of these fires for a typed animal and the KB cannot hold
-;; both halves of the contradiction.
+;; disjoint, so a typed animal is under exactly one of them and the KB cannot hold
+;; both halves of the contradiction.  Every bird and every mammal is warm-blooded, so
+;; each is placed under warm_blooded by a genl edge; the three cold-blooded classes
+;; deny it by a rule, since a genl edge states no denial.
+(genl bird warm_blooded)
+(genl mammal warm_blooded)
 (set/forwardRule (implies (and (amphibian ?x)) (not (warm_blooded ?x))))
-(set/forwardRule (implies (and (bird ?x)) (warm_blooded ?x)))
 (set/forwardRule (implies (and (fish ?x)) (not (warm_blooded ?x))))
-(set/forwardRule (implies (and (mammal ?x)) (warm_blooded ?x)))
 (set/forwardRule (implies (and (reptile ?x)) (not (warm_blooded ?x))))
