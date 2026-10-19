@@ -150,6 +150,7 @@
 (comment olderThan
          "(olderThan ?organism1 ?organism2) means that ?organism1 was born before ?organism2. Derivable rather than only asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds whenever both birth years are known and ordered. Declared transitive, the same instance-level strict order heavierThan and tallerThan are: born-before composes, so two stated comparisons carry the third and a chain is answered off the closure with no birth year written down.")
 (set/monotonic (instance_relation_predicate olderThan))
+(set/monotonic (time_invariant_relation olderThan))
 (arg olderThan 1 organism)
 (arg olderThan 2 organism)
 (set/monotonic (transitive olderThan))
