@@ -764,7 +764,7 @@
     :sentexes 0
     :unindexed 100
     :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
-              :tax-support 3200 :trie-counts 700 :mint 100}
+              :tax-support 3800 :trie-counts 700 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1102 :roster 202 :slots 201 :dead 302}}
 
@@ -774,7 +774,7 @@
     :sentexes 0
     :unindexed 200
     :reads   {:exception-index 200 :opposed 100 :predicate-extent 900
-              :tax-support 3200 :trie-counts 700 :mint 100}
+              :tax-support 3800 :trie-counts 700 :mint 100}
     :writes  {}
     :retracts {:levels 1000 :terms 800 :roots 2204 :roster 200 :slots 402 :dead 602}}
 
@@ -797,7 +797,7 @@
     :sentexes 0
     :unindexed 100
     :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
-              :tax-support 3200 :trie-counts 300 :mint 100}
+              :tax-support 3800 :trie-counts 300 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1003 :roster 102 :slots 102 :dead 301}}
 
@@ -822,7 +822,7 @@
     :sentexes 0
     :unindexed 200
     :reads   {:exception-index 200 :opposed 200 :predicate-extent 1400
-              :term-index 300 :tax-support 6400 :trie-counts 600 :mint 200}
+              :term-index 300 :tax-support 7600 :trie-counts 600 :mint 200}
     :writes  {}
     :retracts {:levels 1200 :terms 1000 :roots 2204 :roster 303 :slots 402 :dead 802}}
 
@@ -846,7 +846,7 @@
     :sentexes 0
     :unindexed 100
     :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
-              :tax-support 3200 :trie-counts 700 :mint 100}
+              :tax-support 3800 :trie-counts 700 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1003 :roster 102 :slots 102 :dead 301}}])
 

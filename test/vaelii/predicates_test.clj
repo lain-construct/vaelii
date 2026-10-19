@@ -164,7 +164,7 @@
   ;; rule's `(commutativeInArgAndRest P 1)` conclusion being what the re-spelling fires on.
   (is (= (into '#{genl genlCx disjoint disjoint_metatype sibling_disjoint
                   covering separating partition
-                  arity arityMin arg argArg genlArg interArg arg1 arg2 arg3
+                  arity arityMin arg argArg genlArg interArg arg1 arg2 arg3 arg4 arg5
                   commutative commutativeInArgs commutativeInArgAndRest
                   irreflexive anti_symmetric functional functionalInArg asymmetric
                   anti_transitive}
