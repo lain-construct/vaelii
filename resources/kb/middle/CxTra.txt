@@ -152,6 +152,7 @@
 ;; ---- a tool's name, its declared arguments and its availability ----------
 (comment toolName "(toolName ?tool ?name) means that ?name is the identifier ?tool is invoked by, e.g. the program name of a command-line tool, the tool name a Model Context Protocol server lists.")
 (set/monotonic (instance_relation_predicate toolName))
+(set/monotonic (time_varying_relation toolName))
 (arg toolName 1 software_tool)
 (quotedArg toolName 2 string)
 (set/monotonic (functional toolName))

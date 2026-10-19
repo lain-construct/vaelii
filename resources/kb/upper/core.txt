@@ -95,22 +95,27 @@
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
 (ternary_predicate agg/avg)
+(set/monotonic (time_varying_relation agg/avg))
 
 (comment agg/count
          "(agg/count ?count ?value ?body) means that ?count is how many distinct ?value satisfy ?body. Distinct by the equality closure, so two names for one thing count once, and 0 over an empty ?body. ?value is projected out and ?count is the only binding produced, so in a rule body the aggregate runs once per grouping the generators bind and yields one ?count each — which is where GROUP BY comes from, with no GROUP BY construct to design. A query operator answered by a prover, never stored: a count is a function of what is believed now, and storing one would put a computed value under truth maintenance with no way to invalidate it.")
 (ternary_predicate agg/count)
+(set/monotonic (time_varying_relation agg/count))
 
 (comment agg/max
          "(agg/max ?max ?value ?body) means that ?max is the greatest of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, a maximum of nothing being a claim about a group with no members. A query operator, never stored.")
 (ternary_predicate agg/max)
+(set/monotonic (time_varying_relation agg/max))
 
 (comment agg/min
          "(agg/min ?min ?value ?body) means that ?min is the least of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, a minimum of nothing being a claim about a group with no members. A query operator, never stored.")
 (ternary_predicate agg/min)
+(set/monotonic (time_varying_relation agg/min))
 
 (comment agg/sum
          "(agg/sum ?sum ?value ?body) means that ?sum is the total of the distinct numeric ?value satisfying ?body. Measures of one dimension work too: they are normalized, added in base units and rendered back, so a mixed-dimension extent is refused rather than quietly added. 0 over an empty ?body, that being the identity of the reduction. A query operator, never stored.")
 (ternary_predicate agg/sum)
+(set/monotonic (time_varying_relation agg/sum))
 
 (comment and
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
@@ -1160,6 +1165,7 @@
 (comment believes
          "(believes ?agent ?sentence) means that ?agent holds ?sentence true in its own context — answered by proving ?sentence in ?agent's context (CxAgent<agent>) rather than in the asker's, so two agents may believe contradictory things without the KB being inconsistent. A modal_predicate: the projection is what BeliefProjectionProver does, and the marker is what turns it on (docs/belief.md). An ordinary relation for the rest — assertible and storable like any fact, so an asserted (believes a p) is answerable as a stored fact too; the projector augments, it does not shadow.")
 (set/monotonic (instance_relation_predicate believes))
+(set/monotonic (time_varying_relation believes))
 (arg believes 2 sentence)
 (arg believes 1 thing)   ;; a believer, whose type the upper ontology does not name
 (modal_predicate believes)
@@ -1179,6 +1185,7 @@
          "(implementationNote ?term ?text) means that ?text records how the engine or this KB's own text implements ?term, or a limit of that implementation, e.g. a rule stated only for some arities. A comment says what ?term means, and an implementation note says how the meaning is carried out. A note can go stale when the engine changes, and a comment cannot. Ordinary sentexes, queried like any fact. Nothing in the engine reads one and it draws no inference.")
 (binary_predicate implementationNote)
 (instance_relation_predicate implementationNote)
+(set/monotonic (time_invariant_relation implementationNote))
 (arg implementationNote 2 string)
 (quotedArg implementationNote 1 denotational_term)   ;; the noted term as written, as comment's is
 (termsRelated comment implementationNote)
@@ -1313,8 +1320,10 @@
 ;; unary_predicate.  Each holds types of any order, as variable_order_type does.
 (comment empty
          "(empty ?type) means that ?type has no instance. An empty claim holds for the context it is stated in. Stated in CxUniverse, (empty ?type) means that ?type can have no instance. A claim that can change over time belongs in a context bounded to that time: (empty hobbit) holds in a context about the actual world, and (nonempty hobbit) holds in a context about Middle-earth during a period when hobbits exist. An extinct species is nonempty in a context about a period before its extinction. Emptiness does not contradict orthogonal: (orthogonal unicorn horse) says that the two types could share an instance, and (empty unicorn) says that unicorn has none.")
+(set/monotonic (time_varying_relation empty))
 (comment nonempty
          "(nonempty ?type) means that ?type has at least one instance. A nonempty claim holds for the context it is stated in, as an empty claim does. empty and nonempty partition unary_predicate, so one type stated both empty and nonempty in contexts one reader sees is a disjointness clash.")
+(set/monotonic (time_varying_relation nonempty))
 (set/monotonic (partition unary_predicate empty nonempty))
 (set/monotonic (variable_order_type empty))
 (set/monotonic (variable_order_type nonempty))
@@ -1608,6 +1617,7 @@
 (comment indeterminate_term
          "(indeterminate_term ?term) means that ?term is an indeterminate filler: it stands for some object without determining which, so it is not a determinate filler for a predAllSpecified audit, and the unique-name assumption is suspended for it — neither (equals ?term x) nor (different ?term x) is provable against a determinate term x until a rewriteOf identifies it. An extensible category the predAllSpecified audit and the different prover read through one implementation, so they cannot disagree about a term. Skolem constants are the built-in first member, detected by their SkolemFn minting expression rather than a stored membership; a further kind is added with (genl NewKind indeterminate_term). See docs/skolem.md.")
 (unary_predicate indeterminate_term)
+(set/monotonic (time_varying_relation indeterminate_term))
 
 ;; --- Specified class: integrity audit, no inference -----------------------
 ;; The antagonist of the *Exists* class.  Where *Exists* mints a placeholder to stand for
