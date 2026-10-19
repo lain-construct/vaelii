@@ -311,3 +311,12 @@
   (doseq [s '[caterpillar butterfly]]
     (is (true? (v/ask? kb (list 'life_stage_type s) 'CxUniverse)) (str s " is a life stage")))
   (all-of-kind kb 'time_varying_relation '[caterpillar butterfly] 'CxUniverse))
+
+(tu/deftest-kb tool-invocations-and-tool-declarations-are-time-invariant-and-tool-access-time-varying
+  ;; A call is of the tool it called and produced the receipt it produced, and a tool
+  ;; version's declared arguments and probed predicates are fixed.  An agent can gain or
+  ;; lose a tool and go on existing.
+  (all-of-kind kb 'time_invariant_relation
+               '[toolInvoked receipt probesPredicate toolArgComment toolArgType]
+               'CxTra)
+  (all-of-kind kb 'time_varying_relation '[agentHasTool] 'CxTra))
