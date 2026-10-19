@@ -15,6 +15,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **The intersection membership rule confers `:monotonic`.** Each `(intersection C A B)`
+  fact stamps a bare `(implies (and (A ?x) (B ?x)) (C ?x))` rather than a
+  `set/defaultRule`, so a thing stated of each type at `:monotonic` is a `:monotonic`
+  member of `C`, and wins a clash with a `:default` membership where the two were a
+  dilemma. A `:default` conjunct still makes a `:default` member. A `C` on the
+  forced-monotonic roster is concluded from roster conjuncts, where every firing was void.
+
+  *Migration:* state a conjunct at `:default` where the combined membership should stay
+  defeasible.
+  *Breaks:* `ask`, `query`, `contradictions`, `violations`
+
 - **The arity policies and the numeric comparators are on the forced-monotonic roster.**
   `fixed_arity`, `fixed_arity_predicate`, `fixed_arity_function`, `bounded_arity`,
   `unbounded_arity`, `at_least_binary`, `arityMax`, `admitsArgnum`, `greaterThan` and

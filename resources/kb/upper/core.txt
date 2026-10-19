@@ -1011,11 +1011,16 @@
 (set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type2)))
 (set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type3)))
 ;; membership: the consequent's predicate is a variable, so a generator stamps a
-;; concrete-functor rule per intersection fact.
+;; concrete-functor rule per intersection fact.  The stamped rule is bare, so it confers
+;; :monotonic and its conclusion is capped at its weakest antecedent: a thing stated of
+;; each type at :monotonic is a :monotonic member of the combined kind, and one stated of
+;; a type at :default is a :default member.  An intersection is a definition, and what
+;; is each type is the combined kind without exception, so the rule adds no
+;; defeasibility of its own.
 (implies (intersection ?combined ?type1 ?type2)
-         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x)) (?combined ?x))))
+         (implies (and (?type1 ?x) (?type2 ?x)) (?combined ?x)))
 (implies (intersection ?combined ?type1 ?type2 ?type3)
-         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x) (?type3 ?x)) (?combined ?x))))
+         (implies (and (?type1 ?x) (?type2 ?x) (?type3 ?x)) (?combined ?x)))
 
 ;; ---- the predAll / predExists / predInstance / predSpecified matrix -------
 ;; A family of ternary relations that quantify one binary ?pred's two argument positions
