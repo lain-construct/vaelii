@@ -8,7 +8,8 @@
             [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (core-context/load-into))))
+(use-fixtures :once (tu/loaded core-context/load-into))
+(use-fixtures :each (tu/neutral))
 
 (tu/deftest-kb core-predicates-are-documented
   (testing "every core predicate has a comment sentex in CxUniverse"

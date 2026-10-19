@@ -22,7 +22,6 @@
   the interleaving, the redelivery and the lag sequence deterministic."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.client :as vc]
-            [vaelii.host.core-context :as core-context]
             [vaelii.host.serve :as serve]
             [vaelii.host.subscribe :as sub]
             [vaelii.koinii.catchup :as cu]
@@ -35,7 +34,7 @@
 
 (defn- household-kb []
   (tu/load-dumped! (tu/fresh) :koinii/speech-acts
-                   #(doto % (core-context/load-into) (sa/load-speech-acts))))
+                   #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
 (use-fixtures :each (tu/neutral-fresh household-kb))
 

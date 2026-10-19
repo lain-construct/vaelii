@@ -10,13 +10,12 @@
   kind does not fire the rule."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 ;; The fixture loads the upper layer, whose reflection.txt holds the expression lattice
 ;; `sentence` answers in.
-(use-fixtures :once (tu/loaded #(doto % (core-context/load-into))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!))))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private Quote

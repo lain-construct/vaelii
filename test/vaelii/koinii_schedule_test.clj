@@ -30,7 +30,6 @@
   with no clingo/clasp present `(solver/available?)` is false and that test no-ops."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.datetime :as dt]
             [vaelii.impl.sentex :as sx]
@@ -42,7 +41,7 @@
             [vaelii.test-util :as tu]))
 
 (defn- schedule-kb []
-  (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)
+  (doto (tu/fresh) (tu/load-core!) (sa/load-speech-acts)
         (v/assert '(unreifiable_function DatetimeFn) 'CxUniverse)))
 
 ;; Majority resolution requires the :proof-tier identity policy and counts only attested

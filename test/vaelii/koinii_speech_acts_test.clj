@@ -9,7 +9,6 @@
   — the required check — the cascade, modeled on `target_following_meta_test`."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
@@ -18,7 +17,7 @@
   "A fresh vocabulary KB with the koinii speech-act vocabulary loaded."
   []
   (tu/load-dumped! (tu/fresh) :koinii/speech-acts
-                   #(doto % (core-context/load-into) (sa/load-speech-acts))))
+                   #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
 (use-fixtures :each (tu/neutral-fresh speech-acts-kb))
 
