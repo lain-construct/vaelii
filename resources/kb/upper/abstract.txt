@@ -441,6 +441,7 @@
 ;; --- causes: a causal thing brings a situation about ---------------------------
 (comment causes
          "(causes ?cause ?effect) means that ?cause brings ?effect about. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: something that holds or happens, over any extent. Declared transitive, so a chain of causes is itself a cause and the chain is answered by the closure prover rather than stored.")
+(set/monotonic (time_invariant_relation causes))
 (positiveExampleComment causes "the flattery made the crow sing")
 (positiveExampleComment causes "the rock dented the car")
 (positiveExampleComment causes "the drought ruined the harvest")

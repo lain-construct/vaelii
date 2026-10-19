@@ -224,3 +224,12 @@
   (all-of-kind kb 'time_varying_relation
                '[read_only_software_tool write_capable_software_tool]
                'CxTra))
+
+(tu/deftest-kb the-event-calculus-relations-are-time-invariant
+  ;; Each takes an event, a fluent or an instant, so a true tuple stays true.
+  (all-of-kind kb 'time_invariant_relation
+               '[holdsAt happens initiates terminates clipped clippedBefore causes]
+               'CxUniverse)
+  (testing "CxTra's happening kinds are specs of situation"
+    (all-of-kind kb 'time_invariant_relation '[tool_invocation tool_receipt image_viewing]
+                 'CxTra)))
