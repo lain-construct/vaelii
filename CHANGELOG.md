@@ -15,6 +15,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **The arity policies and the numeric comparators are on the forced-monotonic roster.**
+  `fixed_arity`, `fixed_arity_predicate`, `fixed_arity_function`, `bounded_arity`,
+  `unbounded_arity`, `at_least_binary`, `arityMax`, `admitsArgnum`, `greaterThan` and
+  `lessThan` go OUT only by retraction, as the arity bindings do. A `:default`
+  `(fixed_arity R)` beside a `:default` `(variable_arity R)` is an irreducible conflict:
+  both stay believed and `conflicts` reports the pair, where `fixed_arity` was the loser.
+  `(animal X)` beside `(fixed_arity_predicate X)`, whose argument position derives
+  `(relation X)`, now takes `animal` OUT, where `relation` was the one held in the clash.
+  `greaterThan` is on the roster so that the `core.txt` rules concluding `at_least_binary`
+  and `at_least_ternary` from `arity` and `arityMin` read roster antecedents only.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Migration:* retract one of two clashing arity policies; a defeat no longer picks one.
+  *Breaks:* `ask`, `query`, `conflicts`
+
 - **A `:default` `genl` edge no longer contraposes.** With `(genl pa pb)` at `:default` and
   `(not (pb Zz))` stored or derived, `query (not (pa Zz))` answers nothing and `argue (pa
   Zz)` answers `:unknown`, where they answered `[{}]` and `:false`. In a context that

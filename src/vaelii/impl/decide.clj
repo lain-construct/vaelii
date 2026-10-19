@@ -68,7 +68,17 @@
     equals     "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
     injection  "a premise of core.txt's rules concluding (functional P) and (functionalInArg P 1)"
     surjection "a premise of core.txt's rule concluding (functional P)"
-    bijection  "a premise of core.txt's rules concluding (injection P) and (surjection P)"})
+    bijection  "a premise of core.txt's rules concluding (injection P) and (surjection P)"
+    fixed_arity           "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    fixed_arity_predicate "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    fixed_arity_function  "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    bounded_arity         "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    unbounded_arity       "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    at_least_binary       "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    arityMax              "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    admitsArgnum          "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    greaterThan           "a numeric comparator, a premise of core.txt's rules concluding (at_least_binary R) and (at_least_ternary R)"
+    lessThan              "a numeric comparator, the stored spelling of greaterThan"})
 
 (def baseline-roster
   "The engine's own roster, `{kind #{predicate …}}`: every family's `:grounds` and every
