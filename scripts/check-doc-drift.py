@@ -1444,6 +1444,10 @@ E17_ROSTER = {
     ("src/vaelii/core.clj", "direct-specs"),
     ("src/vaelii/core.clj", "min-genls"),
     ("src/vaelii/core.clj", "max-specs"),
+    ("src/vaelii/core.clj", "common-genls"),
+    ("src/vaelii/core.clj", "common-specs"),
+    ("src/vaelii/core.clj", "min-common-genls"),
+    ("src/vaelii/core.clj", "max-common-specs"),
     # Assert-time refusals. A refusal is a claim about the KB and not about a vantage:
     # a cycle refused when asked from one context and allowed from another is not a
     # refusal, it is a coin toss.  `disjoint-problems` is the deliberate exception and

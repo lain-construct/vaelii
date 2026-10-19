@@ -438,6 +438,13 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                         ; a cover roster's installed edges count
 (min-genls kb t [context]) / (max-specs kb t [context]) ; the direct parents / children no other one
                                                         ; stands between: a redundant stated edge is left out
+(common-genls kb types [context]) / (common-specs kb types [context])
+                                                        ; the supertypes / subtypes every member of
+                                                        ; `types` has, reflexive like genls / specs
+(min-common-genls kb types [context]) / (max-common-specs kb types [context])
+                                                        ; the minimal / maximal ones strictly beyond
+                                                        ; every member; one type gives min-genls /
+                                                        ; max-specs of it
 (genl? kb sub super [context])                          ; subtype test, scoped the same way
 (types kb) / (contexts kb)                              ; the nodes of each hierarchy
 (relation? kb term [context])                           ; a stored arity of 2+ or variable_arity,

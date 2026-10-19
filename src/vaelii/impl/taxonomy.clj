@@ -3716,6 +3716,77 @@
   [tax t]
   (nearest-neighbours tax :genl :rev t nil))
 
+(defn- common-closure
+  "The intersection of `closure` over the distinct members of `types`, a collection of
+  types: the smallest closure first, so each step walks a set no larger than the
+  answer so far.  `#{}` for an empty `types`."
+  [closure types]
+  (if-some [sets (seq (sort-by count (map closure (set types))))]
+    (reduce set/intersection sets)
+    #{}))
+
+(defn common-genls
+  "The types that are supertypes of **every** member of `types`, through the edges visible
+  from `context`: the intersection of the members' `genls`.  Reflexive, as `genls` is, so
+  a member above all the others is in the set, and one type's common genls are its
+  `genls`.  A set; `#{}` for an empty `types`.  One memoized up-closure read per distinct
+  member.  A nil `context` reads every active edge, as `common-genls-global` does."
+  [tax types context]
+  (common-closure #(genls tax % context) types))
+
+(defn common-specs
+  "The types that are subtypes of **every** member of `types`, through the edges visible
+  from `context`: the intersection of the members' `specs`.  Reflexive, as `specs` is.
+  `common-genls`' reasoning, the other direction."
+  [tax types context]
+  (common-closure #(specs tax % context) types))
+
+(defn min-common-genls
+  "The **minimal** strict common supertypes of `types`, through the edges visible from
+  `context`: `min-types` of `common-genls` with the members of `types` removed.  Every
+  other type strictly above all the members is above one of these.  For `dog` and `cat`
+  under `mammal ⊂ animal` it is `#{mammal}`; for `dog` and `mammal` it is `#{animal}`,
+  since a member is never its own answer.  One distinct member is `min-genls` of it,
+  exactly.  A set; `#{}` for an empty `types` or for members with no common supertype
+  above them.  The cost is one memoized up-closure read per distinct member and one per
+  common genl."
+  [tax types context]
+  (let [members (set types)]
+    (if (= 1 (count members))
+      (min-genls tax (first members) context)
+      (min-types tax (reduce disj (common-genls tax members context) members) context))))
+
+(defn max-common-specs
+  "The **maximal** strict common subtypes of `types`, through the edges visible from
+  `context`: `max-types` of `common-specs` with the members of `types` removed.  One
+  distinct member is `max-specs` of it, exactly.  `min-common-genls`' reasoning, the other
+  direction."
+  [tax types context]
+  (let [members (set types)]
+    (if (= 1 (count members))
+      (max-specs tax (first members) context)
+      (max-types tax (reduce disj (common-specs tax members context) members) context))))
+
+(defn common-genls-global
+  "`common-genls` through **every** active edge — no context scope."
+  [tax types]
+  (common-genls tax types nil))
+
+(defn common-specs-global
+  "`common-specs` through **every** active edge — no context scope."
+  [tax types]
+  (common-specs tax types nil))
+
+(defn min-common-genls-global
+  "`min-common-genls` through **every** active edge — no context scope."
+  [tax types]
+  (min-common-genls tax types nil))
+
+(defn max-common-specs-global
+  "`max-common-specs` through **every** active edge — no context scope."
+  [tax types]
+  (max-common-specs tax types nil))
+
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.
 

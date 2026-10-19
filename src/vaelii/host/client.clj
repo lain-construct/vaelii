@@ -356,6 +356,17 @@
   ([conn] (call conn :clear-caches []))
   ([conn opts] (call conn :clear-caches [opts])))
 
+(defn common-genls
+  "The supertypes **every** type in `types` has, a collection of types: the intersection of
+  their `genls`."
+  ([conn types] (call conn :common-genls [types]))
+  ([conn types context] (call conn :common-genls [types context])))
+
+(defn common-specs
+  "The subtypes **every** type in `types` has: the intersection of their `specs`."
+  ([conn types] (call conn :common-specs [types]))
+  ([conn types context] (call conn :common-specs [types context])))
+
 (defn compare-tacticians
   "Run `goal` in `context` under several **tacticians** — the node engine's search
   orderings — each to completion, and return one row per tactician: the search it ran, its
@@ -624,6 +635,12 @@
   ([conn level goal] (call conn :lookup [level goal]))
   ([conn level goal context] (call conn :lookup [level goal context])))
 
+(defn max-common-specs
+  "The **maximal** common subtypes of `types`: the members of `common-specs` that are no
+  member of `types` and have no other such member strictly above them."
+  ([conn types] (call conn :max-common-specs [types]))
+  ([conn types context] (call conn :max-common-specs [types context])))
+
 (defn max-context-children
   "The **maximal** contexts that inherit from context `c`: the contexts that reach `c` over
   one `genlCx` edge with no other such context strictly above them."
@@ -641,6 +658,12 @@
   of, closed under genl."
   [conn m]
   (call conn :metatype-members [m]))
+
+(defn min-common-genls
+  "The **minimal** common supertypes of `types`: the members of `common-genls` that are no
+  member of `types` and have no other such member strictly below them."
+  ([conn types] (call conn :min-common-genls [types]))
+  ([conn types context] (call conn :min-common-genls [types context])))
 
 (defn min-context-parents
   "The **minimal** contexts context `c` inherits from: the contexts `c` reaches over one

@@ -38,6 +38,8 @@
   check-edit "[[conn batch]]",
   clear-caches "[[conn] [conn opts]]",
   client "[[host port] [host port opts]]",
+  common-genls "[[conn types] [conn types context]]",
+  common-specs "[[conn types] [conn types context]]",
   compare-tacticians
   "[[conn goal] [conn goal context] [conn goal context opts]]",
   conflicts "[[conn]]",
@@ -88,9 +90,11 @@
   last-program "[[conn]]",
   levels "[[conn]]",
   lookup "[[conn level goal] [conn level goal context]]",
+  max-common-specs "[[conn types] [conn types context]]",
   max-context-children "[[conn c]]",
   max-specs "[[conn t] [conn t context]]",
   metatype-members "[[conn m]]",
+  min-common-genls "[[conn types] [conn types context]]",
   min-context-parents "[[conn c]]",
   min-genls "[[conn t] [conn t context]]",
   poll "[[conn token cursor] [conn token cursor opts]]",
@@ -207,6 +211,8 @@
   clear-caches "[[kb] [kb opts]]",
   clear-violations! "[[kb]]",
   close! "[[kb]]",
+  common-genls "[[kb types] [kb types context]]",
+  common-specs "[[kb types] [kb types context]]",
   compare-tacticians
   "[[kb goal] [kb goal context] [kb goal context opts]]",
   compare-tacticians-opt-keys
@@ -275,9 +281,11 @@
   load-text! "[[kb source]]",
   log-level "[[]]",
   lookup "[[kb level goal] [kb level goal context]]",
+  max-common-specs "[[kb types] [kb types context]]",
   max-context-children "[[kb c]]",
   max-specs "[[kb t] [kb t context]]",
   metatype-members "[[kb m]]",
+  min-common-genls "[[kb types] [kb types context]]",
   min-context-parents "[[kb c]]",
   min-genls "[[kb t] [kb t context]]",
   negative? "[[sentex]]",
@@ -397,6 +405,8 @@
    :check
    :check-edit
    :clear-caches
+   :common-genls
+   :common-specs
    :compare-tacticians
    :conflicts
    :context-down
@@ -442,9 +452,11 @@
    :last-program
    :levels
    :lookup
+   :max-common-specs
    :max-context-children
    :max-specs
    :metatype-members
+   :min-common-genls
    :min-context-parents
    :min-genls
    :poll
@@ -524,6 +536,8 @@
    :check
    :check-edit
    :clear-caches
+   :common-genls
+   :common-specs
    :compare-tacticians
    :conflicts
    :context-down
@@ -569,9 +583,11 @@
    :last-program
    :levels
    :lookup
+   :max-common-specs
    :max-context-children
    :max-specs
    :metatype-members
+   :min-common-genls
    :min-context-parents
    :min-genls
    :possible-relations
