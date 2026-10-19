@@ -206,3 +206,21 @@
                  vertebrate invertebrate person body_part feather fin fur leaf leg petal
                  root wing]
                'CxUniverse))
+
+(tu/deftest-kb made-things-stuffs-and-media-are-time-invariant-and-dwelling-and-access-time-varying
+  ;; Melted mercury is still mercury, and an artifact is what it was made as.  A building
+  ;; no one lives in goes on existing, and so does a tool that gains or loses write access.
+  ;; Some things are only ever food, and others become it.
+  (all-of-kind kb 'time_invariant_relation
+               '[made natural formation machine vehicle building container furniture
+                 clothing substance metal_stuff stone wood glass_stuff mercury organization]
+               'CxUniverse)
+  (all-of-kind kb 'time_agnostic_relation '[food] 'CxUniverse)
+  (all-of-kind kb 'time_varying_relation '[dwelling] 'CxSocial)
+  (all-of-kind kb 'time_invariant_relation
+               '[computational_system command_line_tool mcp_tool information_bearing_thing
+                 digital_artifact media_resource image video]
+               'CxTra)
+  (all-of-kind kb 'time_varying_relation
+               '[read_only_software_tool write_capable_software_tool]
+               'CxTra))

@@ -24,6 +24,7 @@
 ;; A software_tool is software that performs one bounded operation per invocation. It
 ;; has no mass, so it is placed under computational_system, which is intangible.
 (comment computational_system "Software that computes when it runs.")
+(set/monotonic (time_invariant_relation computational_system))
 (positiveExampleComment computational_system "a running Python interpreter")
 (positiveExampleComment computational_system "a running database server process")
 (positiveExampleComment computational_system "a running web service")
@@ -42,11 +43,13 @@
 (set/monotonic (time_invariant_relation software_tool))
 
 (comment command_line_tool "A software tool invoked by a command line that a shell runs.")
+(set/monotonic (time_invariant_relation command_line_tool))
 (positiveExampleComment command_line_tool "a text-search program")
 (positiveExampleComment command_line_tool "a file-copy program")
 (genl command_line_tool software_tool)
 
 (comment mcp_tool "A software tool that a Model Context Protocol server lists and runs on request.")
+(set/monotonic (time_invariant_relation mcp_tool))
 (positiveExampleComment mcp_tool "a file-reading MCP tool")
 (positiveExampleComment mcp_tool "a calendar-lookup MCP tool")
 (genl mcp_tool software_tool)
@@ -54,6 +57,7 @@
 ;; The edges to acausal and causal separate the two kinds below, through core.txt's
 ;; (partition thing causal acausal), so no disjoint is stated between them.
 (comment read_only_software_tool "A software tool whose invocation reads state and changes none.")
+(set/monotonic (time_varying_relation read_only_software_tool))
 (positiveExampleComment read_only_software_tool "a text-search tool")
 (positiveExampleComment read_only_software_tool "a directory-listing tool")
 (positiveExampleComment read_only_software_tool "a DNS-lookup tool")
@@ -61,6 +65,7 @@
 (genl read_only_software_tool acausal)
 
 (comment write_capable_software_tool "A software tool whose invocation can change state outside the invocation.")
+(set/monotonic (time_varying_relation write_capable_software_tool))
 (positiveExampleComment write_capable_software_tool "a file-deletion tool")
 (positiveExampleComment write_capable_software_tool "a message-sending tool")
 (positiveExampleComment write_capable_software_tool "a database-update tool")
@@ -68,6 +73,7 @@
 (genl write_capable_software_tool causal)
 
 (comment information_bearing_thing "Information as carried, apart from the medium that holds it. A reading of the information can be a cause where the information is not.")
+(set/monotonic (time_invariant_relation information_bearing_thing))
 (positiveExampleComment information_bearing_thing "the text of a document")
 (positiveExampleComment information_bearing_thing "a recording")
 (positiveExampleComment information_bearing_thing "the content of a file")
@@ -76,24 +82,28 @@
 (genl information_bearing_thing acausal)
 
 (comment digital_artifact "An information-bearing thing encoded as bits.")
+(set/monotonic (time_invariant_relation digital_artifact))
 (positiveExampleComment digital_artifact "a file")
 (positiveExampleComment digital_artifact "a byte stream")
 (positiveExampleComment digital_artifact "a web page")
 (genl digital_artifact information_bearing_thing)
 
 (comment media_resource "A digital artifact retrievable over a network at a URL.")
+(set/monotonic (time_invariant_relation media_resource))
 (positiveExampleComment media_resource "a hosted photograph")
 (positiveExampleComment media_resource "a streamed film")
 (positiveExampleComment media_resource "the audio file of a podcast episode")
 (genl media_resource digital_artifact)
 
 (comment image "A media resource holding a static visual representation.")
+(set/monotonic (time_invariant_relation image))
 (positiveExampleComment image "a photograph")
 (positiveExampleComment image "a diagram")
 (positiveExampleComment image "a scanned page")
 (genl image media_resource)
 
 (comment video "A media resource holding moving images, with or without audio.")
+(set/monotonic (time_invariant_relation video))
 (positiveExampleComment video "a film clip")
 (positiveExampleComment video "a screen recording")
 (genl video media_resource)
