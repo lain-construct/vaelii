@@ -714,6 +714,11 @@
     unary_function 1 binary_function 2 ternary_function 3
     quaternary_function 4 quinary_function 5})
 
+(def arg-projections
+  "Each binary projection of `arg`, with the position it projects: `(argN P T)` states
+  what `(arg P N T)` states.  The declaration checks and the integrity census read it."
+  '{arg1 1 arg2 2 arg3 3 arg4 4 arg5 5})
+
 (def variable-arity-classes
   "The memberships that release a relation from one exact length."
   '#{variable_arity variable_arity_predicate variable_arity_function})

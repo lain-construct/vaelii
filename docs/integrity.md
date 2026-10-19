@@ -581,7 +581,7 @@ types:
 - **What types a position.** An `arg`, `genlArg` or `quotedArg` at that position, an
   `argAndRest` or `argAndRestGenl` from that position or an earlier one, or an `args` or
   `argsGenl`, each read on `P` and on every super-predicate
-  `res/constraining-predicates` reads, plus the `arg1`/`arg2`/`arg3` projections stated on
+  `res/constraining-predicates` reads, plus the `arg1` through `arg5` projections stated on
   `P` itself. For a unary predicate, a visible `genl` edge out of it types its one position,
   since `(genl P T)` says of P's members what `(arg P 1 T)` would. `interArg` and the
   `type_relation_predicate` mark relate or classify positions and do not count.

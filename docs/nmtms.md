@@ -115,7 +115,7 @@ not it loads the upper layer:
 | `relation`, `predicate`, `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`, `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`, `character`, `keyword`, `number`, `integer` and its four sign classes, `string`) | the term kinds: a clash between two of them is a conflict and never a defeat, so a `:default` `(predicate X)` beside a `:default` `(string X)` is reported in `conflicts` with both believed |
 | `greaterThan`, `lessThan` | the numeric comparators: each holds of numbers only, and `core.txt`'s rules concluding `at_least_binary` through `at_least_quinary` read `greaterThan` beside `arity` and `arityMin` |
 | `quantityGreaterThan`, `quantityGreaterThanOrEqual`, `quantityLessThan`, `quantityLessThanOrEqual`, `sameQuantity` | the quantity comparators, computed from the unit table as the numeric comparators are from the numbers |
-| `arg`, `arg1`, `arg2`, `arg3` | the argument declarations: read beside the arity bindings, and `core.txt`'s twin rules conclude each projection from `arg` and `arg` from each, so the four are on the roster together |
+| `arg`, `arg1`, `arg2`, `arg3`, `arg4`, `arg5` | the argument declarations: read beside the arity bindings, and `core.txt`'s twin rules conclude each projection from `arg` and `arg` from each, so the six are on the roster together |
 | `genlInverse` between two arguments spelled as predicates of arity 2 or more, by `forced_monotonic_between_predicates` | `genl` with its arguments swapped, forced as `genl` between predicates is |
 
 CxTra declares its value kinds below `string` (`ip_address`, `ipv4_address`,

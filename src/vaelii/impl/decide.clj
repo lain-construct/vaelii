@@ -112,7 +112,9 @@
     arg                   "an argument declaration, read beside the arity bindings"
     arg1                  "a binary projection of arg, concluded from it and concluding it"
     arg2                  "a binary projection of arg, concluded from it and concluding it"
-    arg3                  "a binary projection of arg, concluded from it and concluding it"})
+    arg3                  "a binary projection of arg, concluded from it and concluding it"
+    arg4                  "a binary projection of arg, concluded from it and concluding it"
+    arg5                  "a binary projection of arg, concluded from it and concluding it"})
 
 (def baseline-roster
   "The engine's own roster, `{kind #{predicate …}}`: every family's `:grounds` and every

@@ -822,7 +822,7 @@
                             :family nil :facets #{:convicts :reach}
                             :notes (str "the projection relates STORED declarations only — a"
                                         " reading arg generalizes up genl or inherits from a"
-                                        " super-predicate has no arg1/arg2/arg3 twin; ask arg for those."
+                                        " super-predicate has no arg1…arg5 twin; ask arg for those."
                                         " :family stays nil for arity's reason rather than for"
                                         " want of a family: mark-families rosters the lanes"
                                         " that must recognize one spelling set, and two"
@@ -843,6 +843,16 @@
                             :family nil :facets #{:convicts :reach}
                             :notes "the binary projection of (arg ?p 3 ?t) — see arg1."}
                            (str "checks/declaration-problem — the same at position 3; see"
+                                " arg1"))]
+     ['arg4      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes "the binary projection of (arg ?p 4 ?t) — see arg1."}
+                           (str "checks/declaration-problem — the same at position 4; see"
+                                " arg1"))]
+     ['arg5      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes "the binary projection of (arg ?p 5 ?t) — see arg1."}
+                           (str "checks/declaration-problem — the same at position 5; see"
                                 " arg1"))]
      ['quotedArg (enforced (assoc (prop :declares-quoted-arg :arg :relation
                                         :facets #{:convicts :answers})

@@ -102,7 +102,7 @@
 (arg arg 2 positive_integer)
 (genlArg arg 3 thing)
 (comment arg1
-         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The projection and the ternary spelling derive each other, so asserting either keeps both believed and retracting the one that was actually asserted collapses the pair; both are held to the same declaration checks at assert, so neither spelling accepts a declaration the other refuses. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no arg1, arg2 or arg3 twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
+         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The projection and the ternary spelling derive each other, so asserting either keeps both believed and retracting the one that was actually asserted collapses the pair; both are held to the same declaration checks at assert, so neither spelling accepts a declaration the other refuses. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no arg1 through arg5 twin, so a generalized or inherited question must be asked of arg itself. arg2, arg3, arg4 and arg5 project positions 2 through 5 the same way.")
 (binary_predicate arg1)
 (arg arg1 1 relation)
 (genlArg arg1 2 thing)
@@ -124,6 +124,22 @@
 (genlArg arg3 2 thing)
 (set/forwardRule (implies (and (arg3 ?reln ?type)) (arg ?reln 3 ?type)))
 (set/forwardRule (implies (and (arg ?reln 3 ?type)) (arg3 ?reln ?type)))
+
+(comment arg4
+         "(arg4 ?relation ?type) is the binary projection of (arg ?relation 4 ?type) — see arg1.")
+(binary_predicate arg4)
+(arg arg4 1 relation)
+(genlArg arg4 2 thing)
+(set/forwardRule (implies (and (arg4 ?reln ?type)) (arg ?reln 4 ?type)))
+(set/forwardRule (implies (and (arg ?reln 4 ?type)) (arg4 ?reln ?type)))
+
+(comment arg5
+         "(arg5 ?relation ?type) is the binary projection of (arg ?relation 5 ?type) — see arg1.")
+(binary_predicate arg5)
+(arg arg5 1 relation)
+(genlArg arg5 2 thing)
+(set/forwardRule (implies (and (arg5 ?reln ?type)) (arg ?reln 5 ?type)))
+(set/forwardRule (implies (and (arg ?reln 5 ?type)) (arg5 ?reln ?type)))
 
 ;; The covering constraints type a whole variable-arity tail at once, where arg and
 ;; genlArg type one numbered position.  args / argsGenl type every accepted position;
@@ -1327,7 +1343,7 @@
 (genl forced_decontextualized_predicate predicate)
 
 (comment forced_monotonic_predicate
-         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the roster applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary through at_least_quinary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1, arg2, arg3), the correspondence premises (functionCorrespondingPredicate, result), except and the equality relations, every one of which the engine holds on the roster whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators, the argument declarations and the correspondence premises is refused. See docs/nmtms.md.")
+         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the roster applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary through at_least_quinary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1 through arg5), the correspondence premises (functionCorrespondingPredicate, result), except and the equality relations, every one of which the engine holds on the roster whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators, the argument declarations and the correspondence premises is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_predicate)
 ;; Every member of the roster is a predicate.
 (genl forced_monotonic_predicate predicate)
@@ -1441,12 +1457,14 @@
 (forced_monotonic_predicate quantityLessThanOrEqual)
 (forced_monotonic_predicate sameQuantity)
 ;; The argument declarations.  An argument type is read beside the arity bindings, and
-;; arg1, arg2 and arg3 are its binary projections: the twin rules conclude each from the
-;; other, so the four go on the roster together or a firing between them is void.
+;; arg1 through arg5 are its binary projections: the twin rules conclude each from the
+;; other, so the six go on the roster together or a firing between them is void.
 (forced_monotonic_predicate arg)
 (forced_monotonic_predicate arg1)
 (forced_monotonic_predicate arg2)
 (forced_monotonic_predicate arg3)
+(forced_monotonic_predicate arg4)
+(forced_monotonic_predicate arg5)
 (forced_monotonic_predicate except)
 ;; except takes one argument, the sentexHandle of the sentence it hides.
 (unary_predicate except)
