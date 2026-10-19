@@ -12,6 +12,7 @@
 ;; day. A theory of another temperature states its own states beside this one.
 
 (genlCx CxNormalPhysicalConditions CxRealWorld)
+(comment CxNormalPhysicalConditions "The physical conditions of an average temperate region on Earth's surface: gravity, temperature, pressure, etc.")
 
 ;; A phase is a state a portion of stuff is in, not a kind it is: ice melts and the
 ;; water goes on existing.  So each room-temperature phase is a default rule rather than
