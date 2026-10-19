@@ -988,6 +988,14 @@
 (unary_predicate time_invariant_relation)
 (unary_predicate time_agnostic_relation)
 (unary_predicate time_varying_relation)
+;; Rigidity is a claim of the theory that states it, not of the KB: a context may
+;; describe a world where species membership changes over time, so a kind that is
+;; time_invariant here may be time_varying there.  None of the rigidity kinds is
+;; lifted into CxUniverse.
+(not (decontextualized_predicate time_invariant_relation))
+(not (decontextualized_predicate time_agnostic_relation))
+(not (decontextualized_predicate time_varying_relation))
+(not (decontextualized_predicate time_indexed_relation))
 (unary_predicate possibly_time_invariant_relation)
 (set/monotonic (partition relation time_invariant_relation time_agnostic_relation time_varying_relation))
 (set/monotonic (partition relation time_varying_relation possibly_time_invariant_relation))
