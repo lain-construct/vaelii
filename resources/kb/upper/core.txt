@@ -1298,6 +1298,8 @@
 (forced_monotonic_predicate arityMin)
 (set/monotonic (decontextualized_predicate arityMin))
 (forced_monotonic_predicate except)
+;; except takes one argument, the sentexHandle of the sentence it hides.
+(unary_predicate except)
 (forced_monotonic_predicate rewriteOf)
 (forced_monotonic_predicate sameAs)
 (forced_monotonic_predicate equals)
