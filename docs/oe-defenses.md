@@ -90,7 +90,7 @@ An entry names the alternative, says what the KB states instead, and gives the r
 
 **Instead:** a kind may be placed under a property it always has. CxBiology states `(genl bird warm_blooded)` and `(genl mammal warm_blooded)`. Whether a name is spelled as a noun or as an adjective is a style hint, not a rule of the hierarchy.
 
-**Why:** "every bird is warm-blooded" is a genl edge from `bird` to `warm_blooded`, and nothing in it makes `warm_blooded` a kind that birds are a sort of. OntoClean allows a non-sortal above a sortal. What it forbids is an anti-rigid type above a rigid one: a property a thing can stop having cannot subsume a kind a thing never stops being.
+**Why:** "every bird is warm-blooded" is a genl edge from `bird` to `warm_blooded`, and nothing in it makes `warm_blooded` a kind that birds are a sort of. OntoClean allows a non-sortal above a sortal. It forbids an anti-rigid type above a rigid one: a property a thing can stop having cannot subsume a kind a thing never stops being.
 
 
 ### Metal is solid by default, and mercury is the stated exception
