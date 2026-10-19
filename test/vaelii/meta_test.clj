@@ -1139,6 +1139,21 @@
         (is (= 1 (switches #(v/retract! kb (v/handle-of kb decl 'CxUniverse)))))
         (is (= [false true] (in)))))))
 
+(tu/deftest-kb exceptWhen-is-declared-as-except-is
+  ;; An `exceptWhen` meta-sentex blocks the firings of the rule it names, so taking one OUT
+  ;; would unblock them, as taking an `except` OUT un-hides its target.  Both are on the
+  ;; engine's own roster, and core.txt states the declaration and a comment for each.
+  (testing "the engine holds both on the roster whether or not they are declared"
+    (doseq [p '[except exceptWhen]]
+      (is (contains? decide/held-members p) (str p))
+      (is (decide/global? (reasoning/taxonomy kb) :forced-monotonic p) (str p))))
+  (testing "a stored exception is a roster literal"
+    (is (checks/forced-monotonic? kb '(exceptWhen (penguin ?var0) (sentexHandle 1)))))
+  (testing "core.txt declares exceptWhen, two arguments as stored, and comments it"
+    (is (some? (v/handle-of kb '(forced_monotonic_predicate exceptWhen) 'CxUniverse)))
+    (is (some? (v/handle-of kb '(binary_predicate exceptWhen) 'CxUniverse)))
+    (is (= 1 (count (v/sentexes-matching kb '(comment exceptWhen ?text) 'CxUniverse))))))
+
 (tu/deftest-kb an-uncleared-declaration-is-not-retracted
   (testing "genlCx is always forced: its declaration stays"
     (let [h (v/handle-of kb '(forced_monotonic_predicate genlCx) 'CxUniverse)
@@ -1157,6 +1172,12 @@
                 (try (v/retract! kb h) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))))
             (pr-str s))
         (is (v/in? kb h) (pr-str s)))))
+  (testing "exceptWhen's declaration stays, as except's does"
+    (let [h (v/handle-of kb '(forced_monotonic_predicate exceptWhen) 'CxUniverse)]
+      (is (= [:uncleared-forcing :unforced-exception]
+             ((juxt :type :missing)
+              (try (v/retract! kb h) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+      (is (v/in? kb h))))
   (testing "injection, surjection, bijection and an author's own predicate are cleared"
     (tu/with-terms [likes]
       (doseq [p ['injection 'surjection 'bijection likes]]
