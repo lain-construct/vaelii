@@ -233,3 +233,16 @@
   (testing "CxTra's happening kinds are specs of situation"
     (all-of-kind kb 'time_invariant_relation '[tool_invocation tool_receipt image_viewing]
                  'CxTra)))
+
+(tu/deftest-kb the-calendar-and-time-point-relations-are-time-invariant
+  ;; A day's year, an interval's start and the distance between two times never change.
+  (all-of-kind kb 'time_invariant_relation
+               '[calendarDay calendarInstant calendarMonth calendarYear datetimeOf timeOf
+                 startOf endOf earliestStartOf earliestEndOf latestStartOf latestEndOf
+                 temporalDistance]
+               'CxUniverse)
+  (testing "each time-point function takes its predicate's kind through the correspondence"
+    (all-of-kind kb 'time_invariant_relation
+                 '[DayFn InstantFn MonthFn YearFn DatetimeFn TimeOfFn StartFn EndFn
+                   EarliestStartFn EarliestEndFn LatestStartFn LatestEndFn]
+                 'CxUniverse)))

@@ -57,6 +57,7 @@
 (comment datetimeOf
          "(datetimeOf ?iso ?interval) means that ?interval is the interval the reduced-precision ISO 8601 string ?iso names, so (datetimeOf \"2000-01\" ?interval) holds of January 2000. DatetimeFn is the corresponding function, and its value is the last argument. The calendar prover reads the DatetimeFn term and does not answer this predicate. See docs/time.md.")
 (set/monotonic (instance_relation_predicate datetimeOf))
+(set/monotonic (time_invariant_relation datetimeOf))
 (arg datetimeOf 1 string)
 (arg datetimeOf 2 time_interval)
 
@@ -70,6 +71,7 @@
 (comment calendarDay
          "(calendarDay ?year ?month ?day ?interval) means that ?interval is day ?day of month ?month of calendar year ?year, so (calendarDay 2000 1 15 ?interval) holds of the fifteenth of January 2000. DayFn is the corresponding function, and its value is the last argument. The calendar prover reads the DayFn term and does not answer this predicate. See docs/time.md.")
 (quaternary_predicate calendarDay)
+(set/monotonic (time_invariant_relation calendarDay))
 (arity calendarDay 4)
 (arg calendarDay 1 integer)
 (arg calendarDay 2 positive_integer)
@@ -93,6 +95,7 @@
 (comment earliestEndOf
          "(earliestEndOf ?thing ?instant) means that ?instant is the earliest moment ?thing can have ended, the moment (EarliestEndFn ?thing) names. EarliestEndFn is the corresponding function, and its value is the last argument. The instant network reads the EarliestEndFn term and not this predicate, so a stated earliestEndOf fact orders nothing. See docs/time.md.")
 (set/monotonic (instance_relation_predicate earliestEndOf))
+(set/monotonic (time_invariant_relation earliestEndOf))
 (arg earliestEndOf 1 temporal)
 (arg earliestEndOf 2 time_point)
 
@@ -107,6 +110,7 @@
 (comment earliestStartOf
          "(earliestStartOf ?thing ?instant) means that ?instant is the earliest moment ?thing can have begun, the moment (EarliestStartFn ?thing) names. EarliestStartFn is the corresponding function, and its value is the last argument. The instant network reads the EarliestStartFn term and not this predicate, so a stated earliestStartOf fact orders nothing. See docs/time.md.")
 (set/monotonic (instance_relation_predicate earliestStartOf))
+(set/monotonic (time_invariant_relation earliestStartOf))
 (arg earliestStartOf 1 temporal)
 (arg earliestStartOf 2 time_point)
 
@@ -121,6 +125,7 @@
 (comment endOf
          "(endOf ?interval ?instant) means that ?instant is the moment ?interval ends. One of the interval's two bounding instants, the other being its startOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants: one interval before another is exactly its end instant before the other's start. Stated of an ordinary interval; computed for a calendar term, where it is the first moment of the next term at the same precision — the end of (YearFn 2000) is (InstantFn 2001 1 1 0 0 0). See docs/time.md.")
 (set/monotonic (instance_relation_predicate endOf))
+(set/monotonic (time_invariant_relation endOf))
 (arg endOf 1 temporal)
 (arg endOf 2 time_point)
 
@@ -219,6 +224,7 @@
 (comment calendarInstant
          "(calendarInstant ?year ?month ?day ?hour ?minute ?second ?instant) means that ?instant is the moment those six calendar fields name, so (calendarInstant 2000 1 1 0 0 0 ?instant) holds of midnight at the start of 2000. InstantFn is the corresponding function, and its value is the last argument. The calendar prover reads the InstantFn term and does not answer this predicate. See docs/time.md.")
 (fixed_arity_predicate calendarInstant)
+(set/monotonic (time_invariant_relation calendarInstant))
 (arity calendarInstant 7)
 (arg calendarInstant 1 integer)
 (arg calendarInstant 2 positive_integer)
@@ -263,6 +269,7 @@
 (comment latestEndOf
          "(latestEndOf ?thing ?instant) means that ?instant is the latest moment ?thing can have ended, the moment (LatestEndFn ?thing) names. LatestEndFn is the corresponding function, and its value is the last argument. The instant network reads the LatestEndFn term and not this predicate, so a stated latestEndOf fact orders nothing. See docs/time.md.")
 (set/monotonic (instance_relation_predicate latestEndOf))
+(set/monotonic (time_invariant_relation latestEndOf))
 (arg latestEndOf 1 temporal)
 (arg latestEndOf 2 time_point)
 
@@ -277,6 +284,7 @@
 (comment latestStartOf
          "(latestStartOf ?thing ?instant) means that ?instant is the latest moment ?thing can have begun, the moment (LatestStartFn ?thing) names. LatestStartFn is the corresponding function, and its value is the last argument. The instant network reads the LatestStartFn term and not this predicate, so a stated latestStartOf fact orders nothing. See docs/time.md.")
 (set/monotonic (instance_relation_predicate latestStartOf))
+(set/monotonic (time_invariant_relation latestStartOf))
 (arg latestStartOf 1 temporal)
 (arg latestStartOf 2 time_point)
 
@@ -309,6 +317,7 @@
 (comment calendarMonth
          "(calendarMonth ?year ?month ?interval) means that ?interval is month ?month, 1 through 12, of calendar year ?year, so (calendarMonth 2000 1 ?interval) holds of January 2000. MonthFn is the corresponding function, and its value is the last argument. The calendar prover reads the MonthFn term and does not answer this predicate. See docs/time.md.")
 (ternary_predicate calendarMonth)
+(set/monotonic (time_invariant_relation calendarMonth))
 (arg calendarMonth 1 integer)
 (arg calendarMonth 2 positive_integer)
 (arg calendarMonth 3 time_interval)
@@ -379,6 +388,7 @@
 (comment startOf
          "(startOf ?interval ?instant) means that ?instant is the moment ?interval begins. One of the interval's two bounding instants, the other being its endOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants. Stated of an ordinary interval; computed for a calendar term, where it is that term's first moment — the start of (YearFn 2000) is (InstantFn 2000 1 1 0 0 0). See docs/time.md.")
 (set/monotonic (instance_relation_predicate startOf))
+(set/monotonic (time_invariant_relation startOf))
 (arg startOf 1 temporal)
 (arg startOf 2 time_point)
 
@@ -399,6 +409,7 @@
 (comment temporalDistance
          "(temporalDistance ?instant1 ?instant2 ?measure) means that ?instant2 falls ?measure later than ?instant1. So a negative measure says ?instant2 comes first. Exact as (QuantityFn N Unit) and bounded as (QuantityIntervalFn Lo Hi Unit). A stated one is an ordinary fact; a prover closes every such constraint visible in a context by all-pairs shortest paths and answers the tightest separation they entail between any two instants, binding the measure when it is open and checking containment when it is ground.")
 (ternary_predicate temporalDistance)
+(set/monotonic (time_invariant_relation temporalDistance))
 (arg temporalDistance 1 time_point)
 (arg temporalDistance 2 time_point)
 (arg temporalDistance 3 measure)
@@ -429,6 +440,7 @@
          "(timeOf ?thing ?time) means that ?time is the time ?thing occupies, the time (TimeOfFn ?thing) names. TimeOfFn is the corresponding function, and its value is the last argument. See docs/time.md.")
 (binary_predicate timeOf)
 (instance_relation_predicate timeOf)
+(set/monotonic (time_invariant_relation timeOf))
 (arg timeOf 1 temporal)
 (arg timeOf 2 time)
 
@@ -454,5 +466,6 @@
 (comment calendarYear
          "(calendarYear ?year ?interval) means that ?interval is the calendar year numbered ?year, so (calendarYear 2000 ?interval) holds of the whole of 2000. YearFn is the corresponding function, and its value is the last argument; calendarMonth and calendarDay are the finer two. The calendar prover reads the YearFn term and does not answer this predicate. See docs/time.md.")
 (set/monotonic (instance_relation_predicate calendarYear))
+(set/monotonic (time_invariant_relation calendarYear))
 (arg calendarYear 1 integer)
 (arg calendarYear 2 time_interval)
