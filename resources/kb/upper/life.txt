@@ -96,9 +96,9 @@
 (transitiveInArg capabilityType 2 genl)
 
 (comment hasCapability
-         "(hasCapability ?animal ?eventKind) means that ?animal can be the doer of an event of kind ?eventKind. The instance-level reading: (hasCapability Tweety flying) says this bird can fly and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relation_kind because it is MIXED — the first position holds one animal and takes arg, the second names an event KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArg along genl on the second position, which carries a claim up the genl hierarchy of event kinds: flying is a kind of travelling, so whatever can fly can travel.")
+         "(hasCapability ?doer ?eventKind) means that ?doer can be the doer of an event of kind ?eventKind, the doer being the one doneBy names. The first position holds anything causal that can be such a doer: an animal, a machine, an organization. An instrument is not thereby a doer: a pencil is used in writing and does not write, so being usable in a kind of event is not a capability. The instance-level reading: (hasCapability Tweety flying) says this bird can fly and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relation_kind because it is MIXED — the first position holds one causal thing and takes arg, the second names an event KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArg along genl on the second position, which carries a claim up the genl hierarchy of event kinds: flying is a kind of travelling, so whatever can fly can travel.")
 (binary_predicate hasCapability)
-(arg hasCapability 1 animal)
+(arg hasCapability 1 causal)
 (genlArg hasCapability 2 event)
 (transitiveInArg hasCapability 2 genl)
 

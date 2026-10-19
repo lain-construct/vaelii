@@ -59,6 +59,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   or stopped part-way is not judged, so nothing is forgotten until its load is `:done`.
   Switching back does not restore what was forgotten. [web.md](docs/web.md).
 
+- **`hasCapability` takes any causal doer as its first argument, not only an animal.**
+  `(arg hasCapability 1 causal)` replaces `(arg hasCapability 1 animal)` in `life.txt`,
+  so `(hasCapability Pump travelling)` of a `machine` or `(hasCapability Acme event)` of
+  an `organization` passes `check`, and an acausal first argument, such as a `time`, is
+  still convicted, now against `causal`. An instrument is not thereby a doer, so being
+  usable in a kind of event is not a capability. [inherit.md](docs/inherit.md).
+
 - **`relation-arity` answers a predicate's exact arity, and the browser colours a
   predicate of three or more places red-orange and a logical connective green.** A
   connective is a `logical_connective` member: `and`, `or`, `not`, `implies`.
