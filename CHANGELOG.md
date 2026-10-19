@@ -148,14 +148,38 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* `scripts/with-foreign.sh <task>` is gone; run `lein with-profile
   +with-foreign <task>`.
 
-- **`admitsArgnum`'s six definition rules run backward, so an answer has a proof in the
-  logic.** core.txt states them as `set/backwardRule` where it stated them as
-  `set/inertRule`. `query (admitsArgnum doneBy ?n)` answers `1` and `2`, and
-  `(admitsArgnum ?r 7)` answers each `unbounded_arity` relation; each answer's
-  `{:proof? true}` tree cites the rule that derives it. A ground goal is still answered by
-  `AdmitsArgnumProver`, which now runs beside the rules rather than alone. The rules store
-  no `admitsArgnum` fact. A test pins `(at_least_binary doneBy)`, reached through
-  `(genl binary at_least_binary)`. [inference.md](docs/inference.md).
+- **Relations of four and five arguments have exact arity classes, and a function's
+  result types the value position of its corresponding predicate.** `quaternary` and
+  `quinary` are relation-wide exact classes, and `quaternary_predicate`,
+  `quinary_predicate`, `quaternary_function` and `quinary_function` specialize them.
+  `(arity R 4)` concludes `(quaternary R)`, and `(arity R 5)` concludes `(quinary R)`.
+  One `(separating fixed_arity unary binary ternary quaternary quinary)` roster separates
+  the five classes, so a further class adds one part and no `disjoint` pair.
+  `at_least_quaternary` and `at_least_quinary` extend the arity floors. Each floor is
+  disjoint from the exact class one below it, and so from every exact class below it
+  through `genl`. `kb-quality`'s rule-clash reading drops a pair in which one term is
+  bounded above the exact arity it is claimed to have, so a floor rule and an
+  exact-class rule are no clash in waiting. `arg4` and `arg5` project `arg` at positions
+  4 and 5, and `closedExtentForArg4` and `closedExtentForArg5` spell `closedExtentForArg`
+  at those positions. `at_least_quaternary`, `at_least_quinary`, `arg4` and `arg5` are on
+  the forced-monotonic roster beside the floors and projections below them. `calendarDay`,
+  `measureRangeInUnit`, `predExistsInstancePlaceholder` and `predInstanceExistsPlaceholder` are
+  `quaternary_predicate`. `interArg`, `predAllExistsPlaceholder` and
+  `predExistsAllPlaceholder` are `quinary_predicate`. `PredAllExistsFn` and
+  `PredExistsAllFn` are `quaternary_function`. Forward rules conclude `(arg P n T)` from
+  `(result F T)` and `(functionCorrespondingPredicate F P)`: `n` is the last position of a
+  binary through quinary `P`, or the position the correspondence states. `functionCorrespondingPredicate`
+  and `result` are on the forced-monotonic roster with `arg`, so those firings are not void. A test holds
+  every shipped predicate in an exact arity class or `variable_arity`; a `fixed_arity`
+  relation above five arguments, such as `calendarInstant`, has no named class.
+  [taxonomy.md](docs/taxonomy.md#arity).
+
+- **`admitsArgnum`'s eight definition rules are `set/backwardRule`, so an answer has a
+  proof in the logic.** `query (admitsArgnum doneBy ?n)` answers `1` and `2`,
+  `(admitsArgnum calendarDay ?n)` answers `1` through `4`, and `(admitsArgnum ?r 7)`
+  answers each `unbounded_arity` relation. Each answer's `{:proof? true}` tree cites the
+  rule that derives it. `AdmitsArgnumProver` answers a ground goal beside the rules. The
+  rules store no `admitsArgnum` fact. [inference.md](docs/inference.md).
 
 ### Fix: answers
 
