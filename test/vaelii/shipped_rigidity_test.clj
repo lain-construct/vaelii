@@ -300,3 +300,14 @@
   ;; but a box crushed flat is no longer hollow and is still a box.
   (all-of-kind kb 'time_invariant_relation '[mechanism electronic_device] 'CxUniverse)
   (all-of-kind kb 'time_varying_relation '[hollow] 'CxUniverse))
+
+(tu/deftest-kb every-life-stage-is-time-varying
+  ;; A caterpillar stops being a caterpillar and goes on existing as a butterfly.  One
+  ;; genl edge classifies every member of life_stage_type, and the metatype itself is
+  ;; time-invariant, as every metatype is.
+  (is (seq (v/ask kb '(comment life_stage_type ?c) 'CxUniverse)) "life_stage_type is commented")
+  (is (v/ask? kb '(genl life_stage_type time_varying_relation) 'CxUniverse))
+  (all-of-kind kb 'time_invariant_relation '[life_stage_type] 'CxUniverse)
+  (doseq [s '[caterpillar butterfly]]
+    (is (true? (v/ask? kb (list 'life_stage_type s) 'CxUniverse)) (str s " is a life stage")))
+  (all-of-kind kb 'time_varying_relation '[caterpillar butterfly] 'CxUniverse))
