@@ -15,6 +15,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **The term kinds are on the forced-monotonic roster.** `relation`, `predicate`,
+  `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`,
+  `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`,
+  `character`, `keyword`, `number`, `integer` and its four sign classes, `string`, and
+  CxTra's `ip_address`, `ipv4_address` and `ipv6_address`) go OUT only by retraction. Two
+  term kinds stated of one term are an irreducible conflict: a `:default` `(predicate X)`
+  beside a `:default` `(string X)` or `(unary_function X)` leaves both believed and
+  `conflicts` reports the pair, where one of them was the loser. A stored denial of a
+  term kind is never believed, so `(not (truth_valued_relation X))` beside `(relation X)`
+  no longer concludes `(function X)` through the cover of `relation`; state `(function X)`.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Migration:* retract one of two clashing term kinds, since a defeat no longer picks one,
+  and state a term's kind outright rather than denying the others.
+  *Breaks:* `ask`, `query`, `conflicts`, `contradictions`
+
 - **The intersection membership rule confers `:monotonic`.** Each `(intersection C A B)`
   fact stamps a bare `(implies (and (A ?x) (B ?x)) (C ?x))` rather than a
   `set/defaultRule`, so a thing stated of each type at `:monotonic` is a `:monotonic`

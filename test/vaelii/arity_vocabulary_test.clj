@@ -163,12 +163,19 @@
         (v/assert kb (list first-class candidateRelation) 'CxUniverse)
         (is (tu/stored-in-clash? kb (list second-class candidateRelation) 'CxUniverse)
             (str second-class " after " first-class " is stored as a disjoint clash"))))
-    (testing "a relation of the wrong kind clashes too, by the genl edges, and the
-            :default kind membership loses to the roster one"
-      (tu/with-terms [somePredicate]
-        (v/assert kb (list 'predicate somePredicate) 'CxUniverse)
-        (v/assert kb (list 'unary_function somePredicate) 'CxUniverse)
-        (is (not (v/ask? kb (list 'predicate somePredicate) 'CxUniverse)))))
+    (testing "a relation of the wrong kind clashes too, by the genl edges, and two kinds
+            on the roster are an irreducible conflict, the same in either order"
+      (doseq [[first-kind second-kind] '[[predicate unary_function]
+                                         [unary_function predicate]]]
+        (tu/with-terms [somePredicate]
+          (v/assert kb (list first-kind somePredicate) 'CxUniverse)
+          (v/assert kb (list second-kind somePredicate) 'CxUniverse)
+          (is (v/ask? kb (list 'predicate somePredicate) 'CxUniverse)
+              (str second-kind " after " first-kind ": predicate stays believed"))
+          (is (v/ask? kb (list 'unary_function somePredicate) 'CxUniverse))
+          (is (conflict-between? kb (list 'predicate somePredicate)
+                                 (list 'unary_function somePredicate))
+              "and the pair is reported as a conflict"))))
     (testing "and an argument that is no relation at all derives fixed_arity's own type,
             relation, from a roster membership, which defeats the :default type it
             clashes with"
