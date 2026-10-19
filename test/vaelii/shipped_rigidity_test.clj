@@ -256,3 +256,13 @@
                'CxUniverse)
   (all-of-kind kb 'time_varying_relation '[toolName] 'CxTra)
   (all-of-kind kb 'time_invariant_relation '[implementationNote] 'CxUniverse))
+
+(tu/deftest-kb the-temporal-order-relations-are-time-invariant
+  ;; Relations between fixed times never change.
+  (all-of-kind kb 'time_invariant_relation
+               '[after before during meets metBy overlaps overlappedBy starts startedBy
+                 finishes finishedBy precedes precededBy subintervalOf properSubintervalOf
+                 hasSubinterval includesInstant intervalEqual instantAfter instantBefore
+                 instantEqual instantNotAfter instantNotBefore instantNotEqual sharesTimeWith
+                 temporallyDisjoint]
+               'CxUniverse))
