@@ -326,3 +326,9 @@
   ;; a person can start calling a relationship by another name.
   (all-of-kind kb 'time_varying_relation '[dnsResolvesTo resourceUrl] 'CxTra)
   (all-of-kind kb 'time_varying_relation '[relationshipLabel] 'CxSocial))
+
+(tu/deftest-kb perceiving-is-time-varying-and-a-viewing-time-invariant
+  ;; Someone who sees a thing can look away and go on existing, but a viewing of an
+  ;; image or a video that happened stays happened.
+  (all-of-kind kb 'time_varying_relation '[perceives sees] 'CxTra)
+  (all-of-kind kb 'time_invariant_relation '[seeImage watchVideo] 'CxTra))

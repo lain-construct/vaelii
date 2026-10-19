@@ -228,12 +228,14 @@
 (comment perceives
          "(perceives ?perceiver ?perceived) means ?perceiver takes in ?perceived through some sense. The most general perception relation; sees specializes it, and seeImage and watchVideo reach it through sees for a spatial second argument.")
 (set/monotonic (instance_relation_predicate perceives))
+(set/monotonic (time_varying_relation perceives))
 (arg perceives 1 thing)
 (arg perceives 2 spatial)
 
 (comment sees
          "(sees ?seer ?seen) means ?seer takes in ?seen through sight. Spec of perceives.")
 (set/monotonic (instance_relation_predicate sees))
+(set/monotonic (time_varying_relation sees))
 (arg sees 1 thing)
 (arg sees 2 spatial)
 (genl sees perceives)
@@ -241,6 +243,7 @@
 (comment seeImage
          "(seeImage ?seer ?image) means ?seer takes in a static image through sight and perceives what it shows. Its second argument is the image itself, which need not be located, so it concludes sees only of a spatial image (the rule below).")
 (set/monotonic (instance_relation_predicate seeImage))
+(set/monotonic (time_invariant_relation seeImage))
 (arg seeImage 1 thing)
 (arg seeImage 2 thing)
 (set/forwardRule
@@ -250,6 +253,7 @@
 (comment watchVideo
          "(watchVideo ?watcher ?video) means ?watcher takes in a video, a temporal sequence of images, through sight. The video need not be located, so it concludes sees only of a spatial video (the rule below).")
 (set/monotonic (instance_relation_predicate watchVideo))
+(set/monotonic (time_invariant_relation watchVideo))
 (arg watchVideo 1 thing)
 (arg watchVideo 2 thing)
 (set/forwardRule
