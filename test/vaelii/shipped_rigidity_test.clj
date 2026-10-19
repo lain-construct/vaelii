@@ -246,3 +246,13 @@
                  '[DayFn InstantFn MonthFn YearFn DatetimeFn TimeOfFn StartFn EndFn
                    EarliestStartFn EarliestEndFn LatestStartFn LatestEndFn]
                  'CxUniverse)))
+
+(tu/deftest-kb the-kb-state-relations-are-time-varying-and-implementationNote-time-invariant
+  ;; Each tracks a store or a mind that changes.  An implementation note is about a term,
+  ;; as a comment is.
+  (all-of-kind kb 'time_varying_relation
+               '[empty nonempty believes indeterminate_term agg/avg agg/count agg/max agg/min
+                 agg/sum]
+               'CxUniverse)
+  (all-of-kind kb 'time_varying_relation '[toolName] 'CxTra)
+  (all-of-kind kb 'time_invariant_relation '[implementationNote] 'CxUniverse))
