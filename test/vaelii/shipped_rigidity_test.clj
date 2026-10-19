@@ -266,3 +266,13 @@
                  instantEqual instantNotAfter instantNotBefore instantNotEqual sharesTimeWith
                  temporallyDisjoint]
                'CxUniverse))
+
+(tu/deftest-kb quantities-their-comparators-and-birth-order-are-time-invariant
+  ;; A relation between fixed quantities is arithmetic, and birth order never changes.
+  (all-of-kind kb 'time_invariant_relation
+               '[quantity measureInUnit measureRangeInUnit quantityGreaterThan
+                 quantityGreaterThanOrEqual quantityLessThan quantityLessThanOrEqual
+                 sameQuantity olderThan]
+               'CxUniverse)
+  (testing "each quantity function takes its predicate's kind through the correspondence"
+    (all-of-kind kb 'time_invariant_relation '[QuantityFn QuantityIntervalFn] 'CxUniverse)))
