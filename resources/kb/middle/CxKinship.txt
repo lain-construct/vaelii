@@ -1,15 +1,12 @@
-;; CxKinship — kinship & age theory: the rules that derive ancestorOf and
-;; grandparentOf from parentOf, and olderThan from birthYearOf. Sees the shared
+;; CxKinship — kinship & age theory: the genl edge and the rules that derive
+;; ancestorOf and grandparentOf from parentOf, and olderThan from birthYearOf. Sees the shared
 ;; upper ontology via CxUniverse; CxWell sees it.
 
 (genlCx CxKinship CxUniverse)
 (genlCx CxWell CxKinship)
 
-;; ancestorOf here is only the base step — parenthood is ancestry — with no transitive
-;; ancestorOf∘ancestorOf rule, so its extent is one edge per parentOf pair and bounded.
-;; It forward-materializes so a read (ask/match) sees it; a genuinely transitive closure
-;; would stay backward instead.
-(set/forwardRule (implies (and (parentOf ?x ?y)) (ancestorOf ?x ?y)))
+;; Parenthood is ancestry: parentOf specializes ancestorOf.
+(genl parentOf ancestorOf)
 
 (set/forwardRule (implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z)))
 
