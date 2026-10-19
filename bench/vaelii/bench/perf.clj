@@ -3219,6 +3219,28 @@
                               (v/assert kb (list 'genl (ch i) (ch (inc i))) 'CxPerf M))))
                    n)))))
 
+(defn- withheld-mint-beside-covers
+  "One fact whose argument type mints a membership that the term's stored, more specific
+  membership withholds (`checks/subsumed-mint`), beside n covers of the minted type, per
+  fact, 200 readings.
+
+  A withheld mint stores nothing, so `special/entail-arg-type` decides the withholding
+  before the admission checks.  The checks' cover arm asks the provers once per cover
+  over the type (`checks/cover-refutations`)."
+  [n]
+  (let [kb (fresh-kb)
+        M  {:strength :monotonic}
+        xs (mapv #(symbol (str "WmcX" %)) (range 200))]
+    (v/with-deferred-settle kb
+      (v/assert kb '(genl wmc_kind thing) 'CxPerf M)
+      (v/assert kb '(genl wmc_sub wmc_kind) 'CxPerf M)
+      (v/assert kb '(arg wmcRel 1 wmc_kind) 'CxPerf M)
+      (dotimes [i n]
+        (v/assert kb (list 'covering 'wmc_kind (symbol (str "wmc_a" i)) (symbol (str "wmc_b" i)))
+                  'CxPerf M))
+      (doseq [x xs] (v/assert kb (list 'wmc_sub x) 'CxPerf {})))
+    (doall (for [x xs] (nanos (v/assert kb (list 'wmcRel x 'WmcY) 'CxPerf {}))))))
+
 (defn- arity-refresh-under-bound-chain
   "A chain of n predicates, each bound to two arguments in CxUniverse, then the arity
   shapes owed whole as `recover` owes them and settled (`decide/rebuild-candidates!`,
@@ -6200,6 +6222,17 @@
     :sizes     [256 4096]
     :max-ratio 2.0
     :run       genl-chain-child-first-in-one-batch}
+
+   ;; Both ends measured under `--only`, 2026-10-18, load 26-34: healthy 1.26x (0.876
+   ;; against 1.101 ms/op).  With the admission checks asked of a withheld mint, 4.53x
+   ;; (2.678 against 12.136); with only the entry check asking them, 5.52x (1.758 against
+   ;; 9.700).
+   {:name      :withheld-mint-beside-covers
+    :group     :argtypes
+    :claim     "16x the covers of a minted type costs under 2x per fact whose mint a more specific membership withholds"
+    :sizes     [16 256]
+    :max-ratio 2.0
+    :run       withheld-mint-beside-covers}
 
    ;; Measured 2026-10-14 per hundred predicates: 0.844 ms at 256 and 0.486 ms at 4,096
    ;; (0.58x).  With the lengths below each predicate held in the bounded length entries,

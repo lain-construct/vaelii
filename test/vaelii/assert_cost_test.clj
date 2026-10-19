@@ -604,10 +604,16 @@
    ;; The declaration's argument-position check reads its predicate's length off the binding
    ;; family (`arity/relation-length`) and no membership of it: the −1 in each of
    ;; `:argument-root` and `:argument-slot`.
+   ;;
+   ;; The entry check asks each mint whether a stored, more specific membership withholds
+   ;; it (`checks/subsumed-mint`) before asking its admission, which reads the term's
+   ;; memberships once: the +100 `:argument-slot`.  A withheld mint skips the admission
+   ;; checks, whose cover arm asks the provers once per cover over the type
+   ;; (`lein perf`'s `withheld-mint-beside-covers`).
    {:name    :declared
     :build   declared
     :sentexes 100
-    :reads   {:arity-binding 2 :argument-root 200 :argument-slot 100 :exception-index 100
+    :reads   {:arity-binding 2 :argument-root 200 :argument-slot 200 :exception-index 100
               :opposed 100 :predicate-extent 1700 :rule-index 100 :trie-counts 2300
               :trie-lookup 300 :mint 100}
     :writes  {:levels 500 :terms 300 :roots 1600 :roster 0 :slots 300}}

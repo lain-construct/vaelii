@@ -1785,31 +1785,36 @@
         ask      #(inadmissible kb sentence context
                                 (when-not pre-checked? checks/derivation-violation))
         k        [sentence context (boolean pre-checked?)]]
-    (if-let [v (if memo
-                 (let [m @memo]
-                   (if (contains? m k) (get m k) (let [v (ask)] (vswap! memo assoc k v) v)))
-                 (ask))]
-      {:new [] :violations [(assoc v :sentence sentence :context context
-                                   :entailed-from src-handle)]}
-      ;; A type the KB already holds more specifically is not written down: the record
-      ;; would say what `(dog Fred)` says, one step less precisely, and subsumption
-      ;; answers `(animal Fred)` without it.  Withheld only where there is no record yet
-      ;; — an existing one takes the justification whatever else holds it up, or
-      ;; retracting the specific membership would leave belief depending on which
-      ;; arrived first — and the withdrawal half, for the orders where the specific
-      ;; membership arrives last, is `settle`'s (`subsumed-mint-blocks`).
-      ;;
-      ;; The stored handle is read **once** and both branches share it, where
-      ;; `find-or-create-sentex` would look it up a second time: this runs per mint per
-      ;; assert, and a mint that dedups to a record already stored is the common case on
-      ;; a declared ontology (`assert_cost_test`'s `declared` workload counts the lookup).
-      (let [stored (kb/find-sentex-handle kb sentence context)]
-        (if (or (and (not stored) (checks/subsumed-mint kb sentence context))
-                ;; an ingredient an `except` hides from `context`, as a rule firing is
-                ;; not placed there (`except-move-sweeps` drops one the except meets)
-                (when-let [hidden? (exc/except-hidden-fn kb context)]
-                  (or (hidden? src-handle) (some hidden? because))))
-          empty-entailment-result
+    ;; A type the KB already holds more specifically is not written down: the record
+    ;; would say what `(dog Fred)` says, one step less precisely, and subsumption
+    ;; answers `(animal Fred)` without it.  Withheld only where there is no record yet
+    ;; — an existing one takes the justification whatever else holds it up, or
+    ;; retracting the specific membership would leave belief depending on which
+    ;; arrived first — and the withdrawal half, for the orders where the specific
+    ;; membership arrives last, is `settle`'s (`subsumed-mint-blocks`).
+    ;;
+    ;; The stored handle is read **once** and both branches share it, where
+    ;; `find-or-create-sentex` would look it up a second time: this runs per mint per
+    ;; assert, and a mint that dedups to a record already stored is the common case on
+    ;; a declared ontology (`assert_cost_test`'s `declared` workload counts the lookup).
+    ;;
+    ;; A withheld mint is decided before the admission checks, since it stores nothing:
+    ;; the checks would only report a violation of a sentence the KB does not hold, and
+    ;; their cover arm asks the provers once per cover over the type
+    ;; (`withheld-mint-beside-covers`).
+    (let [stored (kb/find-sentex-handle kb sentence context)]
+      (if (or (and (not stored) (checks/subsumed-mint kb sentence context))
+              ;; an ingredient an `except` hides from `context`, as a rule firing is
+              ;; not placed there (`except-move-sweeps` drops one the except meets)
+              (when-let [hidden? (exc/except-hidden-fn kb context)]
+                (or (hidden? src-handle) (some hidden? because))))
+        empty-entailment-result
+        (if-let [v (if memo
+                     (let [m @memo]
+                       (if (contains? m k) (get m k) (let [v (ask)] (vswap! memo assoc k v) v)))
+                     (ask))]
+          {:new [] :violations [(assoc v :sentence sentence :context context
+                                       :entailed-from src-handle)]}
           (let [[h2 s2 new?] (if stored
                                [stored (p/get-sentex (:records kb) stored) false]
                                (let [[h sx] (kb/create-sentex kb sentence context nil)]

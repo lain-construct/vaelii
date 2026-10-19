@@ -122,6 +122,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md#what-a-batch-does-to-the-depth-potential). Perf check
   `genl-chain-child-first-in-one-batch` measures the growth.
 
+- **A fact whose argument type mints a membership the term already holds more
+  specifically runs no admission check on the mint.** The mint is withheld and stores
+  nothing, but the assert entry point and the materializer each asked its admission, whose
+  cover arm asks the provers once per cover over the type. A fact beside 256 covers of its
+  minted type took 12.1 ms and now takes 1.1 ms, and a warm load of the upper ontology
+  takes 3.4 s against 4.8 s. *Migration:* none.
+  [argtypes.md](docs/argtypes.md). Perf check `withheld-mint-beside-covers` measures the
+  growth.
+
 - **A settle that owes only the arity refresh does not read what its `genlCx` moves
   reach.** The nogood placement walked the ancestor set of every context a moved edge
   sits under whenever any nogood family had work, though only the membership, negation,
