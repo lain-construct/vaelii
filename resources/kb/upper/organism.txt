@@ -31,6 +31,7 @@
 (vertebrate_class amphibian)
 
 (comment animal "An organism that moves and senses; disjoint from plant.")
+(set/monotonic (time_invariant_relation animal))
 (set/monotonic (separating organism animal plant))
 ;; Every animal has a backbone or lacks one.  The partition installs both genl edges to
 ;; animal.
@@ -176,6 +177,7 @@
 (invertebrate_class insect)
 
 (comment invertebrate "An animal without a backbone.")
+(set/monotonic (time_invariant_relation invertebrate))
 (positiveExampleComment invertebrate "an insect")
 (positiveExampleComment invertebrate "a spider")
 (positiveExampleComment invertebrate "a snail")
@@ -225,8 +227,10 @@
 (set/monotonic (folk_species penguin))
 
 (comment person "An entity with social agency — a human, or any other agent that stands in social relations. Broader than human: a non-biological agent (a sentient construct) can be a person without being a mammal or an animal, which is what lets the social predicates (friendOf, knows, marriedTo, …) constrain their arguments to person and still admit it. A physical entity — an agent has a location and can act — but not, by itself, a living thing.")
+(set/monotonic (time_invariant_relation person))
 
 (comment plant "An organism that photosynthesizes; disjoint from animal.")
+(set/monotonic (time_invariant_relation plant))
 ;; typeGenl requires its target to be a first-order type: (interArg typeGenl 1 metatype 2 type).
 (type plant)
 
@@ -279,6 +283,7 @@
 
 (comment vertebrate "An animal with a backbone: a mammal, a bird, a fish, a reptile or an amphibian.")
 (type vertebrate)
+(set/monotonic (time_invariant_relation vertebrate))
 
 (comment vertebrate_class
          "(vertebrate_class ?type) means that ?type is one of the classes of animal with a backbone. A disjoint_metatype, so its members are pairwise disjoint and nothing has to say so pair by pair: five members separate ten pairs, and the separation is inherited by every subtype — which is what makes a penguin and a dog disjoint without a word being written about either.")

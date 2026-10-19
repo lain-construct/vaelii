@@ -325,28 +325,38 @@
 ;; domain file, as (partition tangible made natural) is in abstract.txt.  biological is
 ;; here because organism (organism.txt) and body_part (abstract.txt) both extend it.
 (comment intangible "Something with no mass. It may have a location.")
+(set/monotonic (time_invariant_relation intangible))
 (positiveExampleComment intangible "a region")
 (positiveExampleComment intangible "a shadow")
 (positiveExampleComment intangible "a number")
 (positiveExampleComment intangible "a relation")
 (positiveExampleComment intangible "the time 3 PM on 14 October 2024")
 (comment spatial "Something with a location in some space, physical or mathematical. The line y=x is located in the Cartesian plane and a square of an abstract chessboard on that board, though neither is located anywhere in the world; a point has a location and no extent, and is spatial too. Time is not one of these spaces; being in time is what temporal says. Everything spatiotemporal is spatial; spatial and aspatial partition thing. The four spatial calculi relate what is spatial, in whichever space a context is about.")
+(set/monotonic (time_invariant_relation spatial))
 (comment physical "Something with a location in the physical space of our universe. A region of physical space is physical; the line y=x, located only in the Cartesian plane, is not. Everything physical is spatial, and everything spatiotemporal is physical.")
+(set/monotonic (time_invariant_relation physical))
 (comment spatiotemporal "Something with a location in physical space and time. Below both physical and temporal.")
+(set/monotonic (time_invariant_relation spatiotemporal))
 (positiveExampleComment spatiotemporal "a physical object")
 (positiveExampleComment spatiotemporal "a region or a place, which occupies space without being made of anything")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
+(set/monotonic (time_invariant_relation temporal))
 (comment aspatial "Not located in any space: no location in any space, physical or mathematical. None of the spatial calculi relate to it.")
 (comment uninterrupted "Something temporal that is present at every moment between its start and its end. The complement of intermittent within temporal; the two partition temporal.")
+(set/monotonic (time_invariant_relation uninterrupted))
 (positiveExampleComment uninterrupted "a moment")
 (positiveExampleComment uninterrupted "the year 2024")
 (positiveExampleComment uninterrupted "a meeting")
 (positiveExampleComment uninterrupted "a held state")
 (comment intermittent "Something temporal with a gap: there is a moment between its start and its end at which it is absent. The writing of a novel, a trial with its recesses, a World Series, a bicycle taken apart and put back together. The complement of uninterrupted within temporal.")
+(set/monotonic (time_invariant_relation intermittent))
 (comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is not atemporal, since it holds over time.")
 (comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
+(set/monotonic (time_invariant_relation tangible))
 (comment organism "Something alive in its own right: it is born, grows, reproduces, and (by default) dies.")
+(set/monotonic (time_invariant_relation organism))
 (comment biological "A tangible that is an organism or part of one.")
+(set/monotonic (time_invariant_relation biological))
 (comment nowhere_never "In no space and at no time: no location in any space, physical or mathematical, and none in time. An expression, a language. The line y=x is not one: it is located in the Cartesian plane, so it is spatial.")
 ;; spatial, aspatial, temporal, atemporal, tangible and intangible reach thing through
 ;; the three partitions of thing below, each of which installs its parts' edges to the
@@ -460,6 +470,7 @@
 (unary_predicate context)
 (unary_predicate language)
 (unary_predicate animal)
+(unary_predicate body_part)
 (unary_predicate food)
 (unary_predicate organization)
 (unary_predicate person)
@@ -2425,6 +2436,7 @@
 
 (comment thing
          "The root type: every type genls up to thing, so every typed individual is a thing.")
+(set/monotonic (time_invariant_relation thing))
 ;; thing holds individuals and types alike: a variable_order_type, which is a
 ;; unary_predicate.
 (set/monotonic (variable_order_type thing))

@@ -5,6 +5,7 @@
 ;; typeLargerThan/partType. Loaded into CxUniverse with the rest of kb/upper/.
 
 (comment body_part "A part an organism grew. It stays a body part once transplanted into another organism or shed from its own.")
+(set/monotonic (time_invariant_relation body_part))
 (positiveExampleComment body_part "a wing")
 (positiveExampleComment body_part "a heart")
 (positiveExampleComment body_part "a leaf")
@@ -81,9 +82,11 @@
 (comment (orthogonal electronic_device machine) "A fan-cooled desktop computer is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
 
 (comment feather "A light keratin body part covering a bird.")
+(set/monotonic (time_invariant_relation feather))
 (genl feather body_part)
 
 (comment fin "A flat body part a fish steers and propels itself with.")
+(set/monotonic (time_invariant_relation fin))
 (genl fin body_part)
 
 (comment food "A physical object eaten by an animal for nourishment.")
@@ -100,6 +103,7 @@
 (separating tangible formation biological)
 
 (comment fur "The hair covering a mammal.")
+(set/monotonic (time_invariant_relation fur))
 (genl fur body_part)
 
 (comment furniture "An artifact for use in a room.")
@@ -147,9 +151,11 @@
 (set/monotonic (transitiveInArgInverse typeLargerThan 2 genl))
 
 (comment leaf "A flat green body part a plant photosynthesizes with.")
+(set/monotonic (time_invariant_relation leaf))
 (genl leaf body_part)
 
 (comment leg "A body part an animal stands and walks on.")
+(set/monotonic (time_invariant_relation leg))
 (genl leg body_part)
 
 (comment liquid "A substance that flows and takes the structure of its container.")
@@ -289,9 +295,11 @@
 (typeToInstancePred partType tangiblePartOf)
 
 (comment petal "A coloured body part of a flower.")
+(set/monotonic (time_invariant_relation petal))
 (genl petal body_part)
 
 (comment root "The body part a plant anchors itself and draws water with.")
+(set/monotonic (time_invariant_relation root))
 (genl root body_part)
 
 (comment stone "A hard mineral substance.")
@@ -374,8 +382,10 @@
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
+(set/monotonic (time_invariant_relation causal))
 
 (comment acausal "A thing that cannot be a cause. The other side of the causal/acausal division of thing.")
+(set/monotonic (time_invariant_relation acausal))
 (positiveExampleComment acausal "the time 3 PM on 14 October 2024")
 (positiveExampleComment acausal "a property line")
 (positiveExampleComment acausal "an attribute")
@@ -540,6 +550,7 @@
 (genl vehicle made)
 
 (comment wing "A body part an animal flies with, such as a bird's, a bat's or an insect's.")
+(set/monotonic (time_invariant_relation wing))
 (genl wing body_part)
 (set/monotonic (disjoint wing fur))
 (comment (disjoint wing fur) "A bat's wing has fur on it: the fur is part of the wing, and nothing is both a wing and fur.")

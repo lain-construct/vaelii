@@ -197,3 +197,12 @@
                'CxUniverse)
   (all-of-kind kb 'time_varying_relation '[chosenSiblingOf nestingPartnerOf]
                'CxSocialExtension))
+
+(tu/deftest-kb the-upper-categories-and-biological-kinds-are-time-invariant
+  ;; A dead organism is still an organism, and a shed feather still a body part.
+  (all-of-kind kb 'time_invariant_relation
+               '[thing spatial temporal spatiotemporal physical tangible intangible causal
+                 acausal uninterrupted intermittent biological organism animal plant
+                 vertebrate invertebrate person body_part feather fin fur leaf leg petal
+                 root wing]
+               'CxUniverse))
