@@ -60,14 +60,18 @@
 (set/monotonic (time_invariant_relation clothing))
 (genl clothing made)
 
-(comment container "A made thing whose function is to hold other objects in its interior. Every container is made and hollow.")
+(comment container "A made thing whose function is to hold other objects in its interior. Every container is made, and made to be hollow.")
 (set/monotonic (time_invariant_relation container))
 (positiveExampleComment container "a cup")
 (positiveExampleComment container "a box")
 (positiveExampleComment container "a bag")
 (positiveExampleComment container "a building")
 (genl container made)
-(genl container hollow)
+;; A container is made to be hollow, and a box crushed flat is still a box.  So hollow
+;; follows from container by a default rule rather than a genl edge, and a stated denial
+;; overrides it.  The rule-macro suggestion to make it an edge is declined.
+(set/defaultRule (set/forwardRule (implies (and (container ?x)) (hollow ?x))))
+(declined_rule_macro (genl container hollow))
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 (set/monotonic (time_invariant_relation context))
@@ -122,7 +126,7 @@
 (set/monotonic (time_invariant_relation glass_stuff))
 (genl glass_stuff substance)
 
-(comment hollow "Has, at that time, an interior space that other things can occupy. A thing can stop being hollow and still exist: a box crushed flat stops being hollow, and a hand is hollow only while it is cupped. What a thing is shaped like, not what it is for, and a container is one kind of made hollow thing. Spatiotemporal rather than tangible, since a cave is a space in rock and is made of nothing.")
+(comment hollow "Has, at that time, an interior space that other things can occupy. A thing can stop being hollow and still exist: a box crushed flat stops being hollow, and a hand is hollow only while it is cupped. What a thing is shaped like, not what it is for, and a container is made to be hollow. Spatiotemporal rather than tangible, since a cave is a space in rock and is made of nothing.")
 (positiveExampleComment hollow "a cup")
 (positiveExampleComment hollow "a box")
 (positiveExampleComment hollow "a building")

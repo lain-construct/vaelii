@@ -1285,7 +1285,8 @@
 
 ;; ---- hollow: what a thing is shaped like, not what it is for ---------------
 ;; `hollow` holds of a thing while it has an interior space that other things can occupy.
-;; It says nothing about what the thing is used for.  A container is made and hollow.
+;; It says nothing about what the thing is used for.  A container is made, and made to
+;; be hollow: hollow by default.
 
 (tu/deftest-kb hollow-is-a-shape-located-in-space-and-time
   (is (true? (v/genl? kb 'hollow 'spatiotemporal 'CxUniverse)))
@@ -1326,11 +1327,17 @@
     (is (not (tu/stored-in-clash? kb (list 'hollow LabBladder1) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'hollow LabBladder1) 'CxUniverse)))))
 
-(tu/deftest-kb a-container-is-made-and-hollow
-  (doseq [t '[made hollow]]
-    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl 'container t) 'CxUniverse))
-        (str "(genl container " t ") is stated"))
-    (is (true? (v/genl? kb 'building t 'CxUniverse)) (str "building genl " t " through container")))
+(tu/deftest-kb a-container-is-made-and-hollow-by-default
+  (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb '(genl container made) 'CxUniverse))
+      "(genl container made) is stated")
+  (is (true? (v/genl? kb 'building 'made 'CxUniverse)) "building genl made through container")
+  (testing "a container is made to be hollow: hollow by a default rule, not a genl edge"
+    (is (not (true? (v/genl? kb 'container 'hollow 'CxUniverse))))
+    (is (true? (v/ask? kb '(declined_rule_macro (genl container hollow)) 'CxUniverse)))
+    (tu/with-terms [Cup1]
+      (v/assert kb (list 'container Cup1) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'hollow Cup1) 'CxUniverse)))
+      (is (= :default (v/defeat-class kb (v/handle-of kb (list 'hollow Cup1) 'CxUniverse))))))
   (testing "a container stays clear of organism, person and substance"
     (doseq [t '[organism person substance]]
       (is (true? (v/disjoint? kb 'container t)) (str "container and " t))))
@@ -1459,7 +1466,6 @@
     [genl boolean intangible CxUniverse "boolean genl unrepresented_term genl linguistic genl nowhere_never genl intangible"]
     [genl character intangible CxUniverse "character genl unrepresented_term genl linguistic genl nowhere_never genl intangible"]
     [genl building made CxUniverse "building genl container genl made"]
-    [genl building hollow CxUniverse "building genl container genl hollow"]
     [genl made tangible CxUniverse "partition tangible made natural"]
     [genl natural tangible CxUniverse "partition tangible made natural"]
     [genl formation tangible CxUniverse "formation genl natural genl tangible"]
