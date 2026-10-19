@@ -4,33 +4,31 @@
 ;; CxUniverse; CxWell sees it. CxSocialExtension, an opt-in extension below it,
 ;; states the relationship and plural-identity vocabulary narrower than this.
 ;;
-;; Every rule here runs one way only. `knows` is deliberately not symmetric — a great
-;; many people know someone who does not know them — so friendship and marriage, which
-;; *are* symmetric, each yield acquaintance in both directions through their own
-;; symmetry rather than through a symmetry `knows` does not have. Stating (symmetric
+;; Every rule and genl edge here runs one way only. `knows` is deliberately not
+;; symmetric — a great many people know someone who does not know them — so friendship
+;; and marriage, which *are* symmetric, each yield acquaintance in both directions
+;; through their own symmetry rather than through a symmetry `knows` does not have. Stating (symmetric
 ;; knows) would have been one word and would have made the KB assert the converse of
 ;; every acquaintance it ever learned.
 
 (genlCx CxSocial CxUniverse)
 (genlCx CxWell CxSocial)
 
-(set/forwardRule (implies (and (friendOf ?x ?y)) (knows ?x ?y)))
+(genl friendOf knows)
 
-(set/forwardRule (implies (and (marriedTo ?x ?y)) (knows ?x ?y)))
+(genl marriedTo knows)
 
 ;; Employment is one way of belonging to a body of people; belonging is not a way of
-;; being employed by it, so there is no converse rule.
-(set/forwardRule (implies (and (worksFor ?x ?o)) (memberOf ?x ?o)))
+;; being employed by it, so there is no converse edge.
+(genl worksFor memberOf)
 
 ;; ---- relationships: family, romance, work ---------------------------------
 ;; relativeOf, coworkerOf and roommateOf each specialize knows, the way friendOf
 ;; and marriedTo do above; romanticPartnerOf specializes friendOf. No edge
 ;; relates marriedTo to romanticPartnerOf: friendOf and marriedTo reach knows
-;; by separate rules above because this theory does not claim every marriage
-;; is a friendship, and a marriedTo-under-romanticPartnerOf-under-friendOf
-;; chain would carry marriedTo there too, leaving the marriedTo rule covered
-;; by the friendOf rule
-;; (ontology_test/no-shipped-rule-is-covered-by-another). originatorOf is read
+;; by separate genl edges above because this theory does not claim every
+;; marriage is a friendship, and a marriedTo-under-romanticPartnerOf-under-friendOf
+;; chain would carry marriedTo under friendOf too. originatorOf is read
 ;; by the rule below from parentOf, guarded to two persons: the shipped
 ;; parentOf relates any two organisms, and originatorOf relates two persons
 ;; specifically.
