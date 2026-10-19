@@ -1564,10 +1564,12 @@
 (argAndRest functionCorrespondingPredicate 3 positive_integer)
 
 ;; A function's result type is the type of the value its corresponding predicate holds,
-;; so the three rules below type the predicate's value position by the function's result.
-;; A correspondence that omits the position puts the value last: the first two rules type
-;; the last argument of a binary and of a ternary predicate.  A correspondence that states
-;; the position names it, and the third rule types the argument at that position.
+;; so the five rules below type the predicate's value position by the function's result.
+;; A correspondence that omits the position puts the value last: the first four rules type
+;; the last argument of a binary, a ternary, a quaternary and a quinary predicate.  A
+;; correspondence that states the position names it, and the fifth rule types the argument
+;; at that position.  A predicate of six or more arguments is in none of the exact
+;; classes, so no rule here types its last argument.
 (set/forwardRule
  (implies
   (and
@@ -1583,6 +1585,22 @@
    (ternary ?predicate)
    (result ?function ?type))
   (arg ?predicate 3 ?type)))
+
+(set/forwardRule
+ (implies
+  (and
+   (functionCorrespondingPredicate ?function ?predicate)
+   (quaternary ?predicate)
+   (result ?function ?type))
+  (arg ?predicate 4 ?type)))
+
+(set/forwardRule
+ (implies
+  (and
+   (functionCorrespondingPredicate ?function ?predicate)
+   (quinary ?predicate)
+   (result ?function ?type))
+  (arg ?predicate 5 ?type)))
 
 (set/forwardRule
  (implies

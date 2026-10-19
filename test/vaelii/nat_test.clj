@@ -880,6 +880,30 @@
     (is (true? (v/ask? kb (list 'arg3 blendOf blend_shade) 'CxUniverse)))
     (is (false? (v/ask? kb (list 'arg2 blendOf blend_shade) 'CxUniverse)))))
 
+(tu/deftest-kb a-correspondence-types-the-last-argument-of-a-quaternary-predicate-by-the-result
+  (tu/with-terms [MixFn mixOf paint mix_shade]
+    (v/assert kb (list 'reifiable_function MixFn) 'CxUniverse)
+    (v/assert kb (list 'ternary_function MixFn) 'CxUniverse)
+    (v/assert kb (list 'quaternary_predicate mixOf) 'CxUniverse)
+    (doseq [position [1 2 3]]
+      (v/assert kb (list 'arg mixOf position paint) 'CxUniverse))
+    (v/assert kb (list 'result MixFn mix_shade) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MixFn mixOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg mixOf 4 mix_shade) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg mixOf 3 mix_shade) 'CxUniverse)))))
+
+(tu/deftest-kb a-correspondence-types-the-last-argument-of-a-quinary-predicate-by-the-result
+  (tu/with-terms [PaletteFn paletteOf paint palette_shade]
+    (v/assert kb (list 'reifiable_function PaletteFn) 'CxUniverse)
+    (v/assert kb (list 'quaternary_function PaletteFn) 'CxUniverse)
+    (v/assert kb (list 'quinary_predicate paletteOf) 'CxUniverse)
+    (doseq [position [1 2 3 4]]
+      (v/assert kb (list 'arg paletteOf position paint) 'CxUniverse))
+    (v/assert kb (list 'result PaletteFn palette_shade) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate PaletteFn paletteOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg paletteOf 5 palette_shade) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg paletteOf 4 palette_shade) 'CxUniverse)))))
+
 (tu/deftest-kb a-ternary-correspondence-types-the-argument-at-its-declared-position-by-the-result
   (tu/with-terms [CornerFn cornerOf crossing heading corner_lot]
     (v/assert kb (list 'reifiable_function CornerFn) 'CxUniverse)
