@@ -21,6 +21,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   arity is stored, so the membership keeps the strength it was written at rather than an
   arity on the forced-monotonic roster being stored beside it. A depth-3 `query (arity ?p
   ?n)` over the starter answers one binding per relation with an exact-arity membership.
+  The rule the `relationTypeByArity` generator stamps the other way, `(arity ?r n) → (T
+  ?r)`, is `set/forwardOnlyRule`, so the two form no backward cycle.
   [taxonomy.md](docs/taxonomy.md#arity).
 
   *Migration:* none.
@@ -49,6 +51,39 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `functionTypeByArity` to classify every relation of that arity states
   `relationTypeByArity` instead.
   *Breaks:* `ask`, `query`, `genl?`
+
+- **A `type_relation_predicate`'s arguments are predicates.** `core.txt` concludes `(args
+  R predicate)` forward from `(type_relation_predicate R)`: `predicate` and not
+  `unary_predicate`, since `genl` relates predicate specializations of any arity. `query
+  (args disjoint ?t)` answers `[{?t predicate}]`, a symbol argument of `genl`, `disjoint`
+  or another type-level relation is derived a `predicate` under assertive argument types,
+  and one whose types place it outside `predicate` is refused `:arg-type`.
+  [taxonomy.md](docs/taxonomy.md).
+
+  *Migration:* a KB relating terms that are not predicates through a
+  `type_relation_predicate` drops the mark from that relation.
+  *Breaks:* `assert`, `query`
+
+- **`arg`, `arg1`, `arg2`, `arg3`, `interArg` and `argArg` are admitted on a
+  `type_relation_predicate`.** `assert` and `check` refused each `:arg-constraint-kind`.
+  The kinds such a relation relates are instances of a type as well as subtypes of one, so
+  `(arg disjoint 1 unary_predicate)` is a true instance claim and is stored. `genlArg` on
+  an `instance_relation_predicate` is still refused `:arg-constraint-kind`.
+  [api.md](docs/api.md).
+
+  *Migration:* a caller that relied on the refusal to keep instance constraints off a
+  type-level relation checks `type_relation_predicate` itself.
+  *Breaks:* `assert`, `check`, `:arg-constraint-kind`
+
+- **`kb-quality`'s rule-clash reading reads `args` and `argAndRest` as it reads `arg`.** A
+  pair whose shared term a covering declaration types disjoint from what the other rule
+  places it in is unreachable and no longer reported. Over the starter, `(function ?r)
+  (arity ?r 1) → (unary_function ?r)` against `(unary ?type) (disjoint ?type ?type) →
+  (empty ?type)` is dropped, `disjoint`'s arguments being predicates.
+  [quality.md](docs/quality.md).
+
+  *Migration:* none.
+  *Breaks:* `kb-quality`
 
 - **The term kinds are on the forced-monotonic roster.** `relation`, `predicate`,
   `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`,
@@ -120,6 +155,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   ?r)` as a `set/backwardRule`, and `(functionTypeByArity T n)` the same rule over
   `(function ?r)`. A query for `(T R)` is proved from the kind and the arity, and no
   membership is stored. [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **`(args R T)` proves `(argAndRest R 1 T)`.** A `set/backwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe, so `query (argAndRest R ?n ?t)` at
+  depth 3 answers `[{?n 1 ?t T}]` of a relation declared only through `args`. Nothing is
+  stored, and the engine reads both spellings through one reader that takes `args` as
+  `argAndRest` from 1. [argtypes.md](docs/argtypes.md).
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
