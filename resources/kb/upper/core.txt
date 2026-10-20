@@ -2183,6 +2183,11 @@
 ;; type, as binary_predicate is.
 (set/monotonic (type function))
 (set/monotonic (time_invariant_relation function))
+;; A function can vary or not: a person's age now is one value and later another, while
+;; the sum of two numbers stays the sum.  And a student or a friendship varies with no
+;; function in it.  So function and time_varying_relation overlap without either
+;; subsuming the other, and neither is disjoint from the other.
+(set/monotonic (orthogonal function time_varying_relation))
 
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a relation.")
 ;; predicate holds binary predicates and types alike: a variable_order_type.
