@@ -2195,6 +2195,12 @@
          "(type_relation_predicate ?predicate) means that ?predicate relates types rather than individuals. So (?predicate T1 T2) is a claim between two categories, and such a ground fact is replaced by one of the relation-pattern meta-predicates to pin down which quantifier reading is meant. A binary_predicate, for instance_relation_predicate's reason. The other half of the relation_kind metatype.")
 (unary_predicate type_relation_predicate)
 (set/monotonic (genl type_relation_predicate binary_predicate))
+;; Every argument of a type_relation_predicate is a predicate.  The kinds it relates are
+;; unary predicates, and genl relates predicate specializations of any arity besides —
+;; (genl performedBy doneBy) puts one binary predicate under another — so predicate, and
+;; not unary_predicate, is what holds at every position of every one.  An instance claim
+;; about the arguments, beside the subtype claim the relation kind already makes.
+(set/forwardRule (implies (type_relation_predicate ?relation) (args ?relation predicate)))
 
 (comment typeToInstancePred
          "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")

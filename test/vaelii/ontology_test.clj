@@ -643,6 +643,24 @@
     (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
         "negation clashes are excepted")))
 
+(tu/deftest-kb a-type-relation-predicate-relates-predicates
+  ;; Every argument of a type_relation_predicate is a predicate: the kinds it relates are
+  ;; unary predicates, and genl relates predicate specializations of any arity as well.
+  ;; core.txt concludes that forward from the relation kind, as (args ?relation predicate).
+  (testing "disjoint's arguments derive as predicates"
+    (is (= [{'?t 'predicate}] (v/query kb '(args disjoint ?t) 'CxUniverse))))
+  (testing "and genl's, whose binary-predicate edges are predicates and not unary ones"
+    (is (= [{'?t 'predicate}] (v/query kb '(args genl ?t) 'CxUniverse)))
+    (is (v/ask? kb '(genl performedBy doneBy) 'CxUniverse)))
+  (testing "the declaration reaches the rule-clash reading"
+    ;; `(unary ?type) (disjoint ?type ?type) → (empty ?type)` demands ?type be a predicate
+    ;; through disjoint's args, and `(function ?r) (arity ?r 1) → (unary_function ?r)` places
+    ;; the same term under function.  predicate and function are disjoint, so the pair is
+    ;; unreachable and arg-type-conflicted? drops it.
+    (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))]
+      (is (not-any? (fn [p] (some #(some #{'empty} (flatten %)) (:sentences p))) pairs)
+          (str "the emptiness rule pairs with nothing: " (pr-str (mapv :sentences pairs)))))))
+
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
   ;; exact class, and two of them conclude two arities for one relation only where the
