@@ -259,7 +259,11 @@
    ;; is a query operator that is never stored, and a type on a slot reaches the rule
    ;; variables bound there.
    (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
-              [[op i] "an operator slot — a result, a value variable and a sentence body"]))))
+              [[op i] "an operator slot — a result, a value variable and a sentence body"]))
+   ;; the stored exception (exceptWhen Q (sentexHandle H)): assert-entry/assert-exceptWhen-meta!
+   ;; runs no argument check on it, and it is excluded from fact matching
+   {'[exceptWhen 1] "the exception query, whose variables are the rule's, so a type on the slot would reach the rule variables bound there"
+    '[exceptWhen 2] "the sentexHandle of the rule the exception qualifies, a mention of a stored sentex"}))
 
 (deftest every-shipped-function-declares-its-corresponding-predicate
   ;; A function comes with the predicate relating its arguments to its value
@@ -376,33 +380,39 @@
       (is (empty? (filter #(= :inherited (:kind %))
                           (concat (v/contradictions kb) (v/conflicts kb))))))))
 
-;; ---- what is a type, and what is only a property ------------------------
+;; ---- the biology properties and the kinds they are said of ---------------
 
 (def ^:private biology-properties
   "The seven life.txt properties placed under the kind each is said of."
   '{alive biological, dead biological, mortal organism,
     asleep animal, awake animal, breathes_air animal, warm_blooded animal})
 
-(tu/deftest-kb a-type-is-a-noun-and-a-property-is-not-a-type
+(tu/deftest-kb the-biology-properties-are-placed-under-their-kind
   ;; The naming rules make `alive` and `mortal` legal unary predicates, and nothing in
-  ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
-  ;; decision: a type is a kind of thing and wants a noun, while a property is something
-  ;; a thing *is*.  A property may sit BELOW the kind it is said of — the alive
-  ;; organisms are some of the organisms — but never above a kind: that would make
-  ;; "mortal" a kind that organisms are a kind OF.  Were one wanted as a type in that
-  ;; sense it would be spelled for it — `mortal_being`, not `mortal`.
+  ;; them says where a name sits in the genl hierarchy.  Each of these properties is
+  ;; said of one kind, so it is placed under that kind: only an animal is warm-blooded,
+  ;; and `(warm_blooded Rock1)` is a type clash.  A kind may sit below one of them, as
+  ;; `bird` and `mammal` sit below `warm_blooded`, and the kind a property is said of
+  ;; never does.  Spelling a type as a noun and a
+  ;; property as an adjective is a style hint, not a rule of the hierarchy.
   (testing "the properties the biology theory concludes are placed under their kind"
     (doseq [[p kind] biology-properties]
       (is (v/genl? kb p kind) (str p " is placed under " kind))
       (is (v/genl? kb p 'thing) (str p " reaches thing"))
       (is (v/isa? kb p 'unary_predicate)
-          (str p " is still a one-place predicate"))))
-  (testing "and no type sits below any of them"
-    (doseq [p (keys biology-properties)]
-      (is (= #{p} (v/specs kb p))
-          (str p " is a property, not a kind — nothing may be placed under it"))
-      (is (not (v/genl? kb (biology-properties p) p))
-          (str (biology-properties p) " is not a kind of " p))))
+          (str p " is still a one-place predicate"))
+      (is (not (v/genl? kb kind p)) (str kind " is not placed under " p))))
+  (testing "a kind may sit below one: every bird and every mammal is warm-blooded"
+    (doseq [t '[bird mammal penguin dog]]
+      (is (v/genl? kb t 'warm_blooded) (str t " is placed under warm_blooded")))
+    (tu/with-terms [Pingu Rex Nemo]
+      (v/assert kb (list 'penguin Pingu) 'CxWell)
+      (v/assert kb (list 'dog Rex) 'CxWell)
+      (v/assert kb (list 'fish Nemo) 'CxWell)
+      (is (v/ask? kb (list 'warm_blooded Pingu) 'CxWell) "a penguin is warm-blooded")
+      (is (v/ask? kb (list 'warm_blooded Rex) 'CxWell) "a dog is warm-blooded")
+      (is (v/ask? kb (list 'not (list 'warm_blooded Nemo)) 'CxWell)
+          "a fish is not, by the rule that denies it")))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person tangible event flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
@@ -419,8 +429,8 @@
 (def ^:private placed-unary-predicates
   "Fifteen shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
   edge, so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The
-  seven biology properties among them are placed under the kind each is said of, and
-  `a-type-is-a-noun-and-a-property-is-not-a-type` holds that no kind sits below one."
+  seven biology properties among them are placed under the kind each is said of, as
+  `the-biology-properties-are-placed-under-their-kind` holds."
   '#{initially functional_at_instant
      abducible_predicate closed_extent_predicate decontextualized_predicate
      target_following_predicate forced_decontextualized_predicate
@@ -607,10 +617,17 @@
   ;; penguin's, wakefulness against sleep, life against death, and the shepherd boy's
   ;; credibility against his lying — is one of the two rules **stating** the other as an
   ;; `exceptWhen`, which is what `:excepted` marks.  Nothing else is left: the arity table
-  ;; would be three `:functional` pairs, each two of the classification rules concluding a
-  ;; different `(arity ?p n)` for one `?p`, and the three classes are declared pairwise
-  ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
-  ;; than unstated (docs/quality.md).
+  ;; would be `:functional` pairs, each two of the classification rules concluding a
+  ;; different `(arity ?p n)` for one `?p`, and the five exact classes are separated, so no
+  ;; `?p` satisfies two antecedents and the pairs are unreachable rather than unstated
+  ;; (docs/quality.md).
+  ;;
+  ;; The arity floors would be 82 `:disjoint` pairs.  A floor rule reads `(arity ?r ?n)`
+  ;; with `(lessThan k ?n)` and concludes `(at_least_… ?r)`, which is disjoint from every
+  ;; exact class of k places or fewer, and a rule concluding that class or claiming that
+  ;; arity binds the same `?r` to exactly k places or fewer.  The arity table is
+  ;; functional, so no `?r` satisfies both antecedents, and `arity-floor-conflicted?` drops
+  ;; every such pair as unreachable.
   ;;
   ;; No `:disjoint` pair is left.  CxCriedWolf's `lied_before → liar` concludes a person,
   ;; and two kinds of rule conclude a type disjoint from one: the signed refinements of
@@ -640,14 +657,19 @@
   ;; antecedents' `arg` declarations too: `(arg arity 1 relation)` types the arity rule's
   ;; variable a `relation`, disjoint from the `person` the paired rule concludes, so
   ;; `arg-type-conflicted?` drops the pair as unreachable (vaelii#95).  The arity table
-  ;; therefore pairs with nothing.
+  ;; therefore pairs with nothing.  An arity floor beside an exact class binds one relation
+  ;; above and at or below one length, and `arity-floor-conflicted?` drops that pair, so
+  ;; the floors pair with nothing either.
   (let [pairs   (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         about   (fn [f] (filter (fn [p] (some #(some #{f} (flatten %)) (:sentences p)))
                                 pairs))]
     (is (empty? (about 'arity))
         (str "the arity table pairs with nothing: " (pr-str (mapv :sentences (about 'arity)))))
     (is (empty? (about 'unary_predicate))
-        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))))
+        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))
+    (doseq [floor '[at_least_binary at_least_ternary at_least_quaternary at_least_quinary]]
+      (is (empty? (about floor))
+          (str "nor does " floor ": " (pr-str (mapv :sentences (about floor))))))))
 
 (tu/deftest-kb a-predicate-is-at-most-one-of-the-three-arity-classifications
   ;; The declaration that empties the reading above.  A predicate takes one number of
@@ -1078,8 +1100,9 @@
 (tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
   ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
   ;; declares it.  The review-only :missing-arg pass reports every undeclared position,
-  ;; and each position of the four grants is declared.
-  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3}]
+  ;; and each position of the six grants is declared.
+  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3
+                 closedExtentForArg4 closedExtentForArg5}]
     (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse)))
         "the default passes find nothing")
     (let [missing (:missing-arg (v/kb-integrity kb terms 'CxUniverse {:categories #{:missing-arg}}))]
@@ -1087,7 +1110,7 @@
                         :when (contains? terms predicate)
                         i     missing]
                     [predicate i]))
-          "every position of the four grants is declared"))))
+          "every position of the six grants is declared"))))
 
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.
@@ -1419,10 +1442,22 @@
       (testing "and a string value is what the position is for"
         (is (= [] (v/check kb (list 'comment 'thing "some text") 'CxUniverse)))))))
 
-(tu/deftest-kb a-term-cannot-be-both-a-string-and-a-relation
-  (tu/with-terms [Thing1]
-    (v/assert kb (list 'string Thing1) 'CxUniverse)
-    (is (tu/stored-in-clash? kb (list 'predicate Thing1) 'CxUniverse))))
+(tu/deftest-kb a-string-and-a-predicate-of-one-term-are-an-irreducible-conflict
+  ;; `string` and `predicate` are both term kinds on the forced-monotonic roster, so the
+  ;; clash `(disjoint linguistic relation)` makes of them through their genl edges has no
+  ;; member to defeat: both stay believed and `conflicts` names the pair, the same in
+  ;; either order
+  (doseq [[first-kind second-kind] '[[string predicate] [predicate string]]]
+    (tu/with-terms [Thing1]
+      (v/assert kb (list first-kind Thing1) 'CxUniverse)
+      (v/assert kb (list second-kind Thing1) 'CxUniverse)
+      (is (v/ask? kb (list 'string Thing1) 'CxUniverse)
+          (str second-kind " after " first-kind ": string stays believed"))
+      (is (v/ask? kb (list 'predicate Thing1) 'CxUniverse))
+      (let [hs (v/handle-of kb (list 'string Thing1) 'CxUniverse)
+            hp (v/handle-of kb (list 'predicate Thing1) 'CxUniverse)]
+        (is (some #(= #{hs hp} (set (:nogood %))) (v/conflicts kb))
+            "and the pair is reported as a conflict")))))
 
 ;; ---- what is biological ---------------------------------------------------
 ;; An organism and a part it grew are both biological, and tangible through it.  The two
@@ -1501,13 +1536,25 @@
 ;; the parts are separated and cover their whole: a member denied every part but one is
 ;; concluded the last.
 
-(tu/deftest-kb a-relation-that-is-not-truth-valued-is-a-function
-  ;; The coverage half of (partition relation function truth_valued_relation);
-  ;; three-partitions-divide-relation pins the separation half.
-  (tu/with-terms [relatesTo]
+(tu/deftest-kb a-function-is-not-a-truth-valued-relation
+  ;; (partition relation function truth_valued_relation), read off a function stated as
+  ;; one; three-partitions-divide-relation pins the separation half.  The fixture states
+  ;; the function-hood directly: function and truth_valued_relation are term kinds on the
+  ;; forced-monotonic roster, and a denial of a roster literal is never believed, so a
+  ;; stored (not (truth_valued_relation X)) concludes nothing through the cover.
+  (tu/with-terms [relatesTo deniedRelation]
     (v/assert kb (list 'relation relatesTo) 'CxUniverse)
-    (v/assert kb (list 'not (list 'truth_valued_relation relatesTo)) 'CxUniverse)
-    (is (true? (v/ask? kb (list 'function relatesTo) 'CxUniverse)))))
+    (v/assert kb (list 'function relatesTo) 'CxUniverse)
+    (is (false? (v/ask? kb (list 'truth_valued_relation relatesTo) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'not (list 'truth_valued_relation relatesTo)) 'CxUniverse))
+        "a function is refuted as a truth_valued_relation")
+    (is (= :false (:verdict (v/argue kb (list 'truth_valued_relation relatesTo) 'CxUniverse))))
+    (testing "a stored denial of the term kind is inert, and concludes no function"
+      (v/assert kb (list 'relation deniedRelation) 'CxUniverse)
+      (v/assert kb (list 'not (list 'truth_valued_relation deniedRelation)) 'CxUniverse)
+      (is (= :inert (:reason (v/why-not kb (list 'not (list 'truth_valued_relation deniedRelation))
+                                        'CxUniverse))))
+      (is (false? (v/ask? kb (list 'function deniedRelation) 'CxUniverse))))))
 
 (tu/deftest-kb reifiable-and-unreifiable-partition-function
   (is (true? (v/disjoint? kb 'reifiable_function 'unreifiable_function 'CxUniverse)))

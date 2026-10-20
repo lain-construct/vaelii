@@ -1238,7 +1238,9 @@
   ;; A declaration a forward rule derives reaches the stored facts through
   ;; `entail-existing`, after the clashing membership is believed; the text export
   ;; reloads the same content in content order, where the declaration is derived before
-  ;; the fact arrives.  The two hold the same sentences and believe the same ones.
+  ;; the fact arrives.  The two hold the same sentences and believe the same ones.  arg
+  ;; is on the forced-monotonic roster, so the rule concluding it reads a marker on the
+  ;; roster too: a firing from an antecedent off it would be void.
   (let [build #(tu/isolated-fresh)
         dir   (.toFile (Files/createTempDirectory "argtype-clash" (make-array FileAttribute 0)))
         rows  (fn [kb pick]
@@ -1250,7 +1252,8 @@
       (tu/with-terms [rel_t coll_t pp marked Foo Bar]
         (with-entailing
           (let [chained (tu/with-cleared-kb [kb build]
-                          (doseq [s [(list 'genl rel_t 'thing) (list 'genl coll_t 'thing)
+                          (doseq [s [(list 'forced_monotonic_predicate marked)
+                                     (list 'genl rel_t 'thing) (list 'genl coll_t 'thing)
                                      (list 'disjoint rel_t coll_t) (list coll_t Foo)
                                      (list pp Foo Bar) (list marked pp)
                                      (list 'set/forwardRule

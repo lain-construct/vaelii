@@ -694,22 +694,30 @@
   relation normally has both — but a `{:chain? false}` assert or a KB loaded without
   the rules has only what was written, so both spellings are read.
 
-  **Nine spellings, because core.txt ships nine classes.**  `unary` / `binary` / `ternary`
-  are the relation-wide ones and the other six specialize them by kind, so a KB may write
+  **Fifteen spellings, because core.txt ships fifteen classes.**  `unary` / `binary` /
+  `ternary` / `quaternary` / `quinary` are the relation-wide ones and the other ten
+  specialize them by kind, so a KB may write
   the arity of a function as `(binary_function F)` exactly as it writes a predicate's as
   `(binary_predicate P)`.  The arity readers read a **stored** membership by its own
-  functor (`arity-binding`), and what a KB stored is whichever of the nine its author
+  functor (`arity-binding`), and what a KB stored is whichever of the fifteen its author
   wrote.
 
   The three arities never disagree across the spellings one term holds: a class and its
-  specializations map to one number, and `(disjoint unary binary)` and its two peers
-  separate the relation-wide three, which the six inherit through their `genl` edges.
+  specializations map to one number, and one `separating` roster under `fixed_arity`
+  separates the relation-wide five, which the ten inherit through their `genl` edges.
 
   Here, below the index, `arity/relation-length` and `kb/relation?`, because all of them
   read it; a roster read twice is a roster that drifts."
-  '{unary 1 binary 2 ternary 3
+  '{unary 1 binary 2 ternary 3 quaternary 4 quinary 5
     unary_predicate 1 binary_predicate 2 ternary_predicate 3
-    unary_function 1 binary_function 2 ternary_function 3})
+    quaternary_predicate 4 quinary_predicate 5
+    unary_function 1 binary_function 2 ternary_function 3
+    quaternary_function 4 quinary_function 5})
+
+(def arg-projections
+  "Each binary projection of `arg`, with the position it projects: `(argN P T)` states
+  what `(arg P N T)` states.  The declaration checks and the integrity census read it."
+  '{arg1 1 arg2 2 arg3 3 arg4 4 arg5 5})
 
 (def variable-arity-classes
   "The memberships that release a relation from one exact length."

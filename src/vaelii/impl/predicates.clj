@@ -358,10 +358,10 @@
   (assoc spec :facets #{:inert} :inert why))
 
 (def ^:private arity-note
-  "The clause every exact-arity class's note ends with — nine classes say one thing, and
-  a sentence written nine times is a sentence that drifts in eight of them."
-  (str " — tax/exact-arity-classes — plus the disjointness that separates the"
-       " relation-wide three, which the kind specializations inherit through their genl"
+  "The clause every exact-arity class's note ends with — fifteen classes say one thing,
+  and a sentence written fifteen times is a sentence that drifts in fourteen of them."
+  (str " — tax/exact-arity-classes — plus the separating roster that separates the"
+       " relation-wide five, which the kind specializations inherit through their genl"
        " edges. Read as storage by the inert-tuple test (arity/relation-length)."))
 
 ;; ---- the entries ---------------------------------------------------------
@@ -585,7 +585,7 @@
                  :family nil :facets #{:reach :convicts}
                  :notes (str "floors a variable_arity relation: a shorter tuple is held inert in"
                              " the :out forced set. Ordinary core.txt rules"
-                             " also derive the at_least_binary and at_least_ternary classifications.")}
+                             " also derive the at_least_binary through at_least_quinary classifications.")}
                 "arity/drain! floors a variable-arity tuple at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
@@ -753,6 +753,18 @@
                  :notes "the binary spelling of (closedExtentForArg ?p 3 ?v) — see closedExtentForArg1."}
                 (str "the CxUniverse forward rule deriving (closedExtentForArg P 3 V); see"
                      " closedExtentForArg1"))]
+     ['closedExtentForArg4
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 4 ?v) — see closedExtentForArg1."}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 4 V); see"
+                     " closedExtentForArg1"))]
+     ['closedExtentForArg5
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 5 ?v) — see closedExtentForArg1."}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 5 V); see"
+                     " closedExtentForArg1"))]
      ['modal_predicate (enforced (prop :modal)
                                  (str "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide"
                                       " which predicates project their sentence into the agent's context"))]
@@ -822,7 +834,7 @@
                             :family nil :facets #{:convicts :reach}
                             :notes (str "the projection relates STORED declarations only — a"
                                         " reading arg generalizes up genl or inherits from a"
-                                        " super-predicate has no arg1/arg2/arg3 twin; ask arg for those."
+                                        " super-predicate has no arg1…arg5 twin; ask arg for those."
                                         " :family stays nil for arity's reason rather than for"
                                         " want of a family: mark-families rosters the lanes"
                                         " that must recognize one spelling set, and two"
@@ -843,6 +855,16 @@
                             :family nil :facets #{:convicts :reach}
                             :notes "the binary projection of (arg ?p 3 ?t) — see arg1."}
                            (str "checks/declaration-problem — the same at position 3; see"
+                                " arg1"))]
+     ['arg4      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes "the binary projection of (arg ?p 4 ?t) — see arg1."}
+                           (str "checks/declaration-problem — the same at position 4; see"
+                                " arg1"))]
+     ['arg5      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
+                            :family nil :facets #{:convicts :reach}
+                            :notes "the binary projection of (arg ?p 5 ?t) — see arg1."}
+                           (str "checks/declaration-problem — the same at position 5; see"
                                 " arg1"))]
      ['quotedArg (enforced (assoc (prop :declares-quoted-arg :arg :relation
                                         :facets #{:convicts :answers})
@@ -1274,6 +1296,12 @@
      ['ternary (enforced (collection :facets #{:convicts :reach}
                                      :notes (str "the same, at three" arity-note))
                          "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
+     ['quaternary (enforced (collection :facets #{:convicts :reach}
+                                        :notes (str "the same, at four" arity-note))
+                            "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
+     ['quinary (enforced (collection :facets #{:convicts :reach}
+                                     :notes (str "the same, at five" arity-note))
+                         "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
 
      ;; ---- the predicate types --------------------------------------------
      ['unary_predicate   (enforced (collection :facets #{:convicts :reach}
@@ -1289,6 +1317,14 @@
                                                :notes (str "the same, at three" arity-note))
                                    (str "tax/exact-arity-classes — a predicate's membership spelling of"
                                         " an arity"))]
+     ['quaternary_predicate (enforced (collection :facets #{:convicts :reach}
+                                                  :notes (str "the same, at four" arity-note))
+                                      (str "tax/exact-arity-classes — a predicate's membership spelling of"
+                                           " an arity"))]
+     ['quinary_predicate (enforced (collection :facets #{:convicts :reach}
+                                               :notes (str "the same, at five" arity-note))
+                                   (str "tax/exact-arity-classes — a predicate's membership spelling of"
+                                        " an arity"))]
      ['unary_function
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the function specialization of unary, and a"
@@ -1302,9 +1338,17 @@
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the same, at three" arity-note))
                 "tax/exact-arity-classes — a function's membership spelling of an arity")]
+     ['quaternary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the same, at four" arity-note))
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
+     ['quinary_function
+      (enforced (collection :facets #{:convicts :reach}
+                            :notes (str "the same, at five" arity-note))
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
      ['fixed_arity       (enforced (collection
                                     :notes (str "classifies one exact argument policy; exact"
-                                                " arity declarations and the unary/binary/ternary"
+                                                " arity declarations and the unary through quinary"
                                                 " families specialize it."))
                                    "generic taxonomy classification and ordinary core.txt arity rule")]
      ['fixed_arity_predicate
@@ -1337,6 +1381,15 @@
      ['at_least_ternary
       (enforced (collection :notes (str "derived by core.txt rules from arity or arityMin greater"
                                         " than two, and through (genl ternary at_least_ternary)."))
+                "ordinary core.txt rule inference from arity and arityMin")]
+     ['at_least_quaternary
+      (enforced (collection :notes (str "derived by core.txt rules from arity or arityMin greater"
+                                        " than three, and through (genl quaternary"
+                                        " at_least_quaternary)."))
+                "ordinary core.txt rule inference from arity and arityMin")]
+     ['at_least_quinary
+      (enforced (collection :notes (str "derived by core.txt rules from arity or arityMin greater"
+                                        " than four, and through (genl quinary at_least_quinary)."))
                 "ordinary core.txt rule inference from arity and arityMin")]
      ['relation_kind     (enforced (collection :notes "a disjoint_metatype, so its two members separate each other.")
                                    "generic: a disjoint_metatype, so its two members separate each other")]
@@ -1424,6 +1477,14 @@
            [set/monotonic    "sentex/strength-wrapper — peeled at the entry point into :monotonic strength"]])
     [['set/inert (enforced (structural {:args [:sentence]} "stores the sentence inert.")
                            "io.text/peel-form — the text loader writes the sentence through assert-inert")]]
+    [['exceptWhen (enforced {:shape   {:args [:sentence :sentence]}
+                             :storage [:none] :checked false :family nil :facets #{}
+                             :notes   (str "split off at the assert layer: the rule is stored as"
+                                           " written and the exception apart, as the meta-sentex"
+                                           " (exceptWhen Q (sentexHandle H)) naming the rule's handle.")}
+                            (str "assert-entry/assert-exceptWhen-meta! — stores the exception;"
+                                 " provers/rule-exceptions reads it per firing, and the recheck"
+                                 " queue re-evaluates it"))]]
 
     ;; ---- the evaluable comparisons ---------------------------------------
     [['lessThan    (enforced {:shape   {:args [:term :term] :variadic :term}

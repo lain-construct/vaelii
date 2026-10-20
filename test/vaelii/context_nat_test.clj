@@ -67,11 +67,11 @@
 
 ;; ---- the stored set and the readings are functions of the offered set ----
 
-;; An `except` of the declaration in CxUniverse, or a monotonic denial of it, hides it from
-;; every reader: `assert` stores the fact in the `cx/` context whichever arrives first, and a
-;; read naming the slot is refused.  An `except` in a sub-context leaves the declaration
-;; believed at CxUniverse, and the slot reads.  `recover` rebuilds the same reading in
-;; either order.
+;; An `except` of the declaration in CxUniverse hides it from every reader: `assert` stores
+;; the fact in the `cx/` context whichever arrives first, and a read naming the slot is
+;; refused.  `result` is on the forced-monotonic roster, so a monotonic denial of the
+;; declaration is never believed and the slot reads, as it does under an `except` in a
+;; sub-context.  `recover` rebuilds the same reading in either order.
 (defn- hide-mark!
   "Hide the `(result cxfn context)` declaration `mark` the way `where` names."
   [kb where mark cxfn sub]
@@ -93,7 +93,7 @@
 
 (tu/deftest-kb a-context-declaration-no-reader-believes-stores-and-reads-alike-in-either-order
   (doseq [[where want] [[:universe {:stored 1 :cx? true :at-cx true :slot :refused}]
-                        [:denial {:stored 1 :cx? true :at-cx true :slot :refused}]
+                        [:denial {:stored 1 :cx? true :at-cx true :slot true}]
                         [:sub {:stored 1 :cx? true :at-cx true :slot true}]]
           order        [[:hide :fact] [:fact :hide]]]
     (tu/with-terms [Winter NewYear holiday CxSub]

@@ -124,6 +124,11 @@
 ;; Every IP address is of one version or the other. The partition installs both genl
 ;; edges to ip_address and separates the two parts.
 (partition ip_address ipv4_address ipv6_address)
+;; Each value kind below string is a term kind, on the forced-monotonic roster as string
+;; is (core.txt).
+(forced_monotonic_predicate ip_address)
+(forced_monotonic_predicate ipv4_address)
+(forced_monotonic_predicate ipv6_address)
 
 ;; ---- a media resource's address ------------------------------------------
 (comment resourceUrl "(resourceUrl ?resource ?url) means that ?resource is retrievable at ?url, e.g. an https address.")

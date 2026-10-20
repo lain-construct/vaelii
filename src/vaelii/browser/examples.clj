@@ -202,16 +202,15 @@
                 (owns AdaEx CarEx) (partOf WheelEx CarEx)]
     :goal '(owns AdaEx WheelEx) :expect :yes}
 
-   {:id "symmetry-then-rule" :group "Rules that join"
-    :title "Both chainers, one rule, one stored fact"
-    :shows "The forward pass concluded acquaintance in the direction the friendship was
-            canonically stored. This asks the other direction, so no stored sentex
-            matches and the backward chainer runs the same rule over the same symmetric
-            fact, probing both argument orders. knows is deliberately not symmetric:
+   {:id "symmetry-then-genl" :group "Rules that join"
+    :title "A symmetric relation under an asymmetric one"
+    :shows "friendOf is symmetric and a spec of knows, so one stored friendship answers
+            acquaintance in both directions: the converse friendship holds by symmetry,
+            and the genl carries it up to knows. knows is deliberately not symmetric:
             declaring it so would have the KB assert the converse of every acquaintance
             it ever learned."
     :rests-on [['(symmetric friendOf) 'CxUniverse]
-               ['(implies (and (friendOf ?x ?y)) (knows ?x ?y)) 'CxSocial]]
+               ['(genl friendOf knows) 'CxSocial]]
     :premises '[(person AdaEx) (person BenEx) (friendOf AdaEx BenEx)]
     :goal '(knows BenEx AdaEx) :expect :yes}
 

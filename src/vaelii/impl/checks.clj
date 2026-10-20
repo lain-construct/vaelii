@@ -1274,13 +1274,13 @@
   The two checks are independent and each is open-world on its own, so declaring both
   narrows the slot rather than emptying it.
 
-  `arg1` / `arg2` / `arg3` — the binary projections of `arg` — are held to the same
+  `arg1` through `arg5` — the binary projections of `arg` — are held to the same
   two arms at their projected position, so both spellings of one declaration refuse
   identically.  Without this the binary spelling would evade the arms entirely: the
   sentence itself carries no position for the generic machinery to check, the bridge
   rule's ternary conclusion is convicted on the *derivation* path where a conviction
   is dropped and recorded rather than thrown, and the author is left holding a
-  believed `arg1`/`arg2`/`arg3` fact whose real declaration the engine rejected — silently inert,
+  believed `arg1`…`arg5` fact whose real declaration the engine rejected — silently inert,
   the exact trap core.txt's `quotedArg` note names.
 
   Open-world throughout: each arm needs a declaration to contradict, so a predicate
@@ -1288,8 +1288,8 @@
   [kb sentence context types]
   (let [[f pred n _ m] sentence]
     (cond
-      (and ('{arg1 1, arg2 2, arg3 3} f) (= 2 (nm/arity sentence)) (symbol? pred))
-      (let [pos ('{arg1 1, arg2 2, arg3 3} f)]
+      (and (sx/arg-projections f) (= 2 (nm/arity sentence)) (symbol? pred))
+      (let [pos (sx/arg-projections f)]
         (or (some-> (arg-position-problem kb f pred pos types)
                     (assoc :sentence sentence))
             (when (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
@@ -3067,7 +3067,8 @@
   missing semantics (docs/nmtms.md, \"The forced-monotonic roster\")."
   (into {['forced_monotonic_between_predicates 'genl] :unforced-predicate-genl
          ['forced_monotonic_predicate 'genlCx]        :unforced-context-edge
-         ['forced_monotonic_predicate 'except]        :unforced-except}
+         ['forced_monotonic_predicate 'except]        :unforced-except
+         ['forced_monotonic_predicate 'exceptWhen]    :unforced-exception}
         (for [[missing preds]
               {:unforced-relation-mark
                '[irreflexive anti_symmetric asymmetric functional functionalInArg
@@ -3075,9 +3076,10 @@
                :unforced-definitional-declaration
                '[disjoint covering partition sibling_disjoint orthogonal siblingDisjointException]
                :unforced-arity-binding
-               '[arity unary binary ternary unary_predicate binary_predicate
-                 ternary_predicate unary_function binary_function ternary_function
-                 variable_arity variable_arity_predicate variable_arity_function arityMin]
+               '[arity unary binary ternary quaternary quinary unary_predicate
+                 binary_predicate ternary_predicate quaternary_predicate quinary_predicate
+                 unary_function binary_function ternary_function quaternary_function
+                 quinary_function variable_arity variable_arity_predicate variable_arity_function arityMin]
                :unforced-equality '[rewriteOf sameAs equals]}
               p preds]
           [['forced_monotonic_predicate p] missing])))
@@ -4311,7 +4313,9 @@
     closedExtentForArg      4
     closedExtentForArg1     3
     closedExtentForArg2     3
-    closedExtentForArg3     3})
+    closedExtentForArg3     3
+    closedExtentForArg4     3
+    closedExtentForArg5     3})
 
 (defn check-closed-extent-stratified
   "Throw unless declaring `(closed_extent_predicate P)`, `(closedExtentForArg P n v)` or a

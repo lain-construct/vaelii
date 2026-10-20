@@ -77,7 +77,7 @@
         (is (not (v/isa? kb chainOf 'binary))))))
   (testing "an arity no class maps to concludes no class at all"
     (is (v/ask? kb '(arity InstantFn 6) 'CxUniverse))
-    (doseq [type '[unary binary ternary]]
+    (doseq [type '[unary binary ternary quaternary quinary]]
       (is (not (v/isa? kb 'InstantFn type))))))
 
 (tu/deftest-kb exact-arity-and-variable-floors-are-distinct
@@ -92,13 +92,16 @@
           (str relation " is not overloaded as exactly binary")))))
 
 (tu/deftest-kb relation-wide-types-own-the-arity-rules
-  ;; Three mapping facts, not nine.  The predicate and function members are mapped by
-  ;; their genl edges to unary / binary / ternary, and a per-member fact would stamp a
-  ;; rule classifying a function of that arity as a predicate.
-  (doseq [[type arity] '[[unary 1] [binary 2] [ternary 3]]]
+  ;; Five mapping facts, not fifteen.  The predicate and function members are mapped by
+  ;; their genl edges to unary / binary / ternary / quaternary / quinary, and a
+  ;; per-member fact would stamp a rule classifying a function of that arity as a
+  ;; predicate.
+  (doseq [[type arity] '[[unary 1] [binary 2] [ternary 3] [quaternary 4] [quinary 5]]]
     (is (v/ask? kb (list 'relationTypeByArity type arity) 'CxUniverse)))
   (doseq [type '[unary_predicate binary_predicate ternary_predicate
-                 unary_function binary_function ternary_function]]
+                 quaternary_predicate quinary_predicate
+                 unary_function binary_function ternary_function
+                 quaternary_function quinary_function]]
     (is (empty? (v/sentexes-matching kb (list 'relationTypeByArity type '?arity) 'CxUniverse))
         (str type " is mapped by its genl edge rather than by a fact of its own")))
   (is (v/genl? kb 'predicateTypeByArity 'relationTypeByArity)
@@ -110,24 +113,43 @@
   (is (v/genl? kb 'unary_function 'unary))
   (is (v/genl? kb 'binary_function 'binary))
   (is (v/genl? kb 'ternary_function 'ternary))
-  (doseq [type '[unary_predicate binary_predicate ternary_predicate]]
+  (is (v/genl? kb 'quaternary_predicate 'quaternary))
+  (is (v/genl? kb 'quinary_predicate 'quinary))
+  (is (v/genl? kb 'quaternary_function 'quaternary))
+  (is (v/genl? kb 'quinary_function 'quinary))
+  (doseq [type '[quaternary quinary]]
+    (is (v/genl? kb type 'fixed_arity)))
+  (doseq [type '[unary_predicate binary_predicate ternary_predicate
+                 quaternary_predicate quinary_predicate]]
     (is (v/genl? kb type 'fixed_arity_predicate)))
-  (doseq [type '[unary_function binary_function ternary_function]]
+  (doseq [type '[unary_function binary_function ternary_function
+                 quaternary_function quinary_function]]
     (is (v/genl? kb type 'fixed_arity_function)))
   (is (v/isa? kb 'parentOf 'fixed_arity_predicate))
   (is (v/isa? kb 'MotherFn 'fixed_arity_function)))
 
-(tu/deftest-kb disjoint-arity-policies-clash-and-the-roster-membership-wins
-  ;; `variable_arity` is on the forced-monotonic roster and `fixed_arity` is not, so the
-  ;; disjoint pair takes the `:default` `fixed_arity` membership OUT in either order
+(defn- conflict-between?
+  "Whether `conflicts` reports one nogood whose members are exactly `a` and `b`."
+  [kb a b]
+  (let [ha (v/handle-of kb a 'CxUniverse)
+        hb (v/handle-of kb b 'CxUniverse)]
+    (boolean (and ha hb (some #(= #{ha hb} (set (:nogood %))) (v/conflicts kb))))))
+
+(tu/deftest-kb disjoint-arity-policies-are-an-irreducible-conflict
+  ;; `fixed_arity` and `variable_arity` are both on the forced-monotonic roster, so the
+  ;; disjoint pair has no member to defeat: both stay believed and `conflicts` names the
+  ;; pair, the same in either order
   (doseq [[first-policy second-policy] '[[fixed_arity variable_arity]
                                          [variable_arity fixed_arity]]]
     (tu/with-terms [candidateRelation]
       (v/assert kb (list first-policy candidateRelation) 'CxUniverse)
       (v/assert kb (list second-policy candidateRelation) 'CxUniverse)
-      (is (not (v/ask? kb (list 'fixed_arity candidateRelation) 'CxUniverse))
-          (str second-policy " after " first-policy ": fixed_arity is OUT"))
-      (is (v/ask? kb (list 'variable_arity candidateRelation) 'CxUniverse))))
+      (is (v/ask? kb (list 'fixed_arity candidateRelation) 'CxUniverse)
+          (str second-policy " after " first-policy ": fixed_arity stays believed"))
+      (is (v/ask? kb (list 'variable_arity candidateRelation) 'CxUniverse))
+      (is (conflict-between? kb (list 'fixed_arity candidateRelation)
+                             (list 'variable_arity candidateRelation))
+          "and the pair is reported as a conflict")))
   (tu/with-terms [compatiblePredicate]
     (v/assert kb (list 'unary_predicate compatiblePredicate) 'CxUniverse)
     (is (v/assert kb (list 'fixed_arity_predicate compatiblePredicate) 'CxUniverse)
@@ -152,24 +174,41 @@
         (v/assert kb (list first-class candidateRelation) 'CxUniverse)
         (is (tu/stored-in-clash? kb (list second-class candidateRelation) 'CxUniverse)
             (str second-class " after " first-class " is stored as a disjoint clash"))))
-    (testing "a relation of the wrong kind clashes too, by the genl edges, and the
-            :default kind membership loses to the roster one"
-      (tu/with-terms [somePredicate]
-        (v/assert kb (list 'predicate somePredicate) 'CxUniverse)
-        (v/assert kb (list 'unary_function somePredicate) 'CxUniverse)
-        (is (not (v/ask? kb (list 'predicate somePredicate) 'CxUniverse)))))
+    (testing "a relation of the wrong kind clashes too, by the genl edges, and two kinds
+            on the roster are an irreducible conflict, the same in either order"
+      (doseq [[first-kind second-kind] '[[predicate unary_function]
+                                         [unary_function predicate]]]
+        (tu/with-terms [somePredicate]
+          (v/assert kb (list first-kind somePredicate) 'CxUniverse)
+          (v/assert kb (list second-kind somePredicate) 'CxUniverse)
+          (is (v/ask? kb (list 'predicate somePredicate) 'CxUniverse)
+              (str second-kind " after " first-kind ": predicate stays believed"))
+          (is (v/ask? kb (list 'unary_function somePredicate) 'CxUniverse))
+          (is (conflict-between? kb (list 'predicate somePredicate)
+                                 (list 'unary_function somePredicate))
+              "and the pair is reported as a conflict"))))
     (testing "and an argument that is no relation at all derives fixed_arity's own type,
-            which clashes with the one it holds"
-      (tu/with-terms [someIndividual]
-        (v/assert kb (list 'animal someIndividual) 'CxUniverse)
-        (v/assert kb (list 'fixed_arity_predicate someIndividual) 'CxUniverse)
-        (is (tu/stored-in-clash? kb (list 'relation someIndividual) 'CxUniverse)
-            "the position declared on fixed_arity descends to its specializations")))))
+            relation, from a roster membership, which defeats the :default type it
+            clashes with"
+      (doseq [[first-type second-type] '[[animal fixed_arity_predicate]
+                                         [fixed_arity_predicate animal]]]
+        (tu/with-terms [someIndividual]
+          (v/assert kb (list first-type someIndividual) 'CxUniverse)
+          (v/assert kb (list second-type someIndividual) 'CxUniverse)
+          (is (v/ask? kb (list 'relation someIndividual) 'CxUniverse)
+              "the position declared on fixed_arity descends to its specializations")
+          (is (not (v/ask? kb (list 'animal someIndividual) 'CxUniverse))
+              (str second-type " after " first-type ": animal is the loser"))
+          (is (= :defeated (:reason (v/why-not kb (list 'animal someIndividual) 'CxUniverse)))))))))
 
 (tu/deftest-kb relation-wide-exact-classes-clash-with-each-other
   (doseq [[first-type second-type] '[[unary binary] [binary unary]
                                      [unary ternary] [ternary unary]
-                                     [binary ternary] [ternary binary]]]
+                                     [binary ternary] [ternary binary]
+                                     [unary quaternary] [quinary unary]
+                                     [binary quinary] [quaternary binary]
+                                     [ternary quaternary] [quinary ternary]
+                                     [quaternary quinary] [quinary quaternary]]]
     (tu/with-terms [candidateRelation]
       (v/assert kb (list first-type candidateRelation) 'CxUniverse)
       (is (tu/stored-in-clash? kb (list second-type candidateRelation) 'CxUniverse)
@@ -178,6 +217,68 @@
     (v/assert kb (list 'unary compatibleRelation) 'CxUniverse)
     (is (v/assert kb (list 'fixed_arity compatibleRelation) 'CxUniverse)
         "an exact class and its fixed policy are compatible")))
+
+(tu/deftest-kb four-and-five-argument-relations-have-exact-classes
+  (testing "an arity of four or five concludes its relation-wide class"
+    (doseq [[type arity] '[[quaternary 4] [quinary 5]]]
+      (tu/with-terms [wideRelation]
+        (let [h (v/assert kb (list 'arity wideRelation arity) 'CxUniverse)]
+          (is (v/isa? kb wideRelation type) (str "arity " arity " concludes " type))
+          (is (v/isa? kb wideRelation 'fixed_arity))
+          (v/retract! kb h)
+          (is (not (v/isa? kb wideRelation type)))))))
+  (testing "a membership of a four- or five-argument class is read as the arity"
+    (doseq [[type arity] '[[quaternary 4] [quinary 5]
+                           [quaternary_predicate 4] [quinary_predicate 5]]]
+      (tu/with-terms [wideRelation]
+        (let [h (v/assert kb (list type wideRelation) 'CxUniverse)]
+          (is (= arity (v/relation-arity kb wideRelation)) (str type " reads as " arity))
+          (v/retract! kb h))))
+    (doseq [[type arity] '[[quaternary_function 4] [quinary_function 5]]]
+      (tu/with-terms [WideFn]
+        (let [h (v/assert kb (list type WideFn) 'CxUniverse)]
+          (is (= arity (v/relation-arity kb WideFn)) (str type " reads as " arity))
+          (is (v/isa? kb WideFn 'function))
+          (v/retract! kb h)))))
+  (testing "the shipped four- and five-argument predicates carry their kind's class"
+    (doseq [[predicate type] '[[calendarDay quaternary_predicate]
+                               [measureRangeInUnit quaternary_predicate]
+                               [predExistsInstancePlaceholder quaternary_predicate]
+                               [predInstanceExistsPlaceholder quaternary_predicate]
+                               [interArg quinary_predicate]
+                               [predAllExistsPlaceholder quinary_predicate]
+                               [predExistsAllPlaceholder quinary_predicate]]]
+      (is (v/isa? kb predicate type) (str predicate " is " type))))
+  (testing "an arity above five has no named class"
+    (is (v/isa? kb 'calendarInstant 'fixed_arity_predicate))
+    (is (= 7 (v/relation-arity kb 'calendarInstant)))
+    (doseq [type '[unary binary ternary quaternary quinary]]
+      (is (not (v/isa? kb 'calendarInstant type))))))
+
+(def ^:private arity-classes
+  "The relation-wide classes an arity is read from: the five exact ones and the variable
+  policy."
+  '[unary binary ternary quaternary quinary variable_arity])
+
+(tu/deftest-kb every-shipped-predicate-declares-an-arity-class
+  ;; A predicate is read by its arity, so every shipped one is in an exact class or is
+  ;; variable_arity.  A fixed arity above five has no named class, and its fixed_arity
+  ;; membership with its (arity P n) stands in for one.
+  (testing "every predicate is in an arity class, or is fixed_arity above five arguments"
+    (is (empty? (for [term (v/terms kb)
+                      :when (and (symbol? term)
+                                 (v/isa? kb term 'predicate)
+                                 (not-any? #(v/isa? kb term %) arity-classes)
+                                 (not (and (v/isa? kb term 'fixed_arity)
+                                           (some-> (v/relation-arity kb term) (> 5)))))]
+                  term))))
+  (testing "every term carrying an argument or arity declaration is a relation"
+    (is (empty? (for [[pattern] '[[(arg ?p ?n ?t)] [(genlArg ?p ?n ?t)] [(quotedArg ?p ?n ?t)]
+                                  [(arity ?p ?n)] [(arityMin ?p ?n)]]
+                      s (v/sentexes-matching kb pattern '?ctx)
+                      :let [term (second (:sentence s))]
+                      :when (and (symbol? term) (not (v/isa? kb term 'relation)))]
+                  term)))))
 
 (tu/deftest-kb fixed-and-variable-arity-have-relation-kind-specializations
   (testing "a predicate carrying an exact arity declaration is classified"
@@ -204,13 +305,12 @@
                               [DayFn ternary_function]
                               [QuantityIntervalFn ternary_function]
                               [PredExistsInstanceFn ternary_function]
-                              [PredInstanceExistsFn ternary_function]]]
+                              [PredInstanceExistsFn ternary_function]
+                              [PredAllExistsFn quaternary_function]
+                              [PredExistsAllFn quaternary_function]]]
       (is (v/isa? kb function type) (str function " is " type)))
     (is (v/isa? kb 'InstantFn 'fixed_arity_function)
-        "the six-argument function stays explicitly fixed without minting a named family")
-    (doseq [function '[PredAllExistsFn PredExistsAllFn]]
-      (is (v/isa? kb function 'fixed_arity_function)
-          (str "and so does the four-argument " function))))
+        "the six-argument function stays explicitly fixed without minting a named family"))
   (testing "a function may use the relation-wide variable vocabulary"
     (tu/with-terms [RepeatFn]
       (v/assert kb (list 'variable_arity_function RepeatFn) 'CxUniverse)
@@ -227,18 +327,58 @@
     (is (v/isa? kb 'parentOf 'at_least_binary))
     (is (not (v/isa? kb 'parentOf 'at_least_ternary)))
     (is (v/isa? kb 'interArg 'at_least_binary))
-    (is (v/isa? kb 'interArg 'at_least_ternary)
-        "an arity no exact class maps to reaches the floors through the arity rules"))
+    (is (v/isa? kb 'interArg 'at_least_ternary)))
+  (testing "a binary_predicate member is at least binary through binary's genl edge"
+    ;; doneBy is declared only (binary_predicate doneBy): binary_predicate ⊂ binary ⊂
+    ;; at_least_binary
+    (is (v/isa? kb 'doneBy 'at_least_binary))
+    (is (not (v/isa? kb 'doneBy 'at_least_ternary))))
   (testing "a unary relation is at neither floor"
     (is (not (v/isa? kb 'person 'at_least_binary))))
   (testing "the ternary floor specializes the binary floor"
     (is (v/genl? kb 'at_least_ternary 'at_least_binary))))
 
+(tu/deftest-kb four-and-five-argument-floors-follow-the-ternary-floor
+  (testing "each floor specializes the one below it, and each exact class reaches its floor"
+    (is (v/genl? kb 'at_least_quaternary 'at_least_ternary))
+    (is (v/genl? kb 'at_least_quinary 'at_least_quaternary))
+    (is (v/genl? kb 'quaternary 'at_least_quaternary))
+    (is (v/genl? kb 'quinary 'at_least_quinary)))
+  (testing "a shipped exact arity reaches its floor and no higher one"
+    (is (v/isa? kb 'calendarDay 'at_least_quaternary))
+    (is (not (v/isa? kb 'calendarDay 'at_least_quinary)))
+    (is (v/isa? kb 'interArg 'at_least_quinary))
+    (is (not (v/isa? kb 'arg 'at_least_quaternary))))
+  (testing "each floor is disjoint from every exact class below it"
+    (doseq [[floor below] '[[at_least_binary [unary]]
+                            [at_least_ternary [unary binary]]
+                            [at_least_quaternary [unary binary ternary]]
+                            [at_least_quinary [unary binary ternary quaternary]]]
+            class below]
+      (is (v/disjoint? kb floor class) (str floor " and " class)))
+    (is (not (v/disjoint? kb 'at_least_ternary 'quinary))))
+  (testing "an arity above five reaches the five-argument floor through the arity rules"
+    (is (v/isa? kb 'calendarInstant 'at_least_quinary)))
+  (testing "a minimum of four or five derives the floors up to it"
+    (doseq [[minimum floors non-floors] '[[4 [at_least_ternary at_least_quaternary] [at_least_quinary]]
+                                          [5 [at_least_quaternary at_least_quinary] []]]]
+      (tu/with-terms [longChainOf]
+        (v/assert kb (list 'variable_arity_predicate longChainOf) 'CxUniverse)
+        (let [h (v/assert kb (list 'arityMin longChainOf minimum) 'CxUniverse)]
+          (doseq [floor floors]
+            (is (v/isa? kb longChainOf floor) (str "minimum " minimum " derives " floor)))
+          (doseq [floor non-floors]
+            (is (not (v/isa? kb longChainOf floor)) (str "minimum " minimum " stops below " floor)))
+          (v/retract! kb h)
+          (is (not (v/isa? kb longChainOf 'at_least_quaternary))))))))
+
 (def ^:private admits-argnum-definition
-  "admitsArgnum's defining rules as CxUniverse states them, inert."
+  "admitsArgnum's defining rules as CxUniverse states them, backward."
   '[(implies (relation ?relation) (admitsArgnum ?relation 1))
     (implies (at_least_binary ?relation) (admitsArgnum ?relation 2))
     (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3))
+    (implies (at_least_quaternary ?relation) (admitsArgnum ?relation 4))
+    (implies (at_least_quinary ?relation) (admitsArgnum ?relation 5))
     (implies (and (unbounded_arity ?relation) (positive_integer ?position))
              (admitsArgnum ?relation ?position))
     (implies (and (bounded_arity ?relation) (arityMax ?relation ?max) (positive_integer ?position)
@@ -248,20 +388,75 @@
                   (not (greaterThan ?position ?arity)))
              (admitsArgnum ?relation ?position))])
 
-(tu/deftest-kb admits-argnum-states-its-definition-as-inert-rules
-  (testing "each defining rule is stored in CxUniverse, believed, and run by neither engine"
+(tu/deftest-kb admits-argnum-states-its-definition-as-backward-rules
+  (testing "each defining rule is stored in CxUniverse, believed, and run backward only"
     (doseq [r admits-argnum-definition]
-      (let [h (v/handle-of kb (list 'set/inertRule r) 'CxUniverse)]
+      (let [h (v/handle-of kb (list 'set/backwardRule r) 'CxUniverse)]
         (is (some? h) (str "stored: " (pr-str r)))
         (when h
           (is (v/in? kb h))
-          (is (= #{} (:engines (v/sentex kb h))))))))
-  (testing "and none fires: no admitsArgnum fact is stored"
+          (is (= #{:backward} (:engines (v/sentex kb h))))))))
+  (testing "and none forward-chains: no admitsArgnum fact is stored"
     (is (empty? (v/sentexes-matching kb '(admitsArgnum ?r ?n) 'CxWell))))
   (testing "while the prover answers as it did"
     (is (v/ask? kb '(admitsArgnum parentOf 2) 'CxWell))
     (is (not (v/ask? kb '(admitsArgnum parentOf 3) 'CxWell)))
     (is (v/ask? kb '(admitsArgnum partition 40) 'CxWell))))
+
+(defn- cited-rules
+  "The rule handles a `query` proof tree cites, at any depth."
+  [tree]
+  (cond (map? tree)        (cond-> (into #{} (mapcat cited-rules) (:because tree))
+                             (= :rule (:via tree)) (conj (:rule tree)))
+        (sequential? tree) (into #{} (mapcat cited-rules) tree)
+        :else              #{}))
+
+(defn- admitted-with-proofs
+  "Each answer to the admitsArgnum `goal`, as its bindings mapped to the rule handles its
+  proof cites."
+  [kb goal]
+  (into {} (map (juxt :bindings (comp cited-rules :proof)))
+        (v/query kb goal 'CxUniverse {:max-depth 1 :proof? true})))
+
+(tu/deftest-kb admits-argnum-answers-are-justified-by-its-definition-rules
+  ;; The prover answers a ground (admitsArgnum R n).  A goal with the relation or the
+  ;; position open is answered by the definition rules, and each answer's proof cites the
+  ;; rule that derives it.  The six relations below differ in their arity signature.
+  (let [[relation-rule binary-rule ternary-rule quaternary-rule quinary-rule unbounded-rule]
+        (mapv #(v/handle-of kb (list 'set/backwardRule %) 'CxUniverse) admits-argnum-definition)
+        cites? (fn [answers bindings rule] (contains? (get answers bindings #{}) rule))]
+    (testing "doneBy, a binary_predicate: 1 through relation, 2 through at_least_binary, no 3"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum doneBy ?n))]
+        (is (cites? answers '{?n 1} relation-rule))
+        (is (cites? answers '{?n 2} binary-rule))
+        (is (not (contains? answers '{?n 3}))))
+      (is (not (v/ask? kb '(admitsArgnum doneBy 3) 'CxUniverse))))
+    (testing "arg, a ternary_predicate: 3 through at_least_ternary, no 4"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum arg ?n))]
+        (is (cites? answers '{?n 1} relation-rule))
+        (is (cites? answers '{?n 2} binary-rule))
+        (is (cites? answers '{?n 3} ternary-rule))
+        (is (not (contains? answers '{?n 4}))))
+      (is (not (v/ask? kb '(admitsArgnum arg 4) 'CxUniverse))))
+    (testing "calendarDay, a quaternary_predicate: 4 through at_least_quaternary, no 5"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum calendarDay ?n))]
+        (is (cites? answers '{?n 3} ternary-rule))
+        (is (cites? answers '{?n 4} quaternary-rule))
+        (is (not (contains? answers '{?n 5}))))
+      (is (not (v/ask? kb '(admitsArgnum calendarDay 5) 'CxUniverse))))
+    (testing "interArg, a quinary_predicate: 5 through at_least_quinary, no 6"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum interArg ?n))]
+        (is (cites? answers '{?n 4} quaternary-rule))
+        (is (cites? answers '{?n 5} quinary-rule))
+        (is (not (contains? answers '{?n 6}))))
+      (is (not (v/ask? kb '(admitsArgnum interArg 6) 'CxUniverse))))
+    (testing "functionCorrespondingPredicate, bounded variable arity 2 to 3: 1 and 2"
+      (let [answers (admitted-with-proofs kb '(admitsArgnum functionCorrespondingPredicate ?n))]
+        (is (cites? answers '{?n 1} relation-rule))
+        (is (cites? answers '{?n 2} binary-rule))))
+    (testing "different, unbounded variable arity: 2 through at_least_binary, 7 through unbounded_arity"
+      (is (cites? (admitted-with-proofs kb '(admitsArgnum different ?n)) '{?n 2} binary-rule))
+      (is (cites? (admitted-with-proofs kb '(admitsArgnum ?r 7)) '{?r different} unbounded-rule)))))
 
 (tu/deftest-kb admits-argnum-answers-the-position-query
   ;; #68: (admitsArgnum R n) is answered at query time from R's declared arity and

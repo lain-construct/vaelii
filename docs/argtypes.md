@@ -12,7 +12,7 @@
 
 ## Relation-wide declarations and the runtime boundary
 
-`arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, `interArg`, the
+`arg` (including `arg1` through `arg5`), `genlArg`, `quotedArg`, `interArg`, the
 covering forms `args` / `argsGenl` / `argAndRest` / `argAndRestGenl` (below), and the
 homogeneity forms `interArgs` / `interArgAndRest` (below) accept a `relation` as their
 subject: either a predicate or a function. A function's declarations are enforced on the
