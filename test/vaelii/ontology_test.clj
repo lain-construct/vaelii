@@ -259,7 +259,11 @@
    ;; is a query operator that is never stored, and a type on a slot reaches the rule
    ;; variables bound there.
    (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
-              [[op i] "an operator slot — a result, a value variable and a sentence body"]))))
+              [[op i] "an operator slot — a result, a value variable and a sentence body"]))
+   ;; the stored exception (exceptWhen Q (sentexHandle H)): assert-entry/assert-exceptWhen-meta!
+   ;; runs no argument check on it, and it is excluded from fact matching
+   {'[exceptWhen 1] "the exception query, whose variables are the rule's, so a type on the slot would reach the rule variables bound there"
+    '[exceptWhen 2] "the sentexHandle of the rule the exception qualifies, a mention of a stored sentex"}))
 
 (deftest every-shipped-function-declares-its-corresponding-predicate
   ;; A function comes with the predicate relating its arguments to its value

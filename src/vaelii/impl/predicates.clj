@@ -1461,6 +1461,14 @@
            [set/monotonic    "sentex/strength-wrapper — peeled at the entry point into :monotonic strength"]])
     [['set/inert (enforced (structural {:args [:sentence]} "stores the sentence inert.")
                            "io.text/peel-form — the text loader writes the sentence through assert-inert")]]
+    [['exceptWhen (enforced {:shape   {:args [:sentence :sentence]}
+                             :storage [:none] :checked false :family nil :facets #{}
+                             :notes   (str "split off at the assert layer: the rule is stored as"
+                                           " written and the exception apart, as the meta-sentex"
+                                           " (exceptWhen Q (sentexHandle H)) naming the rule's handle.")}
+                            (str "assert-entry/assert-exceptWhen-meta! — stores the exception;"
+                                 " provers/rule-exceptions reads it per firing, and the recheck"
+                                 " queue re-evaluates it"))]]
 
     ;; ---- the evaluable comparisons ---------------------------------------
     [['lessThan    (enforced {:shape   {:args [:term :term] :variadic :term}
