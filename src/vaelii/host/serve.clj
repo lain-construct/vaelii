@@ -381,6 +381,12 @@
     :direct-specs (op v/direct-specs)
     :min-genls    (op v/min-genls)
     :max-specs    (op v/max-specs)
+    ;; the common supertypes / subtypes of a collection of types, and the minimal / maximal
+    ;; ones among them
+    :common-genls     (op v/common-genls)
+    :common-specs     (op v/common-specs)
+    :min-common-genls (op v/min-common-genls)
+    :max-common-specs (op v/max-common-specs)
     :min-context-parents  (op v/min-context-parents)
     :max-context-children (op v/max-context-children)
     :types        (op v/types)

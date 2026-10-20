@@ -80,6 +80,27 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **`minCommonGenl` and `maxCommonSpec` answer the minimal common supertypes and maximal
+  common subtypes of their later arguments.** `CommonGenlProver` computes both from the
+  `genl` closure through the edges the asking context sees. `(minCommonGenl ?x dog
+  cat)` binds `?x` to each member of `(min-common-genls kb [dog cat])`. A
+  ground first argument proves true when it is a member and proves false when it is not,
+  so `argue` answers `:false` for a type outside the set rather than `:unknown`.
+  `maxCommonSpec` answers `max-common-specs` the same way. `core.txt` declares both
+  variable-arity with `arityMin` 2, and both are query operators: asserting one is
+  refused as `:not-well-formed`. [inference.md](docs/inference.md).
+
+- **`common-genls`, `common-specs`, `min-common-genls` and `max-common-specs` read the
+  supertypes and subtypes a collection of types shares.** `(common-genls kb [a b])` is the
+  intersection of `(genls kb a)` and `(genls kb b)`, reflexive as `genls` is, and
+  `common-specs` intersects `specs` the same way. `min-common-genls` keeps the members of
+  that intersection that are strictly above every input and have no other such member
+  below them: with `a` and `b` each under both `left` and `right`, it is `#{left right}`,
+  and with `dog ⊂ mammal ⊂ animal`, `(min-common-genls kb [dog mammal])` is `#{animal}`.
+  One input type gives `min-genls` of it. `max-common-specs` is the same read downward.
+  Each takes a context, and `vaelii.client` and the daemon serve all four.
+  [api.md](docs/api.md).
+
 - **A shipped argument position that holds a term of any kind declares `thing`.** `(arg P
   n thing)` states that position `n` of `P` holds a term of any kind and that no narrower
   type is right for it. `core.txt`, `abstract.txt`, `reflection.txt`, `society.txt`,

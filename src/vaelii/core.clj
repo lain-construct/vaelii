@@ -844,6 +844,48 @@
   ([kb t] (tax/max-specs-global (reasoning/taxonomy kb) t))
   ([kb t context] (tax/max-specs (reasoning/taxonomy kb) t context)))
 
+(defn common-genls
+  "The supertypes **every** type in `types` has, a collection of types: the intersection
+  of their `genls`.  Reflexive, as `genls` is, so a member above all the others is in the
+  set and one type's common genls are its `genls`.  One memoized closure read per distinct
+  type.  A set; `#{}` for an empty `types`.  With a `context`, only edges visible from it
+  count.
+
+  The short arity reads the KB-wide edge set, as `genls`' does."
+  ([kb types] (tax/common-genls-global (reasoning/taxonomy kb) types))
+  ([kb types context] (tax/common-genls (reasoning/taxonomy kb) types context)))
+
+(defn common-specs
+  "The subtypes **every** type in `types` has: the intersection of their `specs`.
+  Reflexive, as `specs` is.  `common-genls`, the other direction.
+
+  The short arity reads the KB-wide edge set, as `genls`' does."
+  ([kb types] (tax/common-specs-global (reasoning/taxonomy kb) types))
+  ([kb types context] (tax/common-specs (reasoning/taxonomy kb) types context)))
+
+(defn min-common-genls
+  "The **minimal** common supertypes of `types`: the members of `common-genls` that are no
+  member of `types` and have no other such member strictly below them.  Every type
+  strictly above all of `types` is a supertype of one of these, so for `dog` and
+  `cat` the set is where a new type above both would sit.  Not reflexive: for `dog`
+  and `mammal` under `dog ⊂ mammal ⊂ animal` the set is `#{animal}`.  One distinct type
+  gives `min-genls` of it, exactly.  A set.  With a `context`, only edges visible from it
+  count.  `(minCommonGenl ?x t1 t2 …)` asks the same question as a query.
+
+  The short arity reads the KB-wide edge set, as `genls`' does."
+  ([kb types] (tax/min-common-genls-global (reasoning/taxonomy kb) types))
+  ([kb types context] (tax/min-common-genls (reasoning/taxonomy kb) types context)))
+
+(defn max-common-specs
+  "The **maximal** common subtypes of `types`: the members of `common-specs` that are no
+  member of `types` and have no other such member strictly above them.  One distinct type
+  gives `max-specs` of it, exactly.  `min-common-genls`, the other direction, and
+  `(maxCommonSpec ?x t1 t2 …)` as a query.
+
+  The short arity reads the KB-wide edge set, as `genls`' does."
+  ([kb types] (tax/max-common-specs-global (reasoning/taxonomy kb) types))
+  ([kb types context] (tax/max-common-specs (reasoning/taxonomy kb) types context)))
+
 (defn genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`?  Types, not individuals —
   for an individual's type membership use `isa?`.  With a `context`, only edges
@@ -8654,7 +8696,7 @@
   image.  A read that recover does call is reached through that call's own symbol."
   #{:all-functional-at-instant-violations :all-specified-violations :argue :ask
     :ask-within :ask? :belief-status :believed :believed? :blocked-justifications
-    :canonical-sentex :chain-report :chain-stats :check :check-edit
+    :canonical-sentex :chain-report :chain-stats :check :check-edit :common-genls :common-specs
     :compare-tacticians :conflicts :context-down :context-up :contexts :contexts-of
     :contradictions :count-in-context :count-with-arg :count-with-functor
     :defeat-class :dependent-justifications :deprecated? :describe
@@ -8662,8 +8704,9 @@
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification
-    :kb-integrity :kb-quality :last-program :lookup :max-context-children :max-specs
-    :metatype-members :min-context-parents :min-genls :separating-covers
+    :kb-integrity :kb-quality :last-program :lookup :max-common-specs :max-context-children
+    :max-specs :metatype-members :min-common-genls :min-context-parents :min-genls
+    :separating-covers
     :possible-relations
     :premise? :props :provable? :prove :prove-within :provenance
     :qualitative-network :qualitative-scenario :qualitative-scenarios :query

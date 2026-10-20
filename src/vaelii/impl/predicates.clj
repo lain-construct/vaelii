@@ -1087,6 +1087,22 @@
                              (str "provers/DifferentProver — a ground goal of two or more terms,"
                                   " answered from the equality closure under the unique-name"
                                   " assumption"))]
+     ['minCommonGenl (enforced (operator {:args [:type :type] :variadic :type}
+                                         :notes (str "computed from the genl closure: argument 1"
+                                                     " is each minimal type strictly above every"
+                                                     " later argument, and a ground argument 1"
+                                                     " outside that set proves the negation."))
+                               (str "provers/CommonGenlProver — taxonomy/min-common-genls of"
+                                    " arguments 2 and up, read through the edges the asking"
+                                    " context sees"))]
+     ['maxCommonSpec (enforced (operator {:args [:type :type] :variadic :type}
+                                         :notes (str "computed from the genl closure: argument 1"
+                                                     " is each maximal type strictly below every"
+                                                     " later argument, and a ground argument 1"
+                                                     " outside that set proves the negation."))
+                               (str "provers/CommonGenlProver — taxonomy/max-common-specs of"
+                                    " arguments 2 and up, read through the edges the asking"
+                                    " context sees"))]
      ['unknown     (operator {:args [:sentence]})]
      ['thereExists (enforced (operator {:args [:term :sentence]})
                              "provers/ThereExistsProver — a ground existential, binding its variable(s) against the body and projecting the binder out")]

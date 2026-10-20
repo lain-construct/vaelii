@@ -163,6 +163,8 @@
     [defnSufficient                   [:wff]                                         nil                        false]
     [defnIff                          [:wff]                                         nil                        false]
     [different                        [:wff]                                         nil                        false]
+    [minCommonGenl                    [:wff]                                         nil                        false]
+    [maxCommonSpec                    [:wff]                                         nil                        false]
     [unknown                          [:wff]                                         nil                        false]
     [thereExists                      [:wff]                                         nil                        false]
     [forall                           [:wff]                                         nil                        false]
