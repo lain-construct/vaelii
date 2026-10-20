@@ -851,6 +851,71 @@
         (is (empty? (v/ask kb (list motherOf Muffet '?m) '?ctx)))
         (is (empty? (nat/orphaned-constants kb)))))))
 
+;; ---- the result type reaches the corresponding predicate -----------------
+;; A function's result type is the type of the value its corresponding predicate holds at
+;; the value position, so `result` and the correspondence together type that argument of
+;; the predicate.  The vocabulary below is made up, so the tests read the rules and no
+;; shipped function.
+
+(tu/deftest-kb a-correspondence-types-the-last-argument-of-a-binary-predicate-by-the-result
+  (tu/with-terms [GlowFn glowOf lamp glow_level]
+    (v/assert kb (list 'reifiable_function GlowFn) 'CxUniverse)
+    (v/assert kb (list 'unary_function GlowFn) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate glowOf) 'CxUniverse)
+    (v/assert kb (list 'arg glowOf 1 lamp) 'CxUniverse)
+    (v/assert kb (list 'result GlowFn glow_level) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate GlowFn glowOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg2 glowOf glow_level) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg1 glowOf glow_level) 'CxUniverse)))))
+
+(tu/deftest-kb a-correspondence-types-the-last-argument-of-a-ternary-predicate-by-the-result
+  (tu/with-terms [BlendFn blendOf paint blend_shade]
+    (v/assert kb (list 'reifiable_function BlendFn) 'CxUniverse)
+    (v/assert kb (list 'binary_function BlendFn) 'CxUniverse)
+    (v/assert kb (list 'ternary_predicate blendOf) 'CxUniverse)
+    (v/assert kb (list 'arg blendOf 1 paint) 'CxUniverse)
+    (v/assert kb (list 'arg blendOf 2 paint) 'CxUniverse)
+    (v/assert kb (list 'result BlendFn blend_shade) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate BlendFn blendOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg3 blendOf blend_shade) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg2 blendOf blend_shade) 'CxUniverse)))))
+
+(tu/deftest-kb a-correspondence-types-the-last-argument-of-a-quaternary-predicate-by-the-result
+  (tu/with-terms [MixFn mixOf paint mix_shade]
+    (v/assert kb (list 'reifiable_function MixFn) 'CxUniverse)
+    (v/assert kb (list 'ternary_function MixFn) 'CxUniverse)
+    (v/assert kb (list 'quaternary_predicate mixOf) 'CxUniverse)
+    (doseq [position [1 2 3]]
+      (v/assert kb (list 'arg mixOf position paint) 'CxUniverse))
+    (v/assert kb (list 'result MixFn mix_shade) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate MixFn mixOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg mixOf 4 mix_shade) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg mixOf 3 mix_shade) 'CxUniverse)))))
+
+(tu/deftest-kb a-correspondence-types-the-last-argument-of-a-quinary-predicate-by-the-result
+  (tu/with-terms [PaletteFn paletteOf paint palette_shade]
+    (v/assert kb (list 'reifiable_function PaletteFn) 'CxUniverse)
+    (v/assert kb (list 'quaternary_function PaletteFn) 'CxUniverse)
+    (v/assert kb (list 'quinary_predicate paletteOf) 'CxUniverse)
+    (doseq [position [1 2 3 4]]
+      (v/assert kb (list 'arg paletteOf position paint) 'CxUniverse))
+    (v/assert kb (list 'result PaletteFn palette_shade) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate PaletteFn paletteOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg paletteOf 5 palette_shade) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg paletteOf 4 palette_shade) 'CxUniverse)))))
+
+(tu/deftest-kb a-ternary-correspondence-types-the-argument-at-its-declared-position-by-the-result
+  (tu/with-terms [CornerFn cornerOf crossing heading corner_lot]
+    (v/assert kb (list 'reifiable_function CornerFn) 'CxUniverse)
+    (v/assert kb (list 'binary_function CornerFn) 'CxUniverse)
+    (v/assert kb (list 'ternary_predicate cornerOf) 'CxUniverse)
+    (v/assert kb (list 'arg cornerOf 2 crossing) 'CxUniverse)
+    (v/assert kb (list 'arg cornerOf 3 heading) 'CxUniverse)
+    (v/assert kb (list 'result CornerFn corner_lot) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate CornerFn cornerOf 1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg1 cornerOf corner_lot) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'arg3 cornerOf corner_lot) 'CxUniverse)))))
+
 ;; ---- the derivation path -------------------------------------------------
 ;; A forward rule whose consequent builds a function term stores what `assert` stores:
 ;; the application's constant, never the compound.  Both write paths agree on what one

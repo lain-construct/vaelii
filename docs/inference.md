@@ -2407,8 +2407,10 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   included (`arity/relation-length`, [taxonomy.md](taxonomy.md#arity)), and its
   `variable_arity` release (`arity/released?`), both read the same at every context
   (`admits-position?`)
-  rather than read from a stored fact — the one query reader of
-  `admitsArgnum`. Ground relation and position only. `:lookup`, complete (100).
+  rather than read from a stored fact. Ground relation and position only. `:lookup`,
+  complete (100). core.txt states the same definition as eight backward rules, so the
+  prover runs in the union beside the rules. A goal with the relation or the position
+  open is answered by the rules, and each answer's proof cites its rule.
 - **FactProver** — index matches (`matches-visible`). Partial (50).
 
 Twenty-four in all, and `provers/registry` is the live list — an application's own

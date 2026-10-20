@@ -548,11 +548,11 @@
 (defn- typed-positions
   "`{:at #{n …} :from n-or-nil :every? bool}` for `pred` as `context` reads its
   declarations: the positions one declaration types, the first position a rest form
-  types onward, and whether a form types them all.  The binary `arg1`/`arg2`/`arg3`
+  types onward, and whether a form types them all.  The binary `arg1` through `arg5`
   projections are read on `pred` itself."
   [kb pred context]
   {:at     (into (set (for [k positional-kinds [n _] (declared-rows kb k pred true context)] n))
-                 (for [[k n] '[[arg1 1] [arg2 2] [arg3 3]]
+                 (for [[k n] sx/arg-projections
                        :when (do (budget/spend!)
                                  (seq (res/matches-visible kb (list k pred '?t) context)))]
                    n))

@@ -1010,6 +1010,42 @@
                         {} lits)]
     (boolean (some (fn [[_ ns]] (> (count ns) 1)) by-term))))
 
+(defn- lower-bounds
+  "The integers `k` the literals `lits` state `v` exceeds: `(lessThan k v)` and
+  `(greaterThan v k)`."
+  [lits v]
+  (keep (fn [l]
+          (let [[f x y] l]
+            (when (= 3 (count l))
+              (cond (and (= 'lessThan f) (= v y) (integer? x))    x
+                    (and (= 'greaterThan f) (= v x) (integer? y)) y))))
+        lits))
+
+(defn- arity-floor-conflicted?
+  "Does a literal bound a term's length above the exact arity another literal claims?
+  `(arity ?p ?n)` beside `(lessThan k ?n)` says ?p takes more than k places, and
+  `(arityMin ?p ?n)` beside it says ?p requires more than k.  A term `literal-arity-claim`
+  binds to exactly n places, with n at most k, satisfies neither: the arity table is
+  functional, and a minimum above the exact length admits no application.  The floor
+  rules core.txt states over `arity` and `arityMin` read that way beside every rule that
+  concludes an exact class.
+
+  A declaration read, as `arity-conflicted?` is beside it."
+  [kb lits context]
+  (let [tax   (reasoning/taxonomy kb)
+        exact (reduce (fn [m l]
+                        (if-let [n (literal-arity-claim tax l context)]
+                          (update m (second l) (fnil conj #{}) n)
+                          m))
+                      {} lits)]
+    (boolean
+     (some (fn [l]
+             (let [[f p v] l]
+               (when (and (#{'arity 'arityMin} f) (= 3 (count l)) (sx/variable? v))
+                 (some (fn [n] (some #(>= % n) (lower-bounds lits v)))
+                       (get exact p)))))
+           lits))))
+
 (defn- declared-arg-types
   "The `[position type]` pairs an `arg` declaration binds `pred`'s tuples to, read up the
   predicate hierarchy the reader `assert` uses (`res/constraining-predicates`), so a
@@ -1079,15 +1115,15 @@
 (defn- jointly-satisfiable?
   "Could both antecedent sets hold at once — **shallowly**?
 
-  Four things rule it out and nothing else does: a literal appearing under σ together with
+  Five things rule it out and nothing else does: a literal appearing under σ together with
   its own negation, one term claimed to be of two separated types, one term bound to two
-  arities, and one term an `arg` declaration demands be of a type disjoint from one the two
-  rules place it in.  **No inference is run and no fact is consulted** — each of the four is
-  a declaration read.  This is what the rules say about each other, and a pair it admits
+  arities, one term bounded above the exact arity it is claimed to have, and one term an
+  `arg` declaration demands be of a type disjoint from one the two rules place it in.  **No
+  inference is run and no fact is consulted** — each of the five is a declaration read.  This is what the rules say about each other, and a pair it admits
   is a clash that *could* form rather than one that will — which is the whole reading,
   since a clash that had already formed would be in `(contradictions kb)` instead.
 
-  The fourth reads the consequents beside the antecedents, since the type an `arg`
+  The fifth reads the consequents beside the antecedents, since the type an `arg`
   declaration demands of one rule's variable is disjoint from the type the **other** rule
   *concludes* about the unified term (`arg-type-conflicted?`)."
   [kb a b sigma context]
@@ -1099,6 +1135,7 @@
     (and (empty? (set/intersection pos neg))
          (not (separated-antecedents? kb pos context))
          (not (arity-conflicted? kb pos context))
+         (not (arity-floor-conflicted? kb pos context))
          (not (arg-type-conflicted? kb heads context)))))
 
 (defn- rule-functors

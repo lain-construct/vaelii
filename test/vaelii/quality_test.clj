@@ -872,6 +872,26 @@
         (is (= 1 (:pair-count (clashes kb)))
             "equiv_kind reaches binary_predicate up genl, so it claims arity 2")))))
 
+(tu/deftest-kb an-arity-floor-above-an-exact-arity-is-no-clash-in-waiting
+  ;; A floor rule reads `(arity ?p ?n)` or `(arityMin ?p ?n)` with `?n` above a bound.  The
+  ;; arity table is functional, so beside a claim of exactly n places `?n` is n, and a bound
+  ;; of n or more admits no ?p.  An arityMin above the exact arity admits none either.
+  (doseq [[floor-functor bound exact reachable?] '[[arity 2 2 false]
+                                                   [arity 1 2 true]
+                                                   [arityMin 3 2 false]]]
+    (tu/with-terms [lowish highish]
+      (v/assert kb (list 'genl lowish 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl highish 'thing) 'CxUniverse)
+      (v/assert kb (list 'disjoint lowish highish) 'CxUniverse)
+      (let [before (:pair-count (clashes kb))]
+        (v/assert-rule kb [(list 'arity '?p exact)] (list lowish '?p) 'CxUniverse
+                       {:direction :forward})
+        (v/assert-rule kb [(list floor-functor '?p '?n) (list 'greaterThan '?n bound)]
+                       (list highish '?p) 'CxUniverse {:direction :forward})
+        (is (= (if reachable? (inc before) before) (:pair-count (clashes kb)))
+            (str "(" floor-functor " ?p ?n) above " bound " beside exactly " exact
+                 (if reachable? " can both hold" " admits no ?p")))))))
+
 (tu/deftest-kb an-arg-type-disjoint-from-the-other-conclusion-is-not-a-clash-in-waiting
   ;; The fourth half of the satisfiability test, the one `separated-antecedents?` cannot
   ;; read: the type that rules a term out is not a membership the antecedent states but a

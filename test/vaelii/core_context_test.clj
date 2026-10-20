@@ -58,6 +58,32 @@
       (is (true? (v/ask? kb (list projection relation 'integer) 'CxUniverse)))
       (is (empty? (v/check kb (list projection relation 'integer) 'CxUniverse))))))
 
+(tu/deftest-kb the-four-and-five-position-projections-derive-each-other-with-arg
+  (tu/with-terms [SurveyFn surveyRelation tmpScore]
+    (v/assert kb (list 'genl tmpScore 'thing) 'CxUniverse)
+    (v/assert kb (list 'quinary_function SurveyFn) 'CxUniverse)
+    (v/assert kb (list 'quinary_predicate surveyRelation) 'CxUniverse)
+    (testing "arg at position 4 or 5 concludes the projection"
+      (doseq [relation [SurveyFn surveyRelation]
+              [position projection] [[4 'arg4] [5 'arg5]]]
+        (let [h (v/assert kb (list 'arg relation position 'integer) 'CxUniverse)]
+          (is (true? (v/ask? kb (list projection relation 'integer) 'CxUniverse))
+              (str projection " of " relation))
+          (is (empty? (v/check kb (list projection relation 'integer) 'CxUniverse)))
+          (v/retract! kb h))))
+    (testing "the projection concludes arg at its position"
+      (doseq [[position projection] [[4 'arg4] [5 'arg5]]]
+        (let [h (v/assert kb (list projection surveyRelation tmpScore) 'CxUniverse)]
+          (is (true? (v/ask? kb (list 'arg surveyRelation position tmpScore) 'CxUniverse))
+              (str projection " concludes arg " position))
+          (v/retract! kb h))))
+    (testing "a projection past the relation's arity is refused as arg is"
+      (tu/with-terms [pairRelation]
+        (v/assert kb (list 'binary_predicate pairRelation) 'CxUniverse)
+        (doseq [projection '[arg4 arg5]]
+          (is (seq (v/check kb (list projection pairRelation 'integer) 'CxUniverse))
+              (str projection " of a binary predicate")))))))
+
 (tu/deftest-kb remaining-argument-metadata-accepts-relations
   ;; A temporary type rather than `integer`, because the declarations are the subject and
   ;; the type is incidental.  With subsumed mints pruned, the default, a `quotedArg` written

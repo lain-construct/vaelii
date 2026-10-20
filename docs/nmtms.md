@@ -108,13 +108,15 @@ not it loads the upper layer:
 | `orthogonal` | the one member of the related-types family's clash of it, which is a conflict and never a defeat |
 | `genlCx` | every context's ancestor set reads the stored edges |
 | `except` | taking one OUT un-hides its target, so what a reader hides would shrink ([reference.md](reference.md#decisions) 2 and 14) |
+| `exceptWhen` | taking one OUT unblocks the firings of the rule it names, so what a reader holds blocked would shrink ([exceptions.md](exceptions.md)) |
 | `rewriteOf`, `sameAs`, `equals` | taking one OUT un-merges two terms, so what a reader hides would shrink |
 | `injection`, `surjection`, `bijection` | premises of `core.txt`'s rules concluding `functional`, `functionalInArg`, `injection` and `surjection` (decision 17) |
-| `fixed_arity`, `fixed_arity_predicate`, `fixed_arity_function`, `bounded_arity`, `unbounded_arity`, `at_least_binary`, `at_least_ternary`, `arityMax`, `admitsArgnum` | the arity policies, read beside the arity bindings, so a policy goes OUT only by retraction as a length does |
+| `functionCorrespondingPredicate`, `result` | premises of `core.txt`'s rules concluding `(arg P n T)` from a function's `result`, since `arg` is on the roster |
+| `fixed_arity`, `fixed_arity_predicate`, `fixed_arity_function`, `bounded_arity`, `unbounded_arity`, `at_least_binary`, `at_least_ternary`, `at_least_quaternary`, `at_least_quinary`, `arityMax`, `admitsArgnum` | the arity policies, read beside the arity bindings, so a policy goes OUT only by retraction as a length does |
 | `relation`, `predicate`, `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`, `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`, `character`, `keyword`, `number`, `integer` and its four sign classes, `string`) | the term kinds: a clash between two of them is a conflict and never a defeat, so a `:default` `(predicate X)` beside a `:default` `(string X)` is reported in `conflicts` with both believed |
-| `greaterThan`, `lessThan` | the numeric comparators: each holds of numbers only, and `core.txt`'s rules concluding `at_least_binary` and `at_least_ternary` read `greaterThan` beside `arity` and `arityMin` |
+| `greaterThan`, `lessThan` | the numeric comparators: each holds of numbers only, and `core.txt`'s rules concluding `at_least_binary` through `at_least_quinary` read `greaterThan` beside `arity` and `arityMin` |
 | `quantityGreaterThan`, `quantityGreaterThanOrEqual`, `quantityLessThan`, `quantityLessThanOrEqual`, `sameQuantity` | the quantity comparators, computed from the unit table as the numeric comparators are from the numbers |
-| `arg`, `arg1`, `arg2`, `arg3` | the argument declarations: read beside the arity bindings, and `core.txt`'s twin rules conclude each projection from `arg` and `arg` from each, so the four are on the roster together |
+| `arg`, `arg1`, `arg2`, `arg3`, `arg4`, `arg5` | the argument declarations: read beside the arity bindings, and `core.txt`'s twin rules conclude each projection from `arg` and `arg` from each, so the six are on the roster together |
 | `genlInverse` between two arguments spelled as predicates of arity 2 or more, by `forced_monotonic_between_predicates` | `genl` with its arguments swapped, forced as `genl` between predicates is |
 
 CxTra declares its value kinds below `string` (`ip_address`, `ipv4_address`,

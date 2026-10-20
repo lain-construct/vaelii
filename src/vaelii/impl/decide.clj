@@ -62,6 +62,7 @@
   roster (docs/nmtms.md, \"The forced-monotonic roster\")."
   '{genlCx     "every context's ancestor set reads the stored edges"
     except     "withdrawing one un-hides its target, so the OUT set of a round would shrink"
+    exceptWhen "withdrawing one unblocks the firings of the rule it names, so the OUT set of a round would shrink"
     orthogonal "the one member of the related-types family's clash of it, which is a conflict and never a defeat"
     rewriteOf  "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
     sameAs     "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
@@ -69,6 +70,8 @@
     injection  "a premise of core.txt's rules concluding (functional P) and (functionalInArg P 1)"
     surjection "a premise of core.txt's rule concluding (functional P)"
     bijection  "a premise of core.txt's rules concluding (injection P) and (surjection P)"
+    functionCorrespondingPredicate "a premise of core.txt's rules concluding (arg P n T) from a function's result"
+    result     "a premise of core.txt's rules concluding (arg P n T) from a function's result"
     fixed_arity           "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     fixed_arity_predicate "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     fixed_arity_function  "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
@@ -76,6 +79,8 @@
     unbounded_arity       "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     at_least_binary       "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     at_least_ternary      "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    at_least_quaternary   "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
+    at_least_quinary      "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     arityMax              "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     admitsArgnum          "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     relation              "a term kind: a clash between two term kinds is a conflict and never a defeat"
@@ -98,7 +103,7 @@
     non_positive_integer  "a term kind: a clash between two term kinds is a conflict and never a defeat"
     positive_integer      "a term kind: a clash between two term kinds is a conflict and never a defeat"
     string                "a term kind: a clash between two term kinds is a conflict and never a defeat"
-    greaterThan           "a numeric comparator, a premise of core.txt's rules concluding (at_least_binary R) and (at_least_ternary R)"
+    greaterThan           "a numeric comparator, a premise of core.txt's rules concluding (at_least_binary R) through (at_least_quinary R)"
     lessThan              "a numeric comparator, the stored spelling of greaterThan"
     quantityGreaterThan        "a quantity comparator, computed from the unit table as greaterThan is from the numbers"
     quantityGreaterThanOrEqual "a quantity comparator, computed from the unit table as greaterThan is from the numbers"
@@ -108,7 +113,9 @@
     arg                   "an argument declaration, read beside the arity bindings"
     arg1                  "a binary projection of arg, concluded from it and concluding it"
     arg2                  "a binary projection of arg, concluded from it and concluding it"
-    arg3                  "a binary projection of arg, concluded from it and concluding it"})
+    arg3                  "a binary projection of arg, concluded from it and concluding it"
+    arg4                  "a binary projection of arg, concluded from it and concluding it"
+    arg5                  "a binary projection of arg, concluded from it and concluding it"})
 
 (def baseline-roster
   "The engine's own roster, `{kind #{predicate …}}`: every family's `:grounds` and every

@@ -259,7 +259,11 @@
    ;; is a query operator that is never stored, and a type on a slot reaches the rule
    ;; variables bound there.
    (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
-              [[op i] "an operator slot — a result, a value variable and a sentence body"]))))
+              [[op i] "an operator slot — a result, a value variable and a sentence body"]))
+   ;; the stored exception (exceptWhen Q (sentexHandle H)): assert-entry/assert-exceptWhen-meta!
+   ;; runs no argument check on it, and it is excluded from fact matching
+   {'[exceptWhen 1] "the exception query, whose variables are the rule's, so a type on the slot would reach the rule variables bound there"
+    '[exceptWhen 2] "the sentexHandle of the rule the exception qualifies, a mention of a stored sentex"}))
 
 (deftest every-shipped-function-declares-its-corresponding-predicate
   ;; A function comes with the predicate relating its arguments to its value
@@ -613,10 +617,17 @@
   ;; penguin's, wakefulness against sleep, life against death, and the shepherd boy's
   ;; credibility against his lying — is one of the two rules **stating** the other as an
   ;; `exceptWhen`, which is what `:excepted` marks.  Nothing else is left: the arity table
-  ;; would be three `:functional` pairs, each two of the classification rules concluding a
-  ;; different `(arity ?p n)` for one `?p`, and the three classes are declared pairwise
-  ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
-  ;; than unstated (docs/quality.md).
+  ;; would be `:functional` pairs, each two of the classification rules concluding a
+  ;; different `(arity ?p n)` for one `?p`, and the five exact classes are separated, so no
+  ;; `?p` satisfies two antecedents and the pairs are unreachable rather than unstated
+  ;; (docs/quality.md).
+  ;;
+  ;; The arity floors would be 82 `:disjoint` pairs.  A floor rule reads `(arity ?r ?n)`
+  ;; with `(lessThan k ?n)` and concludes `(at_least_… ?r)`, which is disjoint from every
+  ;; exact class of k places or fewer, and a rule concluding that class or claiming that
+  ;; arity binds the same `?r` to exactly k places or fewer.  The arity table is
+  ;; functional, so no `?r` satisfies both antecedents, and `arity-floor-conflicted?` drops
+  ;; every such pair as unreachable.
   ;;
   ;; No `:disjoint` pair is left.  CxCriedWolf's `lied_before → liar` concludes a person,
   ;; and two kinds of rule conclude a type disjoint from one: the signed refinements of
@@ -646,14 +657,19 @@
   ;; antecedents' `arg` declarations too: `(arg arity 1 relation)` types the arity rule's
   ;; variable a `relation`, disjoint from the `person` the paired rule concludes, so
   ;; `arg-type-conflicted?` drops the pair as unreachable (vaelii#95).  The arity table
-  ;; therefore pairs with nothing.
+  ;; therefore pairs with nothing.  An arity floor beside an exact class binds one relation
+  ;; above and at or below one length, and `arity-floor-conflicted?` drops that pair, so
+  ;; the floors pair with nothing either.
   (let [pairs   (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         about   (fn [f] (filter (fn [p] (some #(some #{f} (flatten %)) (:sentences p)))
                                 pairs))]
     (is (empty? (about 'arity))
         (str "the arity table pairs with nothing: " (pr-str (mapv :sentences (about 'arity)))))
     (is (empty? (about 'unary_predicate))
-        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))))
+        (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))
+    (doseq [floor '[at_least_binary at_least_ternary at_least_quaternary at_least_quinary]]
+      (is (empty? (about floor))
+          (str "nor does " floor ": " (pr-str (mapv :sentences (about floor))))))))
 
 (tu/deftest-kb a-predicate-is-at-most-one-of-the-three-arity-classifications
   ;; The declaration that empties the reading above.  A predicate takes one number of
@@ -1084,8 +1100,9 @@
 (tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
   ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
   ;; declares it.  The review-only :missing-arg pass reports every undeclared position,
-  ;; and each position of the four grants is declared.
-  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3}]
+  ;; and each position of the six grants is declared.
+  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3
+                 closedExtentForArg4 closedExtentForArg5}]
     (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse)))
         "the default passes find nothing")
     (let [missing (:missing-arg (v/kb-integrity kb terms 'CxUniverse {:categories #{:missing-arg}}))]
@@ -1093,7 +1110,7 @@
                         :when (contains? terms predicate)
                         i     missing]
                     [predicate i]))
-          "every position of the four grants is declared"))))
+          "every position of the six grants is declared"))))
 
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.

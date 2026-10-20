@@ -156,7 +156,7 @@
 
 (comment calendarDay
          "(calendarDay ?year ?month ?day ?interval) means that ?interval is day ?day of month ?month of calendar year ?year, so (calendarDay 2000 1 15 ?interval) holds of the fifteenth of January 2000. DayFn is the corresponding function, and its value is the last argument. The calendar prover reads the DayFn term and does not answer this predicate. See docs/time.md.")
-(fixed_arity_predicate calendarDay)
+(quaternary_predicate calendarDay)
 (arity calendarDay 4)
 (arg calendarDay 1 integer)
 (arg calendarDay 2 positive_integer)

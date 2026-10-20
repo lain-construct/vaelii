@@ -730,6 +730,23 @@
       (is (v/ask? kb (list accountOn Alice HostA) CxHosts))
       (is (not (v/ask? kb (list 'not (list accountOn Carol HostB)) CxHosts))))))
 
+(tu/deftest-kb the-four-and-five-position-sugar-derives-the-ternary-grant
+  ;; "the bookings in Room9 at slot 4 are exactly the stored ones", at positions 4 and 5
+  (doseq [[sugar position] '[[closedExtentForArg4 4] [closedExtentForArg5 5]]]
+    (tu/with-terms [bookedIn Alice Carol Desk Room9 Room10 CxRooms]
+      (let [row     (fn [who room] (if (= 4 position)
+                                     (list bookedIn who Desk 1 room)
+                                     (list bookedIn who Desk 1 2 room)))]
+        (v/assert kb (list 'genlCx CxRooms 'CxUniverse) 'CxUniverse)
+        (v/assert kb (row Alice Room9) CxRooms)
+        (v/assert kb (list sugar bookedIn Room9) CxRooms)
+        (testing (str sugar " derives the ternary grant")
+          (is (v/ask? kb (list 'closedExtentForArg bookedIn position Room9) CxRooms)))
+        (testing "and reads exactly as the ternary does"
+          (is (v/ask? kb (list 'not (row Carol Room9)) CxRooms))
+          (is (not (v/ask? kb (list 'not (row Alice Room9)) CxRooms)))
+          (is (not (v/ask? kb (list 'not (row Carol Room10)) CxRooms))))))))
+
 (tu/deftest-kb a-per-argument-closed-extent-is-scoped-to-its-context
   (tu/with-terms [accountOn Alice Carol HostA CxHosts CxSibling]
     (v/assert kb (list 'genlCx CxHosts 'CxUniverse) 'CxUniverse)
