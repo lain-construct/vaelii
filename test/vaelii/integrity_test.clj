@@ -72,8 +72,8 @@
   "Every category but `:missing-arg`, for a fixture whose bare declarations would
   otherwise report their untyped positions beside the finding under test."
   #{:definition-inconsistencies :all-specified-violations :genl-arg-widening
-    :not-under-thing :implicit-genl :orthogonal-over-separation :twin-genls
-    :derivable-stated-edge :disjoint-could-be-partition})
+    :not-under-thing :implicit-genl :implicit-arity-class :orthogonal-over-separation
+    :twin-genls :derivable-stated-edge :disjoint-could-be-partition})
 
 (defn- content-order
   "Declaration tuples in the content order the specified pass reads them in."
@@ -767,6 +767,94 @@
               needed (first (filter #(= :gap (:status (run %))) (range 0 2000)))]
           (is (some? needed) "some finite work budget completes the sweep")
           (let [partials (map run (range 0 (or needed 0)))]
+            (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %)))
+                        partials))
+            (is (some #(= (subvec in-order 0 1) (shown %)) partials)
+                "a budget exhausted between the two terms keeps the first finding")))))))
+
+;; ---- implicit-arity-class ---------------------------------------------------
+
+(def ^:private arity-class-only
+  "The implicit-arity-class pass alone, so a fixture's bare declarations report nothing
+  else beside the finding under test."
+  {:categories #{:implicit-arity-class}})
+
+(tu/deftest-kb a-predicate-with-an-arity-and-no-class-is-suggested-the-class
+  (tu/with-terms [pairOf pairedWith]
+    (v/assert kb '(predicateTypeByArity binary_predicate 2) 'CxUniverse)
+    (v/assert kb (list 'predicate pairOf) 'CxUniverse)
+    (v/assert kb (list 'arity pairOf 2) 'CxUniverse)
+    (v/assert kb (list 'predicate pairedWith) 'CxUniverse)
+    (v/assert kb (list 'arity pairedWith 2) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate pairedWith) 'CxUniverse)
+    (let [before (state-snapshot kb)
+          report (v/kb-integrity kb #{pairOf pairedWith} 'CxUniverse arity-class-only)]
+      (is (= :gap (:status report)))
+      (is (= [{:term pairOf :kind 'predicate :arity 2 :class 'binary_predicate
+               :mapping '(predicateTypeByArity binary_predicate 2)}]
+             (:implicit-arity-class report))
+          "one finding, for the predicate whose class is not stated")
+      (is (= before (state-snapshot kb)) "a suggestion asserts nothing"))
+    (v/assert kb (list 'binary_predicate pairOf) 'CxUniverse)
+    (is (= :audited (:status (v/kb-integrity kb #{pairOf pairedWith} 'CxUniverse
+                                             arity-class-only)))
+        "and none once the class is stated")))
+
+(tu/deftest-kb a-function-is-suggested-its-function-class-and-never-a-predicate-one
+  (tu/with-terms [PairFn pairRel]
+    (v/assert kb '(predicateTypeByArity binary_predicate 2) 'CxUniverse)
+    (v/assert kb '(functionTypeByArity binary_function 2) 'CxUniverse)
+    (v/assert kb (list 'function PairFn) 'CxUniverse)
+    (v/assert kb (list 'arity PairFn 2) 'CxUniverse)
+    (v/assert kb (list 'relation pairRel) 'CxUniverse)
+    (v/assert kb (list 'arity pairRel 2) 'CxUniverse)
+    (is (= [{:term PairFn :kind 'function :arity 2 :class 'binary_function
+             :mapping '(functionTypeByArity binary_function 2)}]
+           (:implicit-arity-class
+            (v/kb-integrity kb #{PairFn pairRel} 'CxUniverse arity-class-only)))
+        "a relation of neither kind is suggested no class")))
+
+(tu/deftest-kb an-arity-no-mapping-names-is-suggested-nothing
+  (tu/with-terms [quadOf]
+    (v/assert kb '(predicateTypeByArity binary_predicate 2) 'CxUniverse)
+    (v/assert kb (list 'predicate quadOf) 'CxUniverse)
+    (v/assert kb (list 'arity quadOf 4) 'CxUniverse)
+    (is (= :audited (:status (v/kb-integrity kb #{quadOf} 'CxUniverse arity-class-only))))))
+
+(tu/deftest-kb implicit-arity-class-findings-respect-context-visibility
+  (tu/with-terms [pairOf CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'predicate pairOf) 'CxUniverse)
+    (v/assert kb (list 'arity pairOf 2) 'CxUniverse)
+    (v/assert kb '(predicateTypeByArity binary_predicate 2) CxHidden)
+    (is (= :audited (:status (v/kb-integrity kb #{pairOf} 'CxUniverse arity-class-only)))
+        "a mapping asserted below the audit context is not seen from it")
+    (is (= 1 (count (:implicit-arity-class (v/kb-integrity kb #{pairOf} CxHidden
+                                                           arity-class-only)))))))
+
+(tu/deftest-kb implicit-arity-class-findings-truncate-under-every-bound
+  (tu/with-terms [pairOf pairedWith]
+    (v/assert kb '(predicateTypeByArity binary_predicate 2) 'CxUniverse)
+    (doseq [p [pairOf pairedWith]]
+      (v/assert kb (list 'predicate p) 'CxUniverse)
+      (v/assert kb (list 'arity p 2) 'CxUniverse))
+    (let [terms    #{pairOf pairedWith}
+          in-order (mapv (fn [t] {:term t :class 'binary_predicate}) (sort-by nm/print-key terms))
+          shown    #(mapv (fn [f] (select-keys f [:term :class])) (:implicit-arity-class %))
+          run      #(v/kb-integrity kb terms 'CxUniverse (merge arity-class-only %))]
+      (testing "a result cap below the finding count keeps the completed prefix"
+        (let [report (run {:max-results 1})]
+          (is (= [:truncated :max-results] [(:status report) (:reason report)]))
+          (is (= (subvec in-order 0 1) (shown report)))))
+      (testing "an exact result cap is complete"
+        (let [report (run {:max-results 2})]
+          (is (= :gap (:status report)))
+          (is (= in-order (shown report)))))
+      (testing "work exhaustion inside the pass is truncated, never audited, and keeps the
+                findings completed before it"
+        (let [needed (first (filter #(= :gap (:status (run {:max-work %}))) (range 0 2000)))]
+          (is (some? needed) "some finite work budget completes the sweep")
+          (let [partials (map #(run {:max-work %}) (range 0 (or needed 0)))]
             (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %)))
                         partials))
             (is (some #(= (subvec in-order 0 1) (shown %)) partials)

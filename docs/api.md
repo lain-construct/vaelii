@@ -184,6 +184,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
+                                                ; :implicit-arity-class,
                                                 ; :orthogonal-over-separation, :rule-macro,
                                                 ; :undeclared-arity, :twin-genls,
                                                 ; :derivable-stated-edge,
