@@ -19,7 +19,8 @@
         root   (first (:proof answer))
         syms   (set (filter symbol? (tree-seq coll? seq (:sentence root))))]
     {:answer (:bindings answer)
-     :cites? (boolean (and (= :rule (:via root)) (every? syms names)))}))
+     :cites? (boolean (and (= :rule (:via root)) (every? syms names)))
+     :syms   syms}))
 
 (tu/deftest-kb relation-is-the-common-parent
   (is (v/genl? kb 'predicate 'relation))
@@ -149,14 +150,16 @@
 (tu/deftest-kb the-converse-keeps-the-membership-strength
   ;; The converse is backward, so the arity it proves is never stored: the membership is
   ;; the only sentex, and it keeps the strength it was written at, :default or
-  ;; :monotonic, rather than a forced-monotonic arity being stored beside it.
+  ;; :monotonic, rather than a forced-monotonic arity being stored beside it.  A kind
+  ;; class's member is proved by its own converse or by the relation-wide one through the
+  ;; class's genl edge, so the proof cites the row or binary.
   (doseq [[strength row] [[:default 'binary] [:monotonic 'binary]
                           [:default 'binary_predicate] [:monotonic 'binary_function]]]
     (tu/with-terms [someRelation]
       (let [h (v/assert kb (list row someRelation) 'CxUniverse {:strength strength})]
-        (let [{:keys [answer cites?]} (rule-proof kb (list 'arity someRelation '?n) [row 'arity])]
+        (let [{:keys [answer cites? syms]} (rule-proof kb (list 'arity someRelation '?n) ['arity])]
           (is (= {'?n 2} answer) (str strength " " row ": the arity is proved"))
-          (is cites? "by the converse"))
+          (is (and cites? (some (hash-set row 'binary) syms)) "by a converse"))
         (is (empty? (v/sentexes-matching kb (list 'arity someRelation '?n) 'CxUniverse))
             "no arity is stored")
         (is (= strength (:strength (v/sentex kb h)))

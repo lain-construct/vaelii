@@ -891,16 +891,14 @@
 (implies (relationTypeByArity ?type ?arity)
          (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
 
-;; The converse runs BACKWARD, one generator per mapping family: a query for (arity R n)
-;; of a member of a mapped class is proved from the membership, and nothing is stored.
-;; arity is on the forced-monotonic roster, so a stored arity would go OUT only by
-;; retraction; proved at query time, it rests on the membership, which keeps the
-;; strength it was written at.
+;; The converse runs BACKWARD: a query for (arity R n) of a member of a relation-wide
+;; class is proved from the membership, and nothing is stored.  A member of a predicate or
+;; function exact-arity class reaches it through the genl edge from that class to unary,
+;; binary or ternary, so the predicate and function mappings stamp no converse of their
+;; own.  arity is on the forced-monotonic roster, so a stored arity would go OUT only by
+;; retraction; proved at query time, it rests on the membership, which keeps the strength
+;; it was written at.
 (implies (relationTypeByArity ?type ?arity)
-         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
-(implies (predicateTypeByArity ?type ?arity)
-         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
-(implies (functionTypeByArity ?type ?arity)
          (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
 
 ;; The predicate and function mappings are generators of their own, each guarding the
