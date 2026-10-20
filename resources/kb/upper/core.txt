@@ -954,6 +954,8 @@
 ;; A relation cannot change how many arguments it takes, so every arity_type is
 ;; time-invariant.
 (set/monotonic (genl arity_type time_invariant_relation))
+;; Every arity_type is a type of relation, and a type is a unary predicate.
+(set/monotonic (genl arity_type unary_predicate))
 (arity_type unary)
 (arity_type binary)
 (arity_type ternary)
