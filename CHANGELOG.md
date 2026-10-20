@@ -28,17 +28,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none.
   *Breaks:* `query`
 
-- **A predicate or function with an exact arity is proved a member of its kind's
-  exact-arity class.** `core.txt` ships `(predicateTypeByArity unary_predicate 1)`
-  through `(predicateTypeByArity quinary_predicate 5)`, one fact per exact-arity
-  predicate class, and the five `functionTypeByArity` peers over `unary_function`
-  through `quinary_function`. `query (binary_predicate P)` of a `P` stated `(predicate P)` and
-  `(arity P 2)` answers `[{}]` at depth 3, where it answered nothing, and `query
-  (binary_function P)` still answers nothing. The membership is proved at query time and
-  never stored. [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+- **`kb-integrity` gains a default `:implicit-arity-class` category.** For each candidate
+  with an exact length that is a predicate (resp. function) and is not an instance of the
+  class `predicateTypeByArity` (resp. `functionTypeByArity`) maps that length to, the sweep
+  reports `{:term R :kind predicate :arity 2 :class binary_predicate :mapping
+  (predicateTypeByArity binary_predicate 2)}`. A default sweep over such a candidate
+  answers `:status :gap` where it answered `:audited`. The pass applies the rule the two
+  mappings stamp inert (below), and the shipped starter has no finding.
+  [integrity.md](docs/integrity.md#what-an-implicit-arity-class-finding-means).
 
-  *Migration:* none.
-  *Breaks:* `query`
+  *Migration:* state the reported class, or name the categories to run in `:categories`.
+  *Breaks:* `kb-integrity`
 
 - **`predicateTypeByArity` and `functionTypeByArity` are `termsRelated` to
   `relationTypeByArity`, not its `genl` specializations.** A `(predicateTypeByArity T n)`
@@ -150,11 +150,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
-- **`predicateTypeByArity` and `functionTypeByArity` facts stamp backward rules guarded
-  by the kind.** `(predicateTypeByArity T n)` stamps `(predicate ?r) ∧ (arity ?r n) → (T
-  ?r)` as a `set/backwardRule`, and `(functionTypeByArity T n)` the same rule over
-  `(function ?r)`. A query for `(T R)` is proved from the kind and the arity, and no
-  membership is stored. [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+- **`core.txt` ships the predicate and function exact-arity mappings, whose stamped rules
+  are inert.** `(predicateTypeByArity unary_predicate 1)` through `(predicateTypeByArity
+  quinary_predicate 5)`, one fact per exact-arity predicate class, and the five
+  `functionTypeByArity` peers over `unary_function` through `quinary_function`.
+  `(predicateTypeByArity T n)` stamps `(predicate ?r) ∧ (arity ?r n) →
+  (T ?r)` as a `set/inertRule`, and `(functionTypeByArity T n)` the same rule over
+  `(function ?r)`: believed and browsable, run on no write and no query. Run backward, the
+  rule reached `(binary ?r)` through `binary_predicate`'s `genl` edge while the converse
+  proves `(arity ?r 2)` from `(binary ?r)`; `kb-integrity`'s `:implicit-arity-class` pass
+  applies it instead, and every predicate and function the starter ships states its class.
+  [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
