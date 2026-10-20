@@ -761,6 +761,12 @@ function application denoting an entity. Two readings, by declaration. Under
 as a `core.txt` collection by `non_atomic_term`, below `non_atomic_expression` and
 `denotational_term` in `reflection.txt`. See [nat.md](nat.md).
 
+**`negates`** ![kb](../.github/badges/cat-kb.svg): `(negates P Q)` says no argument list
+satisfies both relations, read down `genl` on both sides. Two tuples of one argument list
+under the two sides are a **Nogood**, and a ground `(not (Q a …))` is answered from a
+believed tuple of the other side. `disjoint` is the declaration for two types. See
+[taxonomy.md](taxonomy.md#predicate-metadata).
+
 **Negation as failure (NAF)** ![inference](../.github/badges/cat-inference.svg):
 Closed-world negation. `(unknown S)` holds iff `S` is not derivable;
 `(thereExists ?x S)` existentially closes and projects. Ground/closed only,
@@ -769,7 +775,8 @@ never stored, and a negative stratification edge in a rule body. See
 
 **Nogood** ![tms](../.github/badges/cat-tms.svg): A set of sentexes IN in the network that
 cannot all hold — a `(not X)` alongside an `X` wherever some context
-sees both, a definitional clash, or the three claims an `anti_transitive` chain forbids.
+sees both, a definitional clash, the three claims an `anti_transitive` chain forbids, or
+two tuples a `negates` declaration rules out together.
 Placed by `settle` at its **Vantage**s as a **`contradicts`**, with a **`defeat`** of the
 weakest member where one is weakest on defeat-class; never thrown. See
 [nmtms.md](nmtms.md).

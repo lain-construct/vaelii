@@ -1781,6 +1781,17 @@
 (arg inverse 2 predicate)
 (decontextualized_predicate inverse)
 
+(comment negates
+         "(negates ?predicate1 ?predicate2) means that no argument list satisfies both relations: (?predicate1 a b) entails (not (?predicate2 a b)), and the converse. Read down genl on both sides, so (negates scorns admires) with (genl sneersAt scorns) also rules out (sneersAt a b) beside (admires a b). Two stored tuples of one argument list under the two sides are a placed nogood, and a ground denial is answered from a believed tuple of the other side. (negates P P) says P holds of nothing, so each P tuple is a one-member clash. A declaration whose sides are bound to lengths no argument list fits is a clash of the declaration. For two types, disjoint is the declaration, and a declaration over two predicates bound to one argument is a clash of the declaration. See docs/taxonomy.md.")
+(positiveExampleComment negates "(negates likes dislikes)")
+(negativeExampleComment negates "(negates loves hates), since one person can love and hate another at once")
+(binary_predicate negates)
+(set/monotonic (symmetric negates))
+(arg negates 1 predicate)
+(arg negates 2 predicate)
+(forced_monotonic_predicate negates)
+(termsRelated negates disjoint)
+
 (comment ist
          "(ist ?context ?sentence) means that ?sentence holds in ?context. Never stored as a sentex of its own: given to assert it finds or creates ?sentence in ?context and returns that handle, and given to a read it asks ?sentence in ?context. A rule refuses it in every position: as an antecedent it matches nothing, and as a consequent it would place a conclusion in a context that need not see the rule or its facts. The wrapped sentence is a term, so one sentence is findable from another through the term index.")
 (binary_predicate ist)

@@ -4,7 +4,8 @@
   "The two tuple families.  The self and converse family: a ground binary self tuple under
   `irreflexive`, and a tuple and its stored converse under `anti_symmetric`.  The
   tuple-mark family: the determinants under `functional` and `functionalInArg`, the
-  `anti_transitive` chains and the `asymmetric` converse pairs.  Both find their nogoods
+  `anti_transitive` chains, the `asymmetric` converse pairs and the tuples a `negates`
+  declaration sets against each other.  Both find their nogoods
   from a stored tuple's own arguments and share the converse pairs, and each nogood is
   placed as a conclusion (`chain/place-tuples!`).  See docs/nmtms.md, \"A nogood placed as
   a conclusion\"."
@@ -139,21 +140,23 @@
           [f (vec (rest s))])))))
 
 (defn- tuple-marks?
-  "Does the taxonomy hold a `functional`, `functionalInArg` or `anti_transitive` mark?
-  Three map reads."
+  "Does the taxonomy hold a `functional`, `functionalInArg`, `anti_transitive` or
+  `negates` mark?  Four map reads."
   [tax]
   (boolean (or (seq (tax/props tax :functional))
                (seq (tax/functional-in-arg-predicates tax))
-               (seq (tax/props tax :anti-transitive)))))
+               (seq (tax/props tax :anti-transitive))
+               (tax/negates? tax))))
 
 (defn- tuple-members
   "The handles of the tuple-mark candidates `c`: the live determinant members and the
-  members of every chain and converse pair."
+  members of every chain, converse pair and `negates` set."
   [c]
   (-> #{}
       (into cat (vals (::live c)))
       (into cat (::chains c))
-      (into cat (::conv c))))
+      (into cat (::conv c))
+      (into cat (::neg c))))
 
 (defn- tuple-member?
   "Is `h` among `tuple-members` of `c`?  Read off `::member-of`."
@@ -333,12 +336,27 @@
                               (into (remove now) was)
                               (into (remove was) now)))))))
 
+(defn- negates-sets
+  "The `negates` nogoods the stored tuple `h`, `(q args…)`, is a member of, read from
+  storage: `#{h}` when `q` is at or below both sides of one declaration, and `#{h h'}` for
+  each stored tuple `h'` of another functor on the same arguments at or below a predicate
+  a declaration sets against one at or above `q` (`tax/negates-over`).  One trie read per
+  functor holding a stored fact in those spec subtrees.  Unscoped."
+  [kb w h q args]
+  (let [pairs (tax/negates-over (:tax w) q)]
+    (when (seq pairs)
+      (let [up ((:genls-global w) q)
+            fs (into (sorted-set) (comp (map second) (mapcat #(stored-specs kb w %)) (remove #{q})) pairs)]
+        (cond-> (into #{} (map #(hash-set h %)) (keys (tuples-at kb fs args)))
+          (some (fn [[_ r]] (contains? up r)) pairs) (conj #{h}))))))
+
 (defn- found-for
-  "The determinants and chains the stored tuple `h`, `(q args…)` in context `cx`, is a
-  member of, read from storage: `{:det {key {h [filler context]}} :chains #{members}}`.
-  A new determinant is kept when it holds two fillers, and a chain when it has two
-  members or three.  A determinant `dets` (`::det`) holds already takes the tuple with no
-  read, so an empty or a wide determinant is read once, when its second filler arrives."
+  "The determinants, chains and `negates` sets the stored tuple `h`, `(q args…)` in
+  context `cx`, is a member of, read from storage: `{:det {key {h [filler context]}}
+  :chains #{members} :neg #{members}}`.  A new determinant is kept when it holds two
+  fillers, and a chain when it has two members or three.  A determinant `dets` (`::det`)
+  holds already takes the tuple with no read, so an empty or a wide determinant is read
+  once, when its second filler arrives."
   [kb w dets h q args cx]
   (let [tax (:tax w)
         k   (count args)
@@ -375,11 +393,11 @@
                                    (hash-set s1 h cl))))))
                            (filter #(< 1 (count %))))
                      anti)]
-    {:det det :chains chains}))
+    {:det det :chains chains :neg (negates-sets kb w h q args)}))
 
 (defn- add-found
   "`c` with `found-for`'s answer merged in."
-  [w c {:keys [det chains]}]
+  [w c {:keys [det chains neg]}]
   (as-> c c
     (reduce-kv (fn [c key g]
                  (reduce-kv (fn [c h [v cx]]
@@ -393,7 +411,12 @@
                 c
                 (-> c (update ::chains (fnil conj #{}) ms) (link ms [::chains ms])
                     (noted ms))))
-            c chains)))
+            c chains)
+    (reduce (fn [c ms]
+              (if (contains? (::neg c) ms)
+                c
+                (-> c (update ::neg (fnil conj #{}) ms) (link ms [::neg ms]) (noted ms))))
+            c neg)))
 
 (defn- add-conv
   "`c` with the stored tuple `h` and each of its stored converses `others` recorded as a
@@ -452,7 +475,7 @@
       (when (tuple-marks? (:tax w))
         (when-let [[q args] (fact-tuple sx)]
           (let [found (found-for kb w (::det @cands) (:id sx) q args (:context sx))]
-            (when (or (seq (:det found)) (seq (:chains found)))
+            (when (or (seq (:det found)) (seq (:chains found)) (seq (:neg found)))
               (swap! cands #(add-found w (sync-tuples w %) found))))))
       (when (contains? (::member-of @cands) (:id sx))
         (swap! cands #(drop-tuple w (sync-tuples w %) (:id sx)))))))
@@ -621,8 +644,8 @@
 (defn nogoods-holding
   "The tuple nogoods `c` keeps with a member among the handles `hs`, each `{:members #{h}
   :specs #{spec}}`, one per member set: `[:self]` for a self tuple, `[:conv]` for a
-  converse pair, `[:chain]` for a chain, and `[:det key]` for two live members of
-  determinant `key` with distinct fillers.  A spec names the shape; `routes` reads the
+  converse pair, `[:chain]` for a chain, `[:neg]` for a `negates` set, and `[:det key]`
+  for two live members of determinant `key` with distinct fillers.  A spec names the shape; `routes` reads the
   marks that convict it."
   [kb c hs]
   (let [recs  (:records kb)
@@ -638,7 +661,8 @@
                                           (for [h' live :when (and (not= h h') (not= v (first (get g h'))))]
                                             [#{h h'} [:det key]])))
                              ::chains [[key [:chain]]]
-                             ::conv   [[key [:conv]]]))
+                             ::conv   [[key [:conv]]]
+                             ::neg    [[key [:neg]]]))
                          (get-in c [::member-of h]))))]
     (->> (mapcat specs hs)
          (reduce (fn [m [ms spec]] (update m ms (fnil conj #{}) spec)) {})
@@ -650,6 +674,19 @@
   [tax prop fs]
   (sort (reduce set/intersection (map #(tax/props-over tax prop %) fs))))
 
+(defn- negates-routes
+  "Each `negates` declaration convicting a tuple of `f1` beside one of `f2` (one tuple
+  when the two are one functor) over the unscoped taxonomy (`w`): a declaration between
+  a predicate at or above `f1` and one at or above `f2`, its flat-cache key, and the
+  subsumptions from the functors to the two, in content order."
+  [w f1 f2]
+  (let [up2  ((:genls-global w) f2)
+        link (fn [sub super] (when (not= sub super) [sub super]))]
+    (for [[p r] (sort-by nm/print-key (tax/negates-over (:tax w) f1))
+          :when (contains? up2 r)]
+      {:keys  #{(tax/negates-key p r)}
+       :links (into [] (comp (keep identity) (distinct)) [(link f1 p) (link f2 r)])})))
+
 (defn routes
   "Each way a mark convicts the tuple nogood `ng` (`nogoods-holding`) over the unscoped
   taxonomy, as `{:keys #{k} :links [[sub super]]}` (`tax/separation-routes`' shape): a
@@ -657,7 +694,8 @@
   subsumption from each functor to `P`.  A self tuple reads the `irreflexive` marks, a
   chain the `anti_transitive` ones, and a converse pair the `asymmetric` ones and the
   `anti_symmetric` ones unless it merges (`merges?`,
-  `special/derive-antisymmetric-equalities`).  A determinant pair reads the determinant's
+  `special/derive-antisymmetric-equalities`), and a `negates` set the declarations over
+  its functors (`negates-routes`).  A determinant pair reads the determinant's
   own `functional` and `functionalInArg` marks; two symbol fillers both `:monotonic` merge
   (`special/derive-functional-equalities`) and give no route.  Two symbol fillers one class
   at a reader form no nogood there, which the read reads (`exempt-at?`).  `w` is
@@ -677,6 +715,7 @@
                (case kind
                  :self  (by :irreflexive)
                  :chain (by :anti-transitive)
+                 :neg   (negates-routes w (first fs) (last fs))
                  :conv  (let [[h o] (sort members)
                               [a b] (binary-tuple (get sxs h))]
                           (concat (by :asymmetric)
@@ -693,7 +732,8 @@
   "The kind the tuple nogood over the member handles `ms` reports under, read off the
   candidate index `c` and the marks over the members' functors in the unscoped taxonomy:
   `:irreflexive` for a self tuple under an `irreflexive` mark, `:anti-transitive` for a
-  chain under an `anti_transitive` one, `:functional` for a determinant pair, and for a
+  chain under an `anti_transitive` one, `:functional` for a determinant pair, `:negates`
+  for a `negates` set, and for a
   converse pair `:anti-symmetric` under an `anti_symmetric` mark, else `:asymmetric` under
   an `asymmetric` one; the first in keyword order when the set has two.  nil when no mark
   convicts a tuple nogood `c` keeps over `ms`."
@@ -708,6 +748,7 @@
                                :self  (when (has? :irreflexive) :irreflexive)
                                :chain (when (has? :anti-transitive) :anti-transitive)
                                :det   :functional
+                               :neg   :negates
                                :conv  (cond (has? :anti-symmetric) :anti-symmetric
                                             (has? :asymmetric)     :asymmetric)))
                            specs)))))))
@@ -718,13 +759,16 @@
 
 (defn under-marks
   "The predicates of `qs` on or below a predicate carrying a mark a tuple nogood is
-  convicted through (a `mark-kinds` roster or a `functionalInArg` declaration) over the
+  convicted through (a `mark-kinds` roster, a `functionalInArg` or a `negates`
+  declaration) over the
   unscoped closure: the subtypes of the marked predicates, or one walk up from each of
   `qs` that enters no type an earlier walk found below no mark
   (`tax/genls-global-meets?`), whichever reads fewer.  A `genl` edge below no mark gives
   no tuple nogood a route."
   [tax qs]
-  (let [marked (into (tax/functional-in-arg-predicates tax) (mapcat #(tax/props tax %)) mark-kinds)
+  (let [marked (-> (tax/functional-in-arg-predicates tax)
+                   (into (tax/negating-predicates tax))
+                   (into (mapcat #(tax/props tax %)) mark-kinds))
         qs     (set qs)]
     (cond
       (or (empty? marked) (empty? qs)) #{}
@@ -738,7 +782,7 @@
   this family places (`chain/place-tuples!`): a ground among `core` supports a tuple
   mark's flat-cache key?"
   [tax members core]
-  (boolean (some (fn [h] (some (fn [[kind prop]] (or (= :functional-in-arg kind)
+  (boolean (some (fn [h] (some (fn [[kind prop]] (or (= :functional-in-arg kind) (= :negates kind)
                                                      (and (= :prop kind) (contains? mark-kinds prop))))
                                (tax/supported-keys tax [h])))
                  (remove (set members) core))))
@@ -789,7 +833,7 @@
 
   The marks are read unscoped: a candidate row is a superset over every reader
   (`decide/write-view`)."
-  {:grounds   {:forced-monotonic          '#{functional functionalInArg anti_transitive asymmetric}
+  {:grounds   {:forced-monotonic          '#{functional functionalInArg anti_transitive asymmetric negates}
                :forced-between-predicates '#{genl}}
    :note!     (fn [kb w sx stored?]
                 (note-tuple! kb w sx stored?)
@@ -799,7 +843,8 @@
                   (let [recs (:records kb)]
                     (doseq [h (marked-facts kb w (concat (tax/props (:tax w) :functional)
                                                          (tax/functional-in-arg-predicates (:tax w))
-                                                         (tax/props (:tax w) :anti-transitive)))
+                                                         (tax/props (:tax w) :anti-transitive)
+                                                         (tax/negating-predicates (:tax w))))
                             :let [sx (p/get-sentex recs h)]
                             :when sx]
                       (note-tuple! kb w sx true)))))
@@ -829,11 +874,11 @@
                :settle-pass :G :recover :R :image-install :R}
   :computed :read :imaged? :state
   :at [[:nogood-candidates ::det] [:nogood-candidates ::det-ctx]
-       [:nogood-candidates ::chains] [:nogood-candidates ::conv]
+       [:nogood-candidates ::chains] [:nogood-candidates ::conv] [:nogood-candidates ::neg]
        [:nogood-candidates ::member-of] [:nogood-candidates ::live]
        [:nogood-candidates ::ts-gen] [:nogood-candidates ::moved]]
-  :bound "one entry per stored tuple under a `functional`, `functionalInArg`, `anti_transitive`, `anti_symmetric` or `asymmetric` mark"
-  :note "the determinants holding two fillers, their chains and converses, and the members queued for the settle to place again; synced again at a read when the genlCx generation moved from `::ts-gen`"})
+  :bound "one entry per stored tuple under a `functional`, `functionalInArg`, `anti_transitive`, `anti_symmetric` or `asymmetric` mark or a side of a `negates` declaration"
+  :note "the determinants holding two fillers, their chains and converses, the `negates` sets, and the members queued for the settle to place again; synced again at a read when the genlCx generation moved from `::ts-gen`"})
 
 (caches/register-derived
  {:id :N9 :label "Candidate recover memos" :kind :pass :keyed-by :functor :reads [:records]

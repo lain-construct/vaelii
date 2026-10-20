@@ -230,6 +230,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `exceptWhen`, and `retract!` refuses the declaration with `:type :uncleared-forcing` and
   `:missing :unforced-exception`. [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
 
+- **`(negates P Q)` states that two relations hold of no argument list together.** A
+  believed `(scorns Eve Fay)` beside a believed `(admires Eve Fay)` under `(negates scorns
+  admires)` is one placed nogood, read down `genl` on both sides, whichever arrives first.
+  `ask? (not (scorns Gus Hal))` is true while `(admires Gus Hal)` is believed, and no
+  denial is stored per fact. `(negates P P)` makes each `P` tuple a one-member nogood. A
+  declaration whose sides are bound to lengths no argument list fits, or to one argument,
+  is stored and reported in `conflicts` as `:negates-arity` or `:negates-unary`. The
+  declaration is forced-monotonic and context-scoped
+  ([#106](https://github.com/vaelii/vaelii/issues/106)).
+  [taxonomy.md](docs/taxonomy.md#predicate-metadata).
+
+  *Migration:* none. A KB storing `negates` facts of its own reads them as declarations.
+
 ### Fix: answers
 
 - **`why-not` of a handle answers `:excepted` for a conclusion stored with a guard
@@ -240,6 +253,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [exceptions.md](docs/exceptions.md#semantics)
 
   *Migration:* none. A caller reading `:unsupported` off such a handle reads `:excepted`.
+
+- **The from-Cyc guide translates a binary `negationPreds` as `negates`.** The two
+  implication rules it gave for mutual exclusion above arity 1 convicted nothing when
+  both tuples were stored ([#106](https://github.com/vaelii/vaelii/issues/106)).
+  [from-cyc.md](docs/from-cyc.md#negation-and-mutual-exclusion).
+
+  *Migration:* replace the two rules with one `(negates P Q)`.
 
 ### Fix: performance
 

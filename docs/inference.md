@@ -2389,6 +2389,11 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   membership, never on an unprovable one, and a `T` no separation reaches
   (`tax/separable?`) leaves it inapplicable. Ground only. `:lookup`, partial (50). See
   [taxonomy.md](taxonomy.md#disjointness).
+- **NegatesProver** — a ground `(not (Q a …))` for a `Q` at or below a side of a
+  `negates` declaration the asking context sees, proved by a believed `(R a …)` of a
+  predicate the declaration sets against it, or by `Q` lying at or below both sides.
+  Open-world: it fires on a stated tuple, never on an unprovable one. Ground only.
+  `:lookup`, partial (50). See [taxonomy.md](taxonomy.md#predicate-metadata).
 - **CoveringProver** — a ground unary membership goal `(Part a)` for a `Part` some visible
   `(covering W …)` names: with `(W a)` believed and every other part believed **not** to
   hold of `a`, the remaining part holds. Explicit negation only, never an unprovable part.

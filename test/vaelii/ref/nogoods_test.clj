@@ -357,6 +357,24 @@
          (ng/anti-symmetric (view-of '[(anti_symmetric ancestorOf) (genl parentOf ancestorOf)
                                        (ancestorOf Ann Bob) (parentOf Bob Ann)])))))
 
+;; ---- negates -------------------------------------------------------------------
+
+(deftest a-negates-declaration-convicts-two-tuples-of-one-argument-list
+  (is (= [{:kind :negates :members #{'(admires Eve Fay) '(scorns Eve Fay)}
+           :ground #{'(negates admires scorns)}}]
+         (ng/negates (view-of '[(negates admires scorns) (admires Eve Fay) (scorns Eve Fay)
+                                (scorns Eve Gus)])))))
+
+(deftest a-negates-declaration-reads-sub-predicates-on-both-sides
+  (is (= [{:kind :negates :members #{'(adores Ida Jo) '(sneersAt Ida Jo)}
+           :ground #{'(negates admires scorns) '(genl adores admires) '(genl sneersAt scorns)}}]
+         (ng/negates (view-of '[(negates admires scorns) (genl adores admires)
+                                (genl sneersAt scorns) (adores Ida Jo) (sneersAt Ida Jo)])))))
+
+(deftest a-negates-declaration-of-one-predicate-convicts-each-tuple-alone
+  (is (= [{:kind :negates :members #{'(nullR Ann Bob)} :ground #{'(negates nullR nullR)}}]
+         (ng/negates (view-of '[(negates nullR nullR) (nullR Ann Bob)])))))
+
 ;; ---- order independence -----------------------------------------------------
 
 (deftest every-family-answers-the-same-for-the-same-content-in-any-order
@@ -369,7 +387,8 @@
                           (anti_transitive parentOf) (parentOf Ann Bob) (parentOf Bob Cy)
                           (parentOf Ann Cy) (genl tree plant)
                           (covering w p1 p2) (w X) (not (p1 X)) (not (p2 X))
-                          (genl dog mammal) (dog Rex) (not (mammal Rex))])
+                          (genl dog mammal) (dog Rex) (not (mammal Rex))
+                          (negates admires scorns) (admires Eve Fay) (scorns Eve Fay)])
         classes '{(carriesLoad vehicle Bone1) :monotonic (carriesLoad hauler Bone1) :monotonic
                   (genl dog mammal) :monotonic}
         answer  (fn [sentences]

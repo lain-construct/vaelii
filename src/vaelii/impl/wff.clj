@@ -614,6 +614,13 @@
     (nm/individual? p) (conj (str p " is an individual; inverse relates predicates"))
     (nm/individual? q) (conj (str q " is an individual; inverse relates predicates"))))
 
+(defn negates-problems
+  "The argument count alone.  Whether an argument is a predicate, and of which length, is
+  read from stored content and placed as a clash of the declaration (docs/taxonomy.md,
+  \"Predicate metadata\")."
+  [_ s _context]
+  (cond-> [] (not= 3 (count s)) (conj "negates takes two arguments")))
+
 (defn genl-inverse-problems [_ [_ p q :as s] _context]
   (cond-> []
     (not= 3 (count s)) (conj "genlInverse takes two arguments")

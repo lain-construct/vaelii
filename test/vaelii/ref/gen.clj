@@ -145,7 +145,7 @@
   carries a kind that fixes its argument shape:
 
   - `:plain` — two individuals; marks `irreflexive`, `anti_transitive`, `functional`,
-    `functionalInArg`, `anti_symmetric`.  Two symbol fillers colliding under a mark are
+    `functionalInArg`, `anti_symmetric`, and `negates` with a predicate of its kind.  Two symbol fillers colliding under a mark are
     a merge only when both are `:monotonic` (decision D6), which `merge-disagreements`
     reads through the engine's equality.
   - `:num` — two integers in 1..3; the same marks.  Two integers never merge.
@@ -194,8 +194,10 @@
                   (>= (count types) 3)      (conj :covering)
                   (#{:plain :num} kind)     (into [:functional :functional-in-arg
                                                    :anti-symmetric :irreflexive
-                                                   :anti-transitive])
-                  (= :type-arg kind)        (conj :transitive-in-arg))]
+                                                   :anti-transitive :negates])
+                  (= :type-arg kind)        (conj :transitive-in-arg))
+        ;; a `negates` partner of the same argument shape, `pred` itself among them
+        partner #(pick rng (vec (for [q predicates :when (= kind (:kind q))] (:pred q))))]
     (case (pick rng options)
       :disjoint          (let [[a b] (type-pair rng types)]
                            (list* 'disjoint (sort [a b])))
@@ -208,6 +210,7 @@
       :functional        (list 'functional pred)
       :functional-in-arg (list 'functionalInArg pred (inc (.nextInt ^Random rng 2)))
       :anti-symmetric    (list 'anti_symmetric pred)
+      :negates           (list* 'negates (sort [pred (partner)]))
       :transitive-in-arg (list 'transitiveInArgInverse pred 1 'genl))))
 
 (defn- violation
@@ -241,7 +244,7 @@
   "The functors of the writes `fact-write` draws that are on the forced-monotonic roster:
   the `genlCx` edge and every `declaration`."
   '#{genlCx disjoint covering functional functionalInArg anti_symmetric irreflexive
-     anti_transitive})
+     anti_transitive negates})
 
 (defn- fact-write
   "One non-rule write drawn from the menu: a `genlCx` edge, a `genl` edge or its denial, a

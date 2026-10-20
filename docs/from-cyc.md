@@ -77,7 +77,7 @@ be decided → [solving.md](solving.md).
 | in Cyc | here | what changes |
 |---|---|---|
 | `negationPreds`, unary | `(disjoint P Q)` | native, because collections *are* predicates; closed under `genl` |
-| `negationPreds`, binary and up | a pair of implication rules | no declarative form — see below |
+| `negationPreds`, binary and up | `(negates P Q)` | read down `genl` on both sides; two tuples of one argument list are a placed nogood, and a ground denial is answered from the other side — see below |
 | `disjoint` | `disjoint` | same reading, and `(disjoint_metatype M)` makes every member pairwise disjoint without writing the pairs |
 | `SiblingDisjointCollectionType` | `sibling_disjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
 | `siblingDisjointExceptions` (plural) | `siblingDisjointException` | exempts one pair from the separation marks: the sibling mark, a `disjoint_metatype` and a `partition` or `separating` roster, not a stated `disjoint`; read at the reader, so a context that does not see it reads the pair separated, and pair-local |
@@ -90,13 +90,15 @@ be decided → [solving.md](solving.md).
 | `completeExtentEnumerable` | `(closed_extent_predicate P)` | a **counterpart**, not a translation. Both say a predicate's extent is complete, and three things differ: it is **belief-following** (a defeated or retracted member leaves the extent) rather than a claim about what is stored; it is **context-scoped**, read from the asking context's `genlCx` ancestor set, so one theory may close what a sibling reading the same predicate leaves open; and the extent it closes is what level 6 derives, so a member reachable only by backward chaining is not in it. Closure stays choosable per goal as well, by `unknown` / `thereExists` / `forall` → [naf.md](naf.md) |
 | `notAssertible` | — | no equivalent |
 
-Binary mutual exclusion is written as the two rules, and `(not S)` is a stored sentex
-with its own handle rather than an absence:
+Mutual exclusion above arity 1 is one declaration:
 
 ```clojure
-(v/assert-rule kb ['(likes ?x ?y)]    '(not (dislikes ?x ?y)) 'CxSomeContext)
-(v/assert-rule kb ['(dislikes ?x ?y)] '(not (likes ?x ?y))    'CxSomeContext)
+(v/assert kb '(negates likes dislikes) 'CxSomeContext)
 ```
+
+A believed `(likes Ann Bob)` beside a believed `(dislikes Ann Bob)` is one placed nogood,
+and `ask? (not (dislikes Ann Bob))` is true while `(likes Ann Bob)` is believed. No
+`(not S)` is stored per fact ([taxonomy.md](taxonomy.md#predicate-metadata)).
 
 `(inverse P Q)` is the inverse that `ask?`, `query` and a transitive walk read; a forward
 rule's antecedent does not join it ([inference.md](inference.md#where-the-machinery-stops)).
@@ -250,8 +252,8 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - One equality partition behind `rewriteOf` / `sameAs` / `equals` → [equality.md](equality.md)
 - Defeasible defaults with exceptions → [exceptions.md](exceptions.md)
 - The relation-property marks, enforced rather than recorded: `symmetric`, `asymmetric`,
-  `transitive`, `reflexive`, `functional`, `functionalInArg`, `inverse`, `irreflexive`,
-  `anti_symmetric`, `anti_transitive`, `equivalence_relation`, `injection`, `surjection`,
+  `transitive`, `reflexive`, `functional`, `functionalInArg`, `inverse`, `negates`,
+  `irreflexive`, `anti_symmetric`, `anti_transitive`, `equivalence_relation`, `injection`, `surjection`,
   `bijection`, `arity` and `variable_arity` → [taxonomy.md](taxonomy.md). `functionalInArg` is the one with no Cyc
   counterpart to map from: it names the *determined* argument rather than fixing it at 2,
   so a composite determinant — `(namespace, path) → object` — is sayable in one declaration
@@ -264,7 +266,6 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - Rename
 - Natural-language generation
 - `notAssertible`, `assertedMoreSpecifically`
-- `negationPreds` above arity 1 — the paired rules above are the translation
 - Strict well-formedness mode
 
 `transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here, in the

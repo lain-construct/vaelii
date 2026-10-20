@@ -93,7 +93,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 (contradictions kb)                            ; coexisting pairs at :default — represented dilemmas:
                                                ; a rebuttal (P/not-P), a definitional clash
                                                ; (:kind :disjoint|:functional|:asymmetric
-                                               ;  |:anti-transitive), or a stored claim against a
+                                               ;  |:anti-transitive|:negates), or a stored claim against a
                                                ; known-true claim reached by argument preservation
                                                ; (:kind :inherited, which adds an :inherited map —
                                                ;  {:sentence :context :claim handle :via [handle …]} —

@@ -367,7 +367,7 @@
 ;; ---- the entries ---------------------------------------------------------
 
 (def entries
-  "`[term spec]` pairs, ordered.  `special/entries`' fifty-nine functors first, in the table's
+  "`[term spec]` pairs, ordered.  `special/entries`' functors first, in the table's
   own order — that order is replayed by `rebuild-taxonomy` and so is content — then the
   rest of the grammar `vocabulary/roster` covers.
 
@@ -683,6 +683,22 @@
                                   " type read walks."))
                 (str "taxonomy/add-genl-inverse — the signed closure (tax/signed-closure) the"
                      " matching fan, the forward trigger and the subsumption witness read"))]
+     ['negates
+      (enforced (pair :negates :relation
+                      :facets #{:reach :convicts :answers}
+                      :notes (str "a tuple of one side's spec subtree beside a tuple of the"
+                                  " other's on the same arguments is a nogood the settle"
+                                  " places from the candidate index, whichever of the"
+                                  " declaration, the edges and the tuples arrived first; a"
+                                  " tuple under both sides is a one-member nogood. Not"
+                                  " :arbitrable, irreflexive's reading. The well-formedness"
+                                  " arm reads the argument count alone: a kind or a length the"
+                                  " stored content gives the two arguments is a placed clash"
+                                  " of the declaration."))
+                (str "chain/place-tuples! — the two tuples are a nogood placed with the"
+                     " declaration and the predicate genl edges as grounds; and"
+                     " provers/NegatesProver, which answers a ground (not (Q …)) from a"
+                     " believed tuple of a negating predicate"))]
 
      ;; ---- placement, lifting and the policy grants -----------------------
      ['decontextualized_predicate

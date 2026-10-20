@@ -3661,10 +3661,10 @@
 (defn- mark-ends
   "The predicates the grounds among the handles `hs` reach a tuple nogood under: the lower
   end of a stated `genl` edge with a mark at or above it (`tuple/under-marks`), and the
-  predicate a mark's flat-cache key names (`tuple/owned?`'s keys)."
+  predicates a mark's flat-cache key names (`tuple/owned?`'s keys)."
   [kb hs]
   (let [tax (reasoning/taxonomy kb)]
-    (into (into #{} (keep (fn [[kind a b]] (case kind :prop b :functional-in-arg a nil)))
+    (into (into #{} (mapcat (fn [[kind a b]] (case kind :prop [b] :functional-in-arg [a] :negates a nil)))
                 (tax/supported-keys tax hs))
           (tuple/under-marks tax (genl-lower-ends kb hs)))))
 
@@ -3802,7 +3802,7 @@
 
 (defn- sync-arity-pairs!
   "Place one `(contradicts …)` in CxUniverse for each arity pair at a predicate of `ps`
-  (`{p dirs}`, `arity/drain!`, `arity/pair-sets`), justified by its two bindings, remove
+  (`{p dirs}`, `arity/drain!`'s `:pairs`, `arity/pair-sets`), justified by its two bindings, remove
   the placements of the pairs at it that no longer stand, and return the handles created.
   Both members are on the roster, so the verdict places no `defeat`
   (`place-justified!`).  Under `:up`, a pair with a predicate below `p` is left to that
@@ -3827,6 +3827,42 @@
          (into made (mapcat #(place-justified! kb % [[root %]] (fn [core] (= % core))))
                (sort-by key (remove have want)))))
      [] (sort-by (comp nm/print-key first) ps))))
+
+(defn- sync-negates-lengths!
+  "Place one `(contradicts (sentexHandle d))` in the context of each stored `negates`
+  declaration `d` IN in the network whose sides' lengths clash (`arity/negates-clash`),
+  justified by `d` and the bindings stating the lengths, remove the placement of each one
+  that no longer clashes, and return the handles created.  Reads the declarations
+  `queued`, and those naming a term of `moved` (`arity/drain!`'s `:moved`, every stored
+  declaration under `:all`).  The declaration is forced-monotonic, so the verdict places
+  no `defeat` (`place-justified!`)."
+  [kb queued moved]
+  (let [tax   (reasoning/taxonomy kb)
+        idx   (:index kb)
+        sides (cond
+                (not (tax/negates? tax)) nil
+                (= :all moved)           :all
+                :else                    (filter #(seq (tax/negates-of tax %)) moved))]
+    (when (or (seq queued) (= :all sides) (seq sides))
+      (let [recs  (:records kb)
+            tms   (reasoning/tms kb)
+            ds    (if (= :all sides)
+                    (into (set queued) (reads/as-stored-with-functor idx 'negates))
+                    (into (set queued)
+                          (mapcat (fn [p] (concat (reads/as-stored-with-args idx 'negates {1 p})
+                                                  (reads/as-stored-with-args idx 'negates {2 p}))))
+                          sides))
+            owns? (fn [core] (boolean (some #(arity/binding-handle? kb %) core)))]
+        (into []
+              (mapcat (fn [sx]
+                        (let [d     (:id sx)
+                              clash (when (jtms/network-in? tms d)
+                                      (arity/negates-clash kb (:sentence sx)))]
+                          (place-justified! kb #{d}
+                                            (if clash [[(:context sx) (conj (:grounds clash) d)]] [])
+                                            owns?))))
+              (nm/sort-by-content-key (juxt :sentence :context) nm/compare-form
+                                      (keep #(p/get-sentex recs %) ds)))))))
 
 (defn placement-queued?
   "Has the negation, membership, related-types, tuple or arity index queued a nogood the
@@ -3972,7 +4008,9 @@
                      (-> []
                          ;; first, since a tuple the refresh holds inert is OUT in the
                          ;; network every other family detects over
-                         (into (sync-arity-pairs! kb (arity/drain! kb)))
+                         (into (let [{:keys [pairs moved]} (arity/drain! kb)]
+                                 (into (sync-arity-pairs! kb pairs)
+                                       (sync-negates-lengths! kb (arity/take-negates! kb) moved))))
                          (cond-> others?
                            (-> (into (place-negations! kb bodies reach first? fresh placed))
                                (into (place-memberships! kb c mmoved reach fresh placed))

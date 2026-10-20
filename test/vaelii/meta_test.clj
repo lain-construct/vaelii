@@ -148,14 +148,14 @@
     (is (v/ask? kb '(functional birthYearOf)))
     (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
-    ;; the domain relations, orthogonal and diachronicallyDisjoint are the symmetric
+    ;; the domain relations, orthogonal, negates and diachronicallyDisjoint are the symmetric
     ;; marks, decontextualized like the other algebraic marks, so they answer the
     ;; enumeration wherever CxUniverse is seen.  seeAlso is NOT among them — it is a directional cross-reference, not
     ;; symmetric.  The social relations (CxSocial and CxSocialExtension) are among them:
     ;; their marks are stated in CxUniverse like the rest, and ?ctx is open.
     (is (= '#{siblingOf marriedTo friendOf orthogonal siblingDisjointException
               relativeOf romanticPartnerOf coworkerOf roommateOf
-              nestingPartnerOf chosenSiblingOf diachronicallyDisjoint}
+              nestingPartnerOf chosenSiblingOf diachronicallyDisjoint negates}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because core.txt asserts (transitive genl)
     ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached
@@ -941,15 +941,17 @@
                       (every? #(re-matches #"[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*" (name %)) args))))))
 
 (deftest a-family-names-its-own-ground-as-a-member-only-beside-other-grounds
-  ;; A family reads its `:grounds` as stored marks.  The one nogood that names them as
-  ;; members is the arity family's `:arity-descension`, two bindings and nothing else,
-  ;; which `decide/verdict` reads `:hard`.  Every family with grounds places its nogoods,
+  ;; A family reads its `:grounds` as stored marks.  The nogoods that name them as
+  ;; members are the arity family's: `:arity-descension`, two bindings and nothing else,
+  ;; which `decide/verdict` reads `:hard`, and `:negates-arity`, a lone `negates`
+  ;; declaration.  Every family with grounds places its nogoods,
   ;; so each is read off the placed `contradicts`; the arity family places only its pairs,
   ;; and the ternary shortRel tuple is inert.
   (tu/with-neutral-kb [kb tu/isolated-fresh]
     (tu/with-terms [Ann Bob Cal dog_kind cat_kind Rex]
-      (let [[shortRel longRel irrRel antiRel ageRel beatsRel nextRel]
-            (mapv predicate-spelled ["Short" "Long" "Irr" "Anti" "Age" "Beats" "Next"])
+      (let [[shortRel longRel irrRel antiRel ageRel beatsRel nextRel likesRel hatesRel]
+            (mapv predicate-spelled ["Short" "Long" "Irr" "Anti" "Age" "Beats" "Next" "Likes"
+                                     "Hates"])
             U 'CxUniverse]
         (doseq [s [(list 'binary_predicate shortRel) (list shortRel Ann Bob Cal)
                    (list 'ternary_predicate longRel) (list 'genl longRel shortRel)
@@ -959,7 +961,9 @@
                    (list 'asymmetric beatsRel) (list beatsRel Ann Bob) (list beatsRel Bob Ann)
                    (list 'anti_transitive nextRel) (list nextRel Ann Bob) (list nextRel Bob Cal)
                    (list nextRel Ann Cal)
-                   (list 'disjoint dog_kind cat_kind) (list dog_kind Rex) (list cat_kind Rex)]]
+                   (list 'disjoint dog_kind cat_kind) (list dog_kind Rex) (list cat_kind Rex)
+                   (list 'negates likesRel hatesRel) (list likesRel Ann Bob) (list hatesRel Ann Bob)
+                   (list 'negates shortRel longRel)]]
           (v/assert kb s U))
         (let [sen     #(:sentence (v/sentex kb %))
               grounds (keep :grounds decide/registry)
@@ -967,7 +971,7 @@
                             :let [ms (into #{} (map v/handle-id) (rest (:sentence c)))]]
                         [ms (decide/placed-kind kb ms)])]
           (is (= #{:arity-descension :irreflexive :anti-symmetric :functional :asymmetric
-                   :anti-transitive :disjoint}
+                   :anti-transitive :disjoint :negates :negates-arity}
                  (into #{} (map second) placed))
               "every family with grounds places a nogood here")
           (is (= #{(list cat_kind Rex) (list dog_kind Rex)}
@@ -976,7 +980,7 @@
           (doseq [[ms kind] placed
                   :let [own (filterv (fn [h] (some #(own-ground? % (sen h)) grounds)) ms)]
                   :when (seq own)]
-            (is (and (= :arity-descension kind) (= (count own) (count ms)))
+            (is (and (#{:arity-descension :negates-arity} kind) (= (count own) (count ms)))
                 (pr-str kind (mapv sen ms)))))))))
 
 (tu/deftest-kb an-except-hides-the-derivation-it-blocks-in-either-order-beside-its-denial
