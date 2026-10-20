@@ -207,6 +207,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(partitionedByType W C A B …)`, and state each cell's membership `(C A)`.
   *Breaks:* `partitionedByType`
 
+- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
+  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
+  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
+  `arg` and `argAndRest` alone. So do the assert-time checks: an `args` declaration is
+  refused, and derives memberships, through the twin, whose handle an entailment rests on
+  and whose `argAndRest from 1, position N` a refusal names. Retracting the `args`
+  declaration retracts the twin. [argtypes.md](docs/argtypes.md).
+
+  *Migration:* a KB that loads `core.txt` needs none. A KB that does not has no forward
+  rule, so its `args` declarations type nothing: state `(argAndRest R 1 T)` instead, or
+  assert the rule.
+  *Breaks:* `args`, `assert`, `check`
+
 ### Additive
 
 - **`core.txt` ships the predicate and function exact-arity mappings, whose stamped rules
@@ -220,16 +234,6 @@ it — `git show v0.16.0:CHANGELOG.md`.
   proves `(arity ?r 2)` from `(binary ?r)`; `kb-integrity`'s `:implicit-arity-class` pass
   applies it instead, and every predicate and function the starter ships states its class.
   [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
-
-  *Class:* **Additive** (shipped ontology content).
-  *Migration:* none.
-
-- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
-  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
-  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
-  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
-  `arg` and `argAndRest` alone. Retracting the `args` declaration retracts the twin.
-  [argtypes.md](docs/argtypes.md).
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.

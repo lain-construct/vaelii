@@ -1656,8 +1656,11 @@
   "The argument-constraint declarations that entail, with the arity each is written at —
   the roster `entail-existing` dispatches on, so another kind is one line rather than a
   widened `and`.  Every kind of the `:argument-constraint` family but `quotedArg`, which
-  types the term as written and has nothing to derive (docs/argtypes.md)."
-  '{arg 3, argArg 3, genlArg 3, interArg 5, args 2, argAndRest 3, argsGenl 2,
+  types the term as written and has nothing to derive (docs/argtypes.md), and `args`,
+  which entails through the `(argAndRest P 1 T)` its core.txt forward rule stores: that
+  twin's arrival sweeps the stored facts, and its handle is what each mint rests on
+  (`checks/covering-entailments`)."
+  '{arg 3, argArg 3, genlArg 3, interArg 5, argAndRest 3, argsGenl 2,
     argAndRestGenl 3, interArgs 2, interArgAndRest 3})
 
 (def ^:private mint-informants
