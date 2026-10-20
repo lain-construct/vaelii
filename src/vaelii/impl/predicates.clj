@@ -596,16 +596,18 @@
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
                  :notes (str "related to relationTypeByArity by termsRelated, not a genl"
-                             " specialization of it, so a fact of its own classifies a predicate"
-                             " only.")}
-                "termsRelated to relationTypeByArity")]
+                             " specialization of it. The premises of a core.txt generator"
+                             " that stamps, per mapping fact, a backward rule classifying a"
+                             " predicate of that arity under the type.")}
+                "one core.txt generator stamps the per-type backward predicate rules")]
      ['functionTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
                  :notes (str "related to relationTypeByArity by termsRelated, not a genl"
-                             " specialization of it, so a fact of its own classifies a function"
-                             " only.")}
-                "termsRelated to relationTypeByArity")]
+                             " specialization of it. The premises of a core.txt generator"
+                             " that stamps, per mapping fact, a backward rule classifying a"
+                             " function of that arity under the type.")}
+                "one core.txt generator stamps the per-type backward function rules")]
      ['admitsArgnum
       (enforced {:shape {:args [:relation :position]} :storage [:none] :checked false
                  :family nil :facets #{:answers}

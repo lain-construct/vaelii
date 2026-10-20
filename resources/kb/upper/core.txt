@@ -880,6 +880,19 @@
 (implies (relationTypeByArity ?type ?arity)
          (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
 
+;; The predicate and function mappings are generators of their own, each guarding the
+;; rule it stamps with its kind: (predicateTypeByArity binary_predicate 2) classifies a
+;; relation of arity 2 as binary_predicate only when it is a predicate, so a binary
+;; function never reaches it.  The stamped rules are BACKWARD: a query for the class is
+;; proved from the kind and the arity, and nothing is stored, so no class membership is
+;; derived once per genl route that reaches predicate or function.
+(implies (predicateTypeByArity ?type ?arity)
+         (set/backwardRule
+          (implies (and (predicate ?relation) (arity ?relation ?arity)) (?type ?relation))))
+(implies (functionTypeByArity ?type ?arity)
+         (set/backwardRule
+          (implies (and (function ?relation) (arity ?relation ?arity)) (?type ?relation))))
+
 ;; The five relation-wide classifications separate each other: a relation takes ONE
 ;; exact number of arguments, so a second classification is a contradiction rather than
 ;; a second fact.  This keeps the (arity ?relation ?n) table single-valued at its source:

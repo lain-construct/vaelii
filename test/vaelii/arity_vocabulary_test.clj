@@ -11,6 +11,16 @@
 (use-fixtures :once (tu/loaded starter/load-into))
 (use-fixtures :each (tu/neutral))
 
+(defn- rule-proof
+  "The first answer's proof for `goal` at depth 3, and whether its root is a rule whose
+  sentence names every symbol in `names`."
+  [kb goal names]
+  (let [answer (first (v/query kb goal 'CxUniverse {:max-depth 3 :proof? true}))
+        root   (first (:proof answer))
+        syms   (set (filter symbol? (tree-seq coll? seq (:sentence root))))]
+    {:answer (:bindings answer)
+     :cites? (boolean (and (= :rule (:via root)) (every? syms names)))}))
+
 (tu/deftest-kb relation-is-the-common-parent
   (is (v/genl? kb 'predicate 'relation))
   (is (v/genl? kb 'function 'relation))
@@ -29,6 +39,37 @@
     (is (v/ask? kb (list 'termsRelated mapping 'relationTypeByArity) 'CxUniverse))
     (is (not (v/genl? kb mapping 'relationTypeByArity))
         (str mapping " is related to the relation-wide mapping, not a specialization of it"))))
+
+(tu/deftest-kb a-predicate-mapping-classifies-a-predicate-backward
+  ;; The predicate mapping stamps a backward rule guarded by the kind: a query for the
+  ;; class is proved from (predicate R) and (arity R 4), and nothing is stored.
+  (tu/with-terms [four_place_predicate fourPlacePredicate]
+    (v/assert kb (list 'genl four_place_predicate 'fixed_arity_predicate) 'CxUniverse)
+    (v/assert kb (list 'predicateTypeByArity four_place_predicate 4) 'CxUniverse)
+    (v/assert kb (list 'predicate fourPlacePredicate) 'CxUniverse)
+    (v/assert kb (list 'arity fourPlacePredicate 4) 'CxUniverse)
+    (let [{:keys [answer cites?]} (rule-proof kb (list four_place_predicate fourPlacePredicate)
+                                              ['predicate 'arity four_place_predicate])]
+      (is (= {} answer) "the class is proved")
+      (is cites? "by the stamped rule"))
+    (is (empty? (v/sentexes-matching kb (list four_place_predicate fourPlacePredicate) 'CxUniverse))
+        "and no membership is stored")))
+
+(tu/deftest-kb a-function-mapping-classifies-a-function-backward
+  (tu/with-terms [four_place_function fourPlaceFn fourPlacePred]
+    (v/assert kb (list 'genl four_place_function 'fixed_arity_function) 'CxUniverse)
+    (v/assert kb (list 'functionTypeByArity four_place_function 4) 'CxUniverse)
+    (v/assert kb (list 'function fourPlaceFn) 'CxUniverse)
+    (v/assert kb (list 'arity fourPlaceFn 4) 'CxUniverse)
+    (v/assert kb (list 'predicate fourPlacePred) 'CxUniverse)
+    (v/assert kb (list 'arity fourPlacePred 4) 'CxUniverse)
+    (let [{:keys [answer cites?]} (rule-proof kb (list four_place_function fourPlaceFn)
+                                              ['function 'arity four_place_function])]
+      (is (= {} answer))
+      (is cites?))
+    (is (empty? (v/query kb (list four_place_function fourPlacePred) 'CxUniverse {:max-depth 3}))
+        "a predicate of that arity is not a function type")
+    (is (empty? (v/sentexes-matching kb (list four_place_function fourPlaceFn) 'CxUniverse)))))
 
 (tu/deftest-kb a-predicate-mapping-does-not-classify-a-function
   ;; A predicateTypeByArity fact is not a relationTypeByArity fact, so the relation-wide

@@ -92,6 +92,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **`predicateTypeByArity` and `functionTypeByArity` facts stamp backward rules guarded
+  by the kind.** `(predicateTypeByArity T n)` stamps `(predicate ?r) ∧ (arity ?r n) → (T
+  ?r)` as a `set/backwardRule`, and `(functionTypeByArity T n)` the same rule over
+  `(function ?r)`. A query for `(T R)` is proved from the kind and the arity, and no
+  membership is stored. [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 - **`minCommonGenl` and `maxCommonSpec` answer the minimal common supertypes and maximal
   common subtypes of their later arguments.** `CommonGenlProver` computes both from the
   `genl` closure through the edges the asking context sees. `(minCommonGenl ?x dog
