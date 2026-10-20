@@ -224,11 +224,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
 
-- **`(args R T)` proves `(argAndRest R 1 T)`.** A `set/backwardRule` in `core.txt` states
-  the entailment the two spellings' comments describe, so `query (argAndRest R ?n ?t)` at
-  depth 3 answers `[{?n 1 ?t T}]` of a relation declared only through `args`. Nothing is
-  stored, and the engine reads both spellings through one reader that takes `args` as
-  `argAndRest` from 1. [argtypes.md](docs/argtypes.md).
+- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
+  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
+  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
+  `arg` and `argAndRest` alone. Retracting the `args` declaration retracts the twin.
+  [argtypes.md](docs/argtypes.md).
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.

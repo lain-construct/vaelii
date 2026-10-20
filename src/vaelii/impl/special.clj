@@ -253,7 +253,7 @@
 (def ^:private instance-type-shapes
   "The declarations `ArgTypeProver` reads a membership from (`res/arg-constraints`'
   `:instance` kind), each with the length of its sentence and the index its type sits at."
-  '{arg [4 3] argAndRest [4 3] args [3 2]})
+  '{arg [4 3] argAndRest [4 3]})
 
 (defn- declared-instance-type
   "The type `sentence` declares when it is one of the `instance-type-shapes`, else nil."
@@ -263,8 +263,8 @@
       (let [t (nth sentence at)] (when (symbol? t) t)))))
 
 (defn- arg-declared-types
-  "The types some `(arg pred n T)`, `(argAndRest pred n T)` or `(args pred T)` declares of
-  `pred`'s argument positions — read off the roots rather than through `matches-visible`,
+  "The types some `(arg pred n T)` or `(argAndRest pred n T)` declares of `pred`'s
+  argument positions — read off the roots rather than through `matches-visible`,
   and globally rather than per context, because a trigger has to be conservative in the
   direction the answer is and a declaration this context cannot see still qualifies a
   rule in one that can.
@@ -294,16 +294,16 @@
   it correctly drop, so which you get depends on when the fact arrived.
 
   Both arrival orders come here, and `sen` says which: a fact on `P`, whose declared
-  argument types are read; or the `(arg P n T)` declaration itself (or an `argAndRest` or
-  `args` one, which the prover reads as it reads `arg`), which does the same to every fact
-  of `P` already stored.
+  argument types are read; or the `(arg P n T)` declaration itself (or an `argAndRest`
+  one, which the prover reads as it reads `arg`, and which an `args` declaration's
+  forward rule stores), which does the same to every fact of `P` already stored.
 
   `:all`, for `recheck-preserving-along`'s reason: what moved is a fact about `P` (or a
   declaration about `P`'s argument positions), and the exception is about `T`, so the
   sentence could not narrow the right firings anyway.
 
-  Free for a KB that declares no `arg`, `argAndRest` or `args` — a cardinality read per
-  functor, and `arg-declared-types` stops there.  A KB that declares plenty pays before the roster
+  Free for a KB that declares no `arg` or `argAndRest` — a cardinality read per functor,
+  and `arg-declared-types` stops there.  A KB that declares plenty pays before the roster
   is probed at all: the seed walks `genls(pred)`, reads the `arg` postings on each and
   fetches a record per posting.  What a KB stating no exception over a declared type saves
   is only the tail — the probe per supertype answers empty and nothing is queued.
