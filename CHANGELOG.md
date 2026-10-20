@@ -102,6 +102,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [nat.md](docs/nat.md#typing-an-application-that-is-never-minted)
   *Migration:* none.
 
+- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
+  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
+  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
+  `arg` and `argAndRest` alone. Retracting the `args` declaration retracts the twin.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 ### Additive: introspection
 
 - **A truncated `kb-integrity` names the pass it stopped in**, as `:pass`, beside its
