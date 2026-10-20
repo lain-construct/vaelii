@@ -76,9 +76,14 @@ fact, the forward-only rule classifying a relation from its asserted `arity`. `c
 **five** relation-wide mapping facts, over `unary`, `binary`, `ternary`, `quaternary` and
 `quinary`, and five each of `predicateTypeByArity` and `functionTypeByArity`, over the
 ten predicate and function exact-arity classes. The predicate and function mappings are
-generators of their own, and each stamps a **backward** rule guarded by its kind:
-`(predicateTypeByArity T n)` proves `(T R)` from `(predicate R)` and `(arity R n)` at
-query time and stores nothing. `bounded_arity` and
+generators of their own, and each stamps an **inert** rule guarded by its kind:
+`(predicateTypeByArity T n)` states `(predicate R) ∧ (arity R n) → (T R)`, believed and
+browsable and run by neither engine. Run backward, the rule reached `(binary ?r)` through
+the `genl` edge from `binary_predicate` to `binary` while the converse proves `(arity ?r
+2)` from `(binary ?r)`, a cycle every `(binary ?r)` and `(arity ?p ?n)` query paid for.
+`kb-integrity`'s `implicit-arity-class` pass applies the rule instead, and its findings are
+stated ([integrity.md](integrity.md#what-an-implicit-arity-class-finding-means)): every
+predicate and function the starter ships states its class. `bounded_arity` and
 `unbounded_arity` partition `relation`: `fixed_arity` is below `bounded_arity`, and
 `unbounded_arity` below `variable_arity`, with `unbounded_arity_predicate` and
 `unbounded_arity_function` its intersections with `predicate` and `function`.

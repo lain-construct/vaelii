@@ -282,9 +282,14 @@ one work unit, and `:max-results` counts these findings last, after the `thing` 
 ## What an implicit-arity-class finding means
 
 `(predicateTypeByArity binary_predicate 2)` says that a predicate of two arguments is a
-`binary_predicate`, and `functionTypeByArity` says the same of functions. The sweep
-applies that argument to each candidate, and reports the class a predicate's or a
-function's arity forces that the relation is not an instance of:
+`binary_predicate`, and `functionTypeByArity` says the same of functions. Each mapping
+fact stamps that classification as a rule, and the rule is `set/inertRule`: believed and
+browsable, run on no write and no query. Run backward, the predicate rule reached
+`(binary ?r)` through the `genl` edge from `binary_predicate` to `binary` while the
+converse proves `(arity ?r 2)` from `(binary ?r)`, and every `(binary ?r)` and `(arity ?p
+?n)` query paid for the cycle ([taxonomy.md](taxonomy.md#arity)). The sweep applies the
+rule instead: it reports the class a predicate's or a function's arity forces that the
+relation is not an instance of, and an author states it:
 
 ```clojure
 ;; (predicateTypeByArity binary_predicate 2)

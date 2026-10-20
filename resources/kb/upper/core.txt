@@ -729,7 +729,8 @@
 
 ;; The predicate and function mappings, one per shipped exact-arity class.  Their
 ;; generators (below) guard each stamped rule with the kind, so (predicateTypeByArity
-;; unary_predicate 1) classifies a predicate of one argument and never a function.
+;; unary_predicate 1) classifies a predicate of one argument and never a function.  The
+;; stamped rules are inert, and the implicit-arity-class integrity pass applies them.
 (predicateTypeByArity unary_predicate 1)
 (predicateTypeByArity binary_predicate 2)
 (predicateTypeByArity ternary_predicate 3)
@@ -912,14 +913,18 @@
 ;; The predicate and function mappings are generators of their own, each guarding the
 ;; rule it stamps with its kind: (predicateTypeByArity binary_predicate 2) classifies a
 ;; relation of arity 2 as binary_predicate only when it is a predicate, so a binary
-;; function never reaches it.  The stamped rules are BACKWARD: a query for the class is
-;; proved from the kind and the arity, and nothing is stored, so no class membership is
-;; derived once per genl route that reaches predicate or function.
+;; function never reaches it.  The stamped rules are INERT: believed and documented, run
+;; on no write and no query.  Run backward, one reached (binary ?r) through the genl edge
+;; from binary_predicate to binary while the converse above proves (arity ?r 2) from
+;; (binary ?r), a cycle every (binary ?r) and (arity ?p ?n) query paid for.  The argument
+;; they state is swept instead: kb-integrity's implicit-arity-class pass reports each
+;; relation whose kind and arity the rule would classify and whose class is not stated,
+;; and the starter states every class that pass finds (docs/integrity.md).
 (implies (predicateTypeByArity ?type ?arity)
-         (set/backwardRule
+         (set/inertRule
           (implies (and (predicate ?relation) (arity ?relation ?arity)) (?type ?relation))))
 (implies (functionTypeByArity ?type ?arity)
-         (set/backwardRule
+         (set/inertRule
           (implies (and (function ?relation) (arity ?relation ?arity)) (?type ?relation))))
 
 ;; The five relation-wide classifications separate each other: a relation takes ONE

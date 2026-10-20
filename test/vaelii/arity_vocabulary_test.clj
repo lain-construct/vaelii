@@ -43,36 +43,68 @@
     (is (not (v/genl? kb mapping 'relationTypeByArity))
         (str mapping " is related to the relation-wide mapping, not a specialization of it"))))
 
-(tu/deftest-kb a-predicate-mapping-classifies-a-predicate-backward
-  ;; The predicate mapping stamps a backward rule guarded by the kind: a query for the
-  ;; class is proved from (predicate R) and (arity R 4), and nothing is stored.
+(defn- stamped-inert
+  "The handle of the inert rule a `kind` mapping stamps for `type` at `n`, or nil:
+  `(implies (and (kind ?relation) (arity ?relation n)) (type ?relation))`."
+  [kb kind type n]
+  (v/handle-of kb (list 'set/inertRule
+                        (list 'implies
+                              (list 'and (list kind '?relation) (list 'arity '?relation n))
+                              (list type '?relation)))
+               'CxUniverse))
+
+(tu/deftest-kb a-predicate-mapping-stamps-an-inert-classification
+  ;; The predicate mapping stamps an INERT rule guarded by the kind: believed and
+  ;; documented, run by neither engine.  Run backward it reached (binary ?r) through
+  ;; binary_predicate's genl edge while the converse proves (arity ?r 2) from (binary ?r),
+  ;; a cycle every (binary ?r) and (arity ?p ?n) query paid for.  The cover argument is
+  ;; the `implicit-arity-class` integrity sweep's, and its findings are stated.
   (tu/with-terms [four_place_predicate fourPlacePredicate]
     (v/assert kb (list 'genl four_place_predicate 'fixed_arity_predicate) 'CxUniverse)
     (v/assert kb (list 'predicateTypeByArity four_place_predicate 4) 'CxUniverse)
     (v/assert kb (list 'predicate fourPlacePredicate) 'CxUniverse)
     (v/assert kb (list 'arity fourPlacePredicate 4) 'CxUniverse)
-    (let [{:keys [answer cites?]} (rule-proof kb (list four_place_predicate fourPlacePredicate)
-                                              ['predicate 'arity four_place_predicate])]
-      (is (= {} answer) "the class is proved")
-      (is cites? "by the stamped rule"))
+    (let [h (stamped-inert kb 'predicate four_place_predicate 4)]
+      (is (some? h) "the mapping stamps its rule")
+      (when h
+        (is (v/in? kb h) "believed")
+        (is (= #{} (:engines (v/sentex kb h))) "and run by neither engine")))
+    (is (empty? (v/query kb (list four_place_predicate fourPlacePredicate) 'CxUniverse
+                         {:max-depth 3}))
+        "so the class is not proved from the kind and the arity")
     (is (empty? (v/sentexes-matching kb (list four_place_predicate fourPlacePredicate) 'CxUniverse))
         "and no membership is stored")))
 
-(tu/deftest-kb a-function-mapping-classifies-a-function-backward
-  (tu/with-terms [four_place_function fourPlaceFn fourPlacePred]
+(tu/deftest-kb a-function-mapping-stamps-an-inert-classification
+  (tu/with-terms [four_place_function fourPlaceFn]
     (v/assert kb (list 'genl four_place_function 'fixed_arity_function) 'CxUniverse)
     (v/assert kb (list 'functionTypeByArity four_place_function 4) 'CxUniverse)
     (v/assert kb (list 'function fourPlaceFn) 'CxUniverse)
     (v/assert kb (list 'arity fourPlaceFn 4) 'CxUniverse)
-    (v/assert kb (list 'predicate fourPlacePred) 'CxUniverse)
-    (v/assert kb (list 'arity fourPlacePred 4) 'CxUniverse)
-    (let [{:keys [answer cites?]} (rule-proof kb (list four_place_function fourPlaceFn)
-                                              ['function 'arity four_place_function])]
-      (is (= {} answer))
-      (is cites?))
-    (is (empty? (v/query kb (list four_place_function fourPlacePred) 'CxUniverse {:max-depth 3}))
-        "a predicate of that arity is not a function type")
+    (let [h (stamped-inert kb 'function four_place_function 4)]
+      (is (some? h))
+      (when h
+        (is (v/in? kb h))
+        (is (= #{} (:engines (v/sentex kb h))))))
+    (is (empty? (v/query kb (list four_place_function fourPlaceFn) 'CxUniverse {:max-depth 3})))
     (is (empty? (v/sentexes-matching kb (list four_place_function fourPlaceFn) 'CxUniverse)))))
+
+(tu/deftest-kb the-shipped-exact-arity-class-stamps-are-inert
+  (doseq [[kind type n] '[[predicate unary_predicate 1] [predicate binary_predicate 2]
+                          [predicate ternary_predicate 3] [function unary_function 1]
+                          [function binary_function 2] [function ternary_function 3]]]
+    (let [h (stamped-inert kb kind type n)]
+      (is (some? h) (str "stamped: " type))
+      (when h
+        (is (v/in? kb h))
+        (is (= #{} (:engines (v/sentex kb h))) (str type "'s stamp runs in neither engine")))))
+  (tu/with-terms [undeclaredBinary]
+    (v/assert kb (list 'predicate undeclaredBinary) 'CxUniverse)
+    (v/assert kb (list 'arity undeclaredBinary 2) 'CxUniverse)
+    (is (v/ask? kb (list 'binary undeclaredBinary) 'CxUniverse)
+        "the relation-wide class is still concluded forward from the arity")
+    (is (empty? (v/query kb (list 'binary_predicate undeclaredBinary) 'CxUniverse {:max-depth 3}))
+        "while the predicate class waits for the integrity sweep's finding to be stated")))
 
 (tu/deftest-kb the-starter-states-every-exact-arity-class-its-kinds-and-arities-force
   ;; The predicate and function class stamps are applied by kb-integrity's
@@ -1077,12 +1109,12 @@
 
 ;; ---- the exact classes derive downward only ------------------------------
 
-(tu/deftest-kb an-arity-and-a-kind-derive-the-kind-class-backward
-  ;; The guarded predicate and function rules are backward, so the kind class of a
-  ;; relation with an arity is proved at query time and stored nowhere: no membership is
-  ;; derived once per genl route between predicate and the class, and the stored KB does
-  ;; not depend on which route arrived first.  Pinned to the entailing reading: `(arg
-  ;; arity 1 fixed_arity)` refuses `(arity P 2)` for a P nothing else classifies under the
+(tu/deftest-kb an-arity-and-a-kind-leave-the-kind-class-to-the-sweep
+  ;; The guarded predicate and function rules are inert, so the kind class of a relation
+  ;; with an arity is neither proved at query time nor stored: the relation reaches the
+  ;; relation-wide class forward, and the kind class is the `implicit-arity-class`
+  ;; integrity finding its author states.  Pinned to the entailing reading: `(arg arity 1
+  ;; fixed_arity)` refuses `(arity P 2)` for a P nothing else classifies under the
   ;; constraint-only reading.
   (tu/with-entailing
     (tu/with-terms [pred2 fn2 rel2]
@@ -1091,23 +1123,23 @@
       (testing "the arity reaches the relation-wide class and the policy"
         (is (v/isa? kb pred2 'binary))
         (is (v/isa? kb pred2 'fixed_arity)))
-      (testing "a predicate is proved binary_predicate by the guarded rule, and nothing is stored"
-        (let [{:keys [answer cites?]} (rule-proof kb (list 'binary_predicate pred2)
-                                                  ['predicate 'arity 'binary_predicate])]
-          (is (= {} answer))
-          (is cites?))
+      (testing "a predicate is not proved binary_predicate, and nothing is stored"
+        (is (empty? (v/query kb (list 'binary_predicate pred2) 'CxUniverse {:max-depth 3})))
         (is (empty? (v/sentexes-matching kb (list 'binary_predicate pred2) 'CxUniverse)))
         (is (empty? (v/query kb (list 'binary_function pred2) 'CxUniverse {:max-depth 3}))))
-      (testing "a function is proved binary_function and never binary_predicate"
+      (testing "nor is a function proved binary_function"
         (v/assert kb (list 'arity fn2 2) 'CxUniverse)
         (v/assert kb (list 'function fn2) 'CxUniverse)
         (is (v/isa? kb fn2 'binary))
-        (let [{:keys [answer cites?]} (rule-proof kb (list 'binary_function fn2)
-                                                  ['function 'arity 'binary_function])]
-          (is (= {} answer))
-          (is cites?))
+        (is (empty? (v/query kb (list 'binary_function fn2) 'CxUniverse {:max-depth 3})))
         (is (empty? (v/query kb (list 'binary_predicate fn2) 'CxUniverse {:max-depth 3}))))
-      (testing "and a binary relation of neither kind is binary and no kind class"
+      (testing "and the integrity sweep names each missing kind class"
+        (is (= '#{[binary_predicate 2] [binary_function 2]}
+               (into #{} (map (juxt :class :arity))
+                     (:implicit-arity-class
+                      (v/kb-integrity kb #{pred2 fn2} 'CxUniverse
+                                      {:categories #{:implicit-arity-class}}))))))
+      (testing "while a binary relation of neither kind is binary and no kind class"
         (v/assert kb (list 'relation rel2) 'CxUniverse)
         (v/assert kb (list 'arity rel2 2) 'CxUniverse)
         (is (v/isa? kb rel2 'binary))
