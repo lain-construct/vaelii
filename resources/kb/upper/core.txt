@@ -2335,12 +2335,14 @@
 (set/monotonic (genl symmetric binary_predicate))
 
 (comment commutative
-         "(commutative ?relation) means that every argument of ?relation may be permuted without changing the proposition, at each arity the relation is applied at. The generalization of symmetric off its two fixed argument positions: symmetric commutes the two arguments of a binary predicate, this commutes all of them at any arity. Declarative sugar and a queryable classification rather than a second mechanism — a rule below derives (commutativeInArgAndRest ?relation 1), the tail-from-a-position spelling the engine canonicalizes with, so all-argument commutativity and the tail beginning at argument 1 are one licence written two ways. A one-argument relation marked commutative permutes nothing: one position is no permutation, and the mark stays queryable. See docs/canonicalization.md.")
+         "(commutative ?relation) means that every argument of ?relation may be permuted without changing the proposition, at each arity the relation is applied at. The generalization of symmetric off its two fixed argument positions: symmetric commutes the two arguments of a binary predicate, this commutes all of them at any arity. Declarative sugar and a queryable classification rather than a second mechanism — a rule below derives (commutativeInArgAndRest ?relation 1), the tail-from-a-position spelling the engine canonicalizes with, so all-argument commutativity and the tail beginning at argument 1 are one licence written two ways. A commutative relation takes two or more arguments: one position is no permutation, so a one-argument relation is not marked commutative. See docs/canonicalization.md.")
 (positiveExampleComment commutative "a relation such as intersection")
 (unary_predicate commutative)
 (decontextualized_predicate commutative)
 (set/monotonic (time_invariant_relation commutative))
 (genl commutative relation)
+;; One argument is no permutation, so every commutative relation takes two or more.
+(set/monotonic (genl commutative at_least_binary))
 
 (comment commutativeInArgs
          "(commutativeInArgs ?relation ?position1 ?position2 ...) means that the arguments of ?relation at the named positions may be permuted without changing the proposition, and that every position not named stays where it was written. At least two distinct positive positions, or the declaration licences nothing and is refused at the entry point. Two declarations sharing a position are one licence and not two applied in turn: positions 1 and 2 interchanging while 2 and 3 do means 1 and 3 interchange through 2, so the engine merges them into one component before it sorts. A named position past the relation's arity in some application simply forms no component there. See docs/canonicalization.md.")
