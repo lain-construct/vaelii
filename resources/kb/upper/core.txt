@@ -1824,7 +1824,7 @@
 (forced_monotonic_between_predicates genlInverse)
 
 (comment functional
-         "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value collides with the first: two symbols both known true (monotonic) derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them. Any other collision is a nogood each context reading the pair decides, a default fact losing to a monotonic one and two default facts being a dilemma: two non-symbols such as 1980 and 1990, since no merge can make two numbers one thing, and a pair with a default fact, since a merge rests on monotonic evidence alone. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property.")
+         "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value collides with the first: two symbols both known true (monotonic) derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them. Any other collision is a nogood each context reading the pair decides, a default fact losing to a monotonic one and two default facts being a dilemma: two non-symbols such as 1980 and 1990, since no merge can make two numbers one thing, and a pair with a default fact, since a merge rests on monotonic evidence alone. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property. A forward rule concludes (functionalInArg ?predicate 2) from it: functional is that mark's binary spelling.")
 (positiveExample functional (Quote (functional birthYearOf)))
 (unary_predicate functional)
 (decontextualized_predicate functional)
@@ -1839,6 +1839,10 @@
 (set/monotonic (time_invariant_relation functionalInArg))
 (arg functionalInArg 1 relation)
 (arg functionalInArg 2 positive_integer)
+;; functional is functionalInArg read at position 2, the binary spelling of the mark.  The
+;; rule states that definition, so a reader of the tuple-mark family reads functionalInArg
+;; alone and functional is sugar for it.
+(set/forwardRule (implies (and (functional ?p)) (functionalInArg ?p 2)))
 
 (comment injection
          "(injection ?predicate) means that ?predicate is an injective function: single-valued, one-to-one, and total on the type its first argument is declared to be. Declared once, it stands in for four claims the engine already reads. Two forward rules derive (functional ?predicate) and (functionalInArg ?predicate 1), each a real mark the engine enforces in turn: the merge-or-nogood rule over a shared first argument, and the same rule mirrored over a shared second. A second symbol filler on either side, both facts monotonic, derives (equals V1 V2) and merges, while any other collision, such as 1980 and 1990, is a nogood. A third rule reads the domain off (arg ?predicate 1 ?d) and derives the binary integrity requirement (predAllSpecified ?predicate ?d); the required filler type is not restated — the audit derives it from ?predicate's own slot-2 contract at read time. That requirement is audited on demand by vaelii.core/specified-violations, which reports the domain members carrying no determinate filler. Totality is audited rather than enforced because an open world cannot refuse a write for a member whose filler has not arrived. A predicate with no arg 1 declaration gets the two enforced marks and no audit, since nothing states what the domain is; one typed at arg 1 but not at arg 2 concludes the requirement, and the audit reports the missing slot contract as an explicit gap rather than auditing unconstrained. A one-to-one relation that is not total is (functional P) beside (functionalInArg P 1), written directly. Also a type: (genl injection functional) classifies P as functional and so binary_predicate. See docs/taxonomy.md.")
