@@ -233,6 +233,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fix: answers
 
+- **A commutative binary function is not concluded `symmetric`.** `core.txt`'s rule
+  `(commutative ?p) ∧ (arity ?p 2) → (symmetric ?p)` reads `(predicate ?p)` beside the
+  arity. A `(function F)` stated `commutative` with `(arity F 2)` concluded `(symmetric
+  F)`, which clashed with `(function F)` and was stored defeated, since `symmetric`
+  classifies binary predicates only. It now concludes nothing.
+  [canonicalization.md](docs/canonicalization.md#a-bridge-between-two-marks-is-a-cycle-backward)
+
+  *Migration:* none.
+
 - **`why-not` of a handle answers `:excepted` for a conclusion stored with a guard
   defeat.** A conclusion whose `exceptWhen` holds through a `:default` blocker is stored
   OUT with a guard defeat. `why-not` of its handle answered `:unsupported` with no missing

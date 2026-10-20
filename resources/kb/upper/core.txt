@@ -2029,11 +2029,14 @@
 ;; the canonical form is the one it already produced.
 (genl symmetric commutative)
 
-;; The converse needs the arity, and is a rule because it concludes a mark the engine
-;; enforces: commutativity at two arguments IS symmetry, where commutativity at any other
-;; arity implies neither symmetry nor arity 2.  It reads the (arity ?p 2) declaration and
-;; not the (binary ?p) class: every symmetric predicate is binary and commutative through
-;; its genl edges, so a class antecedent would re-derive each symmetric mark from itself.
+;; The converse needs the kind and the arity, and is a rule because it concludes a mark the
+;; engine enforces: commutativity of a predicate at two arguments IS symmetry, where
+;; commutativity at any other arity implies neither symmetry nor arity 2.  commutative
+;; classifies relations, functions included, and symmetric classifies binary predicates
+;; only, so (predicate ?p) keeps a commutative binary function out of symmetric.  It reads
+;; the (arity ?p 2) declaration and not the (binary ?p) class: every symmetric predicate is
+;; binary and commutative through its genl edges, so a class antecedent would re-derive
+;; each symmetric mark from itself.
 ;;
 ;; forwardOnlyRule, not forwardRule: set/forwardRule adds forward chaining without taking
 ;; the backward use away, and backward this rule is a cycle. The genl edge above makes
@@ -2046,7 +2049,7 @@
 ;; Forward chaining has no such trouble — it derives (symmetric P) once and reaches a
 ;; fixpoint — so the rule keeps the direction that does its work and drops the one that
 ;; does not.
-(set/forwardOnlyRule (implies (and (commutative ?p) (arity ?p 2)) (symmetric ?p)))
+(set/forwardOnlyRule (implies (and (commutative ?p) (predicate ?p) (arity ?p 2)) (symmetric ?p)))
 
 (comment asymmetric
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")

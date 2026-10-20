@@ -70,8 +70,8 @@ no backward goal asks for a rule.
 `set/forwardOnlyRule` is the fourth direction: it forward-chains but is **never** used in
 backward proof (engines `#{:forward}`, `rules/backward-sentex?` false). Tests use it to exercise
 forward chaining in isolation, and **the shipped ontology uses it once**: `core.txt`'s
-`(commutative ?p) ∧ (arity ?p 2) ⇒ (symmetric ?p)` bridge, whose backward use would pose
-its own antecedent as a goal. Every other ontology rule that materializes is
+`(commutative ?p) ∧ (predicate ?p) ∧ (arity ?p 2) ⇒ (symmetric ?p)` bridge, whose
+backward use would pose its own antecedent as a goal. Every other ontology rule that materializes is
 `set/forwardRule`, which stays backward-usable too.
 
 Direction is not an indexing choice: **every** rule is registered under all of its
