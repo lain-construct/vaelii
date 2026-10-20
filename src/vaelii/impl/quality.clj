@@ -1047,18 +1047,18 @@
            lits))))
 
 (defn- declared-arg-types
-  "The `[position type]` pairs an `arg` declaration binds `pred`'s tuples to, read up the
-  predicate hierarchy the reader `assert` uses (`res/constraining-predicates`), so a
-  super-predicate's declaration types a sub-predicate's tuple.  A declaration read, not an
-  inference: nothing is derived and no fact is consulted, the same standing
-  `separated-antecedents?` and `arity-conflicted?` have beside it."
-  [kb pred context]
-  (when (and (symbol? pred) (not (sx/variable? pred)))
-    (for [p     (res/constraining-predicates kb 'arg pred context)
-          [_ b] (res/matches-visible kb (list 'arg p '?n '?t) context)
-          :let  [n (get b '?n) t (get b '?t)]
-          :when (and (integer? n) (symbol? t) (not (sx/variable? t)))]
-      [n t])))
+  "The `[position type]` pairs the instance-type declarations bind a `pred` literal of
+  `arity` arguments to: `arg`, and the covering `args` / `argAndRest` at every position
+  of the literal they reach.  Read through `checks/instance-type-declarations`, the one
+  reading of the three spellings, so a declaration the entry point honors is one this
+  honors; up the predicate hierarchy, so a super-predicate's declaration types a
+  sub-predicate's tuple.  A declaration read, not an inference: nothing is derived and no
+  fact is consulted, the same standing `separated-antecedents?` and `arity-conflicted?`
+  have beside it."
+  [kb pred arity context]
+  (for [{:keys [from to type]} (checks/instance-type-declarations kb pred context)
+        n (range from (inc (min (or to arity) arity)))]
+    [n type]))
 
 (defn- arg-type-conflicted?
   "Does an antecedent `arg` declaration demand a term be of a type disjoint from another
@@ -1077,8 +1077,12 @@
   Two stated types clashing is the clash the pair already reports, not a reason to hide it,
   so at least one side of a disjoint pair must be a declared arg type.
 
-  **`arg` alone is read, not `genlArg` or the covering forms `args` / `argAndRest`.**
-  `genlArg` demands the argument be a *subtype* of the named type rather than a member of
+  **The instance-type declarations are read, `arg` and its covering forms `args` /
+  `argAndRest` alike** (`declared-arg-types`): each says a position holds an instance of
+  a type, and a reader honoring one spelling and not another would prune a pair under
+  one way of writing the declaration and report it under the other.
+
+  **`genlArg` is not read.**  `genlArg` demands the argument be a *subtype* of the named type rather than a member of
   it — a claim one stratum up — so reading a `genlArg` bound against a membership type
   through `disjoint?` would compare two different levels.  A sound `genlArg` reading is its
   own check, over two subtype bounds a term cannot satisfy at once, and nothing needs it:
@@ -1096,10 +1100,8 @@
                                  (update m (first as) (fnil conj #{}) [f :stated])
                                  m)]
                          (reduce (fn [m [n t]]
-                                   (if (<= 1 n (count as))
-                                     (update m (nth as (dec n)) (fnil conj #{}) [t :declared])
-                                     m))
-                                 m (declared-arg-types kb f context))))))
+                                   (update m (nth as (dec n)) (fnil conj #{}) [t :declared]))
+                                 m (declared-arg-types kb f (count as) context))))))
                  {} lits)]
     (boolean
      (some (fn [[_ ts]]
