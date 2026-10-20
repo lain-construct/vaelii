@@ -15,6 +15,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **A predicate or function with an exact arity is proved a member of its kind's
+  exact-arity class.** `core.txt` ships `(predicateTypeByArity unary_predicate 1)`
+  through `(predicateTypeByArity quinary_predicate 5)`, one fact per exact-arity
+  predicate class, and the five `functionTypeByArity` peers over `unary_function`
+  through `quinary_function`. `query (binary_predicate P)` of a `P` stated `(predicate P)` and
+  `(arity P 2)` answers `[{}]` at depth 3, where it answered nothing, and `query
+  (binary_function P)` still answers nothing. The membership is proved at query time and
+  never stored. [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Migration:* none.
+  *Breaks:* `query`
+
 - **`predicateTypeByArity` and `functionTypeByArity` are `termsRelated` to
   `relationTypeByArity`, not its `genl` specializations.** A `(predicateTypeByArity T n)`
   fact is no longer a `(relationTypeByArity T n)` fact, so the relation-wide generator

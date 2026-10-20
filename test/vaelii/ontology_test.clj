@@ -577,13 +577,12 @@
   ;; concludes no more than it does, so no rule in the ontology is carrying its weight
   ;; only because somebody wrote it twice at two levels of the hierarchy.
   ;;
-  ;; The arity generator is the case that tests the claim.  It stamps one rule per
-  ;; `relationTypeByArity` fact, and CxUniverse ships three — over `unary`, `binary` and
-  ;; `ternary`.  A `(predicateTypeByArity unary_predicate 1)` fact beside them would
-  ;; stamp a fourth firing wherever the first already fires, since `unary_predicate`
-  ;; is a `unary`; CxUniverse states that membership with a `genl` edge instead, so the
-  ;; reading stays at zero and a mapping table that grew a redundant member would
-  ;; show up here.
+  ;; The arity generators are the case that tests the claim.  The relation-wide one
+  ;; stamps one rule per `relationTypeByArity` fact, over `unary` through `quinary`,
+  ;; and the predicate and function ones stamp a rule per mapping fact over the ten kind
+  ;; classes, each guarded by its kind.  A guarded rule concludes a kind
+  ;; class the relation-wide rule does not, so neither covers the other, and a mapping
+  ;; table that grew a redundant member would show up here.
   (let [q (:subsumption (v/kb-quality kb {:limit 100}))]
     (is (pos? (:total q)) "the reading ran over rules rather than over nothing")
     (is (not (:truncated? q)) "and over all of them")

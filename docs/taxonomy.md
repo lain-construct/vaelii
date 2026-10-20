@@ -74,9 +74,11 @@ and their binary through quinary peers specialize those relation-wide classes.
 mapping is never a relation-wide one. One generator stamps, per `relationTypeByArity`
 fact, the rule classifying a relation from its asserted `arity`. `core.txt` ships
 **five** relation-wide mapping facts, over `unary`, `binary`, `ternary`, `quaternary` and
-`quinary`. The predicate and function mappings are generators of their own, and each
-stamps a **backward** rule guarded by its kind: `(predicateTypeByArity T n)` proves `(T
-R)` from `(predicate R)` and `(arity R n)` at query time and stores nothing. `bounded_arity` and
+`quinary`, and five each of `predicateTypeByArity` and `functionTypeByArity`, over the
+ten predicate and function exact-arity classes. The predicate and function mappings are
+generators of their own, and each stamps a **backward** rule guarded by its kind:
+`(predicateTypeByArity T n)` proves `(T R)` from `(predicate R)` and `(arity R n)` at
+query time and stores nothing. `bounded_arity` and
 `unbounded_arity` partition `relation`: `fixed_arity` is below `bounded_arity`, and
 `unbounded_arity` below `variable_arity`, with `unbounded_arity_predicate` and
 `unbounded_arity_function` its intersections with `predicate` and `function`.

@@ -688,7 +688,7 @@
 (set/monotonic (genl quinary_function quinary))
 
 (comment relationTypeByArity
-         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its five declarations drive the rule that classifies a relation from its asserted arity.")
+         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its five declarations drive the rule that classifies a relation from its asserted arity. predicateTypeByArity and functionTypeByArity map the predicate and function exact-arity types, five facts each.")
 (binary_predicate relationTypeByArity)
 (set/monotonic (instance_relation_predicate relationTypeByArity))
 (set/monotonic (functional relationTypeByArity))
@@ -722,8 +722,19 @@
 (termsRelated predicateTypeByArity relationTypeByArity)
 (termsRelated functionTypeByArity relationTypeByArity)
 
-;; The five relation-wide mappings are the only ones SHIPPED, and the predicate and
-;; function members reach them through their genl edges to unary through quinary.
+;; The predicate and function mappings, one per shipped exact-arity class.  Their
+;; generators (below) guard each stamped rule with the kind, so (predicateTypeByArity
+;; unary_predicate 1) classifies a predicate of one argument and never a function.
+(predicateTypeByArity unary_predicate 1)
+(predicateTypeByArity binary_predicate 2)
+(predicateTypeByArity ternary_predicate 3)
+(predicateTypeByArity quaternary_predicate 4)
+(predicateTypeByArity quinary_predicate 5)
+(functionTypeByArity unary_function 1)
+(functionTypeByArity binary_function 2)
+(functionTypeByArity ternary_function 3)
+(functionTypeByArity quaternary_function 4)
+(functionTypeByArity quinary_function 5)
 
 (comment arity
          "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")

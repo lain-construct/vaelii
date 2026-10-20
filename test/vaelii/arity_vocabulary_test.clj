@@ -148,18 +148,22 @@
           (str relation " is not overloaded as exactly binary")))))
 
 (tu/deftest-kb relation-wide-types-own-the-arity-rules
-  ;; Five mapping facts, not fifteen.  The predicate and function members are mapped by
-  ;; their genl edges to unary / binary / ternary / quaternary / quinary, and a
-  ;; per-member fact would stamp a rule classifying a function of that arity as a
-  ;; predicate.
+  ;; Fifteen mapping facts: five relation-wide, and five each for the predicate and
+  ;; function classes, whose generators guard the stamped rule with the kind.
   (doseq [[type arity] '[[unary 1] [binary 2] [ternary 3] [quaternary 4] [quinary 5]]]
     (is (v/ask? kb (list 'relationTypeByArity type arity) 'CxUniverse)))
+  (doseq [[type arity] '[[unary_predicate 1] [binary_predicate 2] [ternary_predicate 3]
+                         [quaternary_predicate 4] [quinary_predicate 5]]]
+    (is (v/ask? kb (list 'predicateTypeByArity type arity) 'CxUniverse)))
+  (doseq [[type arity] '[[unary_function 1] [binary_function 2] [ternary_function 3]
+                         [quaternary_function 4] [quinary_function 5]]]
+    (is (v/ask? kb (list 'functionTypeByArity type arity) 'CxUniverse)))
   (doseq [type '[unary_predicate binary_predicate ternary_predicate
                  quaternary_predicate quinary_predicate
                  unary_function binary_function ternary_function
                  quaternary_function quinary_function]]
     (is (empty? (v/sentexes-matching kb (list 'relationTypeByArity type '?arity) 'CxUniverse))
-        (str type " is mapped by its genl edge rather than by a fact of its own")))
+        (str type " has no relation-wide mapping, which would classify the other kind")))
   (is (v/genl? kb 'unary_predicate 'unary))
   (is (v/genl? kb 'binary_predicate 'binary))
   (is (v/genl? kb 'ternary_predicate 'ternary))
@@ -1013,34 +1017,42 @@
 
 ;; ---- the exact classes derive downward only ------------------------------
 
-(tu/deftest-kb an-arity-and-a-kind-do-not-derive-the-intersection
-  ;; Every `genl` edge on the exact classes runs downward: a binary_predicate is binary
-  ;; and is a predicate, and nothing states the converse.  CxUniverse ships no
-  ;; `(defnSufficient binary_predicate (and (arity ?x 2) (predicate ?x)))`, because
-  ;; `(predicate ?x)` matches every class membership of every predicate by subsumption,
-  ;; once per genl route between the two: the six of them cost 748 justifications and
-  ;; 600 ms of a 3.2 s starter load for 36 memberships, and a firing re-derived through a
-  ;; route that appeared after it leaves the shipped KB holding justifications that depend
-  ;; on arrival order.  What a caller needs from the classification is the arity, and the
-  ;; relation-wide class answers that.  Pinned to the entailing reading: `(arg arity 1
-  ;; fixed_arity)` refuses `(arity P 2)` for a P nothing else classifies under the
+(tu/deftest-kb an-arity-and-a-kind-derive-the-kind-class-backward
+  ;; The guarded predicate and function rules are backward, so the kind class of a
+  ;; relation with an arity is proved at query time and stored nowhere: no membership is
+  ;; derived once per genl route between predicate and the class, and the stored KB does
+  ;; not depend on which route arrived first.  Pinned to the entailing reading: `(arg
+  ;; arity 1 fixed_arity)` refuses `(arity P 2)` for a P nothing else classifies under the
   ;; constraint-only reading.
   (tu/with-entailing
-    (tu/with-terms [pred2 fn2]
+    (tu/with-terms [pred2 fn2 rel2]
       (v/assert kb (list 'predicate pred2) 'CxUniverse)
       (v/assert kb (list 'arity pred2 2) 'CxUniverse)
       (testing "the arity reaches the relation-wide class and the policy"
         (is (v/isa? kb pred2 'binary))
         (is (v/isa? kb pred2 'fixed_arity)))
-      (testing "and the kind classes stay where their own memberships put them"
-        (is (not (v/isa? kb pred2 'binary_predicate)))
-        (is (not (v/isa? kb pred2 'fixed_arity_predicate)))
-        (is (not (v/isa? kb pred2 'binary_function))))
-      (testing "a function is in the same position"
+      (testing "a predicate is proved binary_predicate by the guarded rule, and nothing is stored"
+        (let [{:keys [answer cites?]} (rule-proof kb (list 'binary_predicate pred2)
+                                                  ['predicate 'arity 'binary_predicate])]
+          (is (= {} answer))
+          (is cites?))
+        (is (empty? (v/sentexes-matching kb (list 'binary_predicate pred2) 'CxUniverse)))
+        (is (empty? (v/query kb (list 'binary_function pred2) 'CxUniverse {:max-depth 3}))))
+      (testing "a function is proved binary_function and never binary_predicate"
         (v/assert kb (list 'arity fn2 2) 'CxUniverse)
         (v/assert kb (list 'function fn2) 'CxUniverse)
         (is (v/isa? kb fn2 'binary))
-        (is (not (v/isa? kb fn2 'binary_function)))))))
+        (let [{:keys [answer cites?]} (rule-proof kb (list 'binary_function fn2)
+                                                  ['function 'arity 'binary_function])]
+          (is (= {} answer))
+          (is cites?))
+        (is (empty? (v/query kb (list 'binary_predicate fn2) 'CxUniverse {:max-depth 3}))))
+      (testing "and a binary relation of neither kind is binary and no kind class"
+        (v/assert kb (list 'relation rel2) 'CxUniverse)
+        (v/assert kb (list 'arity rel2 2) 'CxUniverse)
+        (is (v/isa? kb rel2 'binary))
+        (is (empty? (v/query kb (list 'binary_predicate rel2) 'CxUniverse {:max-depth 3})))
+        (is (empty? (v/query kb (list 'binary_function rel2) 'CxUniverse {:max-depth 3})))))))
 
 (tu/deftest-kb every-exact-class-spelling-declares-the-arity-it-names
   ;; `tax/exact-arity-classes` is the membership spelling of an arity, and CxUniverse
