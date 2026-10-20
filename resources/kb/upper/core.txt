@@ -1041,6 +1041,9 @@
 (unary_predicate time_indexed_relation)
 (set/monotonic (time_invariant_relation time_indexed_relation))
 (set/monotonic (genl time_indexed_relation time_invariant_relation))
+;; One argument names the time and at least one other the rest of the tuple, so a
+;; time-indexed relation takes two or more.
+(set/monotonic (genl time_indexed_relation at_least_binary))
 (set/forwardRule (implies (temporalIndexArg ?relation ?position) (time_indexed_relation ?relation)))
 ;; Some time-varying relations change one way only.  An organism that is dead stays
 ;; dead, and one that is not alive is never alive again.  Each is a kind of
