@@ -166,8 +166,12 @@
       (is (v/assert kb (list 'arg instRel 1 'thing) 'CxUniverse))
       (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'genlArg instRel 2 'thing) 'CxUniverse)))))
     (testing "a type-level relation takes genlArg"
-      (is (v/assert kb (list 'genlArg typeRel 1 'thing) 'CxUniverse))
-      (is (= :arg-constraint-kind (ex-type #(v/assert kb (list 'arg typeRel 2 'thing) 'CxUniverse)))))
+      (is (v/assert kb (list 'genlArg typeRel 1 'thing) 'CxUniverse)))
+    (testing "and arg as well: the kinds it relates are themselves instances of a type"
+      ;; `(arg disjoint 1 unary_predicate)` says each argument *is* a unary predicate,
+      ;; which a kind is — an instance claim about the kind, not a subtype claim, so
+      ;; it is no contradiction of the relation kind
+      (is (v/assert kb (list 'arg typeRel 2 'thing) 'CxUniverse)))
     (testing "an unclassified relation takes either"
       (let [rel (tu/tmp-pred)]
         (is (v/assert kb (list 'arg rel 1 'thing) 'CxUniverse))

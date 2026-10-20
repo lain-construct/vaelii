@@ -1718,7 +1718,7 @@ the roster and is weighed as a member of an inherited nogood.
   already state those two types, so the rules read them from there. A predicate declaring
   no `arg` pair gets the enforced half and no audit, rather than a requirement
   quantified over `thing`. `genlArg` is not read, so a
-  `type_relation_predicate` — which the entry point refuses an `arg` on — carries the
+  `type_relation_predicate` declaring its positions with `genlArg` alone carries the
   enforced half alone. The audit requirements rest on the `arg`
   declarations as well as on the mark, so retracting `(arg P 1 D)` withdraws them and
   leaves the refusals standing.
@@ -2032,7 +2032,9 @@ already says about its predicate:
   coherent. The release is read off the predicate's **own** memberships, since
   `arity/relation-length` already declines to bind when a super carries the mark.
 - **A constraint disagreeing with the predicate's `relation_kind`** — `genlArg` on an
-  `instance_relation_predicate`, or `arg` on a `type_relation_predicate`.
+  `instance_relation_predicate`, whose arguments are individuals and never subtypes.
+  `arg` on a `type_relation_predicate` is not one: a kind is an instance of a type as
+  well as a subtype of one.
 
 **Both constraints on one position is not one of them**, and it is the case worth naming
 because the opposite reads plausible: one asks the argument to be an instance of a type

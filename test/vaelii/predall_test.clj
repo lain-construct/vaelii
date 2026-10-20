@@ -361,14 +361,12 @@
                "same arm, same typed reason as (arg owns 3 dog)")))
     (is (not (v/ask? kb (list 'arg3 owns '?t) 'CxUniverse))
         "and nothing stored a believed-but-inert binary spelling")
-    (try (v/assert kb (list 'arg1 'genl dog) 'CxUniverse)
-         (is false "arg on a type_relation_predicate must refuse through arg1 too")
-         (catch clojure.lang.ExceptionInfo e
-           (is (= :arg-constraint-kind (:type (ex-data e)))
-               "the relation-kind arm fires for the projection as for the ternary")))
-    (is (= [:arg-constraint-kind]
-           (mapv :type (v/check kb (list 'interArg 'genl 1 dog 2 dog) 'CxUniverse)))
-        "and for an interArg over the same relation")))
+    (tu/with-terms [kindOf]
+      (v/assert kb (list 'type_relation_predicate kindOf) 'CxUniverse)
+      (is (v/assert kb (list 'arg1 kindOf 'unary_predicate) 'CxUniverse)
+          "arg on a type_relation_predicate is admitted through arg1, as the ternary is")
+      (is (= [] (mapv :type (v/check kb (list 'interArg kindOf 1 dog 2 dog) 'CxUniverse)))
+          "and so is an interArg over the same relation"))))
 
 (tu/deftest-kb a-declaration-without-slot-typing-is-a-reported-gap
   ;; missing slot typing is an explicit declaration-contract diagnostic, never a silent
