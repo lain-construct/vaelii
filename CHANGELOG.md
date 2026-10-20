@@ -245,6 +245,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none for a KB that reads a portion's phase. A query for one of the four
   `genl` edges answers no.
 
+- **`kb-quality`'s clash reading reads a functional slot off the KB's `functionalInArg`
+  marks, for any predicate.** Two antecedents filling one marked slot for one tuple with
+  two distinct numbers or other non-symbol atoms, with a number a `lessThan` or
+  `greaterThan` bound on the other filler excludes, or with two variables whose bounds
+  leave nothing between them, cannot both hold, and the pair is dropped. The arity table
+  reaches the reading through `(functional arity)`, where the reading named `arity`
+  before, and an upper bound now counts beside a lower one. A KB that does not mark
+  `arity` functional now pairs `(arity ?p 1)` with `(arity ?p 2)`.
+  [quality.md](docs/quality.md).
+
+  *Class:* **Fix**.
+
 ### Fix: storage
 
 - **A recover makes no network node for an `assert-inert` record**, as `assert-inert`
