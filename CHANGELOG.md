@@ -28,6 +28,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   application and stores the conclusion over the constant, which the goal reads.
   *Breaks:* `assert` of a rule whose consequent names an application, `prove`, `query`
 
+- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
+  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
+  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
+  `arg` and `argAndRest` alone. So do the assert-time checks: an `args` declaration is
+  refused, and derives memberships, through the twin, whose handle an entailment rests on
+  and whose `argAndRest from 1, position N` a refusal names. Retracting the `args`
+  declaration retracts the twin. [argtypes.md](docs/argtypes.md).
+
+  *Migration:* a KB that loads `core.txt` needs none. A KB that does not has no forward
+  rule, so its `args` declarations type nothing: state `(argAndRest R 1 T)` instead, or
+  assert the rule.
+  *Breaks:* `args`, `assert`, `check`
+
 ### Breaking: daemon
 
 - **A wire write naming the provenance `:principal` is refused**, 403
@@ -100,16 +114,6 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(time_point ?w)` antecedent fires for an `InstantFn` term. A forward rule's type
   antecedent does not read it.
   [nat.md](docs/nat.md#typing-an-application-that-is-never-minted)
-  *Migration:* none.
-
-- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
-  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
-  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
-  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
-  `arg` and `argAndRest` alone. Retracting the `args` declaration retracts the twin.
-  [argtypes.md](docs/argtypes.md).
-
-  *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
 
 ### Additive: introspection
