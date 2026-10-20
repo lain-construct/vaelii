@@ -248,7 +248,7 @@
   A **unary** predicate's one position is exempt as a class and is not listed — see the
   test."
   (merge
-   {'[genl 1] "predicate specializations: (genlArg genl 1 thing) is false of (genl predicateTypeByArity relationTypeByArity), whose ends are binary predicates (core.txt, beside genl)"
+   {'[genl 1] "predicate specializations: (genlArg genl 1 thing) is false of (genl performedBy doneBy), whose ends are binary predicates (core.txt, beside genl)"
     '[genl 2] "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive (core.txt, beside genl)"}
    ;; the example: (Quote S), whose arg reading derives a membership of a reified
    ;; constant or of a bare symbol written in its place, and whose quotedArg reading

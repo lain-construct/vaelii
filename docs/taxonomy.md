@@ -68,14 +68,13 @@ policy and the exact `arity` table are therefore relation-wide.
 `fixed_arity` and `variable_arity` partition `relation` into two policies, with predicate
 and function specializations for each. Unsuffixed `unary`, `binary`, `ternary`,
 `quaternary` and `quinary` classify exact relations; `unary_predicate` / `unary_function`
-and their binary through quinary peers specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
-`predicateTypeByArity` and `functionTypeByArity` are its `genl` specializations, and one
-generator stamps, per mapping fact, the rule classifying a relation from its asserted
-`arity`, with no parallel rule families. `core.txt` ships **five** mapping facts, over
-`unary`, `binary`, `ternary`, `quaternary` and `quinary`. The predicate and function types reach them through
-their `genl` edges, so a `(predicateTypeByArity unary_predicate 1)` beside them would
-classify a unary function as a predicate. The two specializations stay declared for a KB
-mapping an arity the relation-wide table has no class for. `bounded_arity` and
+and their binary through quinary peers specialize those relation-wide classes.
+`relationTypeByArity` owns the shared mapping; `predicateTypeByArity` and
+`functionTypeByArity` are related to it by `termsRelated`, not `genl`, so a predicate
+mapping is never a relation-wide one. One generator stamps, per `relationTypeByArity`
+fact, the rule classifying a relation from its asserted `arity`. `core.txt` ships
+**five** relation-wide mapping facts, over `unary`, `binary`, `ternary`, `quaternary` and
+`quinary`. `bounded_arity` and
 `unbounded_arity` partition `relation`: `fixed_arity` is below `bounded_arity`, and
 `unbounded_arity` below `variable_arity`, with `unbounded_arity_predicate` and
 `unbounded_arity_function` its intersections with `predicate` and `function`.

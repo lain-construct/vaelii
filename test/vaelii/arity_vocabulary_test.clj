@@ -25,8 +25,23 @@
     (is (= 2 (v/relation-arity kb mapping))))
   (doseq [type '[thing animal tangible fixed_arity]]
     (is (v/isa? kb type 'unary_predicate)))
-  (is (v/genl? kb 'predicateTypeByArity 'relationTypeByArity))
-  (is (v/genl? kb 'functionTypeByArity 'relationTypeByArity)))
+  (doseq [mapping '[predicateTypeByArity functionTypeByArity]]
+    (is (v/ask? kb (list 'termsRelated mapping 'relationTypeByArity) 'CxUniverse))
+    (is (not (v/genl? kb mapping 'relationTypeByArity))
+        (str mapping " is related to the relation-wide mapping, not a specialization of it"))))
+
+(tu/deftest-kb a-predicate-mapping-does-not-classify-a-function
+  ;; A predicateTypeByArity fact is not a relationTypeByArity fact, so the relation-wide
+  ;; generator stamps nothing for it, and a function of that arity stays out of the
+  ;; predicate type.
+  (tu/with-terms [four_place_predicate fourPlaceFn]
+    (v/assert kb (list 'genl four_place_predicate 'fixed_arity_predicate) 'CxUniverse)
+    (v/assert kb (list 'predicateTypeByArity four_place_predicate 4) 'CxUniverse)
+    (v/assert kb (list 'function fourPlaceFn) 'CxUniverse)
+    (v/assert kb (list 'arity fourPlaceFn 4) 'CxUniverse)
+    (is (empty? (v/sentexes-matching kb (list 'relationTypeByArity four_place_predicate '?n)
+                                     'CxUniverse)))
+    (is (empty? (v/query kb (list four_place_predicate fourPlaceFn) 'CxUniverse {:max-depth 3})))))
 
 (tu/deftest-kb the-arity-generator-stamps-the-class-from-one-mapping-fact
   ;; One mapping fact mints one rule, and its conclusions rest on it: the arity concludes
@@ -104,9 +119,6 @@
                  quaternary_function quinary_function]]
     (is (empty? (v/sentexes-matching kb (list 'relationTypeByArity type '?arity) 'CxUniverse))
         (str type " is mapped by its genl edge rather than by a fact of its own")))
-  (is (v/genl? kb 'predicateTypeByArity 'relationTypeByArity)
-      "the specialization stays declared for a KB that maps an unshipped arity")
-  (is (v/genl? kb 'functionTypeByArity 'relationTypeByArity))
   (is (v/genl? kb 'unary_predicate 'unary))
   (is (v/genl? kb 'binary_predicate 'binary))
   (is (v/genl? kb 'ternary_predicate 'ternary))

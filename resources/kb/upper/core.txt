@@ -696,14 +696,14 @@
 (arg relationTypeByArity 2 non_negative_integer)
 
 (comment predicateTypeByArity
-         "The predicate specialization of relationTypeByArity.")
+         "(predicateTypeByArity ?type ?arity) maps a predicate exact-arity type to its arity. Related to relationTypeByArity (termsRelated) and not a specialization of it: a predicate mapping classifies a predicate only.")
 (binary_predicate predicateTypeByArity)
 (set/monotonic (instance_relation_predicate predicateTypeByArity))
 (arg predicateTypeByArity 1 unary_predicate)
 (arg predicateTypeByArity 2 non_negative_integer)
 
 (comment functionTypeByArity
-         "The function specialization of relationTypeByArity.")
+         "(functionTypeByArity ?type ?arity) maps a function exact-arity type to its arity. Related to relationTypeByArity (termsRelated) and not a specialization of it: a function mapping classifies a function only.")
 (binary_predicate functionTypeByArity)
 (set/monotonic (instance_relation_predicate functionTypeByArity))
 (arg functionTypeByArity 1 unary_predicate)
@@ -715,19 +715,15 @@
 (relationTypeByArity quaternary 4)
 (relationTypeByArity quinary 5)
 
-;; The predicate and function mappings are specializations of the relation-wide mapping:
-;; a genl edge between the predicates says so once, and every predicateTypeByArity or
-;; functionTypeByArity fact is thereby a relationTypeByArity fact.  No per-member
-;; compatibility table is needed.
-(genl predicateTypeByArity relationTypeByArity)
-(genl functionTypeByArity relationTypeByArity)
+;; The predicate and function mappings are related to the relation-wide mapping and are
+;; not specializations of it.  A genl edge would make every predicateTypeByArity fact a
+;; relationTypeByArity fact, and the relation-wide generator would then classify every
+;; relation of that arity, a function included, under the predicate type.
+(termsRelated predicateTypeByArity relationTypeByArity)
+(termsRelated functionTypeByArity relationTypeByArity)
 
 ;; The five relation-wide mappings are the only ones SHIPPED, and the predicate and
-;; function members are mapped by their genl edges rather than by ten more facts.
-;; (predicateTypeByArity unary_predicate 1) would stamp (implies (arity ?r 1)
-;; (unary_predicate ?r)), which classifies a unary function as a predicate.  The two
-;; specialization predicates stay declared for a KB that maps an arity the relation-wide
-;; table has no class for.
+;; function members reach them through their genl edges to unary through quinary.
 
 (comment arity
          "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
@@ -867,8 +863,7 @@
 ;; while (has-prop? kb :symmetric myRel ctx) — asked of the same declaration from the
 ;; same context — answered false.  One KB cannot say both.
 
-;; relationTypeByArity is the one rule-bearing family.  Predicate and function mappings
-;; are its genl specializations rather than parallel arity/type rules.  It is a generator
+;; relationTypeByArity is a generator
 ;; (docs/generators.md): one minted rule per mapping fact, its (?type ?relation)
 ;; consequent ground once the enclosing antecedent fills ?type, justified by that fact and
 ;; withdrawn with it.
@@ -1624,11 +1619,11 @@
 (set/monotonic (type_relation_predicate genl))
 ;; NEITHER position is declared, and both are left so deliberately.
 ;; (genlArg genl 1 thing) reads "the subtype is a subtype of thing", which is false of
-;; the predicate specializations genl also relates: (genl predicateTypeByArity
-;; relationTypeByArity) puts one binary predicate under another, and neither end is
-;; under the root. Under the assertive reading the declaration entails (genl
-;; predicateTypeByArity thing) from that edge, which the arity descension check refuses
-;; because a binary predicate's tuples are not a unary type's.
+;; the predicate specializations genl also relates: (genl performedBy doneBy) puts one
+;; binary predicate under another, and neither end is under the root. Under the
+;; assertive reading the declaration entails (genl performedBy thing) from that edge,
+;; which the arity descension check refuses because a binary predicate's tuples are not
+;; a unary type's.
 ;; (genlArg genl 2 thing) reads "the supertype is a subtype of thing", which the root
 ;; cannot satisfy: genl is irreflexive here, so (genl thing thing) is refused as
 ;; not-well-formed, once per genl edge naming thing.

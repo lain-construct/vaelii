@@ -15,6 +15,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **`predicateTypeByArity` and `functionTypeByArity` are `termsRelated` to
+  `relationTypeByArity`, not its `genl` specializations.** A `(predicateTypeByArity T n)`
+  fact is no longer a `(relationTypeByArity T n)` fact, so the relation-wide generator
+  stamps no rule for it and classifies no function of arity `n` under `T`. `genl?` of
+  either mapping and `relationTypeByArity` answers false.
+  [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Migration:* a KB that maps an arity with `predicateTypeByArity` or
+  `functionTypeByArity` to classify every relation of that arity states
+  `relationTypeByArity` instead.
+  *Breaks:* `ask`, `query`, `genl?`
+
 - **The term kinds are on the forced-monotonic roster.** `relation`, `predicate`,
   `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`,
   `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`,
