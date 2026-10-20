@@ -12,6 +12,11 @@
 ;; day. A theory of another temperature states its own states beside this one.
 
 (genlCx CxNormalPhysicalConditions CxRealWorld)
+;; It sees CxUniverse through CxRealWorld, and states that edge as every middle context
+;; does: the middle layer loads by file name, so CxRealWorld's own edge to CxWell arrives
+;; after this file, and a CxUniverse rule firing on a fact below would have no context
+;; that sees both.
+(genlCx CxNormalPhysicalConditions CxUniverse)
 (comment CxNormalPhysicalConditions "The physical conditions of an average temperate region on Earth's surface: gravity, temperature, pressure, etc.")
 
 ;; A phase is a state a portion of stuff is in, not a kind it is: ice melts and the
