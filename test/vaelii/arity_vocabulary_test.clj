@@ -85,9 +85,9 @@
     (is (empty? (v/query kb (list four_place_predicate fourPlaceFn) 'CxUniverse {:max-depth 3})))))
 
 (tu/deftest-kb the-arity-generator-stamps-the-class-from-one-mapping-fact
-  ;; One mapping fact mints one rule, and its conclusions rest on it: the arity concludes
-  ;; the class, and retracting the fact withdraws each class it concluded.  No rule
-  ;; concludes an arity from a class, since arity is on the forced-monotonic roster.
+  ;; One mapping fact mints one forward rule and one backward converse, and both rest on
+  ;; it: the arity concludes the class, the class answers the arity at query time without
+  ;; storing one, and retracting the fact withdraws each.
   (doseq [mapping-first? [true false]]
     (tu/with-terms [four_place_relation classifiedRelation exactOnlyRelation]
       (v/assert kb (list 'genl four_place_relation 'fixed_arity) 'CxUniverse)
@@ -100,16 +100,23 @@
                       (do (v/assert kb member 'CxUniverse)
                           (v/assert kb mapping 'CxUniverse)))
             exact   (v/assert kb (list 'arity exactOnlyRelation 4) 'CxUniverse)]
-        (testing "the arity concludes the class, and the class concludes no arity"
+        (testing "the arity concludes the class, and the class proves the arity backward"
           (is (v/ask? kb (list four_place_relation exactOnlyRelation) 'CxUniverse))
-          (is (empty? (v/sentexes-matching kb (list 'arity classifiedRelation '?n) 'CxUniverse))))
+          (let [{:keys [answer cites?]} (rule-proof kb (list 'arity classifiedRelation '?n)
+                                                    [four_place_relation 'arity])]
+            (is (= {'?n 4} answer))
+            (is cites?))
+          (is (empty? (v/sentexes-matching kb (list 'arity classifiedRelation '?n) 'CxUniverse))
+              "and stores none"))
         (testing "and the class rests on the mapping fact"
           (v/retract! kb h)
           (is (v/ask? kb member 'CxUniverse) "the asserted membership stands")
           (is (v/ask? kb (list 'arity exactOnlyRelation 4) 'CxUniverse)
               "the asserted arity stands")
           (is (not (v/ask? kb (list four_place_relation exactOnlyRelation) 'CxUniverse))
-              "while the class it derived goes with the rule that derived it"))
+              "while the class it derived goes with the rule that derived it")
+          (is (empty? (v/query kb (list 'arity classifiedRelation '?n) 'CxUniverse {:max-depth 3}))
+              "and so does the converse"))
         (v/retract! kb exact)))))
 
 (tu/deftest-kb an-arity-and-its-class-are-each-read-as-the-arity
@@ -127,7 +134,10 @@
     (tu/with-terms [chainOf]
       (let [h (v/assert kb (list 'binary chainOf) 'CxUniverse)]
         (is (= 2 (v/relation-arity kb chainOf)))
-        (is (empty? (v/sentexes-matching kb (list 'arity chainOf '?n) 'CxUniverse)))
+        (is (= [{'?n 2}] (v/query kb (list 'arity chainOf '?n) 'CxUniverse {:max-depth 3}))
+            "the converse proves the arity from the class")
+        (is (empty? (v/sentexes-matching kb (list 'arity chainOf '?n) 'CxUniverse))
+            "and stores none")
         (v/retract! kb h)
         (is (nil? (v/relation-arity kb chainOf)))
         (is (not (v/isa? kb chainOf 'binary))))))
@@ -135,6 +145,22 @@
     (is (v/ask? kb '(arity InstantFn 6) 'CxUniverse))
     (doseq [type '[unary binary ternary quaternary quinary]]
       (is (not (v/isa? kb 'InstantFn type))))))
+
+(tu/deftest-kb the-converse-keeps-the-membership-strength
+  ;; The converse is backward, so the arity it proves is never stored: the membership is
+  ;; the only sentex, and it keeps the strength it was written at, :default or
+  ;; :monotonic, rather than a forced-monotonic arity being stored beside it.
+  (doseq [[strength row] [[:default 'binary] [:monotonic 'binary]
+                          [:default 'binary_predicate] [:monotonic 'binary_function]]]
+    (tu/with-terms [someRelation]
+      (let [h (v/assert kb (list row someRelation) 'CxUniverse {:strength strength})]
+        (let [{:keys [answer cites?]} (rule-proof kb (list 'arity someRelation '?n) [row 'arity])]
+          (is (= {'?n 2} answer) (str strength " " row ": the arity is proved"))
+          (is cites? "by the converse"))
+        (is (empty? (v/sentexes-matching kb (list 'arity someRelation '?n) 'CxUniverse))
+            "no arity is stored")
+        (is (= strength (:strength (v/sentex kb h)))
+            "and the membership keeps its written strength")))))
 
 (tu/deftest-kb exact-arity-and-variable-floors-are-distinct
   (testing "an exact declaration is fixed, not an overloaded floor"

@@ -15,6 +15,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **A backward rule proves `(arity R n)` from a membership of an exact-arity class.**
+  `query (arity R ?n)` of a relation stated only `(binary R)`, `(binary_predicate R)` or
+  `(binary_function R)` answers `[{?n 2}]` at depth 3, where it answered nothing. No
+  arity is stored, so the membership keeps the strength it was written at rather than an
+  arity on the forced-monotonic roster being stored beside it. A depth-3 `query (arity ?p
+  ?n)` over the starter answers one binding per relation with an exact-arity membership.
+  [taxonomy.md](docs/taxonomy.md#arity).
+
+  *Migration:* none.
+  *Breaks:* `query`
+
 - **A predicate or function with an exact arity is proved a member of its kind's
   exact-arity class.** `core.txt` ships `(predicateTypeByArity unary_predicate 1)`
   through `(predicateTypeByArity quinary_predicate 5)`, one fact per exact-arity

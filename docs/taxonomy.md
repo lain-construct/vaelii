@@ -2020,11 +2020,12 @@ already says about its predicate:
 - **A position the predicate does not have** — `(arg parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
   enforced while enforcing nothing. The arity comes from `(arity P N)` or from a
-  `unary_predicate` through `quinary_predicate` membership. A rule
-  concludes the class from `(arity P N)` and no rule concludes an arity
-  ([Arity](#arity)), so a predicate written only as a class member has no `arity`
-  sentex, and the check reads both spellings (`arity/relation-length`). **`variable_arity`
-  releases this arm too**: such a predicate reads a tuple of any length from its declared
+  `unary_predicate` through `quinary_predicate` membership. A forward rule
+  concludes the class from `(arity P N)`, and the converse is a backward rule that
+  stores nothing ([Arity](#arity)), so a predicate written only as a class member has
+  no `arity` sentex, and the check reads both spellings (`arity/relation-length`).
+  **`variable_arity` releases this arm too**: such a predicate reads a tuple of any
+  length from its declared
   arity upward, so a position past that length is one its tuples really do reach and a
   constraint on it fires on the tuples long enough to have it — refusing the declaration
   while the same KB admits those very facts is the reading no arrival order makes

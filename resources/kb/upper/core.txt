@@ -737,7 +737,7 @@
 (functionTypeByArity quinary_function 5)
 
 (comment arity
-         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
+         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one. A query for the arity of a class member is proved from the membership by a backward rule, and no arity is stored for it. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
 (binary_predicate arity)
 (set/monotonic (instance_relation_predicate arity))
 (set/monotonic (functional arity))
@@ -879,10 +879,10 @@
 ;; consequent ground once the enclosing antecedent fills ?type, justified by that fact and
 ;; withdrawn with it.
 ;;
-;; The rule runs one way: an exact arity classifies the relation under the type that
-;; maps to it.  No rule concludes an arity, because arity is on the forced-monotonic
-;; roster and a classification is not; every reader of an arity reads the exact-arity
-;; class membership beside the (arity P n) table (docs/taxonomy.md).  RELATION-WIDE, and
+;; The forward rule runs one way: an exact arity classifies the relation under the type
+;; that maps to it.  The converse, below, is backward and stores no arity; every reader
+;; of a stored length reads the exact-arity class membership beside the (arity P n)
+;; table (docs/taxonomy.md).  RELATION-WIDE, and
 ;; it has to be — arity covers functions, so a rule concluding (binary_predicate ?r) from
 ;; (arity ?r 2) would make every shipped binary function a predicate and clash with
 ;; (disjoint predicate function); (binary ?r) carries no kind and is what the arity
@@ -890,6 +890,18 @@
 ;; leaves InstantFn fixed_arity_function by its own declaration.
 (implies (relationTypeByArity ?type ?arity)
          (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
+
+;; The converse runs BACKWARD, one generator per mapping family: a query for (arity R n)
+;; of a member of a mapped class is proved from the membership, and nothing is stored.
+;; arity is on the forced-monotonic roster, so a stored arity would go OUT only by
+;; retraction; proved at query time, it rests on the membership, which keeps the
+;; strength it was written at.
+(implies (relationTypeByArity ?type ?arity)
+         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
+(implies (predicateTypeByArity ?type ?arity)
+         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
+(implies (functionTypeByArity ?type ?arity)
+         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
 
 ;; The predicate and function mappings are generators of their own, each guarding the
 ;; rule it stamps with its kind: (predicateTypeByArity binary_predicate 2) classifies a
