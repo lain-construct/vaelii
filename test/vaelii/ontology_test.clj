@@ -645,8 +645,9 @@
   ;; with `(lessThan k ?n)` and concludes `(at_least_… ?r)`, which is disjoint from every
   ;; exact class of k places or fewer, and a rule concluding that class or claiming that
   ;; arity binds the same `?r` to exactly k places or fewer.  The arity table is
-  ;; functional, so no `?r` satisfies both antecedents, and `arity-floor-conflicted?` drops
-  ;; every such pair as unreachable.
+  ;; functional, `(functional arity)` concluding `(functionalInArg arity 2)`, so no `?r`
+  ;; satisfies both antecedents, and `functional-slot-conflicted?` drops every such pair
+  ;; as unreachable.
   ;;
   ;; No `:disjoint` pair is left.  CxCriedWolf's `lied_before → liar` concludes a person,
   ;; and two kinds of rule conclude a type disjoint from one: the signed refinements of
@@ -719,7 +720,7 @@
   ;; variable a `relation`, disjoint from the `person` the paired rule concludes, so
   ;; `arg-type-conflicted?` drops the pair as unreachable (vaelii#95).  The arity table
   ;; therefore pairs with nothing.  An arity floor beside an exact class binds one relation
-  ;; above and at or below one length, and `arity-floor-conflicted?` drops that pair, so
+  ;; above and at or below one length, and `functional-slot-conflicted?` drops that pair, so
   ;; the floors pair with nothing either.
   (let [pairs   (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         about   (fn [f] (filter (fn [p] (some #(some #{f} (flatten %)) (:sentences p)))
