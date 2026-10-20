@@ -1974,8 +1974,9 @@ over every linear extension of the three ingredients.
 ## Deferred antecedents in a forward join
 
 A **deferred** (evaluable) literal is computed, not stored. `sentex/deferred-predicates`
-is the set, fifteen members: `evaluate`, `lessThan`, `greaterThan`, `different`,
-`unknown`, the five measure comparisons (`sameQuantity`, `quantityLessThan`,
+is the set, twenty-two members: `evaluate`, `lessThan`, `greaterThan`, `matchesPattern`,
+`different`, `unknown`, the six value kinds (`integer`, `string`, `number`, `boolean`,
+`keyword`, `character`), the five measure comparisons (`sameQuantity`, `quantityLessThan`,
 `quantityGreaterThan`, `quantityLessThanOrEqual`, `quantityGreaterThanOrEqual`) and the
 five aggregates (`agg/count` / `sum` / `min` / `max` / `avg`). A forward join
 that ran *every* antecedent through `res/match-pattern` would look a deferred one up
@@ -2147,8 +2148,10 @@ close one network out of every context's constraints at once — and a hop is vi
 from where it is read, so the same argument holds a transitive walk. And it is **union, not
 replacement**: a `temporalDistance` is a stored fact as well as a derived bound, so the
 ordinary matcher still runs and nothing that matched before stops matching. An answer with
-*empty* support is dropped on that path rather than answered groundlessly — the metric
-diagonal is the case, nil by arithmetic and licensed by no constraint.
+*empty* support joins: the metric diagonal `(temporalDistance P P ?d)` is zero by
+arithmetic and licensed by no constraint, and it holds of every instant. The firing still
+needs a handle, so `planned-join` drops a firing of such a rule whose combined handles are
+empty, and a rule over the diagonal alone concludes nothing.
 
 The over-approximation is deliberate and is in one direction: a reading taken over a *set*
 of declarations names all of them, so retracting one of two agreeing rows withdraws a
@@ -2386,6 +2389,11 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   membership, never on an unprovable one, and a `T` no separation reaches
   (`tax/separable?`) leaves it inapplicable. Ground only. `:lookup`, partial (50). See
   [taxonomy.md](taxonomy.md#disjointness).
+- **NegatesProver** — a ground `(not (Q a …))` for a `Q` at or below a side of a
+  `negates` declaration the asking context sees, proved by a believed `(R a …)` of a
+  predicate the declaration sets against it, or by `Q` lying at or below both sides.
+  Open-world: it fires on a stated tuple, never on an unprovable one. Ground only.
+  `:lookup`, partial (50). See [taxonomy.md](taxonomy.md#predicate-metadata).
 - **CoveringProver** — a ground unary membership goal `(Part a)` for a `Part` some visible
   `(covering W …)` names: with `(W a)` believed and every other part believed **not** to
   hold of `a`, the remaining part holds. Explicit negation only, never an unprovable part.

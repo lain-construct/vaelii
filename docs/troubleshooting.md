@@ -563,7 +563,7 @@ so one vocabulary reads both.
 | `:missing-adapter` | a **legal** `:sqlite` or `:pg` records axis whose Apache-2.0 sibling is not on the classpath — `:coordinate` names the dependency to add, and the backend is not the thing to change | [storage.md](storage.md) |
 | `:missing-resource` | a KB file, ontology layer or text KB is not where it was looked for | [kbs.md](kbs.md) |
 | `:naf-justification` | a dump names a justification with a non-empty `:out`, and a justification here has no out-list | [naf.md](naf.md) |
-| `:naf-not-closed` | an `unknown` antecedent, a computed antecedent (`lessThan`, `matchesPattern`, `integer` …) or an aggregate census reads a variable nothing else in the rule binds | [naf.md](naf.md) |
+| `:naf-not-closed` | an `unknown` antecedent, a computed antecedent (`lessThan`, `matchesPattern`, a value kind such as `string` …) or an aggregate census reads a variable nothing else in the rule binds | [naf.md](naf.md) |
 | `:naming` | a symbol's spelling does not match its role — see [`assert` refused it](#assert-refused-it) | [naming.md](naming.md) |
 | `:nippy-version-moved` | the nippy on the classpath is not the release the class-name check was written against; re-read its three attachment points, then move `thaw/pinned-nippy-version` | [defenses.md](defenses.md) |
 | `:nippy-version-unreadable` | nippy's own Maven descriptor could not be read, so the class-name check cannot say which release it is guarding | [defenses.md](defenses.md) |

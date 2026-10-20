@@ -86,6 +86,8 @@
   term; the `functional` and `functionalInArg` marks over two tuples differing at one
   position; the `asymmetric` and `anti_symmetric` marks over a converse pair, the
   `irreflexive` mark over a self tuple and the `anti_transitive` mark over a chain; the
+  `negates` declarations over two tuples of one argument list, or over a lone tuple whose
+  functor is below both sides; the
   covers whose every part a denial in `sens` rules out for the whole's member; and the
   separations of the two types a lone `(orthogonal a b)` names, or a lone fact whose
   functor is a `genl` of `orthogonal`.  A `genl` edge is no flat-cache entry, so an
@@ -127,6 +129,13 @@
                         (or (= 'orthogonal f) (tax/genl? tax f 'orthogonal v))))
              (let [[a b] (args (first pos))]
                (tax/separating-keys tax a b v)))
+           (when (and (empty? denied) (<= 1 (count pos) 2) (apply = (map args pos))
+                      (every? #(symbol? (nm/functor %)) pos))
+             (let [[f g] (map nm/functor (if (= 1 (count pos)) [(first pos) (first pos)] pos))]
+               (when (or (= 1 (count pos)) (not= f g))
+                 (for [[a b] (tax/negates-over tax f v)
+                       :when (contains? (tax/genls tax g v) b)]
+                   (tax/negates-key a b)))))
            (when (and binary (<= 2 (count pos) 3) (chain? pos))
              (marks [:anti-transitive]))
            (when (and (= 1 (count pos)) (seq denied) (= 1 (nm/arity (first pos)))
@@ -211,7 +220,9 @@
   content order: the believed supporters of the flat-cache entries its conviction reads
   (`ground-keys`, and `separated-cover-keys` for a cover refuted through a separation's
   denial) that one of its vantages sees, or the whole KB for a report weighed at none; for
-  an inert tuple, its binding's grounds (`inert-binding`).  No `genl` edge is named.
+  an inert tuple, its binding's grounds (`inert-binding`), and for a `negates`
+  declaration's length clash, the bindings stating the lengths (`arity/negates-clash`).
+  No `genl` edge is named.
   Empty for a rebuttal, an `:inherited` clash and an `:arity-descension` pair, whose
   reasons are members (docs/nmtms.md, \"The clash reports\")."
   [kb r]
@@ -223,8 +234,10 @@
           sens (mapv :sentence (:sides r))
           at   (fn [v] (mapcat #(tax/visible-supporters tax % v)
                                (into (ground-keys tax sens v) (separated-cover-keys kb sens v))))]
-      (->> (if (= :arity (:kind r))
-             (mapcat #(:grounds (inert-binding kb (p/get-sentex recs %))) (:nogood r))
+      (->> (case (:kind r)
+             :arity (mapcat #(:grounds (inert-binding kb (p/get-sentex recs %))) (:nogood r))
+             (:negates-arity :negates-unary)
+             (mapcat #(:grounds (arity/negates-clash kb (:sentence (p/get-sentex recs %)))) (:nogood r))
              (into #{} (mapcat at) (or (seq (report-vantages r)) [nil])))
            (into #{})
            (into [] (comp (filter #(jtms/in? tms %))

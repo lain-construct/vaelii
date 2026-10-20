@@ -1414,7 +1414,8 @@ the contexts that read it.
 
 Beyond types, the taxonomy caches predicate properties, declared as sentexes and
 maintained by `integrate-sentex`. The relation marks `irreflexive`, `anti_symmetric`,
-`asymmetric`, `functional`, `functionalInArg` and `anti_transitive`, the function classes
+`asymmetric`, `functional`, `functionalInArg` and `anti_transitive`, the relation pair
+`negates`, the function classes
 `injection`, `surjection` and `bijection`, and the declarations `disjoint`, `covering`,
 `partition` and `sibling_disjoint`, and the arity bindings ([Arity](#arity)), are on the
 forced-monotonic roster: each is never the loser of a nogood whatever strength it was
@@ -1623,6 +1624,25 @@ the roster and is weighed as a member of an inherited nogood.
   sub-predicate answers the super-predicate's goal**, since a sub-predicate's tuples are
   the super's: `tax/inverses-under` is that set, and it consults the spec closure only
   where some inverse exists at all, so a KB declaring none pays one lookup.
+- `(negates P Q)` — a *constraint* over two relations: no argument list satisfies both.
+  The declaration is symmetric, context-scoped and forced-monotonic, and it is read down
+  `genl` on both sides, so `(negates scorns admires)` with `(genl sneersAt scorns)` and
+  `(genl adores admires)` makes `(sneersAt Ida Jo)` and `(adores Ida Jo)` one two-member
+  nogood, placed where both tuples, the declaration and the edges are seen
+  ([nmtms.md](nmtms.md#the-nogood-families)). A tuple whose functor is at or below both
+  sides is a one-member nogood, so `(negates P P)` says `P` holds of nothing.
+  `NegatesProver` answers a ground `(not (Q a …))`, `Q` at or below one side, from a
+  believed `(R a …)` at or below the other; no denial is stored per fact. A stated
+  `(not (Q a …))` convicts only the tuple it denies, so a stored `(not (scorns Ida Jo))`
+  beside a stored `(sneersAt Ida Jo)` is no pair.
+
+  The declaration is not refused for its arguments. An argument stored as an
+  individual is a membership clash of `(arg negates n predicate)`. A declaration whose two
+  sides are bound to lengths no argument list fits is a one-member `:negates-arity`
+  conflict, and one over two predicates bound to one argument is a `:negates-unary`
+  conflict, since `disjoint` is the declaration for two types. Both are placed in the
+  declaration's context and rest on the bindings stating the lengths
+  (`arity/negates-clash`, `chain/sync-negates-lengths!`).
 - `(arity P n)` — the declared arity, cached for the argument-position check and
   `kb/relation-arity`; the inert-tuple test reads it off the binding family
   (`arity/relation-length`, [Arity](#arity)).

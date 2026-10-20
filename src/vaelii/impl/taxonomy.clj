@@ -404,7 +404,7 @@
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :sibling-disjoint #{} :sib-exception-index {}
           :covers {} :cover-parts {} :partitions #{}
-          :props {} :inverse {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
+          :props {} :inverse {} :negates {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
           :cache-dirty #{} :cache-ctxs {}
           ;; The supporter cache (`supporters-of`), over the index's supporter families
           :supporters empty-supporters
@@ -1196,18 +1196,26 @@
   [p q]
   [:inverse (hash-set p q)])
 
+(defn negates-key
+  "The flat-cache key for a `negates` declaration between `p` and `q`, `inverse-key`'s
+  shape: `(negates P P)` keys `#{P}`."
+  [p q]
+  [:negates (hash-set p q)])
+
 (defn- declared-pair
-  "The two terms a `[:inverse #{p q}]` or `[:disjoint #{x y}]` key names, as `[x y]`.  A
-  self-pair — `(inverse P P)`, `(disjoint T T)` — collapses to `#{p}`, so `y` falls back
-  to `x`: both directions of the index write then name the same pair, which is
-  idempotent.  One extractor for both, because the key is a set in both."
+  "The two terms a `[:inverse #{p q}]`, `[:negates #{p q}]` or `[:disjoint #{x y}]` key
+  names, as `[x y]`.  A self-pair — `(inverse P P)`, `(disjoint T T)` — collapses to
+  `#{p}`, so `y` falls back to `x`: both directions of the index write then name the same
+  pair, which is idempotent.  One extractor for all three, because the key is a set in
+  each."
   [s]
   (let [x (first s)] [x (or (second s) x)]))
 
 (defn- index-symmetric
   "Add or drop both directions of a declared symmetric pair in the adjacency at `k`,
-  `{term -> #{terms declared to stand in the relation to it}}`.  `:inverse` (predicates)
-  and `:disjoint-index` (types) are the two, and this is the whole of what they share:
+  `{term -> #{terms declared to stand in the relation to it}}`.  `:inverse` and
+  `:negates` (predicates) and `:disjoint-index` (types) are the three, and this is the
+  whole of what they share:
   the relation is symmetric, so it is written both ways; the entry is a *set*; and an
   emptied entry is dissoc'd rather than left behind, so `get` returning nil means what
   it says — `:arity`'s discipline.
@@ -1332,6 +1340,7 @@
                (cond-> t' (separating-kind? b) (update :partitions conj [whole parts b]))))
     :prop     (update-in t [:props a] (fnil conj #{}) b)             ; a = prop-kind, b = pred
     :inverse  (index-symmetric t :inverse a true)                  ; a = #{p q}
+    :negates  (index-symmetric t :negates a true)                  ; a = #{p q}
     ;; a `(genlInverse p q)` edge, held both ways round for the signed closure's two walks
     :genl-inverse (-> t (update-in [:genl-inverse-down b] (fnil conj #{}) a)
                       (update-in [:genl-inverse-up a] (fnil conj #{}) b))      ; a = p, b = q
@@ -1384,6 +1393,7 @@
                (cond-> t' (separating-kind? b) (update :partitions disj [whole parts b]))))
     :prop     (update-in t [:props a] (fnil disj #{}) b)
     :inverse  (index-symmetric t :inverse a false)
+    :negates  (index-symmetric t :negates a false)
     :genl-inverse (let [drop-in (fn [t path v]
                                   (let [left (disj (get-in t path #{}) v)]
                                     (if (seq left)
@@ -2932,7 +2942,7 @@
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :sibling-disjoint #{} :sib-exception-index {}
          :covers {} :cover-parts {} :partitions #{}
-         :props {} :inverse {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
+         :props {} :inverse {} :negates {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
          :cache-dirty #{} :cache-ctxs {}
          :supporters empty-supporters
          :cache-moves (journal/restart nil)
@@ -6182,6 +6192,10 @@
   ([tax p q handle] (add-inverse tax p q handle nil))
   ([tax p q handle ctx] (add-supported tax (inverse-key p q) handle ctx)))
 (defn del-inverse! [tax p q handle] (del-supported! tax (inverse-key p q) handle))
+(defn add-negates
+  ([tax p q handle] (add-negates tax p q handle nil))
+  ([tax p q handle ctx] (add-supported tax (negates-key p q) handle ctx)))
+(defn del-negates! [tax p q handle] (del-supported! tax (negates-key p q) handle))
 (defn add-arity
   ([tax pred n handle] (add-arity tax pred n handle nil))
   ([tax pred n handle ctx] (add-supported tax [:arity pred n] handle ctx)))
@@ -6418,6 +6432,49 @@
      (let [ps  (if (some? context) (specs tax p context) (specs-global tax p))
            inv (if (some? context) #(inverses-of tax % context) #(inverses-of tax %))]
        (into #{} (mapcat inv) ps)))))
+
+;; ---- negates: two relations that never hold of the same arguments --------
+;;
+;; `(negates P Q)` is a symmetric pair in the `:negates` adjacency (`index-symmetric`),
+;; keyed `[:negates #{P Q}]`.  It binds both sides' spec subtrees, so the readers walk
+;; **up** from a tuple's functor, as `props-over` does for a constraint mark.
+
+(defn negates?
+  "Does the taxonomy hold a `negates` declaration?  One map read."
+  [tax]
+  (boolean (seq (:negates @tax))))
+
+(defn negating-predicates
+  "Every predicate a `negates` declaration names."
+  [tax]
+  (set (keys (:negates @tax))))
+
+(defn negates-of
+  "Every predicate declared to negate `p`, as a set: anywhere, or (with `context`)
+  declared from a context the reader can see."
+  ([tax p] (get-in @tax [:negates p] #{}))
+  ([tax p context]
+   (let [qs (get-in @tax [:negates p] #{})]
+     (if (or (empty? qs) (not (scoped-context? context)))
+       qs
+       (into #{} (filter #(cache-entry-visible? tax (negates-key p %) context)) qs)))))
+
+(defn negates-over
+  "`[P R]` for each predicate `P` at or above `q` and each `R` declared to negate `P`: a
+  tuple of `q` is a tuple of `P`, so no tuple of `R`'s spec subtree holds of its
+  arguments.  Over the unscoped closure, or (with `context`) the edges and declarations
+  the reader sees.  One map read on a KB with no declaration."
+  ([tax q] (negates-over tax q nil))
+  ([tax q context]
+   (let [table (:negates @tax)]
+     (if (empty? table)
+       #{}
+       (into #{}
+             (comp (filter table)
+                   (mapcat (fn [p] (map #(vector p %) (if (some? context)
+                                                        (negates-of tax p context)
+                                                        (negates-of tax p))))))
+             (if (some? context) (genls tax q context) (genls-global tax q)))))))
 
 ;; ---- genlInverse: binary genl with the arguments swapped ----------------
 ;;
@@ -6683,7 +6740,7 @@
 
 (def ^:private flat-keys
   [:disjoint :disjoint-index :disjoint-metatypes :metatype-members :sibling-disjoint
-   :sib-exception-index :covers :cover-parts :partitions :props :inverse :genl-inverse-down :genl-inverse-up :arity
+   :sib-exception-index :covers :cover-parts :partitions :props :inverse :negates :genl-inverse-down :genl-inverse-up :arity
    :functional-in-arg :commuting :cache-dirty :cache-ctxs])
 
 (caches/register-derived

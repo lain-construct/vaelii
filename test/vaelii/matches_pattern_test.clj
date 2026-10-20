@@ -37,7 +37,7 @@
 
 (tu/deftest-kb a-string-subtype-admits-by-evaluation
   ;; matchesPattern already answers false for a non-string subject, so the shape check
-  ;; alone defines the subtype — no separate (string ?x) conjunct, which is not evaluable.
+  ;; alone defines the subtype, with no separate (string ?x) conjunct.
   (tu/with-terms [dotted_quad]
     (v/assert kb (list 'genl dotted_quad 'string) 'CxUniverse)
     (v/assert kb (list 'defnSufficient dotted_quad (list 'matchesPattern '?x ipv4-pattern)) 'CxUniverse)

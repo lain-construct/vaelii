@@ -556,6 +556,29 @@
       (print-known "chain in three contexts" known)
       (is (empty? fails) (failure-text "chain in three contexts" fails (count orders))))))
 
+(deftest a-negates-pair-through-a-sub-predicate-is-decided-where-both-are-seen-in-every-order
+  ;; A `negates` pair is read down the `genl` closure, and is decided by the reader that
+  ;; sees both tuples.
+  ;;
+  ;;   CxUniverse  (negates scornsP admiresP)  (genl sneersAtP scornsP) monotonic
+  ;;   CxA (sneersAtP Ida Jo) monotonic   CxB (admiresP Ida Jo)
+  ;;   CxW sees CxA CxB
+  (tu/with-terms [scornsP admiresP sneersAtP Ida Jo CxA CxB CxW]
+    (let [wiring  (into [(w (list* 'negates (sort [scornsP admiresP])) U :monotonic)
+                         (w (list 'genl sneersAtP scornsP) U :monotonic)]
+                        (for [[sub sup] [[CxA U] [CxB U] [CxW CxA] [CxW CxB]]]
+                          (w (list 'genlCx sub sup) U)))
+          content [(w (list sneersAtP Ida Jo) CxA :monotonic)
+                   (w (list admiresP Ida Jo) CxB)]
+          world    {:contexts #{U CxA CxB CxW} :writes (into wiring content)}
+          expected {CxB {(list admiresP Ida Jo) true}
+                    CxW {(list admiresP Ida Jo) false (list sneersAtP Ida Jo) true}}
+          orders   (mapv #(into wiring %) (gen/permutations content))
+          {fails :failures known :known} (expected-failures world orders expected)]
+      (is (= [] (reference-agrees world expected)))
+      (print-known "negates pair through a sub-predicate" known)
+      (is (empty? fails) (failure-text "negates pair through a sub-predicate" fails (count orders))))))
+
 (deftest a-pair-across-a-context-edge-is-decided-at-the-joint-reader-in-every-order
   ;; Decision D16: a functional collision and an asymmetric converse whose two tuples are
   ;; stated in two contexts are decided by the reader that sees both, whichever of the

@@ -925,10 +925,14 @@
   ?n ?v (ancestorOf ?v ?x))` must be bound first, or the census counts the whole
   relation (docs/aggregate.md).
 
-  `integer` and `matchesPattern` are here for the `lessThan` reason: `EvaluableProver`
-  computes them from ground arguments and nothing stores them, so a rule's join sends
-  `(matchesPattern ?s \"a+b\")` to the registry once the literal binding `?s` has run."
-  (into '#{evaluate lessThan greaterThan different unknown integer matchesPattern
+  `matchesPattern` and the value kinds (`integer`, `string`, `number`, `boolean`,
+  `keyword`, `character`) are here for the `lessThan` reason: `EvaluableProver` computes
+  them from ground arguments and nothing stores them, so a rule's join sends
+  `(matchesPattern ?s \"a+b\")` or `(string ?s)` to the registry once the literal binding
+  `?s` has run.  A value kind of a constant or a compound is read from the store instead
+  (`provers/term-value-kind-goal?`)."
+  (into '#{evaluate lessThan greaterThan different unknown matchesPattern
+           integer string number boolean keyword character
            sameQuantity quantityLessThan quantityGreaterThan
            quantityLessThanOrEqual quantityGreaterThanOrEqual}
         (keys aggregate-functors)))

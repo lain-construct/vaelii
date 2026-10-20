@@ -130,6 +130,7 @@
     [commutativeInArgs                [:integrate :disintegrate :rebuild :wff]       nil                        true]
     [inverse                          [:integrate :disintegrate :rebuild :wff]       nil                        true]
     [genlInverse                      [:integrate :disintegrate :rebuild :wff]       nil                        true]
+    [negates                          [:integrate :disintegrate :rebuild :wff]       nil                        true]
     [decontextualized_predicate        [:integrate :disintegrate :rebuild :wff]       :decontextualized          false]
     [forced_decontextualized_predicate  [:integrate :disintegrate :rebuild :wff]       :forced-decontextualized   true]
     [forced_monotonic_predicate         [:integrate :disintegrate :rebuild :wff]       :forced-monotonic          true]

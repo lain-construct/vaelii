@@ -148,6 +148,26 @@ it — `git show v0.16.0:CHANGELOG.md`.
   denial of its upper end should deny its lower end.
   *Breaks:* `query`, `argue`, `conflicts`, `contradictions`, `exceptWhen`
 
+- **A forward rule with a value-kind or `sentence` antecedent fires on the value another
+  antecedent binds.** `(implies (and (valueOf ?a ?x) (string ?x)) (hasKinded ?a))`
+  concluded nothing from `(valueOf Ann "rex")`, and neither did the same rule over
+  `number`, `boolean`, `keyword`, `character` or `sentence`; `integer` and `formula`
+  fired. Each such rule now fires in either arrival order, and beliefs change where one is
+  stored; `(implies (sentence (Quote …)) …)` alone still concludes nothing. A forward rule
+  reading `(temporalDistance ?e ?e ?d)` beside a stored antecedent concludes zero seconds,
+  the answer `ask` gives. A rule whose value-kind argument no other antecedent binds is
+  refused `:naf-not-closed` by `assert`, `check` and import, a `defnSufficient` on a value
+  kind alone expands to no companion rule, a backward rule concluding a value
+  kind is not expanded, and `watch` refuses a value-kind goal
+  ([#191](https://github.com/vaelii/vaelii/issues/191)).
+  [argtypes.md](docs/argtypes.md#what-a-quoted-form-is).
+
+  *Migration:* bind a value-kind argument with a stored literal in the same rule. A disk
+  store written before this change holds a rule with a value-kind antecedent under its old
+  canonical sentence, so the stored rule and its re-assert are two handles until the store
+  is reloaded from text.
+  *Breaks:* `assert`, `check`, `handle-of`, `watch`
+
 ### Additive
 
 - **`core.txt` ships the predicate and function exact-arity mappings, whose stamped rules
@@ -304,6 +324,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `exceptWhen`, and `retract!` refuses the declaration with `:type :uncleared-forcing` and
   `:missing :unforced-exception`. [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
 
+- **`(negates P Q)` states that two relations hold of no argument list together.** A
+  believed `(scorns Eve Fay)` beside a believed `(admires Eve Fay)` under `(negates scorns
+  admires)` is one placed nogood, read down `genl` on both sides, whichever arrives first.
+  `ask? (not (scorns Gus Hal))` is true while `(admires Gus Hal)` is believed, and no
+  denial is stored per fact. `(negates P P)` makes each `P` tuple a one-member nogood. A
+  declaration whose sides are bound to lengths no argument list fits, or to one argument,
+  is stored and reported in `conflicts` as `:negates-arity` or `:negates-unary`. The
+  declaration is forced-monotonic and context-scoped
+  ([#106](https://github.com/vaelii/vaelii/issues/106)).
+  [taxonomy.md](docs/taxonomy.md#predicate-metadata).
+
+  *Migration:* none. A KB storing `negates` facts of its own reads them as declarations.
+
 ### Fix: answers
 
 - **A commutative binary function is not concluded `symmetric`.** `core.txt`'s rule
@@ -323,6 +356,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [exceptions.md](docs/exceptions.md#semantics)
 
   *Migration:* none. A caller reading `:unsupported` off such a handle reads `:excepted`.
+
+- **The from-Cyc guide translates a binary `negationPreds` as `negates`.** The two
+  implication rules it gave for mutual exclusion above arity 1 convicted nothing when
+  both tuples were stored ([#106](https://github.com/vaelii/vaelii/issues/106)).
+  [from-cyc.md](docs/from-cyc.md#negation-and-mutual-exclusion).
+
+  *Migration:* replace the two rules with one `(negates P Q)`.
 
 ### Fix: performance
 

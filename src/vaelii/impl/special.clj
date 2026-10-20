@@ -169,8 +169,10 @@
   after it correctly drop — an order dependence, and the same one
   `recheck-preserving-along` closes on the argument side.
 
-  Which position: the subject is argument 1 throughout, and `inverse` names two
-  predicates because either one's goals are answered from the other's facts.
+  Which position: the subject is argument 1 throughout, and `inverse` and `negates` name
+  two predicates because either one's goals are answered from the other's facts.  A
+  `negates` declaration answers a denial, which holds of the predicates below a side
+  rather than above it, so its fan walks down (`recheck-declaration`).
 
   Who is **absent**, in the three groups `predicates/check-facets` reads this roster
   against — a declaration answering goals about the predicate at argument 1 posts by one
@@ -194,6 +196,7 @@
     commutativeInArgs        [1]
     commutativeInArgAndRest  [1]
     inverse              [1 2]
+    negates              [1 2]
     transitiveInArgInverse [1]
     transitiveInArg        [1]})
 
@@ -214,7 +217,8 @@
 
   The fan is `genls(subject)`, the same walk `recheck-on-predicate` does and for the
   same reason — an exception stated at a supertype predicate is satisfied by an answer
-  at a subtype, and that generality is the point of stating a taxonomy.  `:all` rather
+  at a subtype, and that generality is the point of stating a taxonomy.  A `negates`
+  side's fan is the side and its specs, the predicates whose denials it answers.  `:all` rather
   than a narrowing trigger: a declaration's arguments are a predicate and a position,
   which agree with an exception conjunct's arguments on nothing.
 
@@ -239,7 +243,9 @@
           ;; the global closure on purpose, as everywhere here: an over-selected
           ;; re-check re-evaluates and changes nothing, an under-selected one is a
           ;; wrong belief
-          (doseq [p (tax/genls-global (reasoning/taxonomy kb) pred)]
+          (doseq [p (if (= 'negates (nm/functor sentence))
+                      (conj (set (tax/specs-global (reasoning/taxonomy kb) pred)) pred)
+                      (tax/genls-global (reasoning/taxonomy kb) pred))]
             (mark-recheck kb (reads/watched-rules-on idx p) :all))
           (when (= 'transitive (nm/functor sentence))
             (recheck-preserving-along kb pred)))))))
@@ -5608,12 +5614,12 @@
 
 (def ^:private offered-marks
   "The marks whose nogoods the settle places from a candidate index, each with the arity
-  it is written at: their arrival offers the stored tuples beneath the marked predicate
-  to `decide/offer!`."
-  '{functional 1, functionalInArg 2, asymmetric 1, anti_transitive 1})
+  it is written at: their arrival offers the stored tuples beneath each predicate the
+  mark names to `decide/offer!`."
+  '{functional 1, functionalInArg 2, asymmetric 1, anti_transitive 1, negates 2})
 
 (defn- offered-mark-over?
-  "Does a mark of `offered-marks` stand on `p` or above it?  Four map reads for a KB
+  "Does a mark of `offered-marks` stand on `p` or above it?  Five map reads for a KB
   declaring none.
 
   Read unscoped: the candidate rows `decide/offer!` keeps are a superset over every
@@ -5622,16 +5628,18 @@
   (boolean (or (seq (tax/props-over tax :functional p))
                (seq (tax/functional-in-arg-over tax p))
                (seq (tax/props-over tax :asymmetric p))
-               (seq (tax/props-over tax :anti-transitive p)))))
+               (seq (tax/props-over tax :anti-transitive p))
+               (seq (tax/negates-over tax p)))))
 
 (defn offer-marked-existing
-  "When a `functional`, `functionalInArg`, `asymmetric` or `anti_transitive` mark arrives,
-  offer every stored fact of the marked predicate's spec subtree to `decide/offer!`,
-  which reads the nogoods each forms under the mark.  nil."
+  "When a `functional`, `functionalInArg`, `asymmetric`, `anti_transitive` or `negates`
+  mark arrives, offer every stored fact of the spec subtree of each predicate it names
+  (the first argument, both of a `negates`) to `decide/offer!`, which reads the nogoods
+  each forms under the mark.  nil."
   [kb sentence]
   (when (and (seq? sentence) (= (offered-marks (nm/functor sentence)) (nm/arity sentence)))
-    (let [p (first (nm/args sentence))]
-      (when (symbol? p)
+    (let [ps (if (= 'negates (nm/functor sentence)) (distinct (nm/args sentence)) [(first (nm/args sentence))])]
+      (doseq [p ps :when (symbol? p)]
         (decide/offer! kb (subtree-sentexes kb p))))))
 
 (defn offer-marked-under-edge
@@ -6194,8 +6202,9 @@
   an edge far more often than one arrives, and `lein perf`'s `constraint-genl-mark-descent`
   holds a revived edge flat in the subtree past the budget.
 
-  Gated on the taxonomy holding any functional-family, `anti_symmetric` or
-  `decontextualized_predicate` mark, so a KB declaring none pays three map reads."
+  Gated on the taxonomy holding a functional-family, `anti_symmetric`, `asymmetric`,
+  `anti_transitive`, `negates` or `decontextualized_predicate` mark, so a KB declaring
+  none pays one map read per kind."
   [kb handles]
   (let [tax (reasoning/taxonomy kb)]
     (when (and (seq handles)
@@ -6203,6 +6212,7 @@
                    (seq (tax/props tax :anti-symmetric))
                    (seq (tax/props tax :asymmetric))
                    (seq (tax/props tax :anti-transitive))
+                   (tax/negates? tax)
                    (seq (tax/props tax :decontextualized))))
       (let [sxs (sort-by (juxt (comp nm/print-key :sentence) (comp nm/print-key :context))
                          (keep #(p/get-sentex (:records kb) %) handles))]
@@ -7377,6 +7387,15 @@
               :rebuild      (fn [tax {[_ p q] :sentence id :id ctx :context}]
                               (tax/add-inverse tax p q id ctx))
               :wff          wff/inverse-problems}
+    'negates {:integrate    (fn [kb sx h]
+                              (let [[_ p q] (:sentence sx)]
+                                (tax/add-negates (reasoning/taxonomy kb) p q h (:context sx))))
+              :disintegrate (fn [kb sx]
+                              (let [[_ p q] (:sentence sx)]
+                                (tax/del-negates! (reasoning/taxonomy kb) p q (:id sx))))
+              :rebuild      (fn [tax {[_ p q] :sentence id :id ctx :context}]
+                              (tax/add-negates tax p q id ctx))
+              :wff          wff/negates-problems}
     'genlInverse {:integrate    (fn [kb sx h]
                                   (let [[_ p q] (:sentence sx)]
                                     (tax/add-genl-inverse (reasoning/taxonomy kb) p q h (:context sx))))

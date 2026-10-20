@@ -1,7 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.relation-properties-test
-  "The four relation properties added in #14, enforced rather than declared:
+  "The four relation properties added in #14, enforced rather than declared, and
+  `negates` beside them:
 
   * **`irreflexive`** — a self tuple `(P a a)` is a one-member nogood each reader
     decides: a `:default` one is OUT where the mark is read, a `:monotonic` one is a
@@ -15,6 +16,9 @@
     enforced beside that.
   * **`equivalence_relation`** — no engine code: three CxUniverse forward rules derive
     `symmetric`, `transitive` and `reflexive`, each enforced in turn.
+  * **`negates`** — two tuples of one argument list under the two sides are a nogood, a
+    declaration whose sides' lengths no argument list fits is a clash of the
+    declaration, and a ground denial is answered from the other side.
 
   A vocabulary KB on the collapsed single-predicate model (an algebraic property is one
   predicate, not a mark and a twin): each new property is one predicate with `(genl X
@@ -22,6 +26,7 @@
   are what is tested, not a hand-built fixture that could drift from the file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.decide.arity :as arity]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
@@ -631,3 +636,142 @@
       (is (v/ask? kb (list 'symmetric sameAgeAs) U))
       (is (v/ask? kb (list 'transitive sameAgeAs) U))
       (is (v/ask? kb (list 'reflexive sameAgeAs) U)))))
+
+;;; ── negates: two relations hold of no argument list together ─────────────────
+
+(tu/deftest-kb negates-places-one-nogood-over-two-tuples-in-every-arrival-order
+  (tu/with-terms [scorns admires Eve Fay]
+    (let [a  (list scorns Eve Fay)
+          b  (list admires Eve Fay)
+          rs (readings kb {:decl #(v/assert kb (list 'negates scorns admires) U)
+                           :a    #(v/assert kb a U)
+                           :b    #(v/assert kb b U)}
+                       #(mapv (fn [s] (v/ask? kb s U)) [a b]))]
+      (is (= #{[[true true]
+                {:conflicts #{}
+                 :contradictions #{[:negates (list 'contradicts b a)]}}]}
+             (tu/handle-free kb rs))))))
+
+(tu/deftest-kb negates-reads-the-sub-predicates-of-both-sides-in-every-arrival-order
+  (tu/with-terms [scorns admires sneersAt adores Ida Jo]
+    (let [rs (readings kb {:decl #(v/assert kb (list 'negates scorns admires) U)
+                           :e1   #(v/assert kb (list 'genl sneersAt scorns) U)
+                           :e2   #(v/assert kb (list 'genl adores admires) U)
+                           :a    #(v/assert kb (list sneersAt Ida Jo) U)
+                           :b    #(v/assert kb (list adores Ida Jo) U)}
+                       (constantly nil))]
+      (is (= 1 (count rs)))
+      (is (= #{[:negates (list 'contradicts (list adores Ida Jo) (list sneersAt Ida Jo))]}
+             (:contradictions (second (first rs))))))))
+
+(tu/deftest-kb retracting-the-negates-declaration-releases-the-pair
+  (tu/with-terms [scorns admires Eve Fay]
+    (let [decl (v/assert kb (list 'negates scorns admires) U)]
+      (v/assert kb (list scorns Eve Fay) U)
+      (v/assert kb (list admires Eve Fay) U)
+      (is (= 1 (count (v/contradictions kb))))
+      (v/retract! kb decl)
+      (is (empty? (v/contradictions kb)))
+      (is (empty? (placed kb))))))
+
+(tu/deftest-kb negates-places-a-pair-of-ternary-tuples
+  (tu/with-terms [gives withholds Ann Bob Cup Pen]
+    (v/assert kb (list 'negates gives withholds) U)
+    (v/assert kb (list gives Ann Bob Cup) U {:strength :monotonic})
+    (v/assert kb (list withholds Ann Bob Pen) U)
+    (testing "tuples of two argument lists are no pair"
+      (is (empty? (v/contradictions kb))))
+    (testing "a tuple of the other side on the same list loses to the monotonic one"
+      (is (tu/stored-in-clash? kb (list withholds Ann Bob Cup) U))
+      (is (= :defeated (:reason (v/why-not kb (v/handle-of kb (list withholds Ann Bob Cup) U))))))))
+
+(tu/deftest-kb a-negates-declaration-over-two-lengths-is-placed-not-refused-in-every-order
+  (tu/with-terms [twoR threeR]
+    (let [decl (list 'negates twoR threeR)]
+      (is (empty? (v/check kb decl U)))
+      (let [rs (readings kb {:decl  #(v/assert kb decl U)
+                             :two   #(v/assert kb (list 'binary_predicate twoR) U)
+                             :three #(v/assert kb (list 'ternary_predicate threeR) U)}
+                         #(v/ask? kb decl U))]
+        (testing "the declaration stays believed, and its clash is a conflict"
+          (is (= #{[true [[:negates-arity #{twoR threeR}]] #{}]}
+                 (into #{} (map (fn [[b {:keys [conflicts contradictions]}]]
+                                  [b (mapv (fn [[k [_ d]]] [k (set (rest d))]) conflicts)
+                                   contradictions]))
+                       rs))))))))
+
+(tu/deftest-kb a-negates-declaration-over-two-unary-predicates-is-a-clash-of-the-declaration
+  (tu/with-terms [alive dead]
+    (v/assert kb (list 'unary_predicate alive) U)
+    (v/assert kb (list 'unary_predicate dead) U)
+    (let [h (v/assert kb (list 'negates alive dead) U)]
+      (is (= [[:negates-unary #{h}]] (mapv (juxt :kind :nogood) (v/conflicts kb))))
+      (testing "the report names the bindings stating the lengths"
+        (is (= #{(list 'unary_predicate alive) (list 'unary_predicate dead)}
+               (into #{} (map :sentence) (:grounds (first (v/conflicts kb)))))))
+      (v/retract! kb (v/handle-of kb (list 'unary_predicate dead) U))
+      (testing "a length leaving releases the clash"
+        (is (empty? (v/conflicts kb)))))))
+
+(tu/deftest-kb a-length-a-genl-edge-gives-a-negates-side-is-a-clash-of-the-declaration
+  (tu/with-terms [twoR threeR subR]
+    (v/assert kb (list 'binary_predicate twoR) U)
+    (v/assert kb (list 'ternary_predicate threeR) U)
+    (let [decl (v/assert kb (list 'negates twoR subR) U)]
+      (is (empty? (v/conflicts kb)))
+      (let [edge (v/assert kb (list 'genl subR threeR) U)]
+        (is (= [[:negates-arity #{decl}]] (mapv (juxt :kind :nogood) (v/conflicts kb))))
+        (v/retract! kb edge)
+        (is (empty? (v/conflicts kb)))))))
+
+(tu/deftest-kb a-write-moving-no-side-length-reads-no-negates-declaration
+  (tu/with-terms [aR bR cR dog animal]
+    (v/assert kb (list 'negates aR bR) U)
+    (let [reads (atom 0)
+          clash arity/negates-clash]
+      (with-redefs [arity/negates-clash (fn [& xs] (swap! reads inc) (apply clash xs))]
+        (v/assert kb (list 'genl dog animal) U)
+        (v/assert kb (list 'binary_predicate cR) U)
+        (let [unrelated @reads]
+          (v/assert kb (list 'binary_predicate aR) U)
+          (is (= [0 true] [unrelated (pos? @reads)])))))))
+
+(tu/deftest-kb negates-of-one-predicate-places-each-tuple-alone
+  (tu/with-terms [nullR Ann Bob Cal]
+    (let [rs (readings kb {:decl #(v/assert kb (list 'negates nullR nullR) U)
+                           :a    #(v/assert kb (list nullR Ann Bob) U)}
+                       #(v/ask? kb (list nullR Ann Bob) U))]
+      (is (= #{[false {:conflicts #{} :contradictions #{}}]} rs)))
+    (v/assert kb (list 'negates nullR nullR) U)
+    (v/assert kb (list nullR Ann Bob) U {:strength :monotonic})
+    (testing "a monotonic tuple is a one-member conflict"
+      (is (= #{[:negates (list 'contradicts (list nullR Ann Bob))]}
+             (tu/handle-free kb (:conflicts (clash-kinds kb))))))
+    (testing "and every ground denial holds"
+      (is (v/ask? kb (list 'not (list nullR Bob Cal)) U)))))
+
+(tu/deftest-kb the-negates-prover-answers-a-denial-from-the-other-side
+  (tu/with-terms [scorns admires sneersAt Gus Hal]
+    (v/assert kb (list 'negates scorns admires) U)
+    (v/assert kb (list 'genl sneersAt scorns) U)
+    (is (not (v/ask? kb (list 'not (list scorns Gus Hal)) U)))
+    (let [h (v/assert kb (list admires Gus Hal) U)]
+      (testing "a believed tuple of one side answers the denial of the other and its specs"
+        (is (v/ask? kb (list 'not (list scorns Gus Hal)) U))
+        (is (v/ask? kb (list 'not (list sneersAt Gus Hal)) U))
+        (is (not (v/ask? kb (list 'not (list admires Gus Hal)) U))))
+      (v/retract! kb h)
+      (is (not (v/ask? kb (list 'not (list scorns Gus Hal)) U))))))
+
+(tu/deftest-kb a-denial-of-a-negates-declaration-is-stored-inert
+  ;; `negates` is on the roster: a stated denial of a declaration is stored inert, so the
+  ;; pair stays placed.
+  (tu/with-terms [scorns admires Eve Fay]
+    (let [decl (v/assert kb (list 'negates scorns admires) U)
+          den  (v/assert kb (list 'not (list 'negates scorns admires)) U)]
+      (v/assert kb (list scorns Eve Fay) U)
+      (v/assert kb (list admires Eve Fay) U)
+      (is (v/believed? kb decl U))
+      (is (not (v/believed? kb den U)))
+      (is (= :inert (:reason (v/why-not kb den))))
+      (is (= #{:negates} (into #{} (map :kind) (v/contradictions kb)))))))

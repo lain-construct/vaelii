@@ -25,7 +25,8 @@ family keys those nogoods by the arguments of `S`. Negation keys on the body of 
 `disjoint` and `covering` on the individual of a membership, `functional` and
 `functionalInArg` on the predicate and the positions the mark does not determine,
 `irreflexive` and `anti_symmetric` on the argument pair of the tuple, `anti_transitive` on
-each argument `S` shares with another step, and the inherited family on the predicate and
+each argument `S` shares with another step, `negates` on the argument list of the tuple,
+and the inherited family on the predicate and
 the arguments outside the preserved position. The set `believed(W, C)` of every `S` with
 `believed?(W, S, C)` is the enumeration a spec over a small world uses.
 
@@ -113,6 +114,10 @@ believed?(W, S, C) = S is in believed(W, C)
      (decision 7);
    - **`anti_transitive`**: `(P a b)`, `(P b c)` and `(P a c)`, three members
      ([nmtms.md](nmtms.md#a-nogood-is-a-set-anti_transitive-has-three-members));
+   - **`negates`**: two tuples of one argument list, `(Q1 a …)` and `(Q2 a …)`, with one
+     side of a believed `(negates P R)` above each functor, or one tuple whose functor is
+     below both sides; grounds the declaration and the predicate `genl` edges
+     ([taxonomy.md](taxonomy.md#predicate-metadata));
    - **`covering`**: `(W x)` and a denier of every part `A` of a believed `(covering W A
      …)`: a believed `(not (A x))`, or a believed membership `(S x)` of another type a
      believed `disjoint` separates from `A` with every `genl` edge on both sides
@@ -344,8 +349,8 @@ refused. Each entry states how the engine holds it.
    stored edges. The engine holds it: `genlCx` is on the
    forced-monotonic roster ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 2. **The relation marks are on the forced-monotonic roster.** The roster is `irreflexive`,
-   `anti_symmetric`, `asymmetric`, `functional`, `functionalInArg`, `anti_transitive` and
-   `genlCx`, and invariants 5 to 8 extend it. A write of a roster predicate keeps the
+   `anti_symmetric`, `asymmetric`, `functional`, `functionalInArg`, `anti_transitive`,
+   `negates` and `genlCx`, and invariants 5 to 8 extend it. A write of a roster predicate keeps the
    strength it was written at and is never the loser of a nogood, and a denial of one is
    inert. A mark's reach, the
    sub-predicates it convicts through predicate `genl`, reads the edges believed at `C`
@@ -474,6 +479,7 @@ by the world extractor with `:unsupported`, so the generator cannot produce one.
 | a denial of `genlCx`, a mark, a declaration or a predicate `genl` | yes, stored and held OUT (invariants 1, 2, 5 and 6) | [nmtms.md](nmtms.md#the-forced-monotonic-roster) |
 | a rule concluding a forced-monotonic predicate | yes, its firings stored and held void (decision 17) | [taxonomy.md](taxonomy.md#what-a-rule-may-conclude-and-what-it-reaches) |
 | `anti_transitive` | yes | [nmtms.md](nmtms.md#a-nogood-is-a-set-anti_transitive-has-three-members) |
+| `negates` | yes, as nogoods over two tuples; a declaration's length clash is not modelled | [taxonomy.md](taxonomy.md#predicate-metadata) |
 | `covering` | yes, on the roster (invariant 6) | [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it) |
 | `transitiveInArgInverse` along `genl`, one position | yes, decision 5 | [inherit.md](inherit.md) |
 | equality: `rewriteOf`, `sameAs`, `equals` | no | [equality.md](equality.md) |

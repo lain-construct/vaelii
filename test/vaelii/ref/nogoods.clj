@@ -52,6 +52,9 @@
   `families` is the vector `vaelii.ref.believe` decides. No clash is refused (decision
   D8): every conviction here is a nogood.
 
+  `negates` reads two tuples of one argument list the way a mark reads its tuples, its
+  sides read down the `genl` closure.
+
   Left out, and for the world extraction to refuse rather than for this namespace to
   read: `disjoint_metatype`, `sibling_disjoint`, `separating`, `partition`,
   `orthogonal`, `siblingDisjointException`, `transitiveInArg`, a `transitiveInArgInverse` over any
@@ -606,6 +609,33 @@
            :when (and (not= a b) (= a a') (= b b'))]
        {:kind :anti-symmetric :members #{t1 t2} :ground (mark-edges view edges d p [t1 t2])}))))
 
+;; ---- negates -------------------------------------------------------------------
+
+(defn negates
+  "The `:negates` nogoods at the view's context. docs/taxonomy.md, \"Predicate metadata\"
+  (the `negates` entry).
+
+  A believed `(negates P R)` convicts two believed tuples `(Q1 a …)` and `(Q2 a …)` of one
+  argument list with `P` in `Q1`'s `genl` closure and `R` in `Q2`'s, in either order of
+  the two sides. Members: the two tuples, or one tuple whose functor has both sides in its
+  closure, `(negates P P)` included. `:ground`: the declaration and the predicate edges
+  from each tuple's functor up to its side. A declaration whose sides' lengths clash is
+  left out: the reference models no arity binding."
+  [view]
+  (let [edges  (genl-edges view)
+        tuples (filterv tuple? (:believed view))]
+    (collect
+     (for [[_ p r :as d] (declarations view 'negates 2)
+           [a b] (distinct [[p r] [r p]])
+           t1 tuples
+           :when (contains? (up view (first t1)) a)
+           t2 tuples
+           :when (and (= (rest t1) (rest t2)) (contains? (up view (first t2)) b))]
+       {:kind    :negates
+        :members (hash-set t1 t2)
+        :ground  (into #{d} (concat (route-edges view edges (first t1) a)
+                                    (route-edges view edges (first t2) b)))}))))
+
 ;; ---- the wiring --------------------------------------------------------------
 
 (def families
@@ -613,4 +643,4 @@
   order of their names. `vaelii.ref.believe` sorts the nogoods it decides on content, so
   this order changes no answer."
   [anti-symmetric anti-transitive asymmetric covering disjoint functional inherited
-   irreflexive supertype])
+   irreflexive negates supertype])

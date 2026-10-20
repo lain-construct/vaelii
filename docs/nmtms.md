@@ -102,7 +102,7 @@ not it loads the upper layer:
 |---|---|
 | `arity`, the nine exact-arity classes, `variable_arity` and its two specializations, `arityMin` | grounds of the arity family |
 | `irreflexive`, `anti_symmetric` | grounds of the self and converse family |
-| `functional`, `functionalInArg`, `anti_transitive`, `asymmetric` | grounds of the tuple-mark family |
+| `functional`, `functionalInArg`, `anti_transitive`, `asymmetric`, `negates` | grounds of the tuple-mark family |
 | `genl` between two arguments spelled as predicates of arity 2 or more ([naming.md](naming.md)) | grounds of the arity, self and converse, and tuple-mark families, which read the stored predicate edges |
 | `disjoint`, `covering`, `partition`, `sibling_disjoint`, `siblingDisjointException` | grounds of the membership family |
 | `orthogonal` | the one member of the related-types family's clash of it, which is a conflict and never a defeat |
@@ -128,9 +128,12 @@ A `genl` between types stays defeasible, so a type edge admits exceptions: a pla
 vantage and below.
 `transitiveInArg` is off the roster: the inherited family weighs a declaration as a member,
 read through belief (`inherit/positions`), and a declaration loses like any other member.
-A family's own grounds appear among the members of one nogood kind only,
-`:arity-descension`, whose members are all bindings: the settle stores its `contradicts`
-in CxUniverse and places no `defeat` ([The nogood families](#the-nogood-families)).
+A family's own grounds appear among the members of three nogood kinds only, and no
+member of one is ever its loser: `:arity-descension`, whose members are all bindings, its
+`contradicts` stored in CxUniverse with no `defeat`, and `:negates-arity` and
+`:negates-unary`, whose one member is a `negates` declaration, placed in its context and
+justified by the bindings stating the two lengths
+([The nogood families](#the-nogood-families)).
 
 **A ground on the roster keeps the placed reading unique.** A ground that could lose would
 let one placed `defeat` lose force through another, and two such nogoods, each one's loser a
@@ -1635,7 +1638,14 @@ the two copies, with no route and no `defeat` (`chain/sync-arity-pairs!`). The r
 answers the predicates whose pairs the settle syncs again (`arity/pair-sets`). A predicate
 with one length stored at or above it reads no closure (`arity/lengths-of`), and the sync
 reads each closure it needs once: `lein perf`'s `arity-refresh-under-bound-chain` holds a
-whole refresh's cost per predicate flat.
+whole refresh's cost per predicate flat. A `negates` declaration whose two sides' lengths no argument list fits, or
+which binds both sides to one argument, is a one-member clash placed in the declaration's
+context and justified by the declaration and the bindings stating the lengths
+(`chain/sync-negates-lengths!`). The settle reads a declaration again when it is stored
+or relabelled (`arity/take-negates!`), and when the refresh names one of its sides among
+the terms whose length can have moved (`arity/drain!`); a whole refresh reads every
+stored declaration. A write moving no side's length reads no declaration
+(`relation_properties_test`).
 
 **The negation family.** A body stored in both polarities, and its members, the handles
 of its stored `B` and `(not B)`, are an index family of the `IndexStore` and keep no row
@@ -1661,7 +1671,10 @@ determinant member is a candidate when a member with another filler sits in a co
 some context sees together with its own, so fillers no context sees together place
 nothing; `lein perf`'s `functional-in-arg-empty-determinant-sweep` holds that case flat.
 An `asymmetric` converse is a stored converse pair (`:converse`) read under the
-`asymmetric` marks. A mark arriving, or a predicate `genl` edge bringing tuples under
+`asymmetric` marks. A tuple under a side of a `negates` declaration reads, with one trie
+read of its argument list under each predicate below the other side, the tuples it pairs
+with, and is one nogood alone when its functor is below both sides (`::neg`,
+`tuple/found-for`). A mark arriving, or a predicate `genl` edge bringing tuples under
 one, offers the stored tuples beneath the marked predicate to the index again
 (`special/offer-marked-existing`, `special/offer-marked-under-edge`). Which contexts see
 two members together is read off the unscoped `genlCx` closure, and a `genlCx` edge

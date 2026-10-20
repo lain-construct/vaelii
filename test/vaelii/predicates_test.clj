@@ -167,7 +167,7 @@
                   arity arityMin arg argArg genlArg interArg arg1 arg2 arg3 arg4 arg5
                   commutative commutativeInArgs commutativeInArgAndRest
                   irreflexive anti_symmetric functional functionalInArg asymmetric
-                  anti_transitive}
+                  anti_transitive negates}
                (keys tax/exact-arity-classes))
          (pr/by-facet :reach))))
 

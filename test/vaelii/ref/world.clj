@@ -34,8 +34,8 @@
   engine's labeller holds it. A write the roster rules out is stored and inert, never
   refused (`inert-write?`): a denial of a roster literal, and a rule concluding one, whose
   antecedents in v1 are never roster literals. `check-world` sets the inert writes aside
-  under `:inert`. v1 admits `genlCx`, the marks, `disjoint`, `covering` and a predicate
-  `genl`; the rest of the roster is outside v1.
+  under `:inert`. v1 admits `genlCx`, the marks, `negates`, `disjoint`, `covering` and a
+  predicate `genl`; the rest of the roster is outside v1.
 
   Refused besides (`check-computed-reads`): a rule that reads a predicate some write
   declares `transitiveInArgInverse`, or a positive literal on a predicate the written `genl`
@@ -65,7 +65,7 @@
   "The definitional declarations v1 admits. Each is read by a nogood family
   (`vaelii.ref.nogoods`), never by derivation."
   '#{disjoint covering functional functionalInArg irreflexive anti_symmetric asymmetric
-     anti_transitive transitiveInArgInverse})
+     anti_transitive negates transitiveInArgInverse})
 
 (def forced-monotonic
   "The functors whose every write is never a loser, whose denial is inert, and which a v1
@@ -75,7 +75,7 @@
   `bijection`, `partition`, `sibling_disjoint`, the arity bindings, `except`, `rewriteOf`,
   `sameAs` and `equals` are outside v1, and `write-kind` refuses a write of one."
   '#{genlCx irreflexive anti_symmetric asymmetric functional functionalInArg
-     anti_transitive injection surjection bijection disjoint covering
+     anti_transitive negates injection surjection bijection disjoint covering
      partition sibling_disjoint arity unary binary ternary unary_predicate
      binary_predicate ternary_predicate unary_function binary_function ternary_function
      variable_arity variable_arity_predicate variable_arity_function arityMin except

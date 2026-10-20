@@ -146,7 +146,7 @@
   set a conditionally-complete prover checks before claiming its answers are a
   superset of everyone else's (see the completeness contract at the head of this file).
 
-  Four channels, each found by differencing: run the complete prover alone, run every
+  Five channels, each found by differencing: run the complete prover alone, run every
   other applicable prover, and see what only the second answers.
 
   * **`:preserving`** — an `(transitiveInArg P n R)` declaration licenses a claim about a
@@ -168,6 +168,9 @@
     taxonomy closures are keyed on their own functor, so neither reads a partner
     predicate stored under a different name.  Measured the same way, on `genl` and on
     `partOfRegion`.
+  * **`:negates`** — a `(not (Q …))` goal with `Q` at or below a side of a `negates`
+    declaration.  The denial is read off the other side's tuples (`NegatesProver`),
+    which no calculus network holds.
   * **`:calendar`** — an argument that is a **calendar term**: `(YearFn 2000)`,
     `(MonthFn 2000 1)`, a `DatetimeFn` string, an `InstantFn` moment.  Such a term carries
     its own ordering *in its fields*, and a term that appears in no stored fact appears in
@@ -175,7 +178,7 @@
     entails nothing about the pair while correctly claiming to subsume every prover that
     reads what it reads.  The structure is the source it does not read
     (`vaelii.impl.calendar`).  A pure test on the goal's own arguments, and the cheapest
-    of the four: no index read, and no read at all for a goal naming no such term.
+    of the five: no index read, and no read at all for a goal naming no such term.
 
   What is **absorbed**, and it is worth being exact since a missing entry here is a
   missing answer:
@@ -189,9 +192,10 @@
   * `arg` type inference and the metadata provers answer goal shapes no computed
     prover claims, so they are never shadowed in the first place.
 
-  Cheap by construction on three of the four: `inherit/positions` is behind a
+  Cheap by construction on four of the five: `inherit/positions` is behind a
   root-intersection gate on any declaration naming this predicate,
-  `tax/inverses-under` is one map read on a KB declaring no inverses, and
+  `tax/inverses-under` and `tax/negates-over` are one map read each on a KB declaring
+  no inverses or no negates, and
   `datetime/time-term?` reads the goal's own arguments.
   `res/concludes?` is the one that is not — it probes the consequent index per member of
   `pred`'s spec closure until one holds a rule, so a goal no rule concludes costs O(specs)
@@ -204,6 +208,9 @@
         (seq (inherit/positions kb pred context))            (conj :preserving)
         (res/concludes? kb pred context)                    (conj :rules)
         (seq (tax/inverses-under (reasoning/taxonomy kb) pred context)) (conj :inverse)
+        (and (= sx/not-functor pred) (sequential? (second goal))
+             (seq (tax/negates-over (reasoning/taxonomy kb) (first (second goal)) context)))
+        (conj :negates)
         (some datetime/time-term? (nm/args goal))             (conj :calendar)))))
 
 (defn sole-prover
@@ -1157,6 +1164,14 @@
   [goal]
   (and (sequential? goal) (contains? value-kind-predicates (first goal))
        (= 1 (count (rest goal))) (some? (literal-value-kind (second goal)))))
+
+(defn term-value-kind-goal?
+  "Is `goal` a value-kind membership `(k x)`, `k` one of `value-kind-predicates`, over a
+  ground `x` that is no literal value?  `EvaluableProver` leaves it to the other provers,
+  since a constant or a function application can denote a value of any kind."
+  [goal]
+  (and (sequential? goal) (contains? value-kind-predicates (first goal))
+       (= 1 (count (rest goal))) (ground? goal) (nil? (literal-value-kind (second goal)))))
 
 (defn- negated-value-kind-goal?
   "Is `goal` `(not (k x))` over a literal-value-kind goal?"
@@ -2661,6 +2676,44 @@
         [{}]
         []))))
 
+;; ---- negates: a denial read off the other side -----------------------------
+;;
+;; `(negates P R)` says no tuple of `P` and of `R` holds of one argument list, so a
+;; believed `(R a …)` answers `(not (P a …))`, and `(not (Q a …))` for every `Q` below
+;; `P`.  No denial is stored per fact: the declaration and the believed tuple are read at
+;; the query (docs/taxonomy.md, "Predicate metadata").
+
+(defn- negated-tuple
+  "The ground tuple `(Q a …)` a ground `(not (Q a …))` goal denies, its functor a
+  symbol, else nil."
+  [goal]
+  (when (and (rules/negative-literal? goal) (empty? (sx/free-vars goal)))
+    (let [lit (second goal)]
+      (when (and (sequential? lit) (symbol? (first lit)) (seq (rest lit)))
+        lit))))
+
+(defrecord NegatesProver []
+  Prover
+  ;; A ground `(not (Q a …))` for a `Q` at or below a side of a `negates` declaration the
+  ;; reader sees.  Ground for `DisjointnessNegationProver`'s reason.
+  (applicable? [_ kb goal context]
+    (boolean (when-let [lit (negated-tuple goal)]
+               (seq (tax/negates-over (reasoning/taxonomy kb) (first lit) context)))))
+  (est-bindings [_ _ _ _] 1)                    ; a ground test
+  (cost         [_ _ _ _] :lookup)              ; one bounded subquery per partner
+  ;; Augments a stored `(not (Q a …))` (FactProver) and the other negation provers.
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (let [[q & args] (negated-tuple goal)
+          tax (reasoning/taxonomy kb)
+          up  (tax/genls tax q context)
+          rs  (into (sorted-set) (map second) (tax/negates-over tax q context))]
+      ;; `q` at or below both sides of one declaration holds of nothing
+      (if (or (some up rs)
+              (some #(believed-literal? kb (cons % args) context) rs))
+        [{}]
+        []))))
+
 ;; ---- aggregation: a reduction over a query's solutions ------------------
 ;; `(agg/count ?n ?v <body>)` and its four siblings, answered over the registry.
 ;; See docs/aggregate.md.
@@ -3119,6 +3172,7 @@
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->DisjointnessNegationProver)
+   (->NegatesProver)
    (->CoveringProver)
    (->AggregateProver) (->BeliefProjectionProver)
    ;; FactProver before ArgTypeProver: both are :lookup / completeness 50, so vector
@@ -3369,11 +3423,11 @@
   "One prover's answers as `[bindings support]` pairs: its own support when it implements
   `SupportingProver`, and an **empty** support otherwise.
 
-  Empty is the complete support for a prover that reads nothing stored — `EvaluableProver`
-  compares two numbers, `EvaluateProver` computes one — and the `Prover` protocol's contract is what
-  makes empty support complete: a prover whose answer *does* move with
-  the store implements the protocol, so a prover that does not implement it is one whose
-  answer no retraction can invalidate."
+  Empty is the complete support for a prover that reads nothing stored: `EvaluableProver`
+  compares two numbers, `EvaluateProver` computes one.  A prover that reads stored facts
+  without implementing `SupportingProver` (`FactProver`, `SymmetricProver`,
+  `InverseProver`) gets an empty support too, which names none of the facts it read;
+  `solve-goal-reporting-support` marks which answers a `SupportingProver` gave."
   [pr kb goal context]
   (if (satisfies? SupportingProver pr)
     (solve-with-support pr kb goal context)
@@ -3382,7 +3436,7 @@
 (defn solve-goal-with-support
   "`solve-goal`'s support-carrying twin: each solution as `[bindings support]`, where
   `support` is the handles of the stored sentexes the answer was read from
-  (`SupportingProver`), empty for a prover that reads nothing stored.
+  (`SupportingProver`), empty for any other prover (`answers-with-support`).
 
   Forward chaining is the caller.  A backward chainer discharges an antecedent and forgets
   it; a forward firing *stores* a conclusion, and what it stored has to be withdrawable —
@@ -3397,6 +3451,17 @@
   what the TMS already reads them as."
   [kb goal context]
   (dispatch-provers kb (registry kb) goal context #(answers-with-support % kb goal context)))
+
+(defn solve-goal-reporting-support
+  "`solve-goal-with-support`'s answers as `[bindings support reported?]`, `reported?` true
+  when a `SupportingProver` gave the answer.  An empty support it reports means the answer
+  read nothing stored; an empty support from any other prover says nothing about what it
+  read, `FactProver`'s among them."
+  [kb goal context]
+  (dispatch-provers kb (registry kb) goal context
+                    (fn [pr] (let [r (satisfies? SupportingProver pr)]
+                               (map (fn [[b sup]] [b sup r])
+                                    (answers-with-support pr kb goal context))))))
 
 (def ^:private ^:dynamic *mirror-depth*
   "How many mirror delegations are on the stack.  `solve-mirrored` re-enters the
