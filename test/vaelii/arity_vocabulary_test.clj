@@ -4,8 +4,10 @@
   "The relation-wide exact/variable arity partition and its documentary floor vocabulary."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
             [vaelii.impl.predicates :as predicates]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded starter/load-into))
@@ -71,6 +73,22 @@
     (is (empty? (v/query kb (list four_place_function fourPlacePred) 'CxUniverse {:max-depth 3}))
         "a predicate of that arity is not a function type")
     (is (empty? (v/sentexes-matching kb (list four_place_function fourPlaceFn) 'CxUniverse)))))
+
+(tu/deftest-kb the-starter-states-every-exact-arity-class-its-kinds-and-arities-force
+  ;; The predicate and function class stamps are applied by kb-integrity's
+  ;; implicit-arity-class sweep, not by either engine, so each class the starter's kinds
+  ;; and arities force is stated: a relation shipped with its arity and kind and without
+  ;; its class is a finding here.
+  (doseq [ctx (cons 'CxUniverse (seed/layer-contexts "middle"))]
+    (let [relations (into #{}
+                          (comp (map #(get % '?r))
+                                (filter #(and (symbol? %) (not (sx/variable? %)))))
+                          (concat (v/query kb '(predicate ?r) ctx {})
+                                  (v/query kb '(function ?r) ctx {})))
+          report    (v/kb-integrity kb relations ctx {:categories #{:implicit-arity-class}})]
+      (is (< 200 (count relations)) "the sweep reads the shipped relations")
+      (is (= :audited (:status report))
+          (str ctx ": " (pr-str (mapv (juxt :class :term) (:implicit-arity-class report))))))))
 
 (tu/deftest-kb a-predicate-mapping-does-not-classify-a-function
   ;; A predicateTypeByArity fact is not a relationTypeByArity fact, so the relation-wide

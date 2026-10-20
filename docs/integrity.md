@@ -248,7 +248,9 @@ other part, the declarations that separate the type from it:
 
 `abstract_kind` is separated from `tangible` by the second partition, which holds a
 supertype of each, so every `abstract_kind` is `intangible`. The finding is a
-suggestion: the sweep asserts nothing, and the edge is the author's to state.
+suggestion: the sweep asserts nothing, and the edge is the author's to state. Every predicate and function the starter ships states its
+exact-arity class, so the shipped starter has no finding, in CxUniverse or in any middle
+context.
 
 One finding is reported for each candidate term and cover that force an edge, in print
 order of the term and then of the cover. The separation is `disjoint?`, so an explicit
