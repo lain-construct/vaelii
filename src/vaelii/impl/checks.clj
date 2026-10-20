@@ -2793,9 +2793,13 @@
            :refusal
            (or (first
                 (keep (fn [m]
-                        (when-let [p (constraint-problem kb m context types
-                                                         (get readers (nm/functor m))
-                                                         entry-refuses?)]
+                        ;; a mint a stored, more specific membership withholds is never
+                        ;; stored, and that membership was admitted under every
+                        ;; declaration over `m`'s type (`special/entail-arg-type`)
+                        (when-let [p (and (not (subsumed-mint kb m context))
+                                          (constraint-problem kb m context types
+                                                              (get readers (nm/functor m))
+                                                              entry-refuses?))]
                           (assoc p :entailed-from sentence
                                  :message (str "arg constraint: " (nm/print-key sentence)
                                                " entails " (nm/print-key m)

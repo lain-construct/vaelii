@@ -93,19 +93,22 @@
 ;; comment gives.
 (set/forwardRule (implies (and (penguin ?x)) (not (hasCapability ?x flying))))
 
-;; ---- where an animal lives is where it is, by default --------------------
-;; A default rather than a bare rule: an animal that lives in a burrow is in it now
-;; only until something says where it actually is.
-(set/defaultRule (set/forwardRule (implies (and (livesIn ?a ?p)) (locatedIn ?a ?p))))
+;; ---- where an animal lives is where it is --------------------------------
+;; livesIn specializes locatedIn.  A genl edge between two predicates is on the
+;; forced-monotonic roster (core.txt's forced_monotonic_between_predicates), so the edge
+;; holds monotonic.
+(genl livesIn locatedIn)
 
 (set/defaultRule (set/forwardRule (implies (and (organism ?x)) (mortal ?x))))
 
 ;; ---- warm-bloodedness, read off the class --------------------------------
 ;; Never asserted of any particular animal: the five vertebrate classes are pairwise
-;; disjoint, so exactly one of these fires for a typed animal and the KB cannot hold
-;; both halves of the contradiction.
+;; disjoint, so a typed animal is under exactly one of them and the KB cannot hold
+;; both halves of the contradiction.  Every bird and every mammal is warm-blooded, so
+;; each is placed under warm_blooded by a genl edge; the three cold-blooded classes
+;; deny it by a rule, since a genl edge states no denial.
+(genl bird warm_blooded)
+(genl mammal warm_blooded)
 (set/forwardRule (implies (and (amphibian ?x)) (not (warm_blooded ?x))))
-(set/forwardRule (implies (and (bird ?x)) (warm_blooded ?x)))
 (set/forwardRule (implies (and (fish ?x)) (not (warm_blooded ?x))))
-(set/forwardRule (implies (and (mammal ?x)) (warm_blooded ?x)))
 (set/forwardRule (implies (and (reptile ?x)) (not (warm_blooded ?x))))

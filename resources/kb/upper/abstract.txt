@@ -368,7 +368,7 @@
 (binary_predicate doneBy)
 (set/monotonic (instance_relation_predicate doneBy))
 (arg doneBy 1 happening)
-(arg doneBy 2 thing)
+(arg doneBy 2 thing)   ;; an event's doer: a person, an animal, a machine or a process
 (genl doneBy actor)
 
 (comment performedBy
@@ -376,6 +376,7 @@
 (binary_predicate performedBy)
 (set/monotonic (instance_relation_predicate performedBy))
 (arg performedBy 1 happening)
+(arg performedBy 2 thing)   ;; an event's doer: a person, an animal, a machine or a process
 (genl performedBy doneBy)
 
 ;; --- input / output: what went into a happening and what it left behind -----
@@ -392,7 +393,7 @@
 (binary_predicate input)
 (set/monotonic (instance_relation_predicate input))
 (arg input 1 happening)
-(arg input 2 thing)
+(arg input 2 thing)   ;; what went into an event: a thing of any kind
 (genl input actor)
 (termsRelated input output)
 
@@ -404,14 +405,14 @@
 (binary_predicate destroyedInput)
 (set/monotonic (instance_relation_predicate destroyedInput))
 (arg destroyedInput 1 happening)
-(arg destroyedInput 2 thing)
+(arg destroyedInput 2 thing)   ;; what went into an event: a thing of any kind
 (genl destroyedInput input)
 
 (comment preservedInput "(preservedInput ?happening ?thing) means that ?thing went into ?happening and still exists when ?happening ends, e.g. the lettuce in a salad, the thread in a woven cloth.")
 (binary_predicate preservedInput)
 (set/monotonic (instance_relation_predicate preservedInput))
 (arg preservedInput 1 happening)
-(arg preservedInput 2 thing)
+(arg preservedInput 2 thing)   ;; what went into an event: a thing of any kind
 (genl preservedInput input)
 ;; No thing is both a destroyed and a preserved input of one event.  The KB does not
 ;; state the disjointness, because a separation over two relations constrains no tuple.
@@ -425,7 +426,7 @@
 (binary_predicate output)
 (set/monotonic (instance_relation_predicate output))
 (arg output 1 happening)
-(arg output 2 thing)
+(arg output 2 thing)   ;; what an event left behind, tangible or intangible
 (genl output actor)
 
 (comment tangibleOutput
@@ -510,6 +511,9 @@
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)
 (metatype stuff_type_by_substance)
+;; Every member of either metatype is a first-order type, whose instances are portions of stuff.
+(genl stuff_type_by_state_of_matter type)
+(genl stuff_type_by_substance type)
 (genl building container)
 (genl gas substance)
 (genl plasma substance)

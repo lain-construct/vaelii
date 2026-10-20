@@ -12,7 +12,6 @@
   quoted term."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.sentex :as sx]
@@ -23,7 +22,7 @@
 ;; The fixture loads the upper layer, whose reflection.txt holds the expression lattice the
 ;; shape classification answers in.
 (use-fixtures :once (tu/loaded #(doto %
-                                  (core-context/load-into))))
+                                  (tu/load-core!))))
 (use-fixtures :each (tu/neutral))
 
 (def ^:private Quote

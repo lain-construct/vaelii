@@ -3200,6 +3200,47 @@
     (doall (for [_ (range 5)]
              (nanos (do (decide/rebuild-candidates! kb) (decide/synced kb)))))))
 
+(defn- genl-chain-child-first-in-one-batch
+  "A chain of n `genl` edges asserted child first in one `with-deferred-settle` batch,
+  the closing settle included, per edge, three readings on a KB each.
+
+  Each edge lifts its lower end above its new upper end and breaks the edge under it, so
+  the batch leaves the relation without a depth potential (`tax/local-lift`).  The settle
+  repairs it (`tax/restore-depths`) before its passes read `genl?`, which walks a
+  relation without one unpruned.  No rule reads a negated antecedent, so no edge reads
+  its lower end's spec closure (`special/negative-subsumption-seeds`)."
+  [n]
+  (doall (for [_ (range 3)]
+           (let [kb (fresh-kb)
+                 M  {:strength :monotonic}
+                 ch #(symbol (str "pGcf" %))]
+             (quot (nanos (v/with-deferred-settle kb
+                            (dotimes [i (dec n)]
+                              (v/assert kb (list 'genl (ch i) (ch (inc i))) 'CxPerf M))))
+                   n)))))
+
+(defn- withheld-mint-beside-covers
+  "One fact whose argument type mints a membership that the term's stored, more specific
+  membership withholds (`checks/subsumed-mint`), beside n covers of the minted type, per
+  fact, 200 readings.
+
+  A withheld mint stores nothing, so `special/entail-arg-type` decides the withholding
+  before the admission checks.  The checks' cover arm asks the provers once per cover
+  over the type (`checks/cover-refutations`)."
+  [n]
+  (let [kb (fresh-kb)
+        M  {:strength :monotonic}
+        xs (mapv #(symbol (str "WmcX" %)) (range 200))]
+    (v/with-deferred-settle kb
+      (v/assert kb '(genl wmc_kind thing) 'CxPerf M)
+      (v/assert kb '(genl wmc_sub wmc_kind) 'CxPerf M)
+      (v/assert kb '(arg wmcRel 1 wmc_kind) 'CxPerf M)
+      (dotimes [i n]
+        (v/assert kb (list 'covering 'wmc_kind (symbol (str "wmc_a" i)) (symbol (str "wmc_b" i)))
+                  'CxPerf M))
+      (doseq [x xs] (v/assert kb (list 'wmc_sub x) 'CxPerf {})))
+    (doall (for [x xs] (nanos (v/assert kb (list 'wmcRel x 'WmcY) 'CxPerf {}))))))
+
 (defn- arity-refresh-under-bound-chain
   "A chain of n predicates, each bound to two arguments in CxUniverse, then the arity
   shapes owed whole as `recover` owes them and settled (`decide/rebuild-candidates!`,
@@ -6170,6 +6211,28 @@
     :sizes     [250 4000]
     :max-ratio 2.0
     :run       arity-refresh-under-bound-chain}
+
+   ;; Both ends measured under `--only`, 2026-10-18, load 22-38: healthy 1.05x and 1.25x
+   ;; (0.196 against 0.206 ms/op).  With the negated-antecedent keys read after the spec
+   ;; closure, 4.85x (0.275 against 1.332).  With the depth repair in `settle-finish`
+   ;; alone, 3.60x at [256 2048] (1.213 against 4.366).
+   {:name      :genl-chain-child-first-in-one-batch
+    :group     :taxonomy
+    :claim     "a chain of 16x the genl edges asserted child first in one batch costs under 2x per edge"
+    :sizes     [256 4096]
+    :max-ratio 2.0
+    :run       genl-chain-child-first-in-one-batch}
+
+   ;; Both ends measured under `--only`, 2026-10-18, load 26-34: healthy 1.26x (0.876
+   ;; against 1.101 ms/op).  With the admission checks asked of a withheld mint, 4.53x
+   ;; (2.678 against 12.136); with only the entry check asking them, 5.52x (1.758 against
+   ;; 9.700).
+   {:name      :withheld-mint-beside-covers
+    :group     :argtypes
+    :claim     "16x the covers of a minted type costs under 2x per fact whose mint a more specific membership withholds"
+    :sizes     [16 256]
+    :max-ratio 2.0
+    :run       withheld-mint-beside-covers}
 
    ;; Measured 2026-10-14 per hundred predicates: 0.844 ms at 256 and 0.486 ms at 4,096
    ;; (0.58x).  With the lengths below each predicate held in the bounded length entries,

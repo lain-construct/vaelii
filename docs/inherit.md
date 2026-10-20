@@ -177,7 +177,7 @@ argument to be marked, and a marked predicate takes one argument-check family fo
 position — `arg` throughout for an instance relation, `genlArg` throughout for a type
 one. A predicate relating one individual to a *kind* satisfies neither and is left
 unmarked, which `relation_kind`'s own comment says of `result` and
-`functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one event
+`functionCorrespondingPredicate`. `hasCapability` is the third: one causal thing, one event
 kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
 the predicate that exists to name pairs — declaring the mark to satisfy it would trade an
 argument check that convicts for a link nothing reads. `partType`/`partOf` is the pair the

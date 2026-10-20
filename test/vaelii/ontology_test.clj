@@ -78,6 +78,32 @@
            (is (= :arg-genl (:type p)) (str (pr-str s) " is convicted by genlArg"))
            (is (= 'event (:expected p)) (str (pr-str s) " is convicted against event"))))))))
 
+(tu/deftest-kb the-first-position-of-hasCapability-takes-any-causal-doer
+  ;; A doer is whatever doneBy can name, and that is wider than animal: a machine or an
+  ;; organization can be the doer of an event.  What cannot is an acausal thing, which
+  ;; can occupy no cause slot.  Pinned to the constraint-only reading, where `check`
+  ;; reports the conviction.
+  (tu/without-entailing
+   (tu/with-terms [Pump Acme Noon]
+     (v/assert kb (list 'machine Pump) N)
+     (v/assert kb (list 'organization Acme) N)
+     (v/assert kb (list 'time Noon) N)
+     (testing "the declaration, which names causal and not animal"
+       (is (v/ask? kb '(arg hasCapability 1 causal)))
+       (is (not (v/ask? kb '(arg hasCapability 1 animal)))))
+     (testing "the doers that are not animals"
+       (is (v/genl? kb 'machine 'causal))
+       (is (v/genl? kb 'organization 'causal))
+       (is (= [] (v/check kb (list 'hasCapability Pump 'travelling) N)) "a machine")
+       (is (= [] (v/check kb (list 'hasCapability Acme 'event) N)) "an organization"))
+     (testing "an acausal thing is still refused, against causal"
+       (is (v/genl? kb 'time 'acausal))
+       (let [p (first (filter #(= :arg-type (:type %))
+                              (v/check kb (list 'hasCapability Noon 'travelling) N)))]
+         (is (some? p) "a time can be the doer of nothing")
+         (is (= 1 (:position p)))
+         (is (= 'causal (:expected p))))))))
+
 (tu/deftest-kb a-bird-that-flies-travels
   ;; flying genl travelling, and (transitiveInArg hasCapability 2 genl) carries a
   ;; claim about flying up to travelling at retrieval.
@@ -161,17 +187,17 @@
   ;; the entailing reading: the derivation is the subject
   (tu/with-entailing
     ;; One symbol read at both levels has to pick one argument check for both, and whichever
-    ;; it picks convicts the half it was not written for: `arg … 1 animal` is right for
+    ;; it picks convicts the half it was not written for: `arg … 1 causal` is right for
     ;; `(… Tweety flying)` and wrong for `(… bird flying)`, since a kind is not a member of
     ;; the type it lies under.  So: two predicates, the kind-level one marked, and the pair
     ;; named in prose because the predicate that names pairs cannot take a mixed half.
     (testing "the kind-level half relates kinds, and says so"
       (is (v/ask? kb '(type_relation_predicate capabilityType))))
-    (testing "the instance-level half is MIXED — one animal to one event kind — so it
+    (testing "the instance-level half is MIXED — one causal thing to one event kind — so it
             carries no relation_kind, and its two positions take different checks"
       (is (not (v/ask? kb '(instance_relation_predicate hasCapability))))
       (is (not (v/ask? kb '(type_relation_predicate hasCapability))))
-      (is (v/ask? kb '(arg hasCapability 1 animal)))
+      (is (v/ask? kb '(arg hasCapability 1 causal)))
       (is (v/ask? kb '(genlArg hasCapability 2 event))))
     (testing "so declaring the pairing would mark the mixed half — typeToInstancePred
             types its second argument an instance half, and derives that mark"
@@ -209,70 +235,31 @@
     (is (empty? guilty)
         (str "shipped facts their own declarations convict: " (vec guilty)))))
 
-(def ^:private untyped-positions
-  "The argument positions of arity **2 and up** that the shipped text contexts leave
-  undeclared, each with the reason no `arg` / `genlArg` / `quotedArg` can name it.  A
-  position that is not here and not declared fails the test below; a position here that
-  gains a declaration fails it too, so the roster stays a list of reasons rather than a
-  list of debts.
+(def ^:private undeclared-positions
+  "The argument positions of arity **2 and up** that the shipped text contexts declare with
+  no `arg`-family form, each with the reason.  A position that holds a term of any kind
+  declares `thing` (`(arg P n thing)`), and a position that holds a term taken as written
+  declares the expression type with `quotedArg`, so neither belongs here.  What remains is
+  a position no declaration fits.
 
-  A **unary** predicate's one position is exempt as a class and is not rostered — see
-  the test."
+  A position that is not here and not declared fails the test below; a position here that
+  gains a declaration fails it too.
+
+  A **unary** predicate's one position is exempt as a class and is not listed — see the
+  test."
   (merge
-   {'[genl 1]  "predicate specializations: (genlArg genl 1 thing) is false of (genl predicateTypeByArity relationTypeByArity), whose ends are binary predicates"
-    '[genl 2]  "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive"
-    '[comment 1] "the commented term: a type, a predicate, an individual or a context, so no type below thing covers it"}
-   ;; slots that hold a term of any kind, which no type below thing covers
-   {'[believes 1]           "a believer, whose type the upper ontology does not name"
-    '[evaluate 2]           "an evaluate expression: a number or an application"
-    '[likes 2]              "what a person likes"
-    '[termOfUnit 1]         "the reified constant of a termOfUnit"
-    '[rewriteOf 1]          "either side of a rewriteOf"
-    '[rewriteOf 2]          "either side of a rewriteOf"
-    '[seeAlso 1]            "a cross-referenced term"
-    '[seeAlso 2]            "a cross-referenced term"
-    '[performedBy 2]        "an event's doer: a person, an animal, a machine or a process"
-    '[perceives 1]          "a perceiver, whose type the upper ontology does not name"
-    '[sees 1]               "a perceiver, whose type the upper ontology does not name"
-    '[seeImage 1]           "a perceiver, whose type the upper ontology does not name"
-    '[seeImage 2]           "the image perceived: a thing of any kind"
-    '[watchVideo 1]         "a perceiver, whose type the upper ontology does not name"
-    '[watchVideo 2]         "the video perceived: a thing of any kind"
-    '[agentHasTool 1]       "what a tool is available to, whose types the upper ontology does not name"
-    '[toolArgType 3]        "the type a tool's argument takes: a type of any kind"
-    '[argN 1]               "the term found at a position of a formula"
-    '[sameAs 1]             "either side of a sameAs"
-    '[sameAs 2]             "either side of a sameAs"
-    '[equals 1]             "either side of an equals"
-    '[equals 2]             "either side of an equals"
-    '[predAllInstance 3]    "a rule generator's fixed filler"
-    '[predExistsInstance 3] "a rule generator's fixed filler"
-    '[predInstanceAll 2]    "a rule generator's fixed filler"
-    '[predInstanceExists 2] "a rule generator's fixed filler"
-    '[predExistsInstancePlaceholder 3] "an Exists cell's fixed filler"
-    '[predInstanceExistsPlaceholder 2] "an Exists cell's fixed filler"
-    '[means 2]              "the meaning: what a term denotes or the proposition a sentence expresses, a thing of any kind"
-    '[denotes 2]            "what a denotational_term names: a thing of any kind"
-    '[closedExtentForArg 3]  "the argument value a closed extent is granted for: a term of any kind"
-    '[closedExtentForArg1 2] "the argument value a closed extent is granted for: a term of any kind"
-    '[closedExtentForArg2 2] "the argument value a closed extent is granted for: a term of any kind"
-    '[closedExtentForArg3 2] "the argument value a closed extent is granted for: a term of any kind"}
+   {'[genl 1] "predicate specializations: (genlArg genl 1 thing) is false of (genl predicateTypeByArity relationTypeByArity), whose ends are binary predicates (core.txt, beside genl)"
+    '[genl 2] "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive (core.txt, beside genl)"}
+   ;; the example: (Quote S), whose arg reading derives a membership of a reified
+   ;; constant or of a bare symbol written in its place, and whose quotedArg reading
+   ;; names no syntactic type of the form
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
-              {[p 1] "an exemplified term"
-               [p 2] "the example, a quoted sentence (Quote …)"}))
-   ;; the string siblings type their text (arg … 2 string) and leave the term untyped
-   (into {} (for [p '[positiveExampleComment negativeExampleComment borderlineExampleComment]]
-              [[p 1] "an exemplified term"]))
-   ;; the five aggregation operators: a result variable, a census variable, a sentence body
+              [[p 2] "the example, a quoted sentence (Quote …)"]))
+   ;; the five aggregation operators: a result, a value variable, a sentence body.  Each
+   ;; is a query operator that is never stored, and a type on a slot reaches the rule
+   ;; variables bound there.
    (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
-              [[op i] "an operator slot — a variable, a variable and a sentence body"]))
-   ;; koinii's speech acts name their target as (sentexHandle H) — a mention the engine
-   ;; mints with no result type — or carry a proposition; a demand on either would
-   ;; convict every meta-sentex the app writes
-   (into {} (for [[p i] '[[asserts 2] [queries 2] [answers 2] [answers 3] [justifies 2]
-                          [justifies 3] [disputes 2] [endorses 2] [refuse 2] [retracts 2]
-                          [votesFor 2] [votesAgainst 2] [notUnderstood 2]]]
-              [[p i] "a sentex handle or a proposition, a mention no argument type names"]))))
+              [[op i] "an operator slot — a result, a value variable and a sentence body"]))))
 
 (deftest every-shipped-function-declares-its-corresponding-predicate
   ;; A function comes with the predicate relating its arguments to its value
@@ -292,7 +279,7 @@
     (is (empty? (remove corr fns))
         (str "functions declaring no corresponding predicate: " (pr-str (sort (remove corr fns)))))))
 
-(deftest every-position-of-a-shipped-arity-above-one-is-typed-or-excused
+(deftest every-position-of-a-shipped-arity-above-one-is-declared
   ;; Read off the text files rather than a loaded KB, because the claim is about what the
   ;; contexts *write*: an author declaring (arity P n) for n above 1, or a class that
   ;; fixes such an n, owes a type for every one of the n positions — `check` reads only
@@ -339,12 +326,12 @@
                             i    (range 1 (inc n))
                             :when (not (declared [p i]))]
                         [p i]))
-        excused  (set (keys untyped-positions))]
+        excused  (set (keys undeclared-positions))]
     (is (seq arities) "the text contexts were found and read")
     (is (empty? (remove excused gaps))
-        (str "positions the shipped contexts leave untyped: " (pr-str (sort (remove excused gaps)))))
+        (str "positions the shipped contexts leave undeclared: " (pr-str (sort (remove excused gaps)))))
     (is (empty? (remove gaps excused))
-        (str "excused positions that are now declared (drop them from the roster): "
+        (str "listed positions that are now declared (drop them from undeclared-positions): "
              (pr-str (sort (remove gaps excused)))))))
 
 ;; ---- the exception mechanism itself, apart from birds --------------------
@@ -389,33 +376,39 @@
       (is (empty? (filter #(= :inherited (:kind %))
                           (concat (v/contradictions kb) (v/conflicts kb))))))))
 
-;; ---- what is a type, and what is only a property ------------------------
+;; ---- the biology properties and the kinds they are said of ---------------
 
 (def ^:private biology-properties
   "The seven life.txt properties placed under the kind each is said of."
   '{alive biological, dead biological, mortal organism,
     asleep animal, awake animal, breathes_air animal, warm_blooded animal})
 
-(tu/deftest-kb a-type-is-a-noun-and-a-property-is-not-a-type
+(tu/deftest-kb the-biology-properties-are-placed-under-their-kind
   ;; The naming rules make `alive` and `mortal` legal unary predicates, and nothing in
-  ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
-  ;; decision: a type is a kind of thing and wants a noun, while a property is something
-  ;; a thing *is*.  A property may sit BELOW the kind it is said of — the alive
-  ;; organisms are some of the organisms — but never above a kind: that would make
-  ;; "mortal" a kind that organisms are a kind OF.  Were one wanted as a type in that
-  ;; sense it would be spelled for it — `mortal_being`, not `mortal`.
+  ;; them says where a name sits in the genl hierarchy.  Each of these properties is
+  ;; said of one kind, so it is placed under that kind: only an animal is warm-blooded,
+  ;; and `(warm_blooded Rock1)` is a type clash.  A kind may sit below one of them, as
+  ;; `bird` and `mammal` sit below `warm_blooded`, and the kind a property is said of
+  ;; never does.  Spelling a type as a noun and a
+  ;; property as an adjective is a style hint, not a rule of the hierarchy.
   (testing "the properties the biology theory concludes are placed under their kind"
     (doseq [[p kind] biology-properties]
       (is (v/genl? kb p kind) (str p " is placed under " kind))
       (is (v/genl? kb p 'thing) (str p " reaches thing"))
       (is (v/isa? kb p 'unary_predicate)
-          (str p " is still a one-place predicate"))))
-  (testing "and no type sits below any of them"
-    (doseq [p (keys biology-properties)]
-      (is (= #{p} (v/specs kb p))
-          (str p " is a property, not a kind — nothing may be placed under it"))
-      (is (not (v/genl? kb (biology-properties p) p))
-          (str (biology-properties p) " is not a kind of " p))))
+          (str p " is still a one-place predicate"))
+      (is (not (v/genl? kb kind p)) (str kind " is not placed under " p))))
+  (testing "a kind may sit below one: every bird and every mammal is warm-blooded"
+    (doseq [t '[bird mammal penguin dog]]
+      (is (v/genl? kb t 'warm_blooded) (str t " is placed under warm_blooded")))
+    (tu/with-terms [Pingu Rex Nemo]
+      (v/assert kb (list 'penguin Pingu) 'CxWell)
+      (v/assert kb (list 'dog Rex) 'CxWell)
+      (v/assert kb (list 'fish Nemo) 'CxWell)
+      (is (v/ask? kb (list 'warm_blooded Pingu) 'CxWell) "a penguin is warm-blooded")
+      (is (v/ask? kb (list 'warm_blooded Rex) 'CxWell) "a dog is warm-blooded")
+      (is (v/ask? kb (list 'not (list 'warm_blooded Nemo)) 'CxWell)
+          "a fish is not, by the rule that denies it")))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person tangible event flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
@@ -432,8 +425,8 @@
 (def ^:private placed-unary-predicates
   "Fifteen shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
   edge, so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The
-  seven biology properties among them are placed under the kind each is said of, and
-  `a-type-is-a-noun-and-a-property-is-not-a-type` holds that no kind sits below one."
+  seven biology properties among them are placed under the kind each is said of, as
+  `the-biology-properties-are-placed-under-their-kind` holds."
   '#{initially functional_at_instant
      abducible_predicate closed_extent_predicate decontextualized_predicate
      target_following_predicate forced_decontextualized_predicate
@@ -1090,18 +1083,17 @@
 
 (tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
   ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
-  ;; declares it.  The review-only :missing-arg pass reports every untyped position; a
-  ;; position untyped-positions excuses is expected, and any other fails here.
+  ;; declares it.  The review-only :missing-arg pass reports every undeclared position,
+  ;; and each position of the four grants is declared.
   (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3}]
     (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse)))
         "the default passes find nothing")
     (let [missing (:missing-arg (v/kb-integrity kb terms 'CxUniverse {:categories #{:missing-arg}}))]
       (is (empty? (for [{:keys [predicate missing]} missing
                         :when (contains? terms predicate)
-                        i     missing
-                        :when (not (contains? untyped-positions [predicate i]))]
+                        i     missing]
                     [predicate i]))
-          "every untyped position of a new term is one the roster excuses"))))
+          "every position of the four grants is declared"))))
 
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.

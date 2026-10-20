@@ -210,7 +210,7 @@
   (v/assert kb '(conversionFactor Gram Kilogram 0.002) C)
   (let [forward (factor-of kb 'Gram)]
     (tu/with-neutral-kb [other #(doto (tu/isolated-fresh)
-                                  (core-context/load-into))]
+                                  (tu/load-core!))]
       (v/assert other '(conversionFactor Gram Kilogram 0.002) C)
       (v/assert other '(conversionFactor Gram Kilogram 0.001) C)
       (v/assert other '(dimensionOf Gram Mass) C)
@@ -235,7 +235,7 @@
     (v/assert kb '(spanOf Trail (QuantityFn 1 Furlong)) C)
     (v/assert kb '(spanOf Trail (QuantityFn 2 Chain)) C)
     (tu/with-neutral-kb [other #(doto (tu/isolated-fresh)
-                                  (core-context/load-into))]
+                                  (tu/load-core!))]
       (table! other)
       (v/assert other '(spanOf Trail (QuantityFn 2 Chain)) C)
       (v/assert other '(spanOf Trail (QuantityFn 1 Furlong)) C)

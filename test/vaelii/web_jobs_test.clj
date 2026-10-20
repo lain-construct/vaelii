@@ -9,7 +9,6 @@
             [vaelii.browser.jobs :as jobs]
             [vaelii.browser.web :as web]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]))
 
@@ -36,7 +35,7 @@
 (use-fixtures :each
   (fn [f]
     (catalog/reset-registry!)
-    (let [kb (doto (tu/fresh) core-context/load-into)]
+    (let [kb (doto (tu/fresh) tu/load-core!)]
       (catalog/register! "base" "Base KB" kb {:source (catalog/source "core")})
       (binding [tu/*kb* kb, *app* (web/app (catalog/holder kb))]
         (try (f)

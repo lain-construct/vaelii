@@ -17,7 +17,6 @@
   leaves the base standing; and a swept context stays swept across a durable reopen."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.disk.backend :as disk-backend]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
@@ -28,7 +27,7 @@
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-(use-fixtures :once (tu/loaded core-context/load-into))
+(use-fixtures :once (tu/loaded tu/load-core!))
 (use-fixtures :each (tu/neutral))
 
 ;; ---- scaffolding ---------------------------------------------------------
@@ -274,7 +273,7 @@
   ;; a second run in one JVM does not open over the first run's records unrecovered.
   (let [kb2 (doto (v/open-kb {:backend :memory :space [::koinii 1] :recover? false})
               (tu/clear-kb!)
-              (core-context/load-into)
+              (tu/load-core!)
               (sa/load-speech-acts))]
     (let [atlas (ch/join (ch/local kb2) 'CxDeploy 'AgentAtlas)
           actx  (:context atlas)
@@ -310,7 +309,7 @@
   ;; ephemeral space nothing else uses.
   (let [base (doto (v/open-kb {:backend :memory :space [::sweep-base 1] :recover? false})
                (tu/clear-kb!))]
-    (core-context/load-into base)
+    (tu/load-core! base)
     (let [cxfn  (declare-dimension! base)
           expr  (list cxfn 'CxMonad (list 'DatetimeFn "2009"))
           [h k] (context-in base '(likes Tom Ann) expr)

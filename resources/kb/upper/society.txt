@@ -21,6 +21,7 @@
 (binary_predicate likes)
 (set/monotonic (instance_relation_predicate likes))
 (arg likes 1 person)
+(arg likes 2 thing)   ;; what a person likes: a thing of any kind
 
 (comment marriedTo
          "(marriedTo ?person1 ?person2) means that ?person1 and ?person2 are married to each other. Declared symmetric, so one assertion answers both orders and the mirrored spelling stores as the same sentex. A standing state rather than the wedding: there is no time argument, so a KB that needs to say when it began states that of an interval instead. Contextual like every other social relation: a marriage is a claim of the theory that states it, so a story, a jurisdiction or a hypothesis may hold one the rest of the KB does not share.")

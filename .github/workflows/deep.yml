@@ -417,9 +417,9 @@ jobs:
     # this workflow does work only where the minutes are free (see above `jobs:`)
     if: github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
-    # an instrumented `:default` run is 75–105 minutes of wall time on a 10-core laptop,
-    # and a two-core runner is slower
-    timeout-minutes: 180
+    # the instrumented `:default` suite runs about four hours on a hosted runner (327 of
+    # its 389 namespaces in 178 minutes, 2026-10-18); 360 is the hosted runner's limit
+    timeout-minutes: 360
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
@@ -453,9 +453,8 @@ jobs:
       # half again. The floor of 78 is ten points under the 88% of forms the tree
       # measures, so it fails on a collapse (a test namespace that stopped
       # running, an instrumentation that stopped taking) and not on drift.
-      # `--raw` writes cloverage's per-form hit data beside the HTML report.
       - name: Instrumented suite
-        run: ./scripts/coverage.sh :default --fail-under 78 -- --raw
+        run: ./scripts/coverage.sh :default --fail-under 78
 
       - name: Upload report
         if: always()

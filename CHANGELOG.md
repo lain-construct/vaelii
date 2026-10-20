@@ -80,6 +80,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **A shipped argument position that holds a term of any kind declares `thing`.** `(arg P
+  n thing)` states that position `n` of `P` holds a term of any kind and that no narrower
+  type is right for it. `core.txt`, `abstract.txt`, `reflection.txt`, `society.txt`,
+  `CxPerception.txt`, `CxComputing.txt` and `CxSpeechActs.txt` state 51 such `arg`
+  declarations, among them `(arg equals 1 thing)`, `(arg doneBy 2 thing)` and `(arg
+  believes 1 thing)`, and `(args different thing)` types every position of `different`.
+  `(genlArg toolArgType 3 thing)` types the third position of `toolArgType` a type. A
+  documentation position holds the term it documents taken as written, so `comment`,
+  `seeAlso`, the three example predicates and their three string siblings declare
+  `(quotedArg P 1 denotational_term)`. `seeAlso` declares its second position the same
+  way, and `argN` declares `(quotedArg argN 1 expression)`. A fixed-arity predicate's
+  position of arity 2 and up is declared, or `ontology_test`'s `undeclared-positions`
+  names it with its reason. The two `genl` positions, the example predicates' quoted
+  sentence and the aggregation operators' slots are the positions it names. [argtypes.md](docs/argtypes.md#constraint-and-entailment-readings).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none. Under the entailing reading, a symbol at one of these positions with
+  no narrower membership derives `(thing X)`.
+
 - **The browser's history lists only what the active KB holds.** The front page's
   Browsed panel is kept in the browser's localStorage, so a switch to another KB left it
   listing terms and sentexes the new one does not hold, each a link to an empty page.
@@ -87,6 +106,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   and vaelii.js forgets the rest each time it draws the panel. A KB whose load is running
   or stopped part-way is not judged, so nothing is forgotten until its load is `:done`.
   Switching back does not restore what was forgotten. [web.md](docs/web.md).
+
+- **`hasCapability` takes any causal doer as its first argument, not only an animal.**
+  `(arg hasCapability 1 causal)` replaces `(arg hasCapability 1 animal)` in `life.txt`,
+  so `(hasCapability Pump travelling)` of a `machine` or `(hasCapability Acme event)` of
+  an `organization` passes `check`, and an acausal first argument, such as a `time`, is
+  still convicted, now against `causal`. An instrument is not thereby a doer, so being
+  usable in a kind of event is not a capability. [inherit.md](docs/inherit.md).
 
 - **`relation-arity` answers a predicate's exact arity, and the browser colours a
   predicate of three or more places red-orange and a logical connective green.** A
@@ -134,6 +160,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A caller reading `:unsupported` off such a handle reads `:excepted`.
 
 ### Fix: performance
+
+- **A `genl` hierarchy loaded child first in one batch settles in time linear in its
+  edges.** A chain of 4,096 `genl` edges asserted in one `with-deferred-settle` batch took
+  46 s and grew 4x per doubling; it now takes 1.5 s. The settle repairs the depth
+  potential before its passes read `genl?`, and an edge reads its lower end's spec closure
+  for the negated-antecedent seeds only when a stored rule reads a negated antecedent.
+  *Migration:* none.
+  [taxonomy.md](docs/taxonomy.md#what-a-batch-does-to-the-depth-potential). Perf check
+  `genl-chain-child-first-in-one-batch` measures the growth.
+
+- **A fact whose argument type mints a membership the term already holds more
+  specifically runs no admission check on the mint.** The mint is withheld and stores
+  nothing, but the assert entry point and the materializer each asked its admission, whose
+  cover arm asks the provers once per cover over the type. A fact beside 256 covers of its
+  minted type took 12.1 ms and now takes 1.1 ms, and a warm load of the upper ontology
+  takes 3.4 s against 4.8 s. *Migration:* none.
+  [argtypes.md](docs/argtypes.md). Perf check `withheld-mint-beside-covers` measures the
+  growth.
 
 - **A settle that owes only the arity refresh does not read what its `genlCx` moves
   reach.** The nogood placement walked the ancestor set of every context a moved edge

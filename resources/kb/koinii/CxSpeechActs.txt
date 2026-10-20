@@ -29,7 +29,10 @@
 ;;
 ;; Sees CxUniverse for its vocabulary.  Actor ids are the individuals registered in
 ;; CxRegistry; the arg to `registered_agent` documents that, and is inert here
-;; (open-world) until a context that also sees the registry activates it.
+;; (open-world) until a context that also sees the registry activates it.  Each
+;; act's other positions declare `thing`: each holds a sentex handle (sentexHandle H),
+;; which the engine mints with no result type, or a proposition, and a narrower type
+;; would convict every meta-sentex the app writes.
 
 (genlCx CxSpeechActs CxUniverse)  ; CxSpeechActs speaks CxUniverse's vocabulary
 
@@ -40,12 +43,14 @@
 (binary_predicate asserts)
 (set/monotonic (instance_relation_predicate asserts))
 (arg asserts 1 registered_agent)
+(arg asserts 2 thing)
 
 (comment queries
          "(queries ?agent ?question) is the query NODE ?agent asserts in its own context — the thing a responder answers by handle. Minted (unlike asserts) because a question must be distinguishable from a claim: ?agent is not asserting ?question true, it is asking. ?question is a ground term naming what is asked, left untyped since it carries no fixed type. See speech_acts/pose-query.")
 (binary_predicate queries)
 (set/monotonic (instance_relation_predicate queries))
 (arg queries 1 registered_agent)
+(arg queries 2 thing)
 
 ;; ---- response acts: meta-sentexes on their target, target_following_predicate ----
 
@@ -53,6 +58,8 @@
          "(answers ?agent ?content (sentexHandle ?target)) is ?agent's answer ?content to the query sentex ?target, a META-SENTEX naming ?target by handle. Declared target_following_predicate: retract ?target and this answer is torn down with it. The answerer's identity comes from THIS sentex's context and provenance, not from the query it answers. ?content is the answer term, left untyped; the handle arg is left untyped since the target can be any sentex. Carries no relation_kind mark: instance_relation_predicate classifies a two-place claim between individuals (CxUniverse), and this is three-place over an agent, a term and a handle.")
 (ternary_predicate answers)
 (arg answers 1 registered_agent)
+(arg answers 2 thing)
+(arg answers 3 thing)
 (target_following_predicate answers)
 
 (comment disputes
@@ -60,6 +67,7 @@
 (binary_predicate disputes)
 (set/monotonic (instance_relation_predicate disputes))
 (arg disputes 1 registered_agent)
+(arg disputes 2 thing)
 (target_following_predicate disputes)
 
 (comment endorses
@@ -67,12 +75,15 @@
 (binary_predicate endorses)
 (set/monotonic (instance_relation_predicate endorses))
 (arg endorses 1 registered_agent)
+(arg endorses 2 thing)
 (target_following_predicate endorses)
 
 (comment justifies
          "(justifies ?agent ?ground (sentexHandle ?target)) records that ?agent offers ?ground as a reason for the claim ?target, a META-SENTEX naming ?target by handle. Declared target_following_predicate. ?ground is the reason (a term or another sentex handle), left untyped. Represents the move only: nothing weighs a justification, and no rule reads one. Carries no relation_kind mark, for answers' reason.")
 (ternary_predicate justifies)
 (arg justifies 1 registered_agent)
+(arg justifies 2 thing)
+(arg justifies 3 thing)
 (target_following_predicate justifies)
 
 ;; ---- ballots: a response act a policy COUNTS rather than merely records ----
@@ -82,6 +93,7 @@
 (binary_predicate votesFor)
 (set/monotonic (instance_relation_predicate votesFor))
 (arg votesFor 1 registered_agent)
+(arg votesFor 2 thing)
 (target_following_predicate votesFor)
 
 (comment votesAgainst
@@ -89,6 +101,7 @@
 (binary_predicate votesAgainst)
 (set/monotonic (instance_relation_predicate votesAgainst))
 (arg votesAgainst 1 registered_agent)
+(arg votesAgainst 2 thing)
 (target_following_predicate votesAgainst)
 
 ;; ---- retraction: the engine operation, named for completeness ----
@@ -98,6 +111,7 @@
 (binary_predicate retracts)
 (set/monotonic (instance_relation_predicate retracts))
 (arg retracts 1 registered_agent)
+(arg retracts 2 thing)
 
 ;; ---- error acts: reference the received edge, in the refuser's context, UNMARKED ----
 
@@ -106,12 +120,14 @@
 (binary_predicate notUnderstood)
 (set/monotonic (instance_relation_predicate notUnderstood))
 (arg notUnderstood 1 registered_agent)
+(arg notUnderstood 2 thing)
 
 (comment refuse
          "(refuse ?agent (sentexHandle ?received)) records that ?agent will not act on the received edge ?received. Same shape and placement as notUnderstood, and also UNMARKED, for the same reason. It records the refusal and nothing more; no rule reads it.")
 (binary_predicate refuse)
 (set/monotonic (instance_relation_predicate refuse))
 (arg refuse 1 registered_agent)
+(arg refuse 2 thing)
 
 ;; ---- placement: the mark every koinii placement writes ----
 

@@ -624,7 +624,8 @@ the global invariant still holds and nothing was given up.
 
 When one **is** broken the relation goes `:loose?`: the potential is no longer sound,
 `reachable?` drops its pruning, and `restore-depths` rebuilds every depth in one
-reverse-topological O(V+E) pass at the next `settle`. That is the fallback, not the
+reverse-topological O(V+E) pass at the start of the next `settle`, before its passes read
+`genl?` (`lein perf`'s `genl-chain-child-first-in-one-batch`). That is the fallback, not the
 normal path, because going loose is expensive in its own right — an unpruned
 `reachable?` walks the source's whole ancestor set where the potential answered in
 O(1) (measured at roughly 1,300× on an 8k-deep chain), and `wff` runs one per taxonomy
@@ -762,6 +763,8 @@ edges arrive nested because that is what a hierarchy is, and what a load writes.
   `subsumption-seeds` reads the subtree's believed handles only when a rule reads a term
   at or above the upper end, as an antecedent or through a re-join family
   (`special/rule-reads-above?`, `lein perf`'s `genl-edge-under-no-rule-above`).
+  `negative-subsumption-seeds` reads the lower end's spec closure only when a stored rule
+  reads a negated antecedent (`genl-chain-child-first-in-one-batch`).
 
 All three are **free where nothing is declared**, which is every bulk load: an empty
 marked roster seeds an empty walk, and a KB with no argument constraint never reaches
