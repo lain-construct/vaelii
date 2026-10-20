@@ -78,6 +78,26 @@ it — `git show v0.16.0:CHANGELOG.md`.
   denial of its upper end should deny its lower end.
   *Breaks:* `query`, `argue`, `conflicts`, `contradictions`, `exceptWhen`
 
+- **A forward rule with a value-kind or `sentence` antecedent fires on the value another
+  antecedent binds.** `(implies (and (valueOf ?a ?x) (string ?x)) (hasKinded ?a))`
+  concluded nothing from `(valueOf Ann "rex")`, and neither did the same rule over
+  `number`, `boolean`, `keyword`, `character` or `sentence`; `integer` and `formula`
+  fired. Each such rule now fires in either arrival order, and beliefs change where one is
+  stored; `(implies (sentence (Quote …)) …)` alone still concludes nothing. A forward rule
+  reading `(temporalDistance ?e ?e ?d)` beside a stored antecedent concludes zero seconds,
+  the answer `ask` gives. A rule whose value-kind argument no other antecedent binds is
+  refused `:naf-not-closed` by `assert`, `check` and import, a `defnSufficient` on a value
+  kind alone expands to no companion rule, a backward rule concluding a value
+  kind is not expanded, and `watch` refuses a value-kind goal
+  ([#191](https://github.com/vaelii/vaelii/issues/191)).
+  [argtypes.md](docs/argtypes.md#what-a-quoted-form-is).
+
+  *Migration:* bind a value-kind argument with a stored literal in the same rule. A disk
+  store written before this change holds a rule with a value-kind antecedent under its old
+  canonical sentence, so the stored rule and its re-assert are two handles until the store
+  is reloaded from text.
+  *Breaks:* `assert`, `check`, `handle-of`, `watch`
+
 ### Additive
 
 - **`minCommonGenl` and `maxCommonSpec` answer the minimal common supertypes and maximal

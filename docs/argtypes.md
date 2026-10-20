@@ -970,11 +970,19 @@ nothing, as for any NAT ([nat.md](nat.md)). The answer rests on the `termOfUnit`
 statement and one `genl` path, and a forward firing names them. A datum on an
 edge-installing functor re-joins the rules over an expression kind, so the lattice
 arriving after the rule and the fact fires it. Forward chaining discharges an antecedent
-through the prover only for the kinds `provers/expression-kind-predicates` names, and
-only for an answer that rests on at least one statement: `(sentence (Quote (not (dog
-Muffet))))` holds by the form's own shape, with no `genl` edge and no `termOfUnit` behind
-it, so a query proves it and a firing does not read it, while `(formula (Quote …))`, one
-edge above, fires.
+through the prover only for the kinds `provers/expression-kind-predicates` names.
+`(sentence (Quote (not (dog Muffet))))` holds by the form's own shape, with no `genl` edge
+and no `termOfUnit` behind it, so its answer carries no handle. It joins beside the stored
+fact that bound the form, and that fact supports the firing; a firing whose combined
+handles are empty is dropped, so `(implies (sentence (Quote …)) …)` alone concludes nothing
+(`kind_antecedent_forward_test`).
+
+A **value kind** antecedent (`string`, `number`, `boolean`, `keyword`, `character`,
+`integer`) is computed once another antecedent binds its argument, as `lessThan` is
+(`sentex/deferred-predicates`): `(implies (and (valueOf ?a ?x) (string ?x)) …)` fires when
+`(valueOf Ann "rex")` arrives, in either order. A value kind of a constant or a function
+application reads the stored membership, since either can denote a value of any kind. A
+rule in which nothing binds the argument is refused (`:naf-not-closed`).
 
 **The spelling does not say whether `(R a)` is a predication or a `non_atomic_term`**: that
 is R's stored kind, and the prover does not decide it, so `(predication (Quote (dog

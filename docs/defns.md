@@ -109,7 +109,10 @@ built out of *computed* predicates is neither: `(defnSufficient positive_integer
 evaluables answer rather than on facts anybody asserted. No conjunct of it is a stored
 literal that binds `?x`, so the join has nothing to compute `integer` against, and a
 sufficient condition of that shape expands to **no** companion rule (the rule
-`check-naf-closed` would refuse, [naf.md](naf.md)). `(positive_integer 7)` therefore does
+`check-naf-closed` would refuse, [naf.md](naf.md)). Every value kind (`integer`, `string`,
+`number`, `boolean`, `keyword`, `character`) is computed the same way
+(`sentex/deferred-predicates`), so `(defnSufficient label (string ?x))` expands to no
+companion rule either. `(positive_integer 7)` therefore does
 not arrive by forward chaining. Two provers in the registry answer the question where it
 is asked instead.
 

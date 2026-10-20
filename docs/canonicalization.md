@@ -57,9 +57,10 @@ Two kinds of literal are **held back** in the author's order, because their
 position is operational rather than logical:
 
 - **Deferred (evaluable)** literals — which consume bindings rather than produce them.
-  `sentex/deferred-predicates` names seventeen: `evaluate`, `lessThan`, `greaterThan`,
-  `integer`, `matchesPattern`, `different`, `unknown`, the five quantity comparisons,
-  and the five aggregation operators.
+  `sentex/deferred-predicates` names twenty-two: `evaluate`, `lessThan`, `greaterThan`,
+  `matchesPattern`, `different`, `unknown`, the six value kinds (`integer`, `string`,
+  `number`, `boolean`, `keyword`, `character`), the five quantity comparisons, and the
+  five aggregation operators.
 - The **recursive** literal of a recursive rule. Reordering it could turn a
   right-recursive rule left-recursive, which the backward chainers cannot execute.
 

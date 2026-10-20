@@ -331,9 +331,10 @@ dilemma. See [nmtms.md](nmtms.md#a-defeat-dependency-cycle).
 
 **Deferred literal** ![inference](../.github/badges/cat-inference.svg): A literal
 whose position is operational, not logical, so canonicalization holds it in the
-author's order: the seventeen `sentex/deferred-predicates` (`evaluate`, `lessThan`,
-`greaterThan`, `integer`, `matchesPattern`, `different`, `unknown`, the five quantity
-comparisons and the five aggregation operators) and a recursive rule's recursive literal. See
+author's order: the twenty-two `sentex/deferred-predicates` (`evaluate`, `lessThan`,
+`greaterThan`, `matchesPattern`, `different`, `unknown`, the six value kinds, the five
+quantity comparisons and the five aggregation operators) and a recursive rule's recursive
+literal. See
 [canonicalization.md](canonicalization.md).
 
 **`defnNecessary` / `defnSufficient` / `defnIff`** ![kb](../.github/badges/cat-kb.svg):

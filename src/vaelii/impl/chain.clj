@@ -778,11 +778,12 @@
   prover's sources reach.  Each solution carries the handles the answer rested on, so the
   firing's justification names them and retraction reaches them.
 
-  An answer with **empty** support is dropped rather than answered groundlessly, exactly
-  as an entailment with none is (`qcn-kb/solve-with-support`).  The metric diagonal is the
-  case: `(temporalDistance P P ?d)` is nil by arithmetic, licensed by no constraint, and a
-  conclusion drawn from it would rest on the rule alone while looking as though it rested
-  on the network.
+  An answer a `SupportingProver` gives with **empty** support joins: `(sentence (Quote
+  (not (dog Muffet))))` holds by the form's shape, and `(temporalDistance P P ?d)` is zero
+  by arithmetic, so neither needs a statement behind it.  The firing still needs one, and
+  `planned-join` drops a firing of a rule with such an antecedent when its combined
+  handles are empty.  An empty-support answer from any other prover is dropped: it names
+  no handle for what it read (`provers/solve-goal-reporting-support`).
 
   `:matched` passes through unextended, for `solve-qualitative`'s reason: the answer was
   licensed by a computation over the store rather than by the taxonomy, so it rests on no
@@ -801,8 +802,8 @@
     (for [{:keys [bindings handles matched]} states
           :let [g (res/substitute literal bindings)]
           ctx ctxs
-          [bnd sup] (provers/solve-goal-with-support kb g ctx)
-          :when (seq sup)]
+          [bnd sup reported?] (provers/solve-goal-reporting-support kb g ctx)
+          :when (or (seq sup) reported?)]
       {:bindings (merge bindings bnd) :handles (into handles sup) :matched matched}))))
 
 (defn- computed-withdrawn?
@@ -1339,6 +1340,40 @@
     (res/matches-hierarchical kb g '?ctx)
     (*matcher* kb g '?ctx)))
 
+(defn- join-stored
+  "`join-antecedent` for an antecedent the store answers: the matcher's facts, unioned
+  with the answers of the arm that computes the literal's shape (qualitative, computed,
+  closure, separation, transitive, preserving), if any."
+  [kb ante states admit cpred]
+  (let [ak    (rules/antecedent-key ante)
+        calc  (qualitative-antecedent kb ante)
+        keep? (when (and admit (nil? calc) (not (mirrored-antecedent? kb ante))) admit)
+        perm? (permuting-antecedent? kb ante)
+        hit   (mapcat (fn [{:keys [bindings handles matched]}]
+                        (let [g (res/substitute ante bindings)]
+                          (for [[h b2 stored] (join-matches kb g)
+                                :when (or (nil? keep?) (keep? h))
+                                ;; a fact read in another argument order holds the
+                                ;; firing only while a mark licensing that order does
+                                ms (if perm? (read-marks kb g b2 h stored) [[]])]
+                            {:bindings (merge bindings b2) :handles (into (conj handles h) ms)
+                             :matched  (conj matched [ak h])})))
+                      states)]
+    (cond
+      calc (distinct (concat hit (solve-qualitative kb calc ante states)))
+      (computed-antecedent? kb ante)
+      (distinct (concat hit (solve-computed kb ante states)))
+      (closure-antecedent? kb ante cpred)
+      (distinct (concat hit (solve-closure kb ante states)))
+      (separation-antecedent? kb ante cpred)
+      (distinct (concat hit (solve-separation kb ante states)))
+      (transitive-antecedent? kb ante cpred)
+      (distinct (concat hit (solve-computed kb ante states
+                                            (transitive-contexts kb (nm/functor ante)))))
+      (preserving-antecedent? kb ante '?ctx)
+      (distinct (concat hit (solve-preserving kb ante states)))
+      :else hit)))
+
 (defn- join-antecedent
   "Extend the partial join `states` ({:bindings :handles :matched}) by one antecedent.
 
@@ -1399,41 +1434,17 @@
     ;; letting the deferred arm below take the census in the wildcard context.
     (sx/aggregate? ante) states
 
+    ;; a value kind of a constant or a compound reads what is stored, as a literal
+    ;; on any other predicate does
     (deferred-antecedent? kb ante)
-    (mapcat (fn [{:keys [bindings handles matched]}]
-              (map (fn [[b sup]] {:bindings b :handles (into handles sup) :matched matched})
-                   (solve-deferred kb ante bindings)))
+    (mapcat (fn [{:keys [bindings handles matched] :as st}]
+              (if (provers/term-value-kind-goal? (res/substitute ante bindings))
+                (join-stored kb ante [st] admit cpred)
+                (map (fn [[b sup]] {:bindings b :handles (into handles sup) :matched matched})
+                     (solve-deferred kb ante bindings))))
             states)
 
-    :else
-    (let [ak    (rules/antecedent-key ante)
-          calc  (qualitative-antecedent kb ante)
-          keep? (when (and admit (nil? calc) (not (mirrored-antecedent? kb ante))) admit)
-          perm? (permuting-antecedent? kb ante)
-          hit   (mapcat (fn [{:keys [bindings handles matched]}]
-                          (let [g (res/substitute ante bindings)]
-                            (for [[h b2 stored] (join-matches kb g)
-                                  :when (or (nil? keep?) (keep? h))
-                                  ;; a fact read in another argument order holds the
-                                  ;; firing only while a mark licensing that order does
-                                  ms (if perm? (read-marks kb g b2 h stored) [[]])]
-                              {:bindings (merge bindings b2) :handles (into (conj handles h) ms)
-                               :matched  (conj matched [ak h])})))
-                        states)]
-      (cond
-        calc (distinct (concat hit (solve-qualitative kb calc ante states)))
-        (computed-antecedent? kb ante)
-        (distinct (concat hit (solve-computed kb ante states)))
-        (closure-antecedent? kb ante cpred)
-        (distinct (concat hit (solve-closure kb ante states)))
-        (separation-antecedent? kb ante cpred)
-        (distinct (concat hit (solve-separation kb ante states)))
-        (transitive-antecedent? kb ante cpred)
-        (distinct (concat hit (solve-computed kb ante states
-                                              (transitive-contexts kb (nm/functor ante)))))
-        (preserving-antecedent? kb ante '?ctx)
-        (distinct (concat hit (solve-preserving kb ante states)))
-        :else hit))))
+    :else (join-stored kb ante states admit cpred)))
 
 (defn- open-ends
   "The two end variables of `ante` when it is a closure antecedent
@@ -1475,7 +1486,11 @@
 
   `admit` is the arrival filter (`join-antecedent`), nil for a join that suppresses
   nothing.  It is per **handle** rather than per position, so the reordering above
-  neither reads it nor disturbs it."
+  neither reads it nor disturbs it.
+
+  A row with no handle is dropped when the rule has an antecedent `solve-computed`
+  answers: that antecedent took an answer with empty support, and no other antecedent
+  supplied one, so the firing would rest on the rule alone."
   [kb antecedents b0 consequent-pred seed admit]
   (let [subbed (mapv #(res/substitute % b0) antecedents)
         ;; a `disjoint` literal whose variables the other literals all bind is joined
@@ -1502,13 +1517,17 @@
         dj     (provers/separation-est-override kb)
         est    (if ev
                  (fn [g b] (or (ev g b) (sp g b) (dj g b)))
-                 (fn [g b] (or (sp g b) (dj g b))))]
-    (reduce (fn [states ante]
-              (if (post ante) states (join-antecedent kb ante states admit consequent-pred)))
-            seed
-            (into (plan/order kb subbed '?ctx {:consequent-pred consequent-pred :est-override est
-                                               :end-vars #(open-ends kb % consequent-pred)})
-                  held))))
+                 (fn [g b] (or (sp g b) (dj g b))))
+        computed? (delay (some #(or (computed-antecedent? kb %)
+                                    (transitive-antecedent? kb % consequent-pred))
+                               antecedents))]
+    (remove #(and (empty? (:handles %)) @computed?)
+            (reduce (fn [states ante]
+                      (if (post ante) states (join-antecedent kb ante states admit consequent-pred)))
+                    seed
+                    (into (plan/order kb subbed '?ctx {:consequent-pred consequent-pred :est-override est
+                                                       :end-vars #(open-ends kb % consequent-pred)})
+                          held)))))
 
 (defn- arrival-admit
   "The filter `complete-antecedents` puts on the handles the join yields, or nil when

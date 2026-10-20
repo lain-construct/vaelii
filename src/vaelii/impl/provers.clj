@@ -1158,6 +1158,14 @@
   (and (sequential? goal) (contains? value-kind-predicates (first goal))
        (= 1 (count (rest goal))) (some? (literal-value-kind (second goal)))))
 
+(defn term-value-kind-goal?
+  "Is `goal` a value-kind membership `(k x)`, `k` one of `value-kind-predicates`, over a
+  ground `x` that is no literal value?  `EvaluableProver` leaves it to the other provers,
+  since a constant or a function application can denote a value of any kind."
+  [goal]
+  (and (sequential? goal) (contains? value-kind-predicates (first goal))
+       (= 1 (count (rest goal))) (ground? goal) (nil? (literal-value-kind (second goal)))))
+
 (defn- negated-value-kind-goal?
   "Is `goal` `(not (k x))` over a literal-value-kind goal?"
   [goal]
@@ -3369,11 +3377,11 @@
   "One prover's answers as `[bindings support]` pairs: its own support when it implements
   `SupportingProver`, and an **empty** support otherwise.
 
-  Empty is the complete support for a prover that reads nothing stored — `EvaluableProver`
-  compares two numbers, `EvaluateProver` computes one — and the `Prover` protocol's contract is what
-  makes empty support complete: a prover whose answer *does* move with
-  the store implements the protocol, so a prover that does not implement it is one whose
-  answer no retraction can invalidate."
+  Empty is the complete support for a prover that reads nothing stored: `EvaluableProver`
+  compares two numbers, `EvaluateProver` computes one.  A prover that reads stored facts
+  without implementing `SupportingProver` (`FactProver`, `SymmetricProver`,
+  `InverseProver`) gets an empty support too, which names none of the facts it read;
+  `solve-goal-reporting-support` marks which answers a `SupportingProver` gave."
   [pr kb goal context]
   (if (satisfies? SupportingProver pr)
     (solve-with-support pr kb goal context)
@@ -3382,7 +3390,7 @@
 (defn solve-goal-with-support
   "`solve-goal`'s support-carrying twin: each solution as `[bindings support]`, where
   `support` is the handles of the stored sentexes the answer was read from
-  (`SupportingProver`), empty for a prover that reads nothing stored.
+  (`SupportingProver`), empty for any other prover (`answers-with-support`).
 
   Forward chaining is the caller.  A backward chainer discharges an antecedent and forgets
   it; a forward firing *stores* a conclusion, and what it stored has to be withdrawable —
@@ -3397,6 +3405,17 @@
   what the TMS already reads them as."
   [kb goal context]
   (dispatch-provers kb (registry kb) goal context #(answers-with-support % kb goal context)))
+
+(defn solve-goal-reporting-support
+  "`solve-goal-with-support`'s answers as `[bindings support reported?]`, `reported?` true
+  when a `SupportingProver` gave the answer.  An empty support it reports means the answer
+  read nothing stored; an empty support from any other prover says nothing about what it
+  read, `FactProver`'s among them."
+  [kb goal context]
+  (dispatch-provers kb (registry kb) goal context
+                    (fn [pr] (let [r (satisfies? SupportingProver pr)]
+                               (map (fn [[b sup]] [b sup r])
+                                    (answers-with-support pr kb goal context))))))
 
 (def ^:private ^:dynamic *mirror-depth*
   "How many mirror delegations are on the stack.  `solve-mirrored` re-enters the
