@@ -198,6 +198,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`(functional P)` concludes `(functionalInArg P 2)`.** A core.txt forward rule states
+  the definition: `functional` is `functionalInArg` read at position 2, its binary
+  spelling. A functional predicate now answers `(functionalInArg P 2)`, and an injection,
+  functional through its own rule, is functional in both arguments.
+  [glossary.md](docs/glossary.md).
+
+  *Class:* **Additive**.
+
 ### Fix: answers
 
 - **A forward rule concluding `equals` or `sameAs` over applications of a

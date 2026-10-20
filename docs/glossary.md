@@ -544,7 +544,8 @@ per-instant counterpart of `functional` for a value carried as a fluent.
 taken together, fixes the filler at `n`. Same merge-or-nogood rule and same four arrival
 directions; what it adds is a **composite determinant**, as in
 `(functionalInArg namesObject 3)` for "one namespace and one path name one object".
-`(functionalInArg P 2)` on a binary predicate is `(functional P)`. See
+`(functionalInArg P 2)` on a binary predicate is `(functional P)`, and a core.txt
+forward rule concludes it from `(functional P)`. See
 [taxonomy.md](taxonomy.md) and [equality.md](equality.md).
 
 ## G
