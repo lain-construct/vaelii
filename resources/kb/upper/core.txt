@@ -885,7 +885,10 @@
 ;; withdrawn with it.
 ;;
 ;; The forward rule runs one way: an exact arity classifies the relation under the type
-;; that maps to it.  The converse, below, is backward and stores no arity; every reader
+;; that maps to it.  Forward-only, because the converse below is backward: written as
+;; set/forwardRule the two are a backward cycle, (binary ?r) expanding into (arity ?r 2)
+;; and back with no ancestor-goal guard to stop it, the commutative bridge's cycle
+;; (below) in another place.  The converse stores no arity; every reader
 ;; of a stored length reads the exact-arity class membership beside the (arity P n)
 ;; table (docs/taxonomy.md).  RELATION-WIDE, and
 ;; it has to be — arity covers functions, so a rule concluding (binary_predicate ?r) from
@@ -894,7 +897,7 @@
 ;; actually says.  An arity no class maps to concludes nothing — (arity InstantFn 6)
 ;; leaves InstantFn fixed_arity_function by its own declaration.
 (implies (relationTypeByArity ?type ?arity)
-         (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
+         (set/forwardOnlyRule (implies (arity ?relation ?arity) (?type ?relation))))
 
 ;; The converse runs BACKWARD: a query for (arity R n) of a member of a relation-wide
 ;; class is proved from the membership, and nothing is stored.  A member of a predicate or

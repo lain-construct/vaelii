@@ -125,12 +125,14 @@ level further out fills it.
 
 The wrapper rides **inside** the consequent, where substitution never touches it, and
 sets the direction of the rule that gets stored: `set/forwardRule`,
-`set/backwardRule`, `set/inertRule`. `set/defaultRule` rides there too and makes the
+`set/forwardOnlyRule`, `set/backwardRule`, `set/inertRule`. `set/defaultRule` rides there too and makes the
 stamped rule defeasible rather than setting its direction. That is the only place
 either can be written for a rule nobody types out. A stamped rule with no direction
 wrapper is **backward** like any other bare rule, so a generator whose stamped rule is
-meant to materialize facts writes `set/forwardRule` inside the consequent — the shipped
-`relationTypeByArity` and `predAllInstance` generators do exactly that.
+meant to materialize facts writes `set/forwardRule` or `set/forwardOnlyRule` inside the
+consequent — the shipped `predAllInstance` generator writes the first, and
+`relationTypeByArity` the second, since the converse it stamps beside it is backward and
+the two would otherwise be a backward cycle.
 
 The **generator itself defaults to forward**, even bare. Its conclusion is a rule, and no
 backward goal asks for one — `res/concluding-rule-handles` reads a goal's predicate, and a

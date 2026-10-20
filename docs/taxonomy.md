@@ -72,7 +72,7 @@ and their binary through quinary peers specialize those relation-wide classes.
 `relationTypeByArity` owns the shared mapping; `predicateTypeByArity` and
 `functionTypeByArity` are related to it by `termsRelated`, not `genl`, so a predicate
 mapping is never a relation-wide one. One generator stamps, per `relationTypeByArity`
-fact, the rule classifying a relation from its asserted `arity`. `core.txt` ships
+fact, the forward-only rule classifying a relation from its asserted `arity`. `core.txt` ships
 **five** relation-wide mapping facts, over `unary`, `binary`, `ternary`, `quaternary` and
 `quinary`, and five each of `predicateTypeByArity` and `functionTypeByArity`, over the
 ten predicate and function exact-arity classes. The predicate and function mappings are

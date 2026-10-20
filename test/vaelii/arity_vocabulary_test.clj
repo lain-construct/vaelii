@@ -120,6 +120,19 @@
               "and so does the converse"))
         (v/retract! kb exact)))))
 
+(tu/deftest-kb the-stamped-relation-wide-classification-is-forward-only
+  ;; The generator stamps `(arity ?r n) → (T ?r)` beside the backward converse
+  ;; `(T ?r) → (arity ?r n)`.  Usable backward too, the pair is a backward cycle with no
+  ;; ancestor-goal guard to close it: an open `(binary ?r)` query expands into `(arity ?r 2)`
+  ;; and back until the depth bound stops it.  The classification still derives forward,
+  ;; and only its backward use is a cycle, so it is stamped forward-only.
+  (doseq [[t n] '[[unary 1] [binary 2] [ternary 3]]]
+    (let [rule (list 'implies (list 'arity '?relation n) (list t '?relation))
+          h    (v/handle-of kb rule 'CxUniverse)]
+      (is (some? h) (str "the generator stamps " (pr-str rule)))
+      (is (= #{:forward} (:engines (v/sentex kb h)))
+          (str "a backward-walkable classification is the cycle: " (pr-str rule))))))
+
 (tu/deftest-kb an-arity-and-its-class-are-each-read-as-the-arity
   ;; The arity concludes the class and the class is read as the arity, so whichever was
   ;; asserted is the only premise and retracting it takes both readings.
