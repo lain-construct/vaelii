@@ -376,33 +376,39 @@
       (is (empty? (filter #(= :inherited (:kind %))
                           (concat (v/contradictions kb) (v/conflicts kb))))))))
 
-;; ---- what is a type, and what is only a property ------------------------
+;; ---- the biology properties and the kinds they are said of ---------------
 
 (def ^:private biology-properties
   "The seven life.txt properties placed under the kind each is said of."
   '{alive biological, dead biological, mortal organism,
     asleep animal, awake animal, breathes_air animal, warm_blooded animal})
 
-(tu/deftest-kb a-type-is-a-noun-and-a-property-is-not-a-type
+(tu/deftest-kb the-biology-properties-are-placed-under-their-kind
   ;; The naming rules make `alive` and `mortal` legal unary predicates, and nothing in
-  ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
-  ;; decision: a type is a kind of thing and wants a noun, while a property is something
-  ;; a thing *is*.  A property may sit BELOW the kind it is said of — the alive
-  ;; organisms are some of the organisms — but never above a kind: that would make
-  ;; "mortal" a kind that organisms are a kind OF.  Were one wanted as a type in that
-  ;; sense it would be spelled for it — `mortal_being`, not `mortal`.
+  ;; them says where a name sits in the genl hierarchy.  Each of these properties is
+  ;; said of one kind, so it is placed under that kind: only an animal is warm-blooded,
+  ;; and `(warm_blooded Rock1)` is a type clash.  A kind may sit below one of them, as
+  ;; `bird` and `mammal` sit below `warm_blooded`, and the kind a property is said of
+  ;; never does.  Spelling a type as a noun and a
+  ;; property as an adjective is a style hint, not a rule of the hierarchy.
   (testing "the properties the biology theory concludes are placed under their kind"
     (doseq [[p kind] biology-properties]
       (is (v/genl? kb p kind) (str p " is placed under " kind))
       (is (v/genl? kb p 'thing) (str p " reaches thing"))
       (is (v/isa? kb p 'unary_predicate)
-          (str p " is still a one-place predicate"))))
-  (testing "and no type sits below any of them"
-    (doseq [p (keys biology-properties)]
-      (is (= #{p} (v/specs kb p))
-          (str p " is a property, not a kind — nothing may be placed under it"))
-      (is (not (v/genl? kb (biology-properties p) p))
-          (str (biology-properties p) " is not a kind of " p))))
+          (str p " is still a one-place predicate"))
+      (is (not (v/genl? kb kind p)) (str kind " is not placed under " p))))
+  (testing "a kind may sit below one: every bird and every mammal is warm-blooded"
+    (doseq [t '[bird mammal penguin dog]]
+      (is (v/genl? kb t 'warm_blooded) (str t " is placed under warm_blooded")))
+    (tu/with-terms [Pingu Rex Nemo]
+      (v/assert kb (list 'penguin Pingu) 'CxWell)
+      (v/assert kb (list 'dog Rex) 'CxWell)
+      (v/assert kb (list 'fish Nemo) 'CxWell)
+      (is (v/ask? kb (list 'warm_blooded Pingu) 'CxWell) "a penguin is warm-blooded")
+      (is (v/ask? kb (list 'warm_blooded Rex) 'CxWell) "a dog is warm-blooded")
+      (is (v/ask? kb (list 'not (list 'warm_blooded Nemo)) 'CxWell)
+          "a fish is not, by the rule that denies it")))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person tangible event flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
@@ -419,8 +425,8 @@
 (def ^:private placed-unary-predicates
   "Fifteen shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
   edge, so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The
-  seven biology properties among them are placed under the kind each is said of, and
-  `a-type-is-a-noun-and-a-property-is-not-a-type` holds that no kind sits below one."
+  seven biology properties among them are placed under the kind each is said of, as
+  `the-biology-properties-are-placed-under-their-kind` holds."
   '#{initially functional_at_instant
      abducible_predicate closed_extent_predicate decontextualized_predicate
      target_following_predicate forced_decontextualized_predicate

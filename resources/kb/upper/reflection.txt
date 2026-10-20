@@ -148,6 +148,13 @@
 (partition literal open_literal closed_literal)
 (intersection open_literal literal open_expression)
 (intersection closed_literal literal closed_expression)
+;; The intersections install each half's edge to its own kind and none between the halves
+;; of two kinds, so the edges the closed and open halves inherit from the ladder are stated.
+(genl closed_literal sentence)
+(genl closed_predication closed_literal)
+(genl open_literal open_formula)
+(genl open_predication open_formula)
+(genl open_predication open_literal)
 
 ;; Each expression kind is a type, a one-place predicate over expressions.
 (unary_predicate expression)
