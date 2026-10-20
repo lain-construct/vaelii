@@ -16,13 +16,12 @@
   test verifies stay literal."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
-(defn- core-context-kb [] (doto (tu/fresh) (core-context/load-into)))
+(defn- core-context-kb [] (doto (tu/fresh) (tu/load-core!)))
 (defn- starter-world-kb [] (doto (tu/fresh) (tu/load-starter!) (world/load-into)))
 
 (defn- one [bindings k] (get (first bindings) k))

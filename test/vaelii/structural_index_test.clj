@@ -20,7 +20,6 @@
   arguments is unaffected."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]
@@ -30,7 +29,7 @@
 
 ;; a corpus with nested compound arguments (the structural case) alongside flat facts
 (defn- load-corpus [kb]
-  (core-context/load-into kb)
+  (tu/load-core! kb)
   (doseq [s '[(mass Obj1 (QuantityFn 5 Kilogram))
               (mass Obj2 (QuantityFn 9 Meter))
               (mass Obj3 (QuantityFn 5 Meter))

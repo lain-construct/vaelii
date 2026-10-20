@@ -869,7 +869,7 @@
   rebuild and with `*sweep?*` off.  The order and each gate: docs/nmtms.md, \"What
   `settle-finish` reconciles\"."
   [kb region passes moved belief-moved?]
-  ;; the depth repair a `with-deferred-settle` batch owes; free when nothing deferred
+  ;; a potential the passes left loose; free when none is
   (tax/restore-depths (reasoning/taxonomy kb))
   (let [extra    (volatile! #{})     ; region members no relabel recorded
         extra-in (volatile! #{})     ; ...of which these were believed until this settle
@@ -1162,8 +1162,10 @@
     (let [region (delay (jtms/touched (reasoning/tms kb)))
           _      (phases/with-phase :belief
                    (when *relabelled-before?*
-                     (special/reconcile-belief-change kb @region)
-                     (tax/restore-depths (reasoning/taxonomy kb))))
+                     (special/reconcile-belief-change kb @region))
+                   ;; the depth repair a `with-deferred-settle` batch owes, before the
+                   ;; passes read `genl?`, which walks a loose relation unpruned
+                   (tax/restore-depths (reasoning/taxonomy kb)))
           ;; the records asked the subsumption question this settle, in each direction
           ;; (`subsumed-blocks`, `released-subsumed`), the merges asked, the mints it
           ;; withdrew, and the records asked what they trigger (`triggered-seeds`)

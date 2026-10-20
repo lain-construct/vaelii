@@ -558,7 +558,9 @@ lets the mint's context see the membership.
 Both arrival orders reach that state, and neither remembers how it got there:
 
 * the specific membership **first** — `special/entail-arg-type` finds it
-  (`checks/subsumed-mint`) and writes no record;
+  (`checks/subsumed-mint`) and writes no record. It asks before the admission checks, and
+  the assert entry point's check skips the mint too, so a withheld mint runs no admission
+  check (`lein perf`'s `withheld-mint-beside-covers`);
 * the specific membership **last**, or the `genl` or `genlCx` edge that makes it more
   specific or visible — the mint is already stored, so `settle` blocks its justifications
   (`special/subsumed-mint-blocks`) and the sweep that collects an excepted conclusion

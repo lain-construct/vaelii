@@ -16,7 +16,6 @@
             [taoensso.trove :as trove]
             [vaelii.client :as vc]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.host.serve :as serve]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.channel :as ch]
@@ -32,7 +31,7 @@
   reply to cascade."
   []
   (tu/load-dumped! (tu/fresh) :koinii/speech-acts
-                   #(doto % (core-context/load-into) (sa/load-speech-acts))))
+                   #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
 (use-fixtures :each (tu/neutral-fresh channel-kb))
 

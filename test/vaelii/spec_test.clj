@@ -20,7 +20,6 @@
             [clojure.spec.test.alpha :as stest]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.spec :as vspec]
             [vaelii.test-util :as tu]))
 
@@ -187,7 +186,7 @@
   ;; context)` is believed (docs/context-nat.md).  A `::context` narrower than
   ;; that entry point refuses under `instrument` a write the engine accepts without it — so an
   ;; instrumented caller could not store into a time-indexed context at all.
-  (tu/with-neutral-kb [kb #(doto (tu/fresh) core-context/load-into)]
+  (tu/with-neutral-kb [kb #(doto (tu/fresh) tu/load-core!)]
     (tu/with-terms [likes Tom Ann]
       (let [cxfn (symbol (str "CxTmpSpec" (System/nanoTime) "Fn"))
             expr (list cxfn 'CxMonad (list 'DatetimeFn "2000"))]

@@ -28,7 +28,6 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.client :as vc]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.host.serve :as serve]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.adjudication :as adj]
@@ -41,7 +40,7 @@
 
 (defn- household-kb []
   (tu/load-dumped! (tu/fresh) :koinii/speech-acts
-                   #(doto % (core-context/load-into) (sa/load-speech-acts))))
+                   #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
 ;; Majority resolution requires the :proof-tier identity policy and counts only attested
 ;; ballots, so these tests run under it and the in-process ones vote through `vote!`.

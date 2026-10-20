@@ -7,7 +7,6 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [are deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.host.core-context :as core-context]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.sign :as sign]
             [vaelii.impl.types.prover :as prover-types]
@@ -218,7 +217,7 @@
   trend, each with the **sentences** its support names: handles follow arrival order."
   [order]
   (let [k (doto (tu/isolated-fresh)
-            (core-context/load-into)
+            (tu/load-core!)
             (v/add-prover (sign/sign-prover)))]
     (try
       (doseq [s order] (v/assert k s C))

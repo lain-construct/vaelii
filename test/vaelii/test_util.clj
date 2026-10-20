@@ -693,9 +693,20 @@
     (run! #(.deleteOnExit ^File %) (file-seq dir))
     (.getPath dir)))
 
+(defn- dump-per-root
+  "A fn of no arguments answering the dump `build` makes, built once per JVM for each root
+  value of `checks/*assertive-arg-types?*`.  `build-dump`'s thread reads that root, and a
+  namespace that alters it around its fixtures (`web_jobs_test`) builds a dump the other
+  reading's restores must not receive."
+  [build]
+  (let [dumps (atom {})]
+    (fn []
+      (let [k (.getRawRoot #'checks/*assertive-arg-types?*)]
+        @(get (swap! dumps update k #(or % (delay (build)))) k)))))
+
 (def ^:private starter-dump
-  "An export dump of the starter ontology, built **once per JVM** and read back by
-  `load-starter!`.
+  "Answers an export dump of the starter ontology, built **once per JVM** for each root
+  argument-type reading (`dump-per-root`) and read back by `load-starter!`.
 
   `starter/load-into` re-asserts all 3,200+ sentexes through the full write path, and
   that path is not linear in the ontology's size.  64% of the load is its 28 `genlCx`
@@ -707,7 +718,7 @@
   A dump is a copy of the KB rather than a shortcut past building one (`build-dump`).
   `starter_copy_test` pins that — same sentences, same contexts, same truth, same
   strength, same belief."
-  (delay (build-dump "vaelii-starter-" starter-build-space starter/load-into)))
+  (dump-per-root #(build-dump "vaelii-starter-" starter-build-space starter/load-into)))
 
 (defn load-starter!
   "Load the starter ontology into `kb` and return `kb` — `starter/load-into`'s result,
@@ -721,7 +732,7 @@
   it refuses — calls `starter/load-into` directly and pays for it, since a restored dump
   answers a different question."
   [kb]
-  (v/import! kb @starter-dump {:belief? true})
+  (v/import! kb (starter-dump) {:belief? true})
   kb)
 
 ;; ---- the upper ontology, built once and copied --------------------------
@@ -737,15 +748,16 @@
    :recover? false :tms tms-kind})
 
 (def ^:private core-context-dump
-  "An export dump of the upper ontology, built **once per JVM** and read back by
-  `load-core!`, mirroring `starter-dump`.
+  "Answers an export dump of the upper ontology, built **once per JVM** for each root
+  argument-type reading (`dump-per-root`) and read back by `load-core!`, mirroring
+  `starter-dump`.
 
   `core-context/load-into` re-asserts every `kb/upper/` file through the full write path,
   and the `neutral-fresh` fixtures rebuild a fresh core KB per test, so that cost is paid
   once for every such test.  A restored dump reaches the same state (`build-dump`) —
   `core_copy_test` pins that, because belief does not depend on the order the records
   were written."
-  (delay (build-dump "vaelii-core-" core-build-space core-context/load-into)))
+  (dump-per-root #(build-dump "vaelii-core-" core-build-space core-context/load-into)))
 
 (defn load-core!
   "Load the upper ontology into `kb` and return `kb` — `core-context/load-into`'s
@@ -756,14 +768,14 @@
   calls `core-context/load-into` directly and pays for it, since a restored dump answers a
   different question."
   [kb]
-  (v/import! kb @core-context-dump {:belief? true})
+  (v/import! kb (core-context-dump) {:belief? true})
   kb)
 
 ;; ---- any fixture KB, built once per key and copied ---------------------
 
 (def ^:private keyed-dumps
-  "`load-dumped!`'s dumps, one delay per key, each built on its own space the first time
-  a fixture asks for it."
+  "`load-dumped!`'s dumps, one `dump-per-root` per key, each built on its own space the
+  first time a fixture asks for it."
   (atom {}))
 
 (defn load-dumped!
@@ -783,9 +795,9 @@
   (let [space {:backend :memory :space [::dump key block-top]
                :recover? false :tms tms-kind}
         dump  (get (swap! keyed-dumps update key
-                          #(or % (delay (build-dump "vaelii-fixture-" space build))))
+                          (fn [d] (or d (dump-per-root #(build-dump "vaelii-fixture-" space build)))))
                    key)]
-    (v/import! kb @dump {:belief? true})
+    (v/import! kb (dump) {:belief? true})
     kb))
 
 (defn load-core-with!
