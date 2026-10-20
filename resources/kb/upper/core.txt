@@ -1397,19 +1397,15 @@
 ;; way.
 
 (comment minCommonGenl
-         "(minCommonGenl ?type . ?types) means that ?type is a minimal common supertype of ?types: a strict supertype of every one of them, with no other strict common supertype of them below it. Computed from the genl closure through the edges the asking context sees, and never stored. With ?type open, a query binds it to each minimal common supertype, so (minCommonGenl ?x dog cat) lists where a new type above both would sit. With ?type ground, the sentence is true when ?type is one of them and false when it is none of them. With one type in ?types the answers are its minimal supertypes. Variable-arity; arityMin is two.")
-(variable_arity_predicate minCommonGenl)
+         "(minCommonGenl ?type . ?types) means that ?type is a minimal common supertype of ?types: a strict supertype of every one of them, with no other strict common supertype of them below it. Computed from the genl closure through the edges the asking context sees, and never stored. With ?type open, a query binds it to each minimal common supertype, so (minCommonGenl ?x dog cat) lists where a new type above both would sit. With ?type ground, the sentence is true when ?type is one of them and false when it is none of them. With one type in ?types the answers are its minimal supertypes.")
 (unbounded_arity_predicate minCommonGenl)
-(genlArg minCommonGenl 1 thing)
-(argAndRestGenl minCommonGenl 2 thing)
+(args minCommonGenl unary_predicate)
 (arityMin minCommonGenl 2)
 
 (comment maxCommonSpec
-         "(maxCommonSpec ?type . ?types) means that ?type is a maximal common subtype of ?types: a strict subtype of every one of them, with no other strict common subtype of them above it. The dual of minCommonGenl, computed and answered the same way: an open ?type binds each maximal common subtype, and a ground ?type is true when it is one of them and false when it is none of them. With one type in ?types the answers are its maximal subtypes. Variable-arity; arityMin is two.")
-(variable_arity_predicate maxCommonSpec)
+         "(maxCommonSpec ?type . ?types) means that ?type is a maximal common subtype of ?types: a strict subtype of every one of them, with no other strict common subtype of them above it. The dual of minCommonGenl, computed and answered the same way: an open ?type binds each maximal common subtype, and a ground ?type is true when it is one of them and false when it is none of them. With one type in ?types the answers are its maximal subtypes.")
 (unbounded_arity_predicate maxCommonSpec)
-(genlArg maxCommonSpec 1 thing)
-(argAndRestGenl maxCommonSpec 2 thing)
+(args maxCommonSpec unary_predicate)
 (arityMin maxCommonSpec 2)
 (termsRelated genl minCommonGenl maxCommonSpec)   ;; the two read off the genl closure
 
