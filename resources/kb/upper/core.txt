@@ -1018,11 +1018,16 @@
 (set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type2)))
 (set/forwardRule (implies (intersection ?combined ?type1 ?type2 ?type3) (genl ?combined ?type3)))
 ;; membership: the consequent's predicate is a variable, so a generator stamps a
-;; concrete-functor rule per intersection fact.
+;; concrete-functor rule per intersection fact.  The stamped rule is bare, so it confers
+;; :monotonic and its conclusion is capped at its weakest antecedent: a thing stated of
+;; each type at :monotonic is a :monotonic member of the combined kind, and one stated of
+;; a type at :default is a :default member.  An intersection is a definition, and what
+;; is each type is the combined kind without exception, so the rule adds no
+;; defeasibility of its own.
 (implies (intersection ?combined ?type1 ?type2)
-         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x)) (?combined ?x))))
+         (implies (and (?type1 ?x) (?type2 ?x)) (?combined ?x)))
 (implies (intersection ?combined ?type1 ?type2 ?type3)
-         (set/defaultRule (implies (and (?type1 ?x) (?type2 ?x) (?type3 ?x)) (?combined ?x))))
+         (implies (and (?type1 ?x) (?type2 ?x) (?type3 ?x)) (?combined ?x)))
 
 ;; ---- the predAll / predExists / predInstance / predSpecified matrix -------
 ;; A family of ternary relations that quantify one binary ?pred's two argument positions
@@ -1247,7 +1252,7 @@
 (genl forced_decontextualized_predicate predicate)
 
 (comment forced_monotonic_predicate
-         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the roster applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), except and the equality relations, every one of which the engine holds on the roster whether or not it is declared; the retraction of every one of these but injection, surjection and bijection is refused. See docs/nmtms.md.")
+         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the roster applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary, at_least_ternary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1, arg2, arg3), except and the equality relations, every one of which the engine holds on the roster whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators and the argument declarations is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_predicate)
 ;; Every member of the roster is a predicate.
 (genl forced_monotonic_predicate predicate)
@@ -1297,6 +1302,62 @@
 (set/monotonic (decontextualized_predicate variable_arity_function))
 (forced_monotonic_predicate arityMin)
 (set/monotonic (decontextualized_predicate arityMin))
+;; The arity policies.  Each is read beside the arity bindings above, so a relation's
+;; policy goes OUT only by retraction, as its length does.
+(forced_monotonic_predicate fixed_arity)
+(forced_monotonic_predicate fixed_arity_predicate)
+(forced_monotonic_predicate fixed_arity_function)
+(forced_monotonic_predicate bounded_arity)
+(forced_monotonic_predicate unbounded_arity)
+(forced_monotonic_predicate at_least_binary)
+(forced_monotonic_predicate at_least_ternary)
+(forced_monotonic_predicate arityMax)
+(forced_monotonic_predicate admitsArgnum)
+;; The term kinds.  What kind of term a term is does not admit exceptions: a term that is
+;; a predicate is not a function, a string or a context, so two kinds stated of one term
+;; are a conflict rather than a defeat.  The value kinds are unrepresented_term and its
+;; specializations; CxTra declares its own below string.
+(forced_monotonic_predicate relation)
+(forced_monotonic_predicate predicate)
+(forced_monotonic_predicate function)
+(forced_monotonic_predicate truth_valued_relation)
+(forced_monotonic_predicate logical_constant)
+(forced_monotonic_predicate logical_connective)
+(forced_monotonic_predicate quantifier)
+(forced_monotonic_predicate symbol)
+(forced_monotonic_predicate context)
+(forced_monotonic_predicate unrepresented_term)
+(forced_monotonic_predicate boolean)
+(forced_monotonic_predicate character)
+(forced_monotonic_predicate keyword)
+(forced_monotonic_predicate number)
+(forced_monotonic_predicate integer)
+(forced_monotonic_predicate negative_integer)
+(forced_monotonic_predicate non_negative_integer)
+(forced_monotonic_predicate non_positive_integer)
+(forced_monotonic_predicate positive_integer)
+(forced_monotonic_predicate string)
+;; The numeric comparators.  Each holds of numbers only (arg 1 and 2 number), so its truth
+;; is computed from the numbers themselves and admits no exception.  The at_least_binary and
+;; at_least_ternary rules read greaterThan beside arity and arityMin, so a comparator off the
+;; roster would leave those rules with an antecedent that is not a roster member.
+(forced_monotonic_predicate greaterThan)
+(forced_monotonic_predicate lessThan)
+;; The quantity comparators.  The measure twins of greaterThan and lessThan: each compares
+;; two ground measure terms (arg 1 and 2 measure) and is computed from the unit table, so it
+;; admits no exception either.
+(forced_monotonic_predicate quantityGreaterThan)
+(forced_monotonic_predicate quantityGreaterThanOrEqual)
+(forced_monotonic_predicate quantityLessThan)
+(forced_monotonic_predicate quantityLessThanOrEqual)
+(forced_monotonic_predicate sameQuantity)
+;; The argument declarations.  An argument type is read beside the arity bindings, and
+;; arg1, arg2 and arg3 are its binary projections: the twin rules conclude each from the
+;; other, so the four go on the roster together or a firing between them is void.
+(forced_monotonic_predicate arg)
+(forced_monotonic_predicate arg1)
+(forced_monotonic_predicate arg2)
+(forced_monotonic_predicate arg3)
 (forced_monotonic_predicate except)
 ;; except takes one argument, the sentexHandle of the sentence it hides.
 (unary_predicate except)
@@ -1305,11 +1366,14 @@
 (forced_monotonic_predicate equals)
 
 (comment forced_monotonic_between_predicates
-         "(forced_monotonic_between_predicates ?predicate) puts on the forced-monotonic roster every (?predicate …) sentence whose arguments are all spelled as predicates of arity 2 or more. Declared of genl: a genl between two predicates is forced, and a genl between types stays defeasible, since the spelling of the arguments separates the two. Its retraction is refused. See docs/nmtms.md.")
+         "(forced_monotonic_between_predicates ?predicate) puts on the forced-monotonic roster every (?predicate …) sentence whose arguments are all spelled as predicates of arity 2 or more. Declared of genl and genlInverse: a genl or genlInverse between two predicates is forced, and a genl between types stays defeasible, since the spelling of the arguments separates the two. Its retraction is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_between_predicates)
 (arg forced_monotonic_between_predicates 1 predicate)
 (genl forced_monotonic_between_predicates predicate)
 (forced_monotonic_between_predicates genl)
+;; genlInverse is genl with its arguments swapped, so a genlInverse between two predicates
+;; is forced as a genl between two predicates is.
+(forced_monotonic_between_predicates genlInverse)
 
 (comment functional
          "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value collides with the first: two symbols both known true (monotonic) derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them. Any other collision is a nogood each context reading the pair decides, a default fact losing to a monotonic one and two default facts being a dilemma: two non-symbols such as 1980 and 1990, since no merge can make two numbers one thing, and a pair with a default fact, since a merge rests on monotonic evidence alone. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property.")

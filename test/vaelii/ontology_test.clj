@@ -1425,10 +1425,22 @@
       (testing "and a string value is what the position is for"
         (is (= [] (v/check kb (list 'comment 'thing "some text") 'CxUniverse)))))))
 
-(tu/deftest-kb a-term-cannot-be-both-a-string-and-a-relation
-  (tu/with-terms [Thing1]
-    (v/assert kb (list 'string Thing1) 'CxUniverse)
-    (is (tu/stored-in-clash? kb (list 'predicate Thing1) 'CxUniverse))))
+(tu/deftest-kb a-string-and-a-predicate-of-one-term-are-an-irreducible-conflict
+  ;; `string` and `predicate` are both term kinds on the forced-monotonic roster, so the
+  ;; clash `(disjoint linguistic relation)` makes of them through their genl edges has no
+  ;; member to defeat: both stay believed and `conflicts` names the pair, the same in
+  ;; either order
+  (doseq [[first-kind second-kind] '[[string predicate] [predicate string]]]
+    (tu/with-terms [Thing1]
+      (v/assert kb (list first-kind Thing1) 'CxUniverse)
+      (v/assert kb (list second-kind Thing1) 'CxUniverse)
+      (is (v/ask? kb (list 'string Thing1) 'CxUniverse)
+          (str second-kind " after " first-kind ": string stays believed"))
+      (is (v/ask? kb (list 'predicate Thing1) 'CxUniverse))
+      (let [hs (v/handle-of kb (list 'string Thing1) 'CxUniverse)
+            hp (v/handle-of kb (list 'predicate Thing1) 'CxUniverse)]
+        (is (some #(= #{hs hp} (set (:nogood %))) (v/conflicts kb))
+            "and the pair is reported as a conflict")))))
 
 ;; ---- what is biological ---------------------------------------------------
 ;; An organism and a part it grew are both biological, and tangible through it.  The two
@@ -1507,13 +1519,25 @@
 ;; the parts are separated and cover their whole: a member denied every part but one is
 ;; concluded the last.
 
-(tu/deftest-kb a-relation-that-is-not-truth-valued-is-a-function
-  ;; The coverage half of (partition relation function truth_valued_relation);
-  ;; three-partitions-divide-relation pins the separation half.
-  (tu/with-terms [relatesTo]
+(tu/deftest-kb a-function-is-not-a-truth-valued-relation
+  ;; (partition relation function truth_valued_relation), read off a function stated as
+  ;; one; three-partitions-divide-relation pins the separation half.  The fixture states
+  ;; the function-hood directly: function and truth_valued_relation are term kinds on the
+  ;; forced-monotonic roster, and a denial of a roster literal is never believed, so a
+  ;; stored (not (truth_valued_relation X)) concludes nothing through the cover.
+  (tu/with-terms [relatesTo deniedRelation]
     (v/assert kb (list 'relation relatesTo) 'CxUniverse)
-    (v/assert kb (list 'not (list 'truth_valued_relation relatesTo)) 'CxUniverse)
-    (is (true? (v/ask? kb (list 'function relatesTo) 'CxUniverse)))))
+    (v/assert kb (list 'function relatesTo) 'CxUniverse)
+    (is (false? (v/ask? kb (list 'truth_valued_relation relatesTo) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'not (list 'truth_valued_relation relatesTo)) 'CxUniverse))
+        "a function is refuted as a truth_valued_relation")
+    (is (= :false (:verdict (v/argue kb (list 'truth_valued_relation relatesTo) 'CxUniverse))))
+    (testing "a stored denial of the term kind is inert, and concludes no function"
+      (v/assert kb (list 'relation deniedRelation) 'CxUniverse)
+      (v/assert kb (list 'not (list 'truth_valued_relation deniedRelation)) 'CxUniverse)
+      (is (= :inert (:reason (v/why-not kb (list 'not (list 'truth_valued_relation deniedRelation))
+                                        'CxUniverse))))
+      (is (false? (v/ask? kb (list 'function deniedRelation) 'CxUniverse))))))
 
 (tu/deftest-kb reifiable-and-unreifiable-partition-function
   (is (true? (v/disjoint? kb 'reifiable_function 'unreifiable_function 'CxUniverse)))

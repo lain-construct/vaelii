@@ -117,17 +117,28 @@
   (is (v/isa? kb 'parentOf 'fixed_arity_predicate))
   (is (v/isa? kb 'MotherFn 'fixed_arity_function)))
 
-(tu/deftest-kb disjoint-arity-policies-clash-and-the-roster-membership-wins
-  ;; `variable_arity` is on the forced-monotonic roster and `fixed_arity` is not, so the
-  ;; disjoint pair takes the `:default` `fixed_arity` membership OUT in either order
+(defn- conflict-between?
+  "Whether `conflicts` reports one nogood whose members are exactly `a` and `b`."
+  [kb a b]
+  (let [ha (v/handle-of kb a 'CxUniverse)
+        hb (v/handle-of kb b 'CxUniverse)]
+    (boolean (and ha hb (some #(= #{ha hb} (set (:nogood %))) (v/conflicts kb))))))
+
+(tu/deftest-kb disjoint-arity-policies-are-an-irreducible-conflict
+  ;; `fixed_arity` and `variable_arity` are both on the forced-monotonic roster, so the
+  ;; disjoint pair has no member to defeat: both stay believed and `conflicts` names the
+  ;; pair, the same in either order
   (doseq [[first-policy second-policy] '[[fixed_arity variable_arity]
                                          [variable_arity fixed_arity]]]
     (tu/with-terms [candidateRelation]
       (v/assert kb (list first-policy candidateRelation) 'CxUniverse)
       (v/assert kb (list second-policy candidateRelation) 'CxUniverse)
-      (is (not (v/ask? kb (list 'fixed_arity candidateRelation) 'CxUniverse))
-          (str second-policy " after " first-policy ": fixed_arity is OUT"))
-      (is (v/ask? kb (list 'variable_arity candidateRelation) 'CxUniverse))))
+      (is (v/ask? kb (list 'fixed_arity candidateRelation) 'CxUniverse)
+          (str second-policy " after " first-policy ": fixed_arity stays believed"))
+      (is (v/ask? kb (list 'variable_arity candidateRelation) 'CxUniverse))
+      (is (conflict-between? kb (list 'fixed_arity candidateRelation)
+                             (list 'variable_arity candidateRelation))
+          "and the pair is reported as a conflict")))
   (tu/with-terms [compatiblePredicate]
     (v/assert kb (list 'unary_predicate compatiblePredicate) 'CxUniverse)
     (is (v/assert kb (list 'fixed_arity_predicate compatiblePredicate) 'CxUniverse)
@@ -152,19 +163,32 @@
         (v/assert kb (list first-class candidateRelation) 'CxUniverse)
         (is (tu/stored-in-clash? kb (list second-class candidateRelation) 'CxUniverse)
             (str second-class " after " first-class " is stored as a disjoint clash"))))
-    (testing "a relation of the wrong kind clashes too, by the genl edges, and the
-            :default kind membership loses to the roster one"
-      (tu/with-terms [somePredicate]
-        (v/assert kb (list 'predicate somePredicate) 'CxUniverse)
-        (v/assert kb (list 'unary_function somePredicate) 'CxUniverse)
-        (is (not (v/ask? kb (list 'predicate somePredicate) 'CxUniverse)))))
+    (testing "a relation of the wrong kind clashes too, by the genl edges, and two kinds
+            on the roster are an irreducible conflict, the same in either order"
+      (doseq [[first-kind second-kind] '[[predicate unary_function]
+                                         [unary_function predicate]]]
+        (tu/with-terms [somePredicate]
+          (v/assert kb (list first-kind somePredicate) 'CxUniverse)
+          (v/assert kb (list second-kind somePredicate) 'CxUniverse)
+          (is (v/ask? kb (list 'predicate somePredicate) 'CxUniverse)
+              (str second-kind " after " first-kind ": predicate stays believed"))
+          (is (v/ask? kb (list 'unary_function somePredicate) 'CxUniverse))
+          (is (conflict-between? kb (list 'predicate somePredicate)
+                                 (list 'unary_function somePredicate))
+              "and the pair is reported as a conflict"))))
     (testing "and an argument that is no relation at all derives fixed_arity's own type,
-            which clashes with the one it holds"
-      (tu/with-terms [someIndividual]
-        (v/assert kb (list 'animal someIndividual) 'CxUniverse)
-        (v/assert kb (list 'fixed_arity_predicate someIndividual) 'CxUniverse)
-        (is (tu/stored-in-clash? kb (list 'relation someIndividual) 'CxUniverse)
-            "the position declared on fixed_arity descends to its specializations")))))
+            relation, from a roster membership, which defeats the :default type it
+            clashes with"
+      (doseq [[first-type second-type] '[[animal fixed_arity_predicate]
+                                         [fixed_arity_predicate animal]]]
+        (tu/with-terms [someIndividual]
+          (v/assert kb (list first-type someIndividual) 'CxUniverse)
+          (v/assert kb (list second-type someIndividual) 'CxUniverse)
+          (is (v/ask? kb (list 'relation someIndividual) 'CxUniverse)
+              "the position declared on fixed_arity descends to its specializations")
+          (is (not (v/ask? kb (list 'animal someIndividual) 'CxUniverse))
+              (str second-type " after " first-type ": animal is the loser"))
+          (is (= :defeated (:reason (v/why-not kb (list 'animal someIndividual) 'CxUniverse)))))))))
 
 (tu/deftest-kb relation-wide-exact-classes-clash-with-each-other
   (doseq [[first-type second-type] '[[unary binary] [binary unary]

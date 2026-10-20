@@ -84,6 +84,42 @@
       (is (believes? kb (list combined_kind 'Item) 'CxUniverse)
           "all three makes a member"))))
 
+;; ---- the membership's strength ------------------------------------------
+;; The stamped membership rule is bare, so it confers :monotonic and the combined
+;; membership is capped at the weakest conjunct.
+
+(tu/deftest-kb the-combined-membership-is-capped-at-the-weakest-conjunct
+  (tu/with-terms [combined_kind type_a type_b]
+    (v/assert kb (list 'genl type_a 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl type_b 'thing) 'CxUniverse)
+    (v/assert kb (list 'intersection combined_kind type_a type_b) 'CxUniverse {:strength :monotonic})
+    (testing "a :default conjunct makes a :default member"
+      (v/assert kb (list type_a 'Item) 'CxUniverse)
+      (v/assert kb (list type_b 'Item) 'CxUniverse {:strength :monotonic})
+      (is (= :default (v/defeat-class kb (v/handle-of kb (list combined_kind 'Item) 'CxUniverse)))))
+    (testing "and :monotonic conjuncts make a :monotonic member"
+      (v/assert kb (list type_a 'Other) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list type_b 'Other) 'CxUniverse {:strength :monotonic})
+      (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list combined_kind 'Other) 'CxUniverse)))))))
+
+(tu/deftest-kb a-combined-kind-on-the-roster-is-concluded-from-roster-conjuncts
+  ;; A firing concluding a roster literal is void unless its rule adds no defeasibility
+  ;; and every antecedent is on the roster.  The bare membership rule adds none, so a
+  ;; combined kind on the roster is concluded from two roster parts.
+  (tu/with-terms [combined_kind type_a type_b]
+    (doseq [t [combined_kind type_a type_b]]
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse)
+      (v/assert kb (list 'forced_monotonic_predicate t) 'CxUniverse {:strength :monotonic}))
+    (v/assert kb (list 'intersection combined_kind type_a type_b) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list type_a 'Item) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list type_b 'Item) 'CxUniverse {:strength :monotonic})
+    (is (believes? kb (list combined_kind 'Item) 'CxUniverse)
+        "the membership is concluded")
+    (is (not-any? #(and (= :forced-conclusion (:violation %))
+                        (= (list combined_kind 'Item) (:sentence %)))
+                  (v/violations kb))
+        "and its firing is not void")))
+
 ;; ---- the forward reading, at every reader and in every arrival order ------
 ;;
 ;; These tests read belief alone, through `ask?` at each reader, so they hold whether a
@@ -98,10 +134,9 @@
 ;; combined kind.  `CxDenial` denies `only_kind`'s edge at `:monotonic`, so a member of
 ;; `only_kind` is a member of neither part there.  `probe_kind` is declared disjoint from
 ;; the combined kind, and `Probe` is stated in both parts at `:monotonic` and in
-;; `probe_kind` at `:default`.  The membership rule is a `set/defaultRule`, so the
-;; combined membership is `:default` and the clash is a dilemma that leaves both
-;; memberships believed; a combined membership held at `:monotonic` would take the
-;; `probe_kind` membership OUT.
+;; `probe_kind` at `:default`.  The membership rule is bare, so the combined membership
+;; of a thing stated in both parts at `:monotonic` is `:monotonic`, and the clash takes
+;; the `:default` `probe_kind` membership OUT.
 
 (defn- ix-world
   "The content steps of the world above over the terms `t`, `{step [[sentence context
@@ -212,9 +247,9 @@
              (for [r [(:base t) (:cx-except t) (:cx-denial t)] k [:edge-both :edge-only]]
                (snap [r k])))
           "the except withdraws both_kind's edge and the denial only_kind's, each at its reader")
-      (is (= [true true]
+      (is (= [true false]
              [(snap [(:base t) (:probe-x t) (:comb t)]) (snap [(:base t) (:probe-x t) (:probe t)])])
-          "the membership rule concludes at :default, so the clash with probe_kind is a dilemma")
+          "the membership rule concludes at :monotonic from :monotonic parts, so the clash takes probe_kind OUT")
       (is (empty? (forward-reading-breaks snap t)))
       (is (true? (snap [(:cx-except t) (:both-x t) (:comb t)]))
           "the except leaves the route around the combined kind, and the forward reading")

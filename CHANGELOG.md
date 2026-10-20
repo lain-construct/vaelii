@@ -15,6 +15,54 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **The term kinds are on the forced-monotonic roster.** `relation`, `predicate`,
+  `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`,
+  `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`,
+  `character`, `keyword`, `number`, `integer` and its four sign classes, `string`, and
+  CxTra's `ip_address`, `ipv4_address` and `ipv6_address`) go OUT only by retraction. Two
+  term kinds stated of one term are an irreducible conflict: a `:default` `(predicate X)`
+  beside a `:default` `(string X)` or `(unary_function X)` leaves both believed and
+  `conflicts` reports the pair, where one of them was the loser. A stored denial of a
+  term kind is never believed, so `(not (truth_valued_relation X))` beside `(relation X)`
+  no longer concludes `(function X)` through the cover of `relation`; state `(function X)`.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Migration:* retract one of two clashing term kinds, since a defeat no longer picks one,
+  and state a term's kind outright rather than denying the others.
+  *Breaks:* `ask`, `query`, `conflicts`, `contradictions`
+
+- **The intersection membership rule confers `:monotonic`.** Each `(intersection C A B)`
+  fact stamps a bare `(implies (and (A ?x) (B ?x)) (C ?x))` rather than a
+  `set/defaultRule`, so a thing stated of each type at `:monotonic` is a `:monotonic`
+  member of `C`, and wins a clash with a `:default` membership where the two were a
+  dilemma. A `:default` conjunct still makes a `:default` member. A `C` on the
+  forced-monotonic roster is concluded from roster conjuncts, where every firing was void.
+
+  *Migration:* state a conjunct at `:default` where the combined membership should stay
+  defeasible.
+  *Breaks:* `ask`, `query`, `contradictions`, `violations`
+
+- **The arity policies and the numeric comparators are on the forced-monotonic roster.**
+  `fixed_arity`, `fixed_arity_predicate`, `fixed_arity_function`, `bounded_arity`,
+  `unbounded_arity`, `at_least_binary`, `arityMax`, `admitsArgnum`, `greaterThan` and
+  `lessThan` go OUT only by retraction, as the arity bindings do. A `:default`
+  `(fixed_arity R)` beside a `:default` `(variable_arity R)` is an irreducible conflict:
+  both stay believed and `conflicts` reports the pair, where `fixed_arity` was the loser.
+  `(animal X)` beside `(fixed_arity_predicate X)`, whose argument position derives
+  `(relation X)`, now takes `animal` OUT, where `relation` was the one held in the clash.
+  `greaterThan` is on the roster so that the `core.txt` rules concluding `at_least_binary`
+  and `at_least_ternary` from `arity` and `arityMin` read roster antecedents only.
+  `at_least_ternary`, the quantity comparators (`quantityGreaterThan`,
+  `quantityGreaterThanOrEqual`, `quantityLessThan`, `quantityLessThanOrEqual`,
+  `sameQuantity`) and the argument declarations (`arg`, `arg1`, `arg2`, `arg3`) are on the
+  roster too, and `forced_monotonic_between_predicates` is declared of `genlInverse`, so a
+  `genlInverse` between two predicates is forced as a `genl` between them is, and a
+  denial of an `arg` declaration is never believed.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Migration:* retract one of two clashing arity policies; a defeat no longer picks one.
+  *Breaks:* `ask`, `query`, `conflicts`
+
 - **A `:default` `genl` edge no longer contraposes.** With `(genl pa pb)` at `:default` and
   `(not (pb Zz))` stored or derived, `query (not (pa Zz))` answers nothing and `argue (pa
   Zz)` answers `:unknown`, where they answered `[{}]` and `:false`. In a context that
