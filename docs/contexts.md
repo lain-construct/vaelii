@@ -142,7 +142,7 @@ Data hangs below CxWell.
   CxWell does **not** see. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds two vocabularies:
+  none of its relations or kinds. CxTra holds three vocabularies:
   - **computing** — ten relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -150,6 +150,14 @@ Data hangs below CxWell.
     its `genl` edges and its disjointness. The computing relations state no rule.
     `(functional toolName)` is a decontextualized mark, so every context that sees
     CxUniverse reads that mark.
+  - **content, carriers and claims** — `information` is content apart from its
+    medium, and `conceptual_work` is information composed as one work.
+    `information_carrier` is whatever holds information, tangible or not: a paper
+    copy, DNA molecules, a bird's chirp. `(carries ?carrier ?content)` relates the two,
+    and `(claims ?source (sentexHandle H))` says that a content or a carrier presents
+    sentex H as true. A forward rule concludes that a carrier claims what its content
+    claims. `claims` is `target_following_predicate`, so retracting H retracts the claims
+    that name it.
   - **perception** — `perceives` is the general relation and `sees` specializes it.
     `seeImage` and `watchVideo` conclude `sees` by a rule guarded by its `spatial`
     second argument, since an image or a video need not be located.
