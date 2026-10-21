@@ -11,6 +11,23 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Breaking
+
+- **The reification marks are on the forced-monotonic roster.** `core.txt` declares
+  `(forced_monotonic_predicate reifiable_function)` and `(forced_monotonic_predicate
+  unreifiable_function)`, so each mark goes OUT only by retraction. A stored denial of a
+  mark is never believed, where a known-true `(not (reifiable_function F))` took the mark
+  OUT and left `F`'s applications structural. A `:default` `(reifiable_function F)` beside
+  a `:default` `(unreifiable_function F)` is an irreducible conflict: both stay believed
+  and `conflicts` reports the pair, where one of them was the loser.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Migration:* retract a mark rather than denying it, and retract one of two clashing
+  marks, since a defeat no longer picks one.
+  *Breaks:* `ask`, `query`, `conflicts`
+
 ## 0.30.0 — 2026-10-27 — "Chaining writes rolled back at `:max-derivations` and a full heap, `why` as a justification graph, `functionCorrespondingPredicate` scoped to the reader, `kb-integrity`'s stranded declarations and rule clashes, `CxTimeFn` time slices"
 
 | Area | Change |
