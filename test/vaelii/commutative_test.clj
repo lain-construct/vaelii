@@ -274,10 +274,19 @@
       (v/assert kb (list 'symmetric sibOf) U)
       (is (v/ask? kb (list 'commutative sibOf) U)
           "(genl symmetric commutative) classifies every symmetric predicate")
+      (v/assert kb (list 'predicate comm2) U)
       (v/assert kb (list 'commutative comm2) U)
       (v/assert kb (list 'arity comm2 2) U)
       (is (v/ask? kb (list 'symmetric comm2) U)
           "and the bridge rule reads the arity back the other way"))
+    (testing "a commutative binary function is not symmetric, which classifies predicates only"
+      (tu/with-terms [commFn2]
+        (v/assert kb (list 'function commFn2) U)
+        (v/assert kb (list 'commutative commFn2) U)
+        (v/assert kb (list 'arity commFn2 2) U)
+        (is (nil? (v/handle-of kb (list 'symmetric commFn2) U))
+            "the bridge concludes no symmetric for the clash with function to defeat")
+        (is (v/ask? kb (list 'function commFn2) U))))
     (testing "commutative at another arity implies neither symmetric nor arity 2"
       (tu/with-terms [comm3]
         (v/assert kb (list 'commutative comm3) U)
@@ -320,7 +329,7 @@
   (doseq [[rule want]
           [['(implies (and (commutative ?p)) (commutativeInArgAndRest ?p 1))      #{}]
            ['(implies (and (commutativeInArgAndRest ?p 1)) (commutative ?p))      #{}]
-           ['(implies (and (commutative ?p) (arity ?p 2)) (symmetric ?p)) #{:forward}]]]
+           ['(implies (and (commutative ?p) (predicate ?p) (arity ?p 2)) (symmetric ?p)) #{:forward}]]]
     (let [h (v/handle-of kb rule 'CxUniverse)]
       (is (some? h) (str "the bridge is still written down: " (pr-str rule)))
       (is (= want (:engines (v/sentex kb h)))

@@ -809,6 +809,34 @@
                  :when (and (integer? s) (pos? s))]
              [s (get b '?type) rk m]))))
 
+(defn instance-type-declarations
+  "The instance-type demands on `pred`'s argument positions visible from `context`, as
+  `{:from n :to m :type T}` — `:to` nil for a tail running to the last argument.  The
+  one reading of the three spellings that say a position holds an instance of a type,
+  so a caller asking what `arg` demands is answered for all three and cannot honor one
+  while missing another:
+
+  * `(arg P n T)` types position n, `{:from n :to n}`.
+  * `(argAndRest P n T)` types n and every later position, `{:from n :to nil}`.
+  * `(args P T)` is `(argAndRest P 1 T)` and is read as it, `{:from 1 :to nil}`.
+
+  Read through `declaration-reader`, so a super-predicate's declaration binds a
+  sub-predicate's tuples here as it does at the entry point.  A declaration with a
+  non-symbol or variable type, or a position that is not a positive integer, is dropped:
+  its own declaration refuses it at the entry point, so a stored one is a torn record."
+  [kb pred context]
+  (when (and (symbol? pred) (not (sx/variable? pred)))
+    (let [decls (declaration-reader kb pred context)
+          type? #(and (symbol? %) (not (sx/variable? %)))]
+      (concat
+       (for [[_ b] (decls 'arg)
+             :let  [n (get b '?n) t (get b '?type)]
+             :when (and (integer? n) (pos? n) (type? t))]
+         {:from n :to n :type t})
+       (for [[start t] (covering-triples decls 'args 'argAndRest)
+             :when (type? t)]
+         {:from start :to nil :type t})))))
+
 (defn- suffix-positions
   "The one-based positions from `start` to the last argument of the argument vector `as`
   — the walk every tail constraint makes, the covering forms and the homogeneity forms
@@ -1146,14 +1174,13 @@
 ;; ---- the argument constraints, checked against each other ----------------
 
 (def ^:private arg-constraint-kinds
-  "The two **unconditional** argument constraints, each mapped to the other: the value is
-  the counterpart a declaration is checked against, and membership is what
-  `declaration-problem` reads to recognize one.
+  "The two **unconditional** argument constraints, the ones `declaration-problem` reads
+  as `(kind P n T)`.
 
   `interArg` is not here and has its own arm.  It is written at a different arity and
-  names two positions, so it fits neither the pairing nor the `(= 3 (nm/arity …))` test —
-  forcing it in would put that difference inside every reader of this map."
-  '{arg genlArg, genlArg arg})
+  names two positions, so it fits neither the `(= 3 (nm/arity …))` test — forcing it in
+  would put that difference inside every reader of this set."
+  '#{arg genlArg})
 
 (defn- variable-arity?
   "Is `pred` declared `variable_arity`, from the vantage `types` reads with?
@@ -1262,9 +1289,14 @@
 
   * a position the predicate does not have (`arg-position-problem`).  `interArg` and
     `argArg` name two, and each is checked.
-  * a constraint disagreeing with the predicate's own `relation_kind` — `genlArg` on
-    an `instance_relation_predicate`, or `arg` on a `type_relation_predicate`.
-    `interArg` and `argArg` read their types as memberships, so they take `arg`'s side.
+  * a `genlArg` on an `instance_relation_predicate`.  Its arguments are individuals,
+    and an individual is never a subtype of anything.
+
+  **`arg` on a `type_relation_predicate` is not a problem.**  The kinds such a relation
+  relates are themselves instances of a type — every kind is a `unary_predicate` — so
+  `(arg disjoint 1 unary_predicate)` is a true instance claim about the argument, read
+  one stratum up from the subtype claim `genlArg` makes.  The two do not compete, for
+  the reason below.
 
   **Both constraints on one position is not a problem**, and this is the case worth
   naming because the opposite reads plausible: one asks the argument to be an instance
@@ -1274,9 +1306,9 @@
   The two checks are independent and each is open-world on its own, so declaring both
   narrows the slot rather than emptying it.
 
-  `arg1` through `arg5` — the binary projections of `arg` — are held to the same
-  two arms at their projected position, so both spellings of one declaration refuse
-  identically.  Without this the binary spelling would evade the arms entirely: the
+  `arg1` through `arg5` — the binary projections of `arg` — are held to the
+  position arm at their projected position, so both spellings of one declaration refuse
+  identically.  Without this the binary spelling would evade the arm entirely: the
   sentence itself carries no position for the generic machinery to check, the bridge
   rule's ternary conclusion is convicted on the *derivation* path where a conviction
   is dropped and recorded rather than thrown, and the author is left holding a
@@ -1289,43 +1321,28 @@
   (let [[f pred n _ m] sentence]
     (cond
       (and (sx/arg-projections f) (= 2 (nm/arity sentence)) (symbol? pred))
-      (let [pos (sx/arg-projections f)]
-        (or (some-> (arg-position-problem kb f pred pos types)
-                    (assoc :sentence sentence))
-            (when (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
-              {:type :arg-constraint-kind :sentence sentence :predicate pred
-               :message (str pred " is declared type_relation_predicate, so its"
-                             " arguments are constrained with genlArg, not " f
-                             " (the binary projection of arg)")})))
+      (some-> (arg-position-problem kb f pred (sx/arg-projections f) types)
+              (assoc :sentence sentence))
 
       (and (= 'interArg f) (= 5 (nm/arity sentence)) (symbol? pred))
       (some-> (or (arg-position-problem kb f pred n types)
-                  (arg-position-problem kb f pred m types)
-                  (when (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
-                    {:type :arg-constraint-kind :predicate pred
-                     :message (str pred " is declared type_relation_predicate, so its"
-                                   " arguments are constrained with genlArg, not " f)}))
+                  (arg-position-problem kb f pred m types))
               (assoc :sentence sentence))
 
       (and (= 'argArg f) (= 3 (nm/arity sentence)) (symbol? pred))
       (some-> (or (arg-position-problem kb f pred n types)
-                  (arg-position-problem kb f pred (nth sentence 3) types)
-                  (when (seq (res/matches-visible kb (list 'type_relation_predicate pred) context))
-                    {:type :arg-constraint-kind :predicate pred
-                     :message (str pred " is declared type_relation_predicate, so its"
-                                   " arguments are constrained with genlArg, not " f)}))
+                  (arg-position-problem kb f pred (nth sentence 3) types))
               (assoc :sentence sentence))
 
       (and (contains? arg-constraint-kinds f) (= 3 (nm/arity sentence))
            (symbol? pred) (integer? n) (pos? n))
-      (let [other (arg-constraint-kinds f)]
-        (or (some-> (arg-position-problem kb f pred n types)
-                    (assoc :sentence sentence))
-            (let [clash (if (= f 'arg) 'type_relation_predicate 'instance_relation_predicate)]
-              (when (seq (res/matches-visible kb (list clash pred) context))
-                {:type :arg-constraint-kind :sentence sentence :predicate pred
-                 :message (str pred " is declared " clash ", so its arguments are"
-                               " constrained with " other ", not " f)})))))))
+      (or (some-> (arg-position-problem kb f pred n types)
+                  (assoc :sentence sentence))
+          (when (and (= 'genlArg f)
+                     (seq (res/matches-visible kb (list 'instance_relation_predicate pred) context)))
+            {:type :arg-constraint-kind :sentence sentence :predicate pred
+             :message (str pred " is declared instance_relation_predicate, so its arguments are"
+                           " constrained with arg, not genlArg")})))))
 
 ;; ---- the three violations that name an opposing sentex -------------------
 ;;
@@ -3819,9 +3836,8 @@
 ;; where it is said.
 ;;
 ;; **A type-level position asks for a type, which is a `unary_predicate`.**  That is the
-;; second reading this arm needs and the KB already holds it twice over: every type is
-;; asserted a `unary_predicate` when the schema loads, and `declaration-problem` refuses
-;; an `arg` declaration on a `type_relation_predicate` precisely because *its* arguments
+;; second reading this arm needs and the KB already holds it: every type is asserted a
+;; `unary_predicate` when the schema loads, and a `type_relation_predicate`'s arguments
 ;; name kinds.  So a position is type-level when a `genlArg` names it **or** when its
 ;; predicate is a `type_relation_predicate` — which is how `genl`'s second argument is
 ;; constrained at all.  That position carries no declaration of its own, deliberately

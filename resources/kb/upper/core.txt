@@ -181,6 +181,11 @@
 (arg argAndRest 1 relation)
 (arg argAndRest 2 positive_integer)
 (genlArg argAndRest 3 thing)
+;; args is argAndRest at 1, so a query for the tail form of a relation declared through
+;; the every-position form is answered.  Backward only, so nothing is stored: the engine
+;; reads the two spellings through one reader that takes args as argAndRest from 1, and a
+;; stored twin would be the same constraint read twice.
+(set/backwardRule (implies (args ?relation ?type) (argAndRest ?relation 1 ?type)))
 
 (comment argAndRestGenl
          "(argAndRestGenl ?relation ?position ?type) means that argument ?position of ?relation and every later position names a subtype of ?type. The suffix form of argsGenl, and the genl twin of argAndRest.")
@@ -688,7 +693,7 @@
 (set/monotonic (genl quinary_function quinary))
 
 (comment relationTypeByArity
-         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its five declarations drive the rule that classifies a relation from its asserted arity.")
+         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its five declarations drive the rule that classifies a relation from its asserted arity. predicateTypeByArity and functionTypeByArity map the predicate and function exact-arity types, five facts each.")
 (binary_predicate relationTypeByArity)
 (set/monotonic (instance_relation_predicate relationTypeByArity))
 (set/monotonic (functional relationTypeByArity))
@@ -696,14 +701,14 @@
 (arg relationTypeByArity 2 non_negative_integer)
 
 (comment predicateTypeByArity
-         "The predicate specialization of relationTypeByArity.")
+         "(predicateTypeByArity ?type ?arity) maps a predicate exact-arity type to its arity. Related to relationTypeByArity (termsRelated) and not a specialization of it: a predicate mapping classifies a predicate only.")
 (binary_predicate predicateTypeByArity)
 (set/monotonic (instance_relation_predicate predicateTypeByArity))
 (arg predicateTypeByArity 1 unary_predicate)
 (arg predicateTypeByArity 2 non_negative_integer)
 
 (comment functionTypeByArity
-         "The function specialization of relationTypeByArity.")
+         "(functionTypeByArity ?type ?arity) maps a function exact-arity type to its arity. Related to relationTypeByArity (termsRelated) and not a specialization of it: a function mapping classifies a function only.")
 (binary_predicate functionTypeByArity)
 (set/monotonic (instance_relation_predicate functionTypeByArity))
 (arg functionTypeByArity 1 unary_predicate)
@@ -715,22 +720,30 @@
 (relationTypeByArity quaternary 4)
 (relationTypeByArity quinary 5)
 
-;; The predicate and function mappings are specializations of the relation-wide mapping:
-;; a genl edge between the predicates says so once, and every predicateTypeByArity or
-;; functionTypeByArity fact is thereby a relationTypeByArity fact.  No per-member
-;; compatibility table is needed.
-(genl predicateTypeByArity relationTypeByArity)
-(genl functionTypeByArity relationTypeByArity)
+;; The predicate and function mappings are related to the relation-wide mapping and are
+;; not specializations of it.  A genl edge would make every predicateTypeByArity fact a
+;; relationTypeByArity fact, and the relation-wide generator would then classify every
+;; relation of that arity, a function included, under the predicate type.
+(termsRelated predicateTypeByArity relationTypeByArity)
+(termsRelated functionTypeByArity relationTypeByArity)
 
-;; The five relation-wide mappings are the only ones SHIPPED, and the predicate and
-;; function members are mapped by their genl edges rather than by ten more facts.
-;; (predicateTypeByArity unary_predicate 1) would stamp (implies (arity ?r 1)
-;; (unary_predicate ?r)), which classifies a unary function as a predicate.  The two
-;; specialization predicates stay declared for a KB that maps an arity the relation-wide
-;; table has no class for.
+;; The predicate and function mappings, one per shipped exact-arity class.  Their
+;; generators (below) guard each stamped rule with the kind, so (predicateTypeByArity
+;; unary_predicate 1) classifies a predicate of one argument and never a function.  The
+;; stamped rules are inert, and the implicit-arity-class integrity pass applies them.
+(predicateTypeByArity unary_predicate 1)
+(predicateTypeByArity binary_predicate 2)
+(predicateTypeByArity ternary_predicate 3)
+(predicateTypeByArity quaternary_predicate 4)
+(predicateTypeByArity quinary_predicate 5)
+(functionTypeByArity unary_function 1)
+(functionTypeByArity binary_function 2)
+(functionTypeByArity ternary_function 3)
+(functionTypeByArity quaternary_function 4)
+(functionTypeByArity quinary_function 5)
 
 (comment arity
-         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
+         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one. A query for the arity of a class member is proved from the membership by a backward rule, and no arity is stored for it. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
 (binary_predicate arity)
 (set/monotonic (instance_relation_predicate arity))
 (set/monotonic (functional arity))
@@ -867,23 +880,52 @@
 ;; while (has-prop? kb :symmetric myRel ctx) — asked of the same declaration from the
 ;; same context — answered false.  One KB cannot say both.
 
-;; relationTypeByArity is the one rule-bearing family.  Predicate and function mappings
-;; are its genl specializations rather than parallel arity/type rules.  It is a generator
+;; relationTypeByArity is a generator
 ;; (docs/generators.md): one minted rule per mapping fact, its (?type ?relation)
 ;; consequent ground once the enclosing antecedent fills ?type, justified by that fact and
 ;; withdrawn with it.
 ;;
-;; The rule runs one way: an exact arity classifies the relation under the type that
-;; maps to it.  No rule concludes an arity, because arity is on the forced-monotonic
-;; roster and a classification is not; every reader of an arity reads the exact-arity
-;; class membership beside the (arity P n) table (docs/taxonomy.md).  RELATION-WIDE, and
+;; The forward rule runs one way: an exact arity classifies the relation under the type
+;; that maps to it.  Forward-only, because the converse below is backward: written as
+;; set/forwardRule the two are a backward cycle, (binary ?r) expanding into (arity ?r 2)
+;; and back with no ancestor-goal guard to stop it, the commutative bridge's cycle
+;; (below) in another place.  The converse stores no arity; every reader
+;; of a stored length reads the exact-arity class membership beside the (arity P n)
+;; table (docs/taxonomy.md).  RELATION-WIDE, and
 ;; it has to be — arity covers functions, so a rule concluding (binary_predicate ?r) from
 ;; (arity ?r 2) would make every shipped binary function a predicate and clash with
 ;; (disjoint predicate function); (binary ?r) carries no kind and is what the arity
 ;; actually says.  An arity no class maps to concludes nothing — (arity InstantFn 6)
 ;; leaves InstantFn fixed_arity_function by its own declaration.
 (implies (relationTypeByArity ?type ?arity)
-         (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
+         (set/forwardOnlyRule (implies (arity ?relation ?arity) (?type ?relation))))
+
+;; The converse runs BACKWARD: a query for (arity R n) of a member of a relation-wide
+;; class is proved from the membership, and nothing is stored.  A member of a predicate or
+;; function exact-arity class reaches it through the genl edge from that class to unary,
+;; binary or ternary, so the predicate and function mappings stamp no converse of their
+;; own.  arity is on the forced-monotonic roster, so a stored arity would go OUT only by
+;; retraction; proved at query time, it rests on the membership, which keeps the strength
+;; it was written at.
+(implies (relationTypeByArity ?type ?arity)
+         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
+
+;; The predicate and function mappings are generators of their own, each guarding the
+;; rule it stamps with its kind: (predicateTypeByArity binary_predicate 2) classifies a
+;; relation of arity 2 as binary_predicate only when it is a predicate, so a binary
+;; function never reaches it.  The stamped rules are INERT: believed and documented, run
+;; on no write and no query.  Run backward, one reached (binary ?r) through the genl edge
+;; from binary_predicate to binary while the converse above proves (arity ?r 2) from
+;; (binary ?r), a cycle every (binary ?r) and (arity ?p ?n) query paid for.  The argument
+;; they state is swept instead: kb-integrity's implicit-arity-class pass reports each
+;; relation whose kind and arity the rule would classify and whose class is not stated,
+;; and the starter states every class that pass finds (docs/integrity.md).
+(implies (predicateTypeByArity ?type ?arity)
+         (set/inertRule
+          (implies (and (predicate ?relation) (arity ?relation ?arity)) (?type ?relation))))
+(implies (functionTypeByArity ?type ?arity)
+         (set/inertRule
+          (implies (and (function ?relation) (arity ?relation ?arity)) (?type ?relation))))
 
 ;; The five relation-wide classifications separate each other: a relation takes ONE
 ;; exact number of arguments, so a second classification is a contradiction rather than
@@ -1624,11 +1666,11 @@
 (set/monotonic (type_relation_predicate genl))
 ;; NEITHER position is declared, and both are left so deliberately.
 ;; (genlArg genl 1 thing) reads "the subtype is a subtype of thing", which is false of
-;; the predicate specializations genl also relates: (genl predicateTypeByArity
-;; relationTypeByArity) puts one binary predicate under another, and neither end is
-;; under the root. Under the assertive reading the declaration entails (genl
-;; predicateTypeByArity thing) from that edge, which the arity descension check refuses
-;; because a binary predicate's tuples are not a unary type's.
+;; the predicate specializations genl also relates: (genl performedBy doneBy) puts one
+;; binary predicate under another, and neither end is under the root. Under the
+;; assertive reading the declaration entails (genl performedBy thing) from that edge,
+;; which the arity descension check refuses because a binary predicate's tuples are not
+;; a unary type's.
 ;; (genlArg genl 2 thing) reads "the supertype is a subtype of thing", which the root
 ;; cannot satisfy: genl is irreflexive here, so (genl thing thing) is refused as
 ;; not-well-formed, once per genl edge naming thing.
@@ -2032,11 +2074,14 @@
 ;; the canonical form is the one it already produced.
 (genl symmetric commutative)
 
-;; The converse needs the arity, and is a rule because it concludes a mark the engine
-;; enforces: commutativity at two arguments IS symmetry, where commutativity at any other
-;; arity implies neither symmetry nor arity 2.  It reads the (arity ?p 2) declaration and
-;; not the (binary ?p) class: every symmetric predicate is binary and commutative through
-;; its genl edges, so a class antecedent would re-derive each symmetric mark from itself.
+;; The converse needs the kind and the arity, and is a rule because it concludes a mark the
+;; engine enforces: commutativity of a predicate at two arguments IS symmetry, where
+;; commutativity at any other arity implies neither symmetry nor arity 2.  commutative
+;; classifies relations, functions included, and symmetric classifies binary predicates
+;; only, so (predicate ?p) keeps a commutative binary function out of symmetric.  It reads
+;; the (arity ?p 2) declaration and not the (binary ?p) class: every symmetric predicate is
+;; binary and commutative through its genl edges, so a class antecedent would re-derive
+;; each symmetric mark from itself.
 ;;
 ;; forwardOnlyRule, not forwardRule: set/forwardRule adds forward chaining without taking
 ;; the backward use away, and backward this rule is a cycle. The genl edge above makes
@@ -2049,7 +2094,7 @@
 ;; Forward chaining has no such trouble — it derives (symmetric P) once and reaches a
 ;; fixpoint — so the rule keeps the direction that does its work and drops the one that
 ;; does not.
-(set/forwardOnlyRule (implies (and (commutative ?p) (arity ?p 2)) (symmetric ?p)))
+(set/forwardOnlyRule (implies (and (commutative ?p) (predicate ?p) (arity ?p 2)) (symmetric ?p)))
 
 (comment asymmetric
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")
@@ -2169,6 +2214,12 @@
          "(type_relation_predicate ?predicate) means that ?predicate relates types rather than individuals. So (?predicate T1 T2) is a claim between two categories, and such a ground fact is replaced by one of the relation-pattern meta-predicates to pin down which quantifier reading is meant. A binary_predicate, for instance_relation_predicate's reason. The other half of the relation_kind metatype.")
 (unary_predicate type_relation_predicate)
 (set/monotonic (genl type_relation_predicate binary_predicate))
+;; Every argument of a type_relation_predicate is a predicate.  The kinds it relates are
+;; unary predicates, and genl relates predicate specializations of any arity besides —
+;; (genl performedBy doneBy) puts one binary predicate under another — so predicate, and
+;; not unary_predicate, is what holds at every position of every one.  An instance claim
+;; about the arguments, beside the subtype claim the relation kind already makes.
+(set/forwardRule (implies (type_relation_predicate ?relation) (args ?relation predicate)))
 
 (comment typeToInstancePred
          "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")

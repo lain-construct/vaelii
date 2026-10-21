@@ -920,6 +920,34 @@
       (is (zero? (:pair-count (clashes kb)))
           "a gauge is not a record, so measures and logged never both fire for one term"))))
 
+(tu/deftest-kb a-covering-declaration-prunes-as-arg-does
+  ;; `args` and `argAndRest` are `arg` over a run of positions, so whatever reads `arg`
+  ;; reads them too: `(argAndRest measures 2 gauge)` types position 2 and every later one,
+  ;; and `(args measures gauge)` is `(argAndRest measures 1 gauge)`.  A tail starting past
+  ;; the shared term's position says nothing about it.
+  (tu/with-terms [gauge record calibrated ledgered measures logged]
+    (v/assert kb (list 'genl gauge 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl record 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl calibrated gauge) 'CxUniverse)
+    (v/assert kb (list 'genl ledgered record) 'CxUniverse)
+    (v/assert kb (list 'disjoint gauge record) 'CxUniverse)
+    (v/assert-rule kb [(list measures '?v '?p)] (list calibrated '?p) 'CxUniverse {:direction :forward})
+    (v/assert-rule kb [(list logged '?p)] (list ledgered '?p) 'CxUniverse {:direction :forward})
+    (is (= 1 (:pair-count (clashes kb))) "nothing types measures yet")
+    (testing "a tail starting past the shared term's position leaves the pair a candidate"
+      (let [h (v/assert kb (list 'argAndRest measures 3 gauge) 'CxUniverse)]
+        (is (= 1 (:pair-count (clashes kb))))
+        (v/retract! kb h)))
+    (testing "a tail covering it prunes the pair"
+      (let [h (v/assert kb (list 'argAndRest measures 2 gauge) 'CxUniverse)]
+        (is (zero? (:pair-count (clashes kb)))
+            "a gauge is not a record, read off argAndRest as off arg")
+        (v/retract! kb h)))
+    (testing "and so does args, the tail from position 1"
+      (v/assert kb (list 'args measures gauge) 'CxUniverse)
+      (is (zero? (:pair-count (clashes kb)))
+          "a gauge is not a record, read off args as off arg"))))
+
 (tu/deftest-kb a-genlArg-typed-antecedent-is-not-read-and-so-not-pruned
   ;; The scope boundary of the reading above, pinned as a limitation rather than fixed.
   ;; `arg-type-conflicted?` reads `arg` and not `genlArg`: `(genlArg subGauge 1 gauge)`
