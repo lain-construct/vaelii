@@ -856,6 +856,108 @@
         (is (not (v/ask? kb (list q) monday)))))))
 
 ;; =========================================================================
+;; Ranges — a slice keyed by a time_interval given by its bounds
+;; =========================================================================
+;; No constructor names a range such as 2000-01..2000-06: YearFn, MonthFn, DayFn and
+;; DatetimeFn each name one calendar unit, and calendar units nest or are disjoint and
+;; never partially overlap (docs/time.md).  A range is therefore a named time_interval
+;; whose startOf and endOf are stated as InstantFn moments, the bounds the calendar
+;; clock computes for a calendar term.  The end of one unit and the start of the next
+;; are the same InstantFn, so the bounds here are the clock's own.  Each test asks the
+;; slices to be ordered from the bounds alone: no subintervalOf and no Allen relation is
+;; stated between two ranges or between a range and a calendar term.
+
+(defn- range!
+  "Make `name` the time_interval from `start` to `end`, two InstantFn field vectors."
+  [kb name start end]
+  (v/assert kb (list 'time_interval name) U)
+  (v/assert kb (list 'startOf name (cons 'InstantFn start)) U)
+  (v/assert kb (list 'endOf name (cons 'InstantFn end)) U))
+
+(tu/deftest-kb ^:red a-fact-in-a-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it
+  ;; The first quarter of 2000, and February to March inside it.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [p Q1 FebMar]
+    (range! kb Q1 [2000 1 1 0 0 0] [2000 4 1 0 0 0])
+    (range! kb FebMar [2000 2 1 0 0 0] [2000 4 1 0 0 0])
+    (v/assert kb (list p) (slice Q1))
+    (doseq [inside [(slice FebMar) (slice '(MonthFn 2000 1)) (slice '(MonthFn 2000 3))
+                    (slice '(DayFn 2000 2 15)) (slice '(DatetimeFn "2000-03-31T23"))]]
+      (testing (str "the range's fact is visible from " (pr-str inside))
+        (is (true? (v/ask? kb (list p) inside)))))
+    (doseq [outside [(slice '(MonthFn 2000 4)) (slice '(YearFn 2000))]]
+      (testing (str "and not from " (pr-str outside) ", which is not inside the range")
+        (is (not (v/ask? kb (list p) outside)))))))
+
+(tu/deftest-kb ^:red a-range-inside-a-month-sees-the-month-and-its-year
+  ;; The converse direction: a range is ordered under the calendar terms containing it.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [p q r MidFeb]
+    (range! kb MidFeb [2000 2 10 0 0 0] [2000 2 20 0 0 0])
+    (v/assert kb (list p) (slice '(MonthFn 2000 2)))
+    (v/assert kb (list q) (slice '(YearFn 2000)))
+    (v/assert kb (list r) (slice '(MonthFn 2000 3)))
+    (testing "the range's slice sees February's fact and 2000's"
+      (is (true? (v/ask? kb (list p) (slice MidFeb))))
+      (is (true? (v/ask? kb (list q) (slice MidFeb)))))
+    (testing "and not March's"
+      (is (not (v/ask? kb (list r) (slice MidFeb)))))))
+
+(tu/deftest-kb ^:red two-partially-overlapping-ranges-and-their-intersection
+  ;; Iris's third example as she put it: January to June 2000 and April to September
+  ;; 2000 overlap, and April to June is their intersection.  Unlike
+  ;; iris-partially-overlapping-slices-and-their-intersection, no relation between the
+  ;; three is stated: the ordering comes from the bounds.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [p q r JanJun AprSep AprJun]
+    (range! kb JanJun [2000 1 1 0 0 0] [2000 7 1 0 0 0])
+    (range! kb AprSep [2000 4 1 0 0 0] [2000 10 1 0 0 0])
+    (range! kb AprJun [2000 4 1 0 0 0] [2000 7 1 0 0 0])
+    (let [h1   (slice JanJun)
+          h2   (slice AprSep)
+          both (slice AprJun)]
+      (v/assert kb (list p) h1)
+      (v/assert kb (list q) h2)
+      (v/assert kb (list r) both)
+      (testing "the bounds entail the overlap and the intersection's place inside both"
+        (is (true? (v/ask? kb (list 'overlaps JanJun AprSep) U)))
+        (is (true? (v/ask? kb (list 'subintervalOf AprJun JanJun) U)))
+        (is (true? (v/ask? kb (list 'subintervalOf AprJun AprSep) U))))
+      (testing "neither overlapping range's slice sees the other's fact"
+        (is (not (v/ask? kb (list q) h1)))
+        (is (not (v/ask? kb (list p) h2))))
+      (testing "the intersection's slice sees both"
+        (is (true? (v/ask? kb (list p) both)))
+        (is (true? (v/ask? kb (list q) both))))
+      (testing "and neither overlapping slice sees the intersection's fact"
+        (is (not (v/ask? kb (list r) h1)))
+        (is (not (v/ask? kb (list r) h2))))
+      (testing "May 2000, inside the intersection, sees all three"
+        (doseq [s [p q r]]
+          (is (true? (v/ask? kb (list s) (slice '(MonthFn 2000 5))))))))))
+
+(tu/deftest-kb ^:red a-range-and-a-calendar-term-with-the-same-bounds-name-one-context
+  ;; A range from the start of 2000 to the start of 2001 is the year 2000, as
+  ;; (MonthFn 2000 1) and (DatetimeFn "2000-01") are one month
+  ;; (two-spellings-of-one-month-name-one-context).
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [Y2000]
+    (range! kb Y2000 [2000 1 1 0 0 0] [2001 1 1 0 0 0])
+    (testing "the bounds entail that the range and the year are one interval"
+      (is (true? (v/ask? kb (list 'intervalEqual Y2000 '(YearFn 2000)) U))))
+    (let [{:keys [distinct? first-sees-second? second-sees-first?]}
+          (two-spellings kb (slice Y2000) (slice '(YearFn 2000)))]
+      (testing "a write through either lands in one cx/ context"
+        (is (false? distinct?)))
+      (testing "and each sees the other's fact"
+        (is (true? first-sees-second?))
+        (is (true? second-sees-first?))))))
+
+;; =========================================================================
 ;; CxChange — two transitions in a row
 ;; =========================================================================
 
