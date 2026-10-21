@@ -1389,6 +1389,72 @@
     (testing "a later reading raises the bound to 49"
       (is (true? (v/query? kb (list 'ageAtLeast Ann 49) 'CxRealWorldNow {:max-depth 3}))))))
 
+(tu/deftest-kb ^:red an-age-at-a-dated-moment-is-exact-to-the-minute-from-a-birth-to-the-minute
+  ;; Iris's ruling: a birth known to the minute and a reference moment known to the minute
+  ;; give an age known to the minute.  The person and the dates are made up.  Born at
+  ;; 14:32 on 17 May 1990, at 09:15 on 21 October 2026 the age is 36 years, 5 months,
+  ;; 3 days, 18 hours and 43 minutes: 19160323 minutes.  The reference is a dated moment
+  ;; stated in CxRealWorld, not the present, so the lower-bound ruling on CxNow does not
+  ;; apply (an-age-from-a-birth-to-the-minute-and-a-lower-bound-on-now-is-a-lower-bound
+  ;; is that case).  `bornDuring` (an organism, the time its birth fell in) and `ageAt`
+  ;; (an organism, a reference time, the age there as a QuantityFn) are placeholder
+  ;; names: the KB's only birth fact is birthYearOf, and it has no age relation.
+  (v/add-reasoner kb :point :calendar)
+  (tu/with-terms [Ann]
+    (v/assert kb (list 'person Ann) U)
+    (v/assert kb (list 'bornDuring Ann '(DatetimeFn "1990-05-17T14:32")) 'CxRealWorld)
+    (testing "the age at 09:15 on 21 October 2026 is 19160323 minutes, and nothing coarser or finer"
+      (is (= [{'?age '(QuantityFn 19160323 Minute)}]
+             (v/query kb (list 'ageAt Ann '(DatetimeFn "2026-10-21T09:15") '?age)
+                      'CxRealWorld {:max-depth 3}))))))
+
+(tu/deftest-kb ^:red an-age-from-a-birth-to-the-minute-and-a-lower-bound-on-now-is-a-lower-bound
+  ;; The exact birth does not make the age exact when the present is reached only through
+  ;; lower-bound readings: the age's precision is bounded by both inputs, and the present
+  ;; has no upper bound.  Born at 14:32 on 17 May 1990 (made up), read at no earlier than
+  ;; 09:00 on 17 October 2026: at least 36, 37 unknown, and no exact age.  The
+  ;; placeholders are those of age-is-derived-as-a-lower-bound-and-never-as-an-exact-value
+  ;; and an-age-at-a-dated-moment-is-exact-to-the-minute-from-a-birth-to-the-minute.
+  (v/add-reasoner kb :point :calendar)
+  (tu/with-terms [Ann]
+    (v/assert kb (list 'person Ann) U)
+    (v/assert kb (list 'bornDuring Ann '(DatetimeFn "1990-05-17T14:32")) 'CxRealWorld)
+    (reading! kb [2026 10 17 9 0 0])
+    (testing "at least 36, and 37 unknown"
+      (is (true? (v/query? kb (list 'ageAtLeast Ann 36) 'CxRealWorldNow {:max-depth 3})))
+      (is (= :unknown (verdict kb (list 'ageAtLeast Ann 37) 'CxRealWorldNow))))
+    (testing "no exact age is answered now"
+      (is (empty? (v/query kb (list 'ageAt Ann now '?age) 'CxRealWorldNow {:max-depth 3}))))))
+
+(tu/deftest-kb ^:red an-age-is-exactly-as-precise-as-the-coarser-of-the-birth-and-the-reference
+  ;; Varies the precision of each input on its own, the other held at the minute.  The age
+  ;; is counted in whole units of the coarser precision between the two terms cut to that
+  ;; precision, and answered in that unit alone: born on 17 May 1990 (made up), at a
+  ;; minute of 21 October 2026 the age is 13306 days, and so it is for a birth at a minute
+  ;; of 17 May 1990 read at a day; born in May 1990, it is 437 months.  Placeholders as in
+  ;; an-age-at-a-dated-moment-is-exact-to-the-minute-from-a-birth-to-the-minute, and
+  ;; Month, which measure.txt does not ship as a unit, names a calendar month as one.
+  (v/add-reasoner kb :point :calendar)
+  (let [minute-ref '(DatetimeFn "2026-10-21T09:15")
+        day-ref    '(DayFn 2026 10 21)
+        age        (fn [who ref] (v/query kb (list 'ageAt who ref '?age) 'CxRealWorld {:max-depth 3}))]
+    (tu/with-terms [ByMinute ByDay ByMonth]
+      (doseq [[who born] [[ByMinute '(DatetimeFn "1990-05-17T14:32")]
+                          [ByDay '(DayFn 1990 5 17)]
+                          [ByMonth '(MonthFn 1990 5)]]]
+        (v/assert kb (list 'person who) U)
+        (v/assert kb (list 'bornDuring who born) 'CxRealWorld))
+      (testing "birth and reference to the minute: the age to the minute"
+        (is (= [{'?age '(QuantityFn 19160323 Minute)}] (age ByMinute minute-ref))))
+      (testing "birth to the day, reference to the minute: the age to the day"
+        (is (= [{'?age '(QuantityFn 13306 Day)}] (age ByDay minute-ref))))
+      (testing "birth to the minute, reference to the day: the age to the day"
+        (is (= [{'?age '(QuantityFn 13306 Day)}] (age ByMinute day-ref))))
+      (testing "birth and reference to the day: the age to the day"
+        (is (= [{'?age '(QuantityFn 13306 Day)}] (age ByDay day-ref))))
+      (testing "birth to the month, reference to the minute: the age to the month"
+        (is (= [{'?age '(QuantityFn 437 Month)}] (age ByMonth minute-ref)))))))
+
 (tu/deftest-kb ^:red a-reading-places-now-after-a-past-year-and-inside-no-year
   ;; A reading of 17 October 2026 places the present after all of 2000, and, with no
   ;; upper bound, inside no year: not even 2026.  So the real world's present sits under
