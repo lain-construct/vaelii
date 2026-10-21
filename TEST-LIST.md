@@ -1,6 +1,6 @@
 # Temporal and monad context reasoning: test list
 
-Every test in `test/vaelii/temporal_capability_test.clj`, 89 in all: 64 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 25 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
+Every test in `test/vaelii/temporal_capability_test.clj`, 90 in all: 65 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 25 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
 The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original.
 
@@ -51,6 +51,7 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 20. `a-slice-sees-its-monad-and-the-monad-does-not-see-the-slice`: **red**
 21. `slices-along-two-monads-do-not-see-each-other`: green. The two monads are unrelated, with no common super-monad.
     - R2: `slices-along-two-monads-keyed-by-named-times-do-not-see-each-other`: green
+    - R4: `slices-along-two-monads-under-one-super-monad-see-its-slices-and-not-each-other`: **red**
 22. `the-monad-vocabulary-is-declared-in-the-shipped-kb`: **red**. Covers `genlMonad`, `monad_context`, `CxTimeOfFn`/`cxTimeOf` and `CxMonadOfFn`/`cxMonadOf` (#181).
 23. `a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad`: **red**
 24. `a-slice-sees-a-monad-two-genlmonad-steps-up`: **red**. `genlMonad` is transitive. This is the monad twin of entailed rather than stated containment.

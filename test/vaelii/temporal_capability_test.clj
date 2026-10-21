@@ -407,6 +407,37 @@
       (testing "nor does the named month along another monad"
         (is (not (v/ask? kb (list p) (slice CxSouth Jan2000))))))))
 
+(tu/deftest-kb ^:red slices-along-two-monads-under-one-super-monad-see-its-slices-and-not-each-other
+  ;; The twin of slices-along-two-monads-do-not-see-each-other in which the two monads
+  ;; share a super-monad.  Sharing one relates neither to the other, so the original's
+  ;; isolation still holds, and each monad's slices now also see the super-monad's slices
+  ;; at the same or a wider time.  sibling-sub-monads-each-see-their-super-monad-and-not-each-other
+  ;; asks the same at one time; this one keeps the original's month as well.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p s m CxSuper CxNorth CxSouth]
+    (doseq [c [CxSuper CxNorth CxSouth]] (v/assert kb (list 'genlCx c 'CxWell) U))
+    (v/assert kb (list 'genlMonad CxNorth CxSuper) U)
+    (v/assert kb (list 'genlMonad CxSouth CxSuper) U)
+    (v/assert kb (list p) (slice CxNorth '(DatetimeFn "2000")))
+    (v/assert kb (list s) (slice CxSuper '(DatetimeFn "2000")))
+    (v/assert kb (list m) (slice CxSuper '(DatetimeFn "2000-01")))
+    (tu/with-terms [q r]
+      (v/assert kb (list q) (slice CxSouth '(DatetimeFn "2000")))
+      (v/assert kb (list r) (slice CxSouth '(DatetimeFn "2000-01")))
+      (testing "the same year along the other sub-monad does not see p"
+        (is (not (v/ask? kb (list p) (slice CxSouth '(DatetimeFn "2000"))))))
+      (testing "nor does a month along the other sub-monad"
+        (is (not (v/ask? kb (list p) (slice CxSouth '(DatetimeFn "2000-01"))))))
+      (testing "the year along each sub-monad sees the super-monad's year"
+        (is (true? (v/ask? kb (list s) (slice CxNorth '(DatetimeFn "2000")))))
+        (is (true? (v/ask? kb (list s) (slice CxSouth '(DatetimeFn "2000"))))))
+      (testing "the month along a sub-monad sees the super-monad's year and month"
+        (is (true? (v/ask? kb (list s) (slice CxSouth '(DatetimeFn "2000-01")))))
+        (is (true? (v/ask? kb (list m) (slice CxSouth '(DatetimeFn "2000-01"))))))
+      (testing "and the super-monad's slices see neither sub-monad's facts"
+        (is (not (v/ask? kb (list p) (slice CxSuper '(DatetimeFn "2000")))))
+        (is (not (v/ask? kb (list r) (slice CxSuper '(DatetimeFn "2000-01")))))))))
+
 (tu/deftest-kb ^:red partially-overlapping-slices-and-their-intersection
   ;; Iris's third example, with the overlap and the intersection given as Allen relations
   ;; between named intervals.  The Allen network entails (subintervalOf AprJun JanJun)
