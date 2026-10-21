@@ -1348,6 +1348,26 @@
       (is (not= :answered
                 (refusal-type #(v/assert kb (list 'includesInstant Saturday now) 'CxNow)))))))
 
+(tu/deftest-kb ^:red an-exact-present-and-a-dated-present-tense-fact-are-refused-in-a-spec-of-cxnow
+  ;; The twin of an-exact-present-and-a-dated-present-tense-fact-are-refused-in-cxnow in a
+  ;; context declared under CxNow.  What the present is does not change below CxNow, so
+  ;; the refusals hold there too, and a reading is stored there as it is in CxNow.
+  (tu/with-terms [CxNowSpec]
+    (v/assert kb (list 'genlCx CxNowSpec 'CxNow) U)
+    (testing "control: the spec sees CxNow, and a lower-bound reading is stored in it"
+      (is (true? (v/sees? kb CxNowSpec 'CxNow)))
+      (is (= :answered
+             (refusal-type #(v/assert kb (list 'instantNotBefore now '(InstantFn 2026 10 21 3 41 0))
+                                      CxNowSpec)))))
+    (testing "\"it is 3:41\" is refused"
+      (is (not= :answered
+                (refusal-type #(v/assert kb (list 'instantEqual now '(InstantFn 2026 10 21 3 41 0))
+                                         CxNowSpec)))))
+    (testing "\"today is Saturday 17 October 2026\" is refused"
+      (is (not= :answered
+                (refusal-type #(v/assert kb (list 'includesInstant '(DayFn 2026 10 17) now)
+                                         CxNowSpec)))))))
+
 (tu/deftest-kb ^:red age-is-derived-as-a-lower-bound-and-never-as-an-exact-value
   ;; Iris's acceptance test.  Born in 1977, read at no earlier than 17 October 2026: at
   ;; least 48 (a December 1977 birthday is still to come), and not known to be 49 or any
