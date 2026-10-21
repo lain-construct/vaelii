@@ -185,6 +185,18 @@
         (is (true? (v/ask? kb (list p) jan)))
         (is (= :true (verdict kb (list p) jan)))))))
 
+(tu/deftest-kb ^:red an-instant-slice-nobody-wrote-into-still-inherits-from-its-year
+  ;; The point twin of a-slice-nobody-wrote-into-still-inherits: the unwritten slice is
+  ;; keyed by a moment of 2000 rather than by its January.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p]
+    (let [year (slice '(DatetimeFn "2000"))
+          noon (slice '(InstantFn 2000 6 1 12 0 0))]
+      (v/assert kb (list p) year)
+      (testing "the year's fact is visible from a moment's slice that holds no fact of its own"
+        (is (true? (v/ask? kb (list p) noon)))
+        (is (= :true (verdict kb (list p) noon)))))))
+
 (tu/deftest-kb a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year
   ;; Iris's second example.  "Unknown" is read with `argue`: neither p nor (not p)
   ;; answers.  2001 is a sibling of 2000, so it sees nothing stated for 2000.
@@ -228,6 +240,25 @@
         (testing "and unknown in the named 2001: neither p nor its negation answers there"
           (is (= :unknown (verdict kb (list p) y2001)))
           (is (not (v/ask? kb (list 'not (list p)) y2001))))))))
+
+(tu/deftest-kb ^:red a-fact-in-a-year-slice-holds-at-an-instant-inside-it-and-is-unknown-at-an-instant-of-the-next-year
+  ;; The point twin of a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year:
+  ;; a moment of 2000 in place of January, and a moment of 2001 in place of 2001.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p]
+    (let [y2000    (slice '(DatetimeFn "2000"))
+          noon     (slice '(InstantFn 2000 6 1 12 0 0))
+          noon2001 (slice '(InstantFn 2001 6 1 12 0 0))]
+      (v/assert kb (list p) y2000)
+      (tu/with-terms [q r]
+        (v/assert kb (list q) noon2001)
+        (v/assert kb (list r) noon)
+        (testing "p stated for 2000 is true in 2000 and at a moment of 2000"
+          (is (= :true (verdict kb (list p) y2000)))
+          (is (= :true (verdict kb (list p) noon))))
+        (testing "and unknown at a moment of 2001: neither p nor its negation answers there"
+          (is (= :unknown (verdict kb (list p) noon2001)))
+          (is (not (v/ask? kb (list 'not (list p)) noon2001))))))))
 
 (tu/deftest-kb ^:red a-fact-stated-unsliced-holds-in-every-year-slice
   ;; Iris's first example.  The KB has no "eternal" or "atemporal" context: `atemporal`
@@ -306,6 +337,25 @@
         (is (not (v/ask? kb (list p) feb)))
         (is (not (v/ask? kb (list q) jan)))))))
 
+(tu/deftest-kb ^:red two-instant-slices-in-one-year-each-see-the-year-and-not-each-other
+  ;; The point twin of sibling-month-slices-do-not-see-each-other: two moments of 2000 in
+  ;; place of two of its months.  Two distinct moments are ordered, never nested, so
+  ;; neither slice is under the other.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r]
+    (let [year (slice '(YearFn 2000))
+          jan  (slice '(InstantFn 2000 1 15 12 0 0))
+          feb  (slice '(InstantFn 2000 2 15 12 0 0))]
+      (v/assert kb (list r) year)
+      (v/assert kb (list p) jan)
+      (v/assert kb (list q) feb)
+      (testing "each moment's slice sees the year"
+        (is (true? (v/ask? kb (list r) jan)))
+        (is (true? (v/ask? kb (list r) feb))))
+      (testing "and neither sees the other's facts"
+        (is (not (v/ask? kb (list p) feb)))
+        (is (not (v/ask? kb (list q) jan)))))))
+
 (defn- two-spellings
   "Write one fact into the `first` spelling of January 2000, then one into the `second`,
   and report which sees the other's fact."
@@ -356,6 +406,25 @@
       (testing "JanB written first, along a fresh monad so both slices are new: the same"
         (is (= {:first-sees-second? true :second-sees-first? true}
                (dissoc (two-spellings kb (slice CxOther JanB) (slice CxOther JanA))
+                       :distinct?)))))))
+
+(tu/deftest-kb ^:red two-spellings-of-one-moment-see-each-others-facts
+  ;; The point twin of two-spellings-of-one-month-see-each-others-facts.  An InstantFn term
+  ;; is a moment's one calendar spelling, and the start of a calendar term is another
+  ;; spelling of a moment (time.txt): (StartFn (MonthFn 2000 1)) is midnight at the start
+  ;; of 2000, the moment (InstantFn 2000 1 1 0 0 0) names.  One moment ought to see its
+  ;; own facts whichever way it is spelled.
+  (declare-cxtimefn! kb)
+  (let [instant '(InstantFn 2000 1 1 0 0 0)
+        start   '(StartFn (MonthFn 2000 1))]
+    (testing "InstantFn written first: each spelling sees the other's fact"
+      (is (= {:first-sees-second? true :second-sees-first? true}
+             (dissoc (two-spellings kb (slice instant) (slice start)) :distinct?))))
+    (tu/with-terms [CxOther]
+      (v/assert kb (list 'genlCx CxOther 'CxWell) U)
+      (testing "StartFn written first, along a fresh monad so both slices are new: the same"
+        (is (= {:first-sees-second? true :second-sees-first? true}
+               (dissoc (two-spellings kb (slice CxOther start) (slice CxOther instant))
                        :distinct?)))))))
 
 (tu/deftest-kb ^:red a-slice-sees-its-monad-and-the-monad-does-not-see-the-slice
@@ -437,6 +506,20 @@
       (testing "and the super-monad's slices see neither sub-monad's facts"
         (is (not (v/ask? kb (list p) (slice CxSuper '(DatetimeFn "2000")))))
         (is (not (v/ask? kb (list r) (slice CxSuper '(DatetimeFn "2000-01")))))))))
+
+(tu/deftest-kb instant-slices-along-two-monads-do-not-see-each-other
+  ;; The point twin of slices-along-two-monads-do-not-see-each-other: a moment of 2000 in
+  ;; place of its January.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p CxNorth CxSouth]
+    (v/assert kb (list p) (slice CxNorth '(DatetimeFn "2000")))
+    (tu/with-terms [q r]
+      (v/assert kb (list q) (slice CxSouth '(DatetimeFn "2000")))
+      (v/assert kb (list r) (slice CxSouth '(InstantFn 2000 6 1 12 0 0)))
+      (testing "the same year along another monad does not see p"
+        (is (not (v/ask? kb (list p) (slice CxSouth '(DatetimeFn "2000"))))))
+      (testing "nor does a moment of that year along another monad"
+        (is (not (v/ask? kb (list p) (slice CxSouth '(InstantFn 2000 6 1 12 0 0)))))))))
 
 (tu/deftest-kb ^:red partially-overlapping-slices-and-their-intersection
   ;; Iris's third example, with the overlap and the intersection given as Allen relations
@@ -620,6 +703,18 @@
       (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
         (is (= below? sees?))))))
 
+(tu/deftest-kb ^:red genlcx-between-slices-over-a-year-and-an-instant-in-it-is-genlmonad-times-time-containment
+  ;; The point twin of genlcx-between-slices-is-genlmonad-times-time-containment: a moment
+  ;; of 2000 in place of January, so the time half of the product is includesInstant
+  ;; rather than subintervalOf.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [CxSuper CxSub]
+    (monads! kb CxSuper CxSub)
+    (v/assert kb (list 'genlMonad CxSub CxSuper) U)
+    (doseq [[x y below? sees?] (product-pairs kb CxSub CxSuper '(InstantFn 2000 1 15 12 0 0) '(YearFn 2000))]
+      (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
+        (is (= below? sees?))))))
+
 (tu/deftest-kb ^:red sibling-sub-monads-each-see-their-super-monad-and-not-each-other
   ;; Twin of sibling-month-slices-do-not-see-each-other.
   ;; slices-along-two-monads-do-not-see-each-other has no common super-monad.
@@ -717,6 +812,19 @@
       (is (true? (v/ask? kb (list 'subintervalOf Early (list 'CxTimeOfFn CxStory)) U)))
       (is (true? (v/ask? kb (list 'subintervalOf Late (list 'CxTimeOfFn CxStory)) U))))))
 
+(tu/deftest-kb ^:red a-monad-context-is-its-own-monad-and-its-time-includes-every-instant
+  ;; The point twin of a-monad-context-is-its-own-monad-and-its-time-is-unbounded: the
+  ;; first moment of the year 1 and a moment of the year 9000 in place of the two years.
+  (tu/with-terms [CxStory]
+    (monads! kb CxStory)
+    (testing "a context under CxWell with no temporal part is a monad_context"
+      (is (true? (v/ask? kb (list 'monad_context CxStory) U))))
+    (testing "its monad is itself"
+      (is (= [{'?m CxStory}] (v/ask kb (list 'cxMonadOf CxStory '?m) U))))
+    (testing "and a moment of the year 1 and one of the year 9000 are both inside its time"
+      (is (true? (v/ask? kb (list 'includesInstant (list 'CxTimeOfFn CxStory) '(InstantFn 1 1 1 0 0 0)) U)))
+      (is (true? (v/ask? kb (list 'includesInstant (list 'CxTimeOfFn CxStory) '(InstantFn 9000 6 1 12 0 0)) U))))))
+
 (tu/deftest-kb ^:red monad-context-types-cxtimefns-first-argument
   ;; Issue #181: CxTimeFn's first argument is untyped today, so a write into a slice of
   ;; CxNow, or of another slice, is stored like any other.  CxNow has a temporal part
@@ -763,6 +871,21 @@
       (testing "a write into the slice of S at the named January lands in (CxStory, January)"
         (is (= (cx-of kb (v/assert kb (list q) ss))
                (cx-of kb (v/assert kb (list q) (slice CxStory Jan2000))))))
+      (testing "and that slice sees S's fact"
+        (is (true? (v/ask? kb (list p) ss)))))))
+
+(tu/deftest-kb ^:red a-slice-of-a-slice-at-an-instant-is-the-slice-of-its-monad-at-that-instant
+  ;; The point twin of a-slice-of-a-slice-is-the-slice-of-its-monad-at-the-narrower-time:
+  ;; the slice of S at a moment of 2000, in place of its January.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory]
+    (monads! kb CxStory)
+    (let [noon '(InstantFn 2000 6 1 12 0 0)
+          s    (cx-of kb (v/assert kb (list p) (slice CxStory '(YearFn 2000))))
+          ss   (list 'CxTimeFn (list 'CxMonadOfFn s) noon)]
+      (testing "a write into the slice of S at the moment lands in (CxStory, that moment)"
+        (is (= (cx-of kb (v/assert kb (list q) ss))
+               (cx-of kb (v/assert kb (list q) (slice CxStory noon))))))
       (testing "and that slice sees S's fact"
         (is (true? (v/ask? kb (list p) ss)))))))
 
@@ -1195,6 +1318,16 @@
     (testing "two names stated intervalEqual reify to one cx/ context"
       (is (false? (:distinct? (two-spellings kb (slice JanA) (slice JanB))))))))
 
+(tu/deftest-kb ^:red two-spellings-of-one-moment-name-one-context
+  ;; The point twin of two-spellings-of-one-month-name-one-context.
+  (declare-cxtimefn! kb)
+  (testing "InstantFn and StartFn for midnight at the start of 2000 reify to one cx/ context"
+    (is (false? (:distinct? (two-spellings kb (slice '(InstantFn 2000 1 1 0 0 0))
+                                           (slice '(StartFn (MonthFn 2000 1))))))))
+  (testing "control: the point network takes the two spellings for one moment"
+    (v/add-reasoner kb :point)
+    (is (true? (v/ask? kb '(instantEqual (InstantFn 2000 1 1 0 0 0) (StartFn (MonthFn 2000 1))) U)))))
+
 (tu/deftest-kb ^:red a-fact-in-a-year-slice-holds-in-a-slice-keyed-by-an-instant-inside-it
   ;; Homogeneity, downward: a fact true throughout 2000 is true at each moment of 2000.
   ;; A slice keyed by an InstantFn moment is ordered under a slice keyed by an interval
@@ -1289,6 +1422,30 @@
         (is (true? (v/ask? kb (list q) saturday)))
         (is (true? (v/ask? kb (list p) saturday))))
       (testing "the named Monday's slice sees the year's fact and not the weekends'"
+        (is (true? (v/ask? kb (list p) monday)))
+        (is (not (v/ask? kb (list q) monday)))))))
+
+(tu/deftest-kb ^:red an-instant-on-a-weekend-day-sees-the-weekends-and-an-instant-in-a-gap-does-not
+  ;; The point twin of a-slice-keyed-by-an-intermittent-time-sits-between-its-pieces-and-its-whole:
+  ;; noon on the Saturday and noon on the Monday in place of the two days.  A moment inside
+  ;; a piece of an intermittent time is inside it, and a moment in a gap is not.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r Weekends2000]
+    (v/assert kb (list 'intermittent_time Weekends2000) U)
+    (v/assert kb (list 'partOf Weekends2000 '(YearFn 2000)) U)
+    (v/assert kb (list 'partOf '(DayFn 2000 1 1) Weekends2000) U)
+    (v/assert kb (list 'temporallyDisjoint '(DayFn 2000 1 3) Weekends2000) U)
+    (let [year     (slice '(YearFn 2000))
+          weekends (slice Weekends2000)
+          saturday (slice '(InstantFn 2000 1 1 12 0 0))
+          monday   (slice '(InstantFn 2000 1 3 12 0 0))]
+      (v/assert kb (list p) year)
+      (v/assert kb (list q) weekends)
+      (v/assert kb (list r) monday)
+      (testing "a Saturday moment's slice sees the weekends' fact, and the year's"
+        (is (true? (v/ask? kb (list q) saturday)))
+        (is (true? (v/ask? kb (list p) saturday))))
+      (testing "a Monday moment's slice sees the year's fact and not the weekends'"
         (is (true? (v/ask? kb (list p) monday)))
         (is (not (v/ask? kb (list q) monday)))))))
 
@@ -1388,6 +1545,23 @@
         (testing (str "and not from " (pr-str outside) ", which is not inside the range")
           (is (not (v/ask? kb (list p) outside))))))))
 
+(tu/deftest-kb ^:red a-fact-in-a-range-holds-at-each-instant-inside-it
+  ;; The point twin of a-fact-in-a-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it:
+  ;; moments in place of the subrange and the calendar terms.  Half-open: the range's
+  ;; start is inside it and its end is not.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [p Q1]
+    (range! kb Q1 [2000 1 1 0 0 0] [2000 4 1 0 0 0])
+    (v/assert kb (list p) (slice Q1))
+    (doseq [inside ['(InstantFn 2000 1 1 0 0 0) '(InstantFn 2000 2 15 12 0 0)
+                    '(InstantFn 2000 3 31 23 59 59)]]
+      (testing (str "the range's fact holds at " (pr-str inside))
+        (is (true? (v/ask? kb (list p) (slice inside))))))
+    (doseq [outside ['(InstantFn 2000 4 1 0 0 0) '(InstantFn 1999 12 31 23 59 59)]]
+      (testing (str "and not at " (pr-str outside) ", which is not inside the range")
+        (is (not (v/ask? kb (list p) (slice outside))))))))
+
 (tu/deftest-kb ^:red a-range-inside-a-month-sees-the-month-and-its-year
   ;; The converse direction: a range is ordered under the calendar terms containing it.
   (declare-cxtimefn! kb)
@@ -1439,6 +1613,22 @@
         (is (true? (v/ask? kb (list q) (slice midfeb)))))
       (testing "and not March's"
         (is (not (v/ask? kb (list r) (slice midfeb))))))))
+
+(tu/deftest-kb ^:red an-instant-inside-a-month-sees-the-month-and-its-year
+  ;; The point twin of a-range-inside-a-month-sees-the-month-and-its-year: a moment of
+  ;; February in place of the range inside it.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [p q r]
+    (let [noon (slice '(InstantFn 2000 2 15 12 0 0))]
+      (v/assert kb (list p) (slice '(MonthFn 2000 2)))
+      (v/assert kb (list q) (slice '(YearFn 2000)))
+      (v/assert kb (list r) (slice '(MonthFn 2000 3)))
+      (testing "the moment's slice sees February's fact and 2000's"
+        (is (true? (v/ask? kb (list p) noon)))
+        (is (true? (v/ask? kb (list q) noon))))
+      (testing "and not March's"
+        (is (not (v/ask? kb (list r) noon)))))))
 
 (tu/deftest-kb ^:red two-partially-overlapping-ranges-and-their-intersection
   ;; Iris's third example as she put it: January to June 2000 and April to September
@@ -1545,6 +1735,31 @@
       (testing "May 2000, inside the intersection, sees all three"
         (doseq [s [p q r]]
           (is (true? (v/ask? kb (list s) (slice '(MonthFn 2000 5))))))))))
+
+(tu/deftest-kb ^:red an-instant-in-the-intersection-of-two-overlapping-ranges-sees-both
+  ;; The point twin of two-partially-overlapping-ranges-and-their-intersection: moments
+  ;; in place of the intersection.  A moment has no extent, so it is in both ranges, in
+  ;; one, or in neither, and two moments never overlap; the intersection is the stretch
+  ;; whose moments are in both.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [p q JanJun AprSep]
+    (range! kb JanJun [2000 1 1 0 0 0] [2000 7 1 0 0 0])
+    (range! kb AprSep [2000 4 1 0 0 0] [2000 10 1 0 0 0])
+    (v/assert kb (list p) (slice JanJun))
+    (v/assert kb (list q) (slice AprSep))
+    (let [may (slice '(InstantFn 2000 5 15 12 0 0))
+          feb (slice '(InstantFn 2000 2 15 12 0 0))
+          aug (slice '(InstantFn 2000 8 15 12 0 0))]
+      (testing "a moment in the intersection sees both ranges' facts"
+        (is (true? (v/ask? kb (list p) may)))
+        (is (true? (v/ask? kb (list q) may))))
+      (testing "a moment in the first range only sees only its fact"
+        (is (true? (v/ask? kb (list p) feb)))
+        (is (not (v/ask? kb (list q) feb))))
+      (testing "and a moment in the second range only sees only the second's"
+        (is (true? (v/ask? kb (list q) aug)))
+        (is (not (v/ask? kb (list p) aug)))))))
 
 (tu/deftest-kb ^:red a-range-and-a-calendar-term-with-the-same-bounds-name-one-context
   ;; A range from the start of 2000 to the start of 2001 is the year 2000, as
@@ -1745,6 +1960,15 @@
     (is (= [{'?i '(InstantFn 2000 1 1 0 0 0)}] (v/ask kb '(startOf (YearFn 2000) ?i) U)))
     (is (true? (v/ask? kb '(meets (YearFn 1999) (YearFn 2000)) U)))))
 
+(tu/deftest-kb the-calendar-clock-is-opt-in-for-moments
+  ;; The point twin of the-calendar-clock-is-opt-in: two InstantFn moments in place of two
+  ;; years.
+  (testing "without :calendar two moments a year apart are not ordered"
+    (is (not (v/ask? kb '(instantBefore (InstantFn 1999 6 1 0 0 0) (InstantFn 2000 6 1 0 0 0)) U))))
+  (v/add-reasoner kb :calendar)
+  (testing "with it, the same goal answers from the fields"
+    (is (true? (v/ask? kb '(instantBefore (InstantFn 1999 6 1 0 0 0) (InstantFn 2000 6 1 0 0 0)) U)))))
+
 (tu/deftest-kb the-instant-inclusion-reader-is-opt-in
   (tu/with-terms [Party Noon Dusk]
     (doseq [s [(list 'instantBefore (list 'StartFn Party) Noon)
@@ -1804,6 +2028,17 @@
     (testing "January's end is before March's start, from (before January March)"
       (is (true? (v/ask? kb (list 'instantBefore (list 'EndFn jan) (list 'StartFn mar)) U))))))
 
+(tu/deftest-kb a-stated-point-order-constrains-the-intervals
+  ;; The point twin of a-stated-allen-relation-constrains-the-points, which runs the other
+  ;; way: the order between A's end and B's start is stated, and the Allen relation
+  ;; follows.  docs/time.md names this direction as the one that works today.
+  (v/add-reasoner kb :allen :point)
+  (tu/with-terms [A B]
+    (v/assert kb (list 'instantBefore (list 'EndFn A) (list 'StartFn B)) U)
+    (is (true? (v/ask? kb (list 'instantBefore (list 'EndFn A) (list 'StartFn B)) U)))
+    (testing "A is before B, from A's end before B's start"
+      (is (true? (v/ask? kb (list 'before A B) U))))))
+
 (tu/deftest-kb ^:red a-calendar-term-is-a-node-of-the-allen-network
   ;; docs/time.md: today the clock answers a pair and does not fold its relations into
   ;; the interval network, so a stated relation to one month does not compose with the
@@ -1829,6 +2064,20 @@
       (is (true? (v/ask? kb (list 'before Jan2000 Mar2000) U))))
     (testing "a stated relation composes with another stated relation"
       (is (true? (v/ask? kb (list 'before Breakfast Mar2000) U))))))
+
+(tu/deftest-kb a-calendar-moment-is-a-node-of-the-point-network
+  ;; The point twin of a-calendar-term-is-a-node-of-the-allen-network: a stated order
+  ;; between a named moment and a calendar moment composes with the calendar order
+  ;; between two calendar moments.  The instant network orders the calendar moments it
+  ;; mentions by their fields (vaelii.impl.timepoint), so this passes where the interval
+  ;; original fails.
+  (v/add-reasoner kb :point :calendar)
+  (tu/with-terms [Breakfast]
+    (v/assert kb (list 'instantBefore Breakfast '(InstantFn 2000 1 1 0 0 0)) U)
+    (testing "control: the clock orders the two calendar moments"
+      (is (true? (v/ask? kb '(instantBefore (InstantFn 2000 1 1 0 0 0) (InstantFn 2000 3 1 0 0 0)) U))))
+    (testing "a stated order composes with the calendar order"
+      (is (true? (v/ask? kb (list 'instantBefore Breakfast '(InstantFn 2000 3 1 0 0 0)) U))))))
 
 (tu/deftest-kb ^:red a-conjunction-that-binds-the-calendar-term-elsewhere-answers
   ;; docs/time.md: today the planner costs the `during` literal by stored facts, finds
@@ -1859,6 +2108,18 @@
       (is (= [{'?m Mar2000}]
              (v/query kb [(list holiday '?m) (list 'during '?m Y2000)] U {:max-depth 1}))))))
 
+(tu/deftest-kb ^:red a-conjunction-that-binds-the-calendar-moment-elsewhere-answers
+  ;; The point twin of a-conjunction-that-binds-the-calendar-term-elsewhere-answers: the
+  ;; stored fact names a moment, and the literal the clock answers orders it.
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [holiday]
+    (v/assert kb (list holiday '(InstantFn 2000 3 1 12 0 0)) U)
+    (testing "control: the ground question answers"
+      (is (true? (v/ask? kb '(instantBefore (InstantFn 2000 3 1 12 0 0) (InstantFn 2001 1 1 0 0 0)) U))))
+    (testing "the conjunction binds ?t from the stored fact and the clock answers the rest"
+      (is (= [{'?t '(InstantFn 2000 3 1 12 0 0)}]
+             (v/query kb [(list holiday '?t) '(instantBefore ?t (InstantFn 2001 1 1 0 0 0))] U {:max-depth 1}))))))
+
 (tu/deftest-kb ^:red a-forward-rule-fires-on-a-clock-answer
   ;; docs/time.md: today a forward antecedent is answered through solve-computed, which
   ;; drops an answer with empty support, and the clock's support is empty by construction.
@@ -1885,6 +2146,19 @@
     (testing "a forward rule whose antecedent a stated fact answers fires"
       (is (= [(list holidayIn2000 Mar2000)]
              (map :sentence (v/sentexes-matching kb (list holidayIn2000 '?m) CxCal)))))))
+
+(tu/deftest-kb ^:red a-forward-rule-fires-on-a-clock-answer-about-moments
+  ;; The point twin of a-forward-rule-fires-on-a-clock-answer: the antecedent only the
+  ;; clock answers orders two moments rather than nesting two intervals.
+  (v/add-reasoner kb :calendar)
+  (tu/with-terms [CxCal holiday holidayBefore2001]
+    (v/assert kb (list 'genlCx CxCal U) U)
+    (v/assert kb (list holiday '(InstantFn 2000 3 1 12 0 0)) CxCal)
+    (v/assert-rule kb [(list holiday '?t) '(instantBefore ?t (InstantFn 2001 1 1 0 0 0))]
+                   (list holidayBefore2001 '?t) CxCal {:direction :forward})
+    (testing "a forward rule whose antecedent only the clock answers fires"
+      (is (= [(list holidayBefore2001 '(InstantFn 2000 3 1 12 0 0))]
+             (map :sentence (v/sentexes-matching kb (list holidayBefore2001 '?t) CxCal)))))))
 
 (tu/deftest-kb ^:red metric-gap-and-length-for-calendar-terms
   ;; docs/time.md: today the metric prover's nodes are atomic terms, so an InstantFn moment
