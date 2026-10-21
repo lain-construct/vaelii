@@ -115,8 +115,8 @@
           k (cx-of kb h)]
       (testing "a fact written into (CxTimeFn CxMonad (DatetimeFn \"2000\")) is stored in a cx/ context"
         (is (nat-read/reified-context-symbol? k))
-        (is (= [(list 'termOfUnit k (slice '(DatetimeFn "2000")))]
-               (map :sentence (v/sentexes-matching kb (list 'termOfUnit k '?e) U)))))
+        (is (= [(list 'natFormula k (slice '(DatetimeFn "2000")))]
+               (map :sentence (v/sentexes-matching kb (list 'natFormula k '?e) U)))))
       (testing "and a read naming the cx/ constant answers it, with no declaration"
         (is (true? (v/ask? kb (list p) k)))))))
 
