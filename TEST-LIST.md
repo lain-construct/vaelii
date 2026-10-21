@@ -1,6 +1,6 @@
 # Temporal and monad context reasoning: test list
 
-Every test in `test/vaelii/temporal_capability_test.clj`, 119 in all: 90 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 29 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
+Every test in `test/vaelii/temporal_capability_test.clj`, 129 in all: 98 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 31 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
 The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original.
 
@@ -14,11 +14,14 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 5. `a-slice-nobody-wrote-into-still-inherits`: **red**. Today a read never mints a context, so an unwritten slice sees nothing.
     - R2: `a-named-slice-nobody-wrote-into-still-inherits`: **red**
     - R5: `an-instant-slice-nobody-wrote-into-still-inherits-from-its-year`: **red**
+    - R7: `a-slice-along-a-sub-monad-nobody-wrote-into-still-inherits`: **red**
 6. `a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year`: green
     - R2: `a-fact-in-a-named-year-slice-holds-in-a-named-month-and-is-unknown-the-named-next-year`: green
     - R5: `a-fact-in-a-year-slice-holds-at-an-instant-inside-it-and-is-unknown-at-an-instant-of-the-next-year`: **red**
+    - R7: `a-fact-in-a-super-monads-slice-holds-along-its-sub-monad-and-is-unknown-along-an-unrelated-monad`: **red**
 7. `a-fact-stated-unsliced-holds-in-every-year-slice`: **red**. "Eternally" means stated unsliced, in CxUniverse.
     - R6: `a-fact-stated-unsliced-holds-in-every-year-slice-along-a-monad-placed-by-genlmonad`: **red**
+    - R7: `a-fact-in-cxwells-year-slice-holds-that-year-along-every-monad-below-cxwell`: **red**
 8. `a-slice-along-a-monad-under-cxwell-sees-cxwell-and-not-the-reverse`: **red**
     - R6: `a-slice-along-a-monad-genlmonad-below-cxwell-sees-cxwell-and-not-the-reverse`: **red**
 9. `sibling-month-slices-do-not-see-each-other`: green
@@ -27,13 +30,16 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 10. `two-spellings-of-one-month-see-each-others-facts`: **red**. The two spellings are `(MonthFn 2000 1)` and `(DatetimeFn "2000-01")`.
     - R2: `two-names-of-one-interval-see-each-others-facts`: **red**
     - R5: `two-spellings-of-one-moment-see-each-others-facts`: **red**
+    - R7: `two-names-of-one-monad-see-each-others-facts`: **red**
 11. `two-spellings-of-one-month-name-one-context`: **red**. Same pair, but the test requires one `cx/` constant, not just mutual visibility.
     - R2: `two-names-of-one-interval-name-one-context`: **red**
     - R5: `two-spellings-of-one-moment-name-one-context`: **red**
+    - R7: `two-names-of-one-monad-name-one-context`: **red**
 12. `partially-overlapping-slices-and-their-intersection`: **red**. Named intervals related by Allen facts. The intersection slice has to be ordered from an *entailed* `subintervalOf`.
 13. `a-narrative-in-a-time-slice-gets-the-event-calculus`: **red**. The slice should see CxChange through its monad.
     - R2: `a-narrative-dated-by-calendar-moments-in-a-time-slice-gets-the-event-calculus`: **red**
     - R6: `a-narrative-in-a-slice-along-a-monad-placed-by-genlmonad-gets-the-event-calculus`: **red**
+    - R7: `a-rule-stated-in-a-year-slice-runs-in-its-month-slice`: green
 14. `a-fact-in-a-year-slice-holds-in-a-slice-keyed-by-an-instant-inside-it`: **red**. Homogeneity going downward: a slice keyed by an `InstantFn` point. Going upward doesn't hold, by design.
     - R2: `a-fact-in-a-named-year-slice-holds-in-a-slice-keyed-by-a-named-moment-inside-it`: **red**
 15. `a-slice-keyed-by-an-intermittent-time-sits-between-its-pieces-and-its-whole`: **red**. Uses the weekends of 2000, ordered by `partOf` rather than `subintervalOf`.
@@ -65,6 +71,7 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
     - R2: `slices-along-two-monads-keyed-by-named-times-do-not-see-each-other`: green
     - R4: `slices-along-two-monads-under-one-super-monad-see-its-slices-and-not-each-other`: **red**
     - R5: `instant-slices-along-two-monads-do-not-see-each-other`: green
+    - R7: `slices-keyed-by-two-unrelated-named-times-do-not-see-each-other`: green
 22. `the-monad-vocabulary-is-declared-in-the-shipped-kb`: **red**. Covers `genlMonad`, `monad_context`, `CxTimeOfFn`/`cxTimeOf` and `CxMonadOfFn`/`cxMonadOf` (#181).
 23. `a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad`: **red**
     - R6: `a-slice-along-a-sub-monad-placed-by-genlcx-sees-the-same-time-along-its-super-monad`: **red**
@@ -79,14 +86,17 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 27. `a-monad-below-two-monads-sees-both-at-the-same-time`: **red**. The monad twin of the intersection test.
     - R6: `a-monad-genlcx-below-two-monads-sees-both-at-the-same-time`: **red**
 28. `genlmonad-between-two-monad-contexts-is-their-genlcx`: **red**. Checks both directions.
+    - R7: `subintervalof-between-the-times-of-two-slices-along-one-monad-is-their-genlcx`: **red**
 29. `cxtimeof-and-cxmonadof-take-a-slice-apart-and-cxtimefn-puts-it-back`: **red**
 30. `a-monad-context-is-its-own-monad-and-its-time-is-unbounded`: **red**
     - R2: `a-monad-context-is-its-own-monad-and-its-time-contains-named-intervals`: **red**
     - R5: `a-monad-context-is-its-own-monad-and-its-time-includes-every-instant`: **red**
 31. `monad-context-types-cxtimefns-first-argument`: **red**. Refuses `(CxTimeFn CxNow …)` and a CxTimeFn whose first argument is itself a slice.
+    - R7: `cxtimefns-second-argument-is-typed-a-time`: **red**
 32. `a-slice-of-a-slice-is-the-slice-of-its-monad-at-the-narrower-time`: **red**
     - R2: `a-slice-of-a-slice-at-a-named-narrower-time-is-the-slice-of-its-monad-there`: **red**
     - R5: `a-slice-of-a-slice-at-an-instant-is-the-slice-of-its-monad-at-that-instant`: **red**
+    - R7: `a-slice-of-a-slice-along-the-monad-axis-is-the-slice-of-a-sub-monad-at-its-time`: **red**
 
 ## CxNow and temporal projection
 
