@@ -400,8 +400,9 @@ refused. Each entry states how the engine holds it.
    retraction. An `arity` violation is a
    one-member nogood with the declaration as its ground. v1 admits `disjoint` and
    `covering`; `partition`, `sibling_disjoint` and `arity` stay outside it. The engine
-   holds a declaration never a loser and its denial OUT, and no rule concludes an
-   `arity` from a classification: every reader of one reads the exact-arity class. The
+   holds a declaration never a loser and its denial OUT, and no stored `arity` is
+   concluded from a classification: the converse is a backward rule, and every reader of
+   a stored length reads the exact-arity class. The
    engine places an arity violation as a nogood, and two predicates a `genl` edge
    relates whose bindings differ are a hard clash ([taxonomy.md](taxonomy.md#arity)).
    The related-type declarations are one-member or two-member hard clashes

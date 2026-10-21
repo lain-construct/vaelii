@@ -289,10 +289,10 @@ rules here conclude a mark that another of them needs:
 
 - `(commutative ?p)` → `(commutativeInArgAndRest ?p 1)` and back, the two directions of
   one equivalence.
-- `(commutative ?p) ∧ (arity ?p 2)` → `(symmetric ?p)`, whose conclusion `(genl symmetric
-  commutative)` makes a **spec** of `commutative` — and `provers/candidate-rules` offers a
-  rule concluding a spec as a candidate for the supertype goal. So the rule answers the
-  goal its own antecedent poses.
+- `(commutative ?p) ∧ (predicate ?p) ∧ (arity ?p 2)` → `(symmetric ?p)`, whose conclusion
+  `(genl symmetric commutative)` makes a **spec** of `commutative` — and
+  `provers/candidate-rules` offers a rule concluding a spec as a candidate for the
+  supertype goal. So the rule answers the goal its own antecedent poses.
 
 `provers/candidate-rules` carries no ancestor-goal guard, so nothing stops the descent.
 The depth bound (`inference/*max-depth*`) does stop it, which turns the cycle into an

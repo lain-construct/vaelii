@@ -505,7 +505,7 @@ so one vocabulary reads both.
 |---|---|---|
 | `:already-loaded` | the catalog already holds a KB under this source's key — unload it first | [catalog.md](catalog.md) |
 | `:anti-transitive` | two steps of a predicate declared `anti_transitive` are stored, so the direct step between their ends cannot also hold | [taxonomy.md](taxonomy.md) |
-| `:arg-constraint-kind` | `genlArg` on a predicate declared `instance_relation_predicate`, or `arg` on a `type_relation_predicate` | [argtypes.md](argtypes.md) |
+| `:arg-constraint-kind` | `genlArg` on a predicate declared `instance_relation_predicate` | [argtypes.md](argtypes.md) |
 | `:arg-genl` | a `genlArg` constraint convicted the sentence — see [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | [argtypes.md](argtypes.md) |
 | `:arg-position` | an argument constraint names a position the predicate's declared arity does not have | [argtypes.md](argtypes.md) |
 | `:arg-type` | an `arg` constraint convicted a value or an application in the sentence, or any argument under the constraint-only reading — see [`assert` refused it](#assert-refused-it) | [argtypes.md](argtypes.md) |

@@ -302,7 +302,8 @@ term bound to two arities — `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity 
 term bounded above the exact arity it is claimed to have — `(arity ?p ?n)` with
 `(greaterThan ?n 2)` beside `(symmetric ?p)`, or `(arityMin ?p ?n)` with the same bound —
 and one term an `arg` declaration demands be of a type disjoint from one the two rules
-place it in. Each of the five is a **declaration read**: **no inference is run and no fact is
+place it in — `arg` read with its covering forms, `(args P T)` and `(argAndRest P n T)`
+typing every position they reach. Each of the five is a **declaration read**: **no inference is run and no fact is
 consulted.** This is what the rules say about each other, so a pair here is a clash that
 *could* form rather than one that has — a clash already formed is in
 `(contradictions kb)`, which is the other question and the other reader.

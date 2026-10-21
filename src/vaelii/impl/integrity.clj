@@ -247,6 +247,66 @@
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+;; ---- implicit-arity-class: an exact-arity class a kind and an arity force ----
+
+(def ^:private arity-class-mappings
+  "Each kind the pass reads, with the mapping predicate whose facts name its exact-arity
+  classes: the two generators whose stamped rules core.txt writes inert."
+  [['predicate 'predicateTypeByArity]
+   ['function 'functionTypeByArity]])
+
+(defn- arity-class-table
+  "`[[kind mapping {arity #{class …}}] …]` from the mapping facts `context` sees, in
+  `arity-class-mappings` order: the one census this pass reads."
+  [kb context]
+  (vec (for [[kind mapping] arity-class-mappings]
+         [kind mapping
+          (reduce (fn [m [_ b]]
+                    (budget/spend!)
+                    (let [t (get b '?t) n (get b '?n)]
+                      (if (and (symbol? t) (not (sx/variable? t)) (integer? n))
+                        (update m n (fnil conj #{}) t)
+                        m)))
+                  {}
+                  (res/matches-visible kb (list mapping '?t '?n) context))])))
+
+(defn- arity-class-units
+  "The findings for `term`: for each kind in `table` that `term` is an instance of, the
+  class its mapping names for `term`'s exact length that `term` is not an instance of.
+  The length is `arity/relation-length`'s, read the same at every context; the kind and
+  the class are the memberships `context` sees, through the `genl` closure."
+  [kb table term context]
+  (when-let [n (do (budget/spend!) (:exact (arity/relation-length kb term)))]
+    (for [[kind mapping classes] table
+          :let  [cs (get classes n)]
+          :when (seq cs)
+          :when (do (budget/spend!) (kb/isa? kb term kind context))
+          class (sort-by nm/print-key cs)
+          :when (not (do (budget/spend!) (kb/isa? kb term class context)))]
+      {:term term :kind kind :arity n :class class
+       :mapping (list mapping class n)})))
+
+(defn- implicit-arity-class-findings
+  "Audit each ground symbol candidate, in print order, against the visible
+  `predicateTypeByArity` and `functionTypeByArity` facts, one term at a time, stopping
+  after the first finding beyond `remaining` proves that the result bound truncated the
+  sweep."
+  [kb candidate-terms context remaining]
+  (let [table (arity-class-table kb context)]
+    (loop [findings []
+           units    (for [term    (->> candidate-terms
+                                       (filter #(and (symbol? %) (not (sx/variable? %))))
+                                       (sort-by nm/print-key))
+                          finding (arity-class-units kb table term context)]
+                      finding)]
+      (if-let [finding (first units)]
+        (if (and remaining (>= (count findings) remaining))
+          {:status :truncated :reason :max-results :findings findings}
+          (do
+            (budget/record! :implicit-arity-class finding)
+            (recur (conj findings finding) (rest units))))
+        {:status :complete :findings findings}))))
+
 ;; ---- orthogonal-over-separation: an orthogonal over a stated separation ----
 
 (defn- stated-records
@@ -997,6 +1057,7 @@
                          (widening-findings kb context remaining))]
    [:not-under-thing not-under-thing-findings]
    [:implicit-genl implicit-genl-findings]
+   [:implicit-arity-class implicit-arity-class-findings]
    [:orthogonal-over-separation (fn [kb _ context remaining]
                                   (orthogonal-over-separation-findings kb context remaining))]
    [:rule-macro (fn [kb _ context remaining]

@@ -68,14 +68,22 @@ policy and the exact `arity` table are therefore relation-wide.
 `fixed_arity` and `variable_arity` partition `relation` into two policies, with predicate
 and function specializations for each. Unsuffixed `unary`, `binary`, `ternary`,
 `quaternary` and `quinary` classify exact relations; `unary_predicate` / `unary_function`
-and their binary through quinary peers specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
-`predicateTypeByArity` and `functionTypeByArity` are its `genl` specializations, and one
-generator stamps, per mapping fact, the rule classifying a relation from its asserted
-`arity`, with no parallel rule families. `core.txt` ships **five** mapping facts, over
-`unary`, `binary`, `ternary`, `quaternary` and `quinary`. The predicate and function types reach them through
-their `genl` edges, so a `(predicateTypeByArity unary_predicate 1)` beside them would
-classify a unary function as a predicate. The two specializations stay declared for a KB
-mapping an arity the relation-wide table has no class for. `bounded_arity` and
+and their binary through quinary peers specialize those relation-wide classes.
+`relationTypeByArity` owns the shared mapping; `predicateTypeByArity` and
+`functionTypeByArity` are related to it by `termsRelated`, not `genl`, so a predicate
+mapping is never a relation-wide one. One generator stamps, per `relationTypeByArity`
+fact, the forward-only rule classifying a relation from its asserted `arity`. `core.txt` ships
+**five** relation-wide mapping facts, over `unary`, `binary`, `ternary`, `quaternary` and
+`quinary`, and five each of `predicateTypeByArity` and `functionTypeByArity`, over the
+ten predicate and function exact-arity classes. The predicate and function mappings are
+generators of their own, and each stamps an **inert** rule guarded by its kind:
+`(predicateTypeByArity T n)` states `(predicate R) ∧ (arity R n) → (T R)`, believed and
+browsable and run by neither engine. Run backward, the rule reached `(binary ?r)` through
+the `genl` edge from `binary_predicate` to `binary` while the converse proves `(arity ?r
+2)` from `(binary ?r)`, a cycle every `(binary ?r)` and `(arity ?p ?n)` query paid for.
+`kb-integrity`'s `implicit-arity-class` pass applies the rule instead, and its findings are
+stated ([integrity.md](integrity.md#what-an-implicit-arity-class-finding-means)): every
+predicate and function the starter ships states its class. `bounded_arity` and
 `unbounded_arity` partition `relation`: `fixed_arity` is below `bounded_arity`, and
 `unbounded_arity` below `variable_arity`, with `unbounded_arity_predicate` and
 `unbounded_arity_function` its intersections with `predicate` and `function`.
@@ -1744,7 +1752,7 @@ the roster and is weighed as a member of an inherited nogood.
   already state those two types, so the rules read them from there. A predicate declaring
   no `arg` pair gets the enforced half and no audit, rather than a requirement
   quantified over `thing`. `genlArg` is not read, so a
-  `type_relation_predicate` — which the entry point refuses an `arg` on — carries the
+  `type_relation_predicate` declaring its positions with `genlArg` alone carries the
   enforced half alone. The audit requirements rest on the `arg`
   declarations as well as on the mark, so retracting `(arg P 1 D)` withdraws them and
   leaves the refusals standing.
@@ -2046,18 +2054,21 @@ already says about its predicate:
 - **A position the predicate does not have** — `(arg parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
   enforced while enforcing nothing. The arity comes from `(arity P N)` or from a
-  `unary_predicate` through `quinary_predicate` membership. A rule
-  concludes the class from `(arity P N)` and no rule concludes an arity
-  ([Arity](#arity)), so a predicate written only as a class member has no `arity`
-  sentex, and the check reads both spellings (`arity/relation-length`). **`variable_arity`
-  releases this arm too**: such a predicate reads a tuple of any length from its declared
+  `unary_predicate` through `quinary_predicate` membership. A forward rule
+  concludes the class from `(arity P N)`, and the converse is a backward rule that
+  stores nothing ([Arity](#arity)), so a predicate written only as a class member has
+  no `arity` sentex, and the check reads both spellings (`arity/relation-length`).
+  **`variable_arity` releases this arm too**: such a predicate reads a tuple of any
+  length from its declared
   arity upward, so a position past that length is one its tuples really do reach and a
   constraint on it fires on the tuples long enough to have it — refusing the declaration
   while the same KB admits those very facts is the reading no arrival order makes
   coherent. The release is read off the predicate's **own** memberships, since
   `arity/relation-length` already declines to bind when a super carries the mark.
 - **A constraint disagreeing with the predicate's `relation_kind`** — `genlArg` on an
-  `instance_relation_predicate`, or `arg` on a `type_relation_predicate`.
+  `instance_relation_predicate`, whose arguments are individuals and never subtypes.
+  `arg` on a `type_relation_predicate` is not one: a kind is an instance of a type as
+  well as a subtype of one.
 
 **Both constraints on one position is not one of them**, and it is the case worth naming
 because the opposite reads plausible: one asks the argument to be an instance of a type

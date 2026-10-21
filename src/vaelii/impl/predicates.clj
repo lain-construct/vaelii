@@ -595,19 +595,21 @@
      ['predicateTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes (str "a genl specialization of relationTypeByArity; a fact of"
-                             " its own is a relationTypeByArity fact by ordinary core.txt"
-                             " inference, and core.txt ships none — the shipped predicate"
-                             " types reach the relation-wide mapping by genl instead.")}
-                "genl specialization of relationTypeByArity")]
+                 :notes (str "related to relationTypeByArity by termsRelated, not a genl"
+                             " specialization of it. The premises of a core.txt generator"
+                             " that stamps, per mapping fact, an inert rule classifying a"
+                             " predicate of that arity under the type; kb-integrity's"
+                             " implicit-arity-class pass applies it.")}
+                "one core.txt generator stamps the per-type inert predicate rules")]
      ['functionTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes (str "a genl specialization of relationTypeByArity; a fact of"
-                             " its own is a relationTypeByArity fact by ordinary core.txt"
-                             " inference, and core.txt ships none — the shipped function"
-                             " types reach the relation-wide mapping by genl instead.")}
-                "genl specialization of relationTypeByArity")]
+                 :notes (str "related to relationTypeByArity by termsRelated, not a genl"
+                             " specialization of it. The premises of a core.txt generator"
+                             " that stamps, per mapping fact, an inert rule classifying a"
+                             " function of that arity under the type; kb-integrity's"
+                             " implicit-arity-class pass applies it.")}
+                "one core.txt generator stamps the per-type inert function rules")]
      ['admitsArgnum
       (enforced {:shape {:args [:relation :position]} :storage [:none] :checked false
                  :family nil :facets #{:answers}

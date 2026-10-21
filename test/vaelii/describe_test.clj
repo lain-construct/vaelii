@@ -62,8 +62,7 @@
   ;; A `genl` edge between two relations makes each a node of the `genl` hierarchy.  The
   ;; stored arity decides the role, and the snake_case temporaries show the spelling
   ;; decides nothing.
-  (doseq [r '[orthogonal siblingDisjointException
-              predicateTypeByArity functionTypeByArity relationTypeByArity]]
+  (doseq [r '[orthogonal siblingDisjointException performedBy doneBy]]
     (is (= [:predicate 2] ((juxt :role :arity) (v/describe kb r))) (str r)))
   (is (contains? (:props (v/describe kb 'orthogonal)) :symmetric))
   (tu/with-terms [near_rel close_rel unary_kind]

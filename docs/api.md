@@ -184,6 +184,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
+                                                ; :implicit-arity-class,
                                                 ; :orthogonal-over-separation, :rule-macro,
                                                 ; :undeclared-arity, :twin-genls,
                                                 ; :derivable-stated-edge,
@@ -1372,10 +1373,11 @@ exactly one — the unmarked are those whose two ends sit at different levels, o
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
-relates one causal thing to an event kind). The mark is not decoration: it decides which
-argument-check family the predicate may use, one for **every** position, which is why a
-mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
-an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is
+relates one causal thing to an event kind). The mark is not decoration: an
+`instance_relation_predicate` relates individuals, which are never subtypes, so `genlArg`
+on one is refused `:arg-constraint-kind`. A `type_relation_predicate` takes `genlArg` and
+`arg` both: the kinds it relates are subtypes of what `genlArg` names and instances of
+what `arg` names. The distinction is
 what `typeToInstancePred` is stated over, and it is the difference between `(largerThan
 dog cat)` — dogs are bigger than cats — and a claim about two particular animals.
 

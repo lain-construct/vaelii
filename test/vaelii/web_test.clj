@@ -1132,10 +1132,10 @@
         (is (not (re-find #"<h2>Term <a class=\"sx t-num\"" body)))))))
 
 (tu/deftest-kb a-relation-that-is-a-genl-node-colours-as-a-predicate
-  ;; `(genl predicateTypeByArity relationTypeByArity)` makes both nodes of the genl
-  ;; hierarchy; the stored arity of two colours each, and the snake_case temporary shows
-  ;; the spelling decides nothing.
-  (is (re-find #"<h2>Term <a class=\"sx t-pred\"" (:body (GET "/term" "q=predicateTypeByArity"))))
+  ;; `(genl performedBy doneBy)` makes both nodes of the genl hierarchy; the stored
+  ;; arity of two colours each, and the snake_case temporary shows the spelling decides
+  ;; nothing.
+  (is (re-find #"<h2>Term <a class=\"sx t-pred\"" (:body (GET "/term" "q=performedBy"))))
   (tu/with-terms [near_rel close_rel]
     (v/assert kb (list 'symmetric near_rel) 'CxUniverse {:chain? false})
     (v/assert kb (list 'symmetric close_rel) 'CxUniverse {:chain? false})

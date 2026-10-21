@@ -15,6 +15,76 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **A backward rule proves `(arity R n)` from a membership of an exact-arity class.**
+  `query (arity R ?n)` of a relation stated only `(binary R)`, `(binary_predicate R)` or
+  `(binary_function R)` answers `[{?n 2}]` at depth 3, where it answered nothing. No
+  arity is stored, so the membership keeps the strength it was written at rather than an
+  arity on the forced-monotonic roster being stored beside it. A depth-3 `query (arity ?p
+  ?n)` over the starter answers one binding per relation with an exact-arity membership.
+  The rule the `relationTypeByArity` generator stamps the other way, `(arity ?r n) → (T
+  ?r)`, is `set/forwardOnlyRule`, so the two form no backward cycle.
+  [taxonomy.md](docs/taxonomy.md#arity).
+
+  *Migration:* none.
+  *Breaks:* `query`
+
+- **`kb-integrity` gains a default `:implicit-arity-class` category.** For each candidate
+  with an exact length that is a predicate (resp. function) and is not an instance of the
+  class `predicateTypeByArity` (resp. `functionTypeByArity`) maps that length to, the sweep
+  reports `{:term R :kind predicate :arity 2 :class binary_predicate :mapping
+  (predicateTypeByArity binary_predicate 2)}`. A default sweep over such a candidate
+  answers `:status :gap` where it answered `:audited`. The pass applies the rule the two
+  mappings stamp inert (below), and the shipped starter has no finding.
+  [integrity.md](docs/integrity.md#what-an-implicit-arity-class-finding-means).
+
+  *Migration:* state the reported class, or name the categories to run in `:categories`.
+  *Breaks:* `kb-integrity`
+
+- **`predicateTypeByArity` and `functionTypeByArity` are `termsRelated` to
+  `relationTypeByArity`, not its `genl` specializations.** A `(predicateTypeByArity T n)`
+  fact is no longer a `(relationTypeByArity T n)` fact, so the relation-wide generator
+  stamps no rule for it and classifies no function of arity `n` under `T`. `genl?` of
+  either mapping and `relationTypeByArity` answers false.
+  [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Migration:* a KB that maps an arity with `predicateTypeByArity` or
+  `functionTypeByArity` to classify every relation of that arity states
+  `relationTypeByArity` instead.
+  *Breaks:* `ask`, `query`, `genl?`
+
+- **A `type_relation_predicate`'s arguments are predicates.** `core.txt` concludes `(args
+  R predicate)` forward from `(type_relation_predicate R)`: `predicate` and not
+  `unary_predicate`, since `genl` relates predicate specializations of any arity. `query
+  (args disjoint ?t)` answers `[{?t predicate}]`, a symbol argument of `genl`, `disjoint`
+  or another type-level relation is derived a `predicate` under assertive argument types,
+  and one whose types place it outside `predicate` is refused `:arg-type`.
+  [taxonomy.md](docs/taxonomy.md).
+
+  *Migration:* a KB relating terms that are not predicates through a
+  `type_relation_predicate` drops the mark from that relation.
+  *Breaks:* `assert`, `query`
+
+- **`arg`, `arg1`, `arg2`, `arg3`, `interArg` and `argArg` are admitted on a
+  `type_relation_predicate`.** `assert` and `check` refused each `:arg-constraint-kind`.
+  The kinds such a relation relates are instances of a type as well as subtypes of one, so
+  `(arg disjoint 1 unary_predicate)` is a true instance claim and is stored. `genlArg` on
+  an `instance_relation_predicate` is still refused `:arg-constraint-kind`.
+  [api.md](docs/api.md).
+
+  *Migration:* a caller that relied on the refusal to keep instance constraints off a
+  type-level relation checks `type_relation_predicate` itself.
+  *Breaks:* `assert`, `check`, `:arg-constraint-kind`
+
+- **`kb-quality`'s rule-clash reading reads `args` and `argAndRest` as it reads `arg`.** A
+  pair whose shared term a covering declaration types disjoint from what the other rule
+  places it in is unreachable and no longer reported. Over the starter, `(function ?r)
+  (arity ?r 1) → (unary_function ?r)` against `(unary ?type) (disjoint ?type ?type) →
+  (empty ?type)` is dropped, `disjoint`'s arguments being predicates.
+  [quality.md](docs/quality.md).
+
+  *Migration:* none.
+  *Breaks:* `kb-quality`
+
 - **The term kinds are on the forced-monotonic roster.** `relation`, `predicate`,
   `function`, `truth_valued_relation`, `logical_constant`, `logical_connective`,
   `quantifier`, `symbol`, `context`, `unrepresented_term` and its value kinds (`boolean`,
@@ -138,6 +208,30 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `partitionedByType`
 
 ### Additive
+
+- **`core.txt` ships the predicate and function exact-arity mappings, whose stamped rules
+  are inert.** `(predicateTypeByArity unary_predicate 1)` through `(predicateTypeByArity
+  quinary_predicate 5)`, one fact per exact-arity predicate class, and the five
+  `functionTypeByArity` peers over `unary_function` through `quinary_function`.
+  `(predicateTypeByArity T n)` stamps `(predicate ?r) ∧ (arity ?r n) →
+  (T ?r)` as a `set/inertRule`, and `(functionTypeByArity T n)` the same rule over
+  `(function ?r)`: believed and browsable, run on no write and no query. Run backward, the
+  rule reached `(binary ?r)` through `binary_predicate`'s `genl` edge while the converse
+  proves `(arity ?r 2)` from `(binary ?r)`; `kb-integrity`'s `:implicit-arity-class` pass
+  applies it instead, and every predicate and function the starter ships states its class.
+  [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **`(args R T)` proves `(argAndRest R 1 T)`.** A `set/backwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe, so `query (argAndRest R ?n ?t)` at
+  depth 3 answers `[{?n 1 ?t T}]` of a relation declared only through `args`. Nothing is
+  stored, and the engine reads both spellings through one reader that takes `args` as
+  `argAndRest` from 1. [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
 
 - **`minCommonGenl` and `maxCommonSpec` answer the minimal common supertypes and maximal
   common subtypes of their later arguments.** `CommonGenlProver` computes both from the
@@ -352,6 +446,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
 ### Fix: answers
+
+- **A commutative binary function is not concluded `symmetric`.** `core.txt`'s rule
+  `(commutative ?p) ∧ (arity ?p 2) → (symmetric ?p)` reads `(predicate ?p)` beside the
+  arity. A `(function F)` stated `commutative` with `(arity F 2)` concluded `(symmetric
+  F)`, which clashed with `(function F)` and was stored defeated, since `symmetric`
+  classifies binary predicates only. It now concludes nothing.
+  [canonicalization.md](docs/canonicalization.md#a-bridge-between-two-marks-is-a-cycle-backward)
+
+  *Migration:* none.
 
 - **`why-not` of a handle answers `:excepted` for a conclusion stored with a guard
   defeat.** A conclusion whose `exceptWhen` holds through a `:default` blocker is stored

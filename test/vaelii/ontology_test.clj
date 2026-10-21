@@ -266,7 +266,7 @@
   A **unary** predicate's one position is exempt as a class and is not listed — see the
   test."
   (merge
-   {'[genl 1] "predicate specializations: (genlArg genl 1 thing) is false of (genl predicateTypeByArity relationTypeByArity), whose ends are binary predicates (core.txt, beside genl)"
+   {'[genl 1] "predicate specializations: (genlArg genl 1 thing) is false of (genl performedBy doneBy), whose ends are binary predicates (core.txt, beside genl)"
     '[genl 2] "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive (core.txt, beside genl)"}
    ;; the example: (Quote S), whose arg reading derives a membership of a reified
    ;; constant or of a bare symbol written in its place, and whose quotedArg reading
@@ -595,13 +595,12 @@
   ;; concludes no more than it does, so no rule in the ontology is carrying its weight
   ;; only because somebody wrote it twice at two levels of the hierarchy.
   ;;
-  ;; The arity generator is the case that tests the claim.  It stamps one rule per
-  ;; `relationTypeByArity` fact, and CxUniverse ships three — over `unary`, `binary` and
-  ;; `ternary`.  A `(predicateTypeByArity unary_predicate 1)` fact beside them would
-  ;; stamp a fourth firing wherever the first already fires, since `unary_predicate`
-  ;; is a `unary`; CxUniverse states that membership with a `genl` edge instead, so the
-  ;; reading stays at zero and a mapping table that grew a redundant member would
-  ;; show up here.
+  ;; The arity generators are the case that tests the claim.  The relation-wide one
+  ;; stamps one rule per `relationTypeByArity` fact, over `unary` through `quinary`,
+  ;; and the predicate and function ones stamp a rule per mapping fact over the ten kind
+  ;; classes, each guarded by its kind.  A guarded rule concludes a kind
+  ;; class the relation-wide rule does not, so neither covers the other, and a mapping
+  ;; table that grew a redundant member would show up here.
   (let [q (:subsumption (v/kb-quality kb {:limit 100}))]
     (is (pos? (:total q)) "the reading ran over rules rather than over nothing")
     (is (not (:truncated? q)) "and over all of them")
@@ -672,6 +671,24 @@
         "negation clashes are excepted")
     (is (= 2 (count (filter definition? pairs)))
         "and the root denial meets the two proper readings' definitions, unexcepted")))
+
+(tu/deftest-kb a-type-relation-predicate-relates-predicates
+  ;; Every argument of a type_relation_predicate is a predicate: the kinds it relates are
+  ;; unary predicates, and genl relates predicate specializations of any arity as well.
+  ;; core.txt concludes that forward from the relation kind, as (args ?relation predicate).
+  (testing "disjoint's arguments derive as predicates"
+    (is (= [{'?t 'predicate}] (v/query kb '(args disjoint ?t) 'CxUniverse))))
+  (testing "and genl's, whose binary-predicate edges are predicates and not unary ones"
+    (is (= [{'?t 'predicate}] (v/query kb '(args genl ?t) 'CxUniverse)))
+    (is (v/ask? kb '(genl performedBy doneBy) 'CxUniverse)))
+  (testing "the declaration reaches the rule-clash reading"
+    ;; `(unary ?type) (disjoint ?type ?type) → (empty ?type)` demands ?type be a predicate
+    ;; through disjoint's args, and `(function ?r) (arity ?r 1) → (unary_function ?r)` places
+    ;; the same term under function.  predicate and function are disjoint, so the pair is
+    ;; unreachable and arg-type-conflicted? drops it.
+    (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))]
+      (is (not-any? (fn [p] (some #(some #{'empty} (flatten %)) (:sentences p))) pairs)
+          (str "the emptiness rule pairs with nothing: " (pr-str (mapv :sentences pairs)))))))
 
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
