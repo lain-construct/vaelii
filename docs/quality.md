@@ -294,7 +294,9 @@ conclusion joins, and whether two conclusions share one — and all three go thr
 reader, so a spelling reaches the detector through every read or through none.
 
 "Jointly satisfiable" is **shallow**, and five things rule it out: a literal appearing
-under σ together with its own negation, one term claimed to be of two separated types, one
+under σ together with its own negation or with the negation of a predicate its own is a
+spec of — `(properPartOf ?x ?y)` beside `(not (partOf ?x ?y))`, a spec's tuple being the
+predicate's — one term claimed to be of two separated types, one
 term bound to two arities — `(arity ?p 1)` beside `(arity ?p 2)`, and `(arity ?p 1)` beside
 `(equivalence_relation ?p)`, which claims 2 by reaching `binary_predicate` up `genl` — one
 term bounded above the exact arity it is claimed to have — `(arity ?p ?n)` with
