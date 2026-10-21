@@ -2786,3 +2786,87 @@
     (testing "the offset form names one occurrence each"
       (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-10-29T01:30+01:00") (DatetimeFn "2000-10-29T00:30Z")) U)))
       (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-10-29T01:30+00:00") (DatetimeFn "2000-10-29T01:30Z")) U))))))
+
+;; =========================================================================
+;; Resolution — the shortest time a term can name
+;; =========================================================================
+;; The finest calendar term is one second: DatetimeFn admits at most three time fields,
+;; each one or two digits, and InstantFn is six integer fields ending in the second.  So
+;; the shortest interval a calendar term names is (DatetimeFn "…Thh:mm:ss"), one second
+;; long, and two moments a calendar term can tell apart are at least a second apart.  A
+;; named interval with stated bounds can be shorter only by bounds the metric layer
+;; states, which no calendar term reads.  The tests below pin the second and ask for the
+;; millisecond and the microsecond.
+
+(tu/deftest-kb the-shortest-calendar-interval-is-one-second
+  ;; Pinned: this is the resolution today, and the red tests after it ask for finer.
+  (v/add-reasoner kb :calendar)
+  (testing "a DatetimeFn to the second begins at that second and ends at the next"
+    (is (= [{'?i '(InstantFn 2000 1 15 13 0 0)}] (v/ask kb '(startOf (DatetimeFn "2000-01-15T13:00:00") ?i) U)))
+    (is (= [{'?i '(InstantFn 2000 1 15 13 0 1)}] (v/ask kb '(endOf (DatetimeFn "2000-01-15T13:00:00") ?i) U))))
+  (testing "a string with a fraction of a second names no interval the clock reads"
+    (is (empty? (v/ask kb '(startOf (DatetimeFn "2000-01-15T13:00:00.123") ?i) U))))
+  (testing "and an InstantFn with a seventh field or a fractional second is no moment the clock orders"
+    (is (not (v/ask? kb '(instantBefore (InstantFn 2000 1 15 13 0 0) (InstantFn 2000 1 15 13 0 0 500)) U)))
+    (is (not (v/ask? kb '(instantBefore (InstantFn 2000 1 15 13 0 0) (InstantFn 2000 1 15 13 0 0.5)) U)))))
+
+(tu/deftest-kb ^:red a-millisecond-is-an-interval-inside-its-second
+  ;; "2000-01-15T13:00:00.123" names one millisecond, inside the second 13:00:00 and not
+  ;; the next, and a slice keyed by it sees a slice keyed by its second.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (let [ms  '(DatetimeFn "2000-01-15T13:00:00.123")
+        sec '(DatetimeFn "2000-01-15T13:00:00")]
+    (testing "control: a second is inside its minute"
+      (is (true? (v/ask? kb (list 'subintervalOf sec '(DatetimeFn "2000-01-15T13:00")) U))))
+    (testing "the millisecond is inside its second and not the next"
+      (is (true? (v/ask? kb (list 'subintervalOf ms sec) U)))
+      (is (not (v/ask? kb (list 'subintervalOf ms '(DatetimeFn "2000-01-15T13:00:01")) U))))
+    (testing "and it is one millisecond long"
+      (is (true? (v/ask? kb (list 'meets ms '(DatetimeFn "2000-01-15T13:00:00.124")) U))))
+    (tu/with-terms [p q]
+      (v/assert kb (list p) (slice sec))
+      (v/assert kb (list q) (slice ms))
+      (testing "a fact in the second's slice is visible from the millisecond's"
+        (is (true? (v/ask? kb (list p) (slice ms))))))))
+
+(tu/deftest-kb ^:red two-moments-a-millisecond-apart-are-ordered
+  ;; The starts of two consecutive milliseconds are two moments, the first before the
+  ;; second.
+  (v/add-reasoner kb :point :calendar)
+  (testing "control: the starts of two consecutive seconds are ordered"
+    (is (true? (v/ask? kb '(instantBefore (StartFn (DatetimeFn "2000-01-15T13:00:00"))
+                                          (StartFn (DatetimeFn "2000-01-15T13:00:01"))) U))))
+  (testing "the starts of two consecutive milliseconds are ordered, and are not one moment"
+    (is (true? (v/ask? kb '(instantBefore (StartFn (DatetimeFn "2000-01-15T13:00:00.123"))
+                                          (StartFn (DatetimeFn "2000-01-15T13:00:00.124"))) U)))
+    (is (= :false (verdict kb '(instantEqual (StartFn (DatetimeFn "2000-01-15T13:00:00.123"))
+                                             (StartFn (DatetimeFn "2000-01-15T13:00:00.124"))) U)))))
+
+(tu/deftest-kb ^:red a-microsecond-is-an-interval-inside-its-millisecond
+  ;; "2000-01-15T13:00:00.123456" names one microsecond, inside the millisecond .123 and
+  ;; so inside the second.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (let [us '(DatetimeFn "2000-01-15T13:00:00.123456")
+        ms '(DatetimeFn "2000-01-15T13:00:00.123")]
+    (testing "the microsecond is inside its millisecond and its second, and not the next millisecond"
+      (is (true? (v/ask? kb (list 'subintervalOf us ms) U)))
+      (is (true? (v/ask? kb (list 'subintervalOf us '(DatetimeFn "2000-01-15T13:00:00")) U)))
+      (is (not (v/ask? kb (list 'subintervalOf us '(DatetimeFn "2000-01-15T13:00:00.124")) U))))
+    (testing "and it is one microsecond long"
+      (is (true? (v/ask? kb (list 'meets us '(DatetimeFn "2000-01-15T13:00:00.123457")) U))))
+    (tu/with-terms [p]
+      (v/assert kb (list p) (slice ms))
+      (testing "a fact in the millisecond's slice is visible from the microsecond's"
+        (is (true? (v/ask? kb (list p) (slice us))))))))
+
+(tu/deftest-kb ^:red two-moments-a-microsecond-apart-are-ordered
+  ;; The starts of two consecutive microseconds are two moments, the first before the
+  ;; second.
+  (v/add-reasoner kb :point :calendar)
+  (testing "the starts of two consecutive microseconds are ordered, and are not one moment"
+    (is (true? (v/ask? kb '(instantBefore (StartFn (DatetimeFn "2000-01-15T13:00:00.123456"))
+                                          (StartFn (DatetimeFn "2000-01-15T13:00:00.123457"))) U)))
+    (is (= :false (verdict kb '(instantEqual (StartFn (DatetimeFn "2000-01-15T13:00:00.123456"))
+                                             (StartFn (DatetimeFn "2000-01-15T13:00:00.123457"))) U)))))
