@@ -281,6 +281,25 @@
         (testing "and in January 2000, with nobody wiring either slice by hand"
           (is (true? (v/ask? kb (list p) jan))))))))
 
+(tu/deftest-kb ^:red a-fact-stated-unsliced-holds-in-every-year-slice-along-a-monad-placed-by-genlmonad
+  ;; The genlMonad twin of a-fact-stated-unsliced-holds-in-every-year-slice.  The original
+  ;; reaches CxUniverse through CxMonad's stated genlCx to CxWell; here the slices are
+  ;; along a monad that genlMonad alone places under CxWell.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r CxStory]
+    (v/assert kb (list 'genlMonad CxStory 'CxWell) U)
+    (let [y2000 (slice CxStory '(DatetimeFn "2000"))
+          jan   (slice CxStory '(DatetimeFn "2000-01"))]
+      (v/assert kb (list p) U)
+      (let [k (cx-of kb (v/assert kb (list q) y2000))]
+        (v/assert kb (list r) jan)
+        (testing "the 2000 slice sees CxUniverse, and p stated there is true in 2000"
+          (is (true? (v/sees? kb k U)))
+          (is (true? (v/ask? kb (list p) y2000)))
+          (is (= :true (verdict kb (list p) y2000))))
+        (testing "and in January 2000, with nobody wiring either slice by hand"
+          (is (true? (v/ask? kb (list p) jan))))))))
+
 (tu/deftest-kb ^:red a-slice-along-a-monad-under-cxwell-sees-cxwell-and-not-the-reverse
   ;; (d) CxWell is the shipped bottom anchor, below CxChange.  CxMonad sits under it
   ;; (declare-cxtimefn!), so a slice along CxMonad ought to see CxWell through its monad.
@@ -289,6 +308,20 @@
   (declare-cxtimefn! kb)
   (tu/with-terms [p q]
     (let [y2000 (slice '(DatetimeFn "2000"))]
+      (v/assert kb (list p) 'CxWell)
+      (v/assert kb (list q) y2000)
+      (testing "a CxWell fact is visible from the 2000 slice"
+        (is (true? (v/ask? kb (list p) y2000))))
+      (testing "a 2000-slice fact is not visible from CxWell"
+        (is (not (v/ask? kb (list q) 'CxWell)))))))
+
+(tu/deftest-kb ^:red a-slice-along-a-monad-genlmonad-below-cxwell-sees-cxwell-and-not-the-reverse
+  ;; The genlMonad twin of a-slice-along-a-monad-under-cxwell-sees-cxwell-and-not-the-reverse:
+  ;; the monad is placed under CxWell by genlMonad, where CxMonad is placed by genlCx.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory]
+    (v/assert kb (list 'genlMonad CxStory 'CxWell) U)
+    (let [y2000 (slice CxStory '(DatetimeFn "2000"))]
       (v/assert kb (list p) 'CxWell)
       (v/assert kb (list q) y2000)
       (testing "a CxWell fact is visible from the 2000 slice"
@@ -589,6 +622,22 @@
       (testing "CxChange inertia runs over the dated narrative: the started state holds at the later moment"
         (is (true? (v/query? kb (list 'holdsAt f t2) ctx {:max-depth 3})))))))
 
+(tu/deftest-kb ^:red a-narrative-in-a-slice-along-a-monad-placed-by-genlmonad-gets-the-event-calculus
+  ;; The genlMonad twin of a-narrative-in-a-time-slice-gets-the-event-calculus: the
+  ;; slice's monad reaches CxWell, and through it CxChange, by a stated genlMonad.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [StateFn Thing Start T1 T2 CxStory]
+    (v/assert kb (list 'genlMonad CxStory 'CxWell) U)
+    (let [ctx (slice CxStory '(DatetimeFn "2000"))
+          f   (list StateFn Thing)]
+      (v/assert kb (list 'result StateFn 'fluent) U)
+      (doseq [s [(list 'time_point T1) (list 'time_point T2) (list 'instantBefore T1 T2)
+                 (list 'causal_event Start) (list 'happens Start T1)
+                 (list 'initiates Start f T1)]]
+        (v/assert kb s ctx))
+      (testing "CxChange inertia runs over the narrative: the started state holds at T2"
+        (is (true? (v/query? kb (list 'holdsAt f T2) ctx {:max-depth 3})))))))
+
 ;; =========================================================================
 ;; The monad dimension — issue #181, and the isomorphism with time
 ;; =========================================================================
@@ -635,6 +684,23 @@
       (testing "and not the reverse"
         (is (not (v/ask? kb (list q) sup)))))))
 
+(tu/deftest-kb ^:red a-slice-along-a-sub-monad-placed-by-genlcx-sees-the-same-time-along-its-super-monad
+  ;; The genlCx twin of a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad:
+  ;; the two monads are ordered by a stated genlCx, which between two monad contexts is a
+  ;; genlMonad (genlmonad-between-two-monad-contexts-is-their-genlcx).
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxSuper CxSub]
+    (monads! kb CxSuper CxSub)
+    (v/assert kb (list 'genlCx CxSub CxSuper) U)
+    (let [sup (slice CxSuper '(YearFn 2000))
+          sub (slice CxSub '(YearFn 2000))]
+      (v/assert kb (list p) sup)
+      (v/assert kb (list q) sub)
+      (testing "2000 along the sub-monad sees 2000 along the super-monad"
+        (is (true? (v/ask? kb (list p) sub))))
+      (testing "and not the reverse"
+        (is (not (v/ask? kb (list q) sup)))))))
+
 (tu/deftest-kb ^:red a-slice-sees-a-monad-two-genlmonad-steps-up
   ;; Twin of the entailed-containment half of
   ;; partially-overlapping-slices-and-their-intersection: the ordering is entailed
@@ -649,6 +715,22 @@
       (v/assert kb (list q) (slice CxLow '(YearFn 2000)))
       (testing "2000 along CxLow sees 2000 along CxTop through CxMid"
         (is (true? (v/ask? kb (list 'genlMonad CxLow CxTop) U)))
+        (is (true? (v/ask? kb (list p) (slice CxLow '(YearFn 2000)))))))))
+
+(tu/deftest-kb ^:red a-slice-sees-a-monad-two-genlcx-steps-up
+  ;; The genlCx twin of a-slice-sees-a-monad-two-genlmonad-steps-up.  genlCx is
+  ;; transitive today, so the control is that the low monad sees the top one.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p CxTop CxMid CxLow]
+    (monads! kb CxTop CxMid CxLow)
+    (v/assert kb (list 'genlCx CxLow CxMid) U)
+    (v/assert kb (list 'genlCx CxMid CxTop) U)
+    (tu/with-terms [q]
+      (v/assert kb (list p) (slice CxTop '(YearFn 2000)))
+      (v/assert kb (list q) (slice CxLow '(YearFn 2000)))
+      (testing "control: CxLow sees CxTop through CxMid"
+        (is (true? (v/sees? kb CxLow CxTop))))
+      (testing "2000 along CxLow sees 2000 along CxTop through CxMid"
         (is (true? (v/ask? kb (list p) (slice CxLow '(YearFn 2000)))))))))
 
 (defn- product-pairs
@@ -715,6 +797,17 @@
       (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
         (is (= below? sees?))))))
 
+(tu/deftest-kb ^:red genlcx-between-slices-is-the-monads-genlcx-times-time-containment
+  ;; The genlCx twin of genlcx-between-slices-is-genlmonad-times-time-containment: the two
+  ;; monads are ordered by a stated genlCx.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [CxSuper CxSub]
+    (monads! kb CxSuper CxSub)
+    (v/assert kb (list 'genlCx CxSub CxSuper) U)
+    (doseq [[x y below? sees?] (product-pairs kb CxSub CxSuper '(MonthFn 2000 1) '(YearFn 2000))]
+      (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
+        (is (= below? sees?))))))
+
 (tu/deftest-kb ^:red sibling-sub-monads-each-see-their-super-monad-and-not-each-other
   ;; Twin of sibling-month-slices-do-not-see-each-other.
   ;; slices-along-two-monads-do-not-see-each-other has no common super-monad.
@@ -736,6 +829,26 @@
         (is (not (v/ask? kb (list p) south)))
         (is (not (v/ask? kb (list q) north)))))))
 
+(tu/deftest-kb ^:red sibling-monads-placed-by-genlcx-each-see-their-super-monad-and-not-each-other
+  ;; The genlCx twin of sibling-sub-monads-each-see-their-super-monad-and-not-each-other.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r CxSuper CxNorth CxSouth]
+    (monads! kb CxSuper CxNorth CxSouth)
+    (v/assert kb (list 'genlCx CxNorth CxSuper) U)
+    (v/assert kb (list 'genlCx CxSouth CxSuper) U)
+    (let [sup   (slice CxSuper '(YearFn 2000))
+          north (slice CxNorth '(YearFn 2000))
+          south (slice CxSouth '(YearFn 2000))]
+      (v/assert kb (list r) sup)
+      (v/assert kb (list p) north)
+      (v/assert kb (list q) south)
+      (testing "each sub-monad's slice sees the super-monad's"
+        (is (true? (v/ask? kb (list r) north)))
+        (is (true? (v/ask? kb (list r) south))))
+      (testing "and neither sees the other's facts"
+        (is (not (v/ask? kb (list p) south)))
+        (is (not (v/ask? kb (list q) north)))))))
+
 (tu/deftest-kb ^:red a-monad-below-two-monads-sees-both-at-the-same-time
   ;; Twin of partially-overlapping-slices-and-their-intersection: the intersection
   ;; of two monads is a monad genlMonad-below both.
@@ -744,6 +857,28 @@
     (monads! kb CxLeft CxRight CxBoth)
     (v/assert kb (list 'genlMonad CxBoth CxLeft) U)
     (v/assert kb (list 'genlMonad CxBoth CxRight) U)
+    (let [left  (slice CxLeft '(YearFn 2000))
+          right (slice CxRight '(YearFn 2000))
+          both  (slice CxBoth '(YearFn 2000))]
+      (v/assert kb (list p) left)
+      (v/assert kb (list q) right)
+      (v/assert kb (list r) both)
+      (testing "the slice along the monad below both sees both"
+        (is (true? (v/ask? kb (list p) both)))
+        (is (true? (v/ask? kb (list q) both))))
+      (testing "neither of the other two sees the other's fact or the intersection's"
+        (is (not (v/ask? kb (list q) left)))
+        (is (not (v/ask? kb (list p) right)))
+        (is (not (v/ask? kb (list r) left)))
+        (is (not (v/ask? kb (list r) right)))))))
+
+(tu/deftest-kb ^:red a-monad-genlcx-below-two-monads-sees-both-at-the-same-time
+  ;; The genlCx twin of a-monad-below-two-monads-sees-both-at-the-same-time.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r CxLeft CxRight CxBoth]
+    (monads! kb CxLeft CxRight CxBoth)
+    (v/assert kb (list 'genlCx CxBoth CxLeft) U)
+    (v/assert kb (list 'genlCx CxBoth CxRight) U)
     (let [left  (slice CxLeft '(YearFn 2000))
           right (slice CxRight '(YearFn 2000))
           both  (slice CxBoth '(YearFn 2000))]
@@ -1128,6 +1263,22 @@
   (declare-cxtimefn! kb)
   (tu/with-terms [p CxStory]
     (v/assert kb (list 'genlCx CxStory 'CxWell) U)
+    (v/assert kb (list p) U)
+    (testing "control: from CxNow and the real world's present"
+      (is (true? (v/ask? kb (list p) 'CxNow)))
+      (is (true? (v/ask? kb (list p) 'CxRealWorldNow))))
+    (doseq [ctx [(real-slice '(YearFn 2000)) (real-slice '(YearFn 2100))
+                 (real-slice '(DayFn 2000 2 29)) (slice CxStory '(YearFn 2000))
+                 (slice CxStory '(MonthFn 1066 10))]]
+      (testing (str "from " (pr-str ctx))
+        (is (true? (v/ask? kb (list p) ctx)))))))
+
+(tu/deftest-kb ^:red an-eternal-fact-is-visible-from-every-slice-along-a-monad-placed-by-genlmonad
+  ;; The genlMonad twin of an-eternal-fact-is-visible-from-now-and-from-every-slice: the
+  ;; story is placed under CxWell by genlMonad, where the original places it by genlCx.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p CxStory]
+    (v/assert kb (list 'genlMonad CxStory 'CxWell) U)
     (v/assert kb (list p) U)
     (testing "control: from CxNow and the real world's present"
       (is (true? (v/ask? kb (list p) 'CxNow)))
@@ -1831,6 +1982,15 @@
 (defn- holds-at? [kb ctx f t]
   (v/query? kb (list 'holdsAt f t) ctx {:max-depth 3}))
 
+(defn- narrative-under-genlmonad!
+  "A fresh context placed below CxChange by genlMonad rather than genlCx, holding
+  `facts`, returned."
+  [kb facts]
+  (let [ctx (tu/tmp-ctx "Story")]
+    (v/assert kb (list 'genlMonad ctx 'CxChange) 'CxChange)
+    (run! #(v/assert kb % ctx) facts)
+    ctx))
+
 (tu/deftest-kb a-state-that-goes-draft-ready-draft-follows-both-transitions
   ;; A document starts as a draft, is promoted to ready at T1, and demoted back to draft
   ;; at T2.  Each event initiates one state and terminates the other.  Draft holds before
@@ -1909,6 +2069,45 @@
         (is (seq (v/sentexes-matching kb (list 'clipped t1 ready t3) ctx)))
         (is (seq (v/sentexes-matching kb (list 'clippedBefore draft t15) ctx)))))))
 
+(tu/deftest-kb ^:red a-state-in-a-narrative-placed-by-genlmonad-goes-draft-ready-draft
+  ;; The genlMonad twin of a-state-that-goes-draft-ready-draft-follows-both-transitions:
+  ;; the narrative sits under CxChange by a stated genlMonad, so it reads the event
+  ;; calculus through its monad.
+  (tu/with-terms [DraftFn ReadyFn Doc Promote Demote T0 T1 T15 T2 T3]
+    (let [draft (list DraftFn Doc)
+          ready (list ReadyFn Doc)
+          ctx   (narrative-under-genlmonad!
+                 kb
+                 (concat
+                  [(list 'result DraftFn 'fluent) (list 'result ReadyFn 'fluent)]
+                  (for [t [T0 T1 T15 T2 T3]] (list 'time_point t))
+                  [(list 'instantBefore T0 T1) (list 'instantBefore T1 T15)
+                   (list 'instantBefore T15 T2) (list 'instantBefore T2 T3)
+                   (list 'initially draft)
+                   (list 'causal_event Promote) (list 'causal_event Demote)
+                   (list 'happens Promote T1)
+                   (list 'initiates Promote ready T1)
+                   (list 'terminates Promote draft T1)
+                   (list 'happens Demote T2)
+                   (list 'initiates Demote draft T2)
+                   (list 'terminates Demote ready T2)]))]
+      (testing "draft before the promotion, ready between the two events"
+        (is (holds-at? kb ctx draft T0))
+        (is (not (holds-at? kb ctx ready T0)))
+        (is (holds-at? kb ctx ready T15))
+        (is (not (holds-at? kb ctx draft T15))))
+      (testing "draft again after the demotion, and no longer ready"
+        (is (holds-at? kb ctx draft T3))
+        (is (not (holds-at? kb ctx ready T3))))
+      (testing "at the instant of an event the old state still holds and the new one does not"
+        (is (holds-at? kb ctx draft T1))
+        (is (not (holds-at? kb ctx ready T1)))
+        (is (holds-at? kb ctx ready T2))
+        (is (not (holds-at? kb ctx draft T2))))
+      (testing "the derived reasons are stored: ready was clipped between T1 and T3"
+        (is (seq (v/sentexes-matching kb (list 'clipped T1 ready T3) ctx)))
+        (is (seq (v/sentexes-matching kb (list 'clippedBefore draft T15) ctx)))))))
+
 (defn- equality-narrative
   "A fluent started at T1 and stopped at T2, where T2 is ordered before T3 only through
   an `instantEqual`: T1 < T2, T2 = T2b, T2b < T3.  Returns `[ctx fluent T1 T3]`."
@@ -1925,6 +2124,22 @@
                    (list 'happens Stop T2) (list 'terminates Stop f T2)]))
      f T1 T3]))
 
+(defn- equality-narrative-under-genlmonad
+  "`equality-narrative`, in a context placed below CxChange by genlMonad."
+  [kb StateFn Thing Start Stop T1 T2 T2b T3]
+  (let [f (list StateFn Thing)]
+    [(narrative-under-genlmonad!
+      kb
+      (concat
+       [(list 'result StateFn 'fluent)]
+       (for [t [T1 T2 T2b T3]] (list 'time_point t))
+       [(list 'instantBefore T1 T2) (list 'instantEqual T2 T2b)
+        (list 'instantBefore T2b T3)
+        (list 'causal_event Start) (list 'causal_event Stop)
+        (list 'happens Start T1) (list 'initiates Start f T1)
+        (list 'happens Stop T2) (list 'terminates Stop f T2)]))
+     f T1 T3]))
+
 (tu/deftest-kb clipped-reads-an-order-the-point-prover-entails-once-it-is-registered
   ;; docs/time.md ("What clipped can see") and CxChange.txt say an ordering only the
   ;; point calculus entails is not an edge and is not read by clipped.  With :point
@@ -1939,6 +2154,22 @@
   (v/add-reasoner kb :point)
   (tu/with-terms [StateFn Thing Start Stop T1 T2 T2b T3]
     (let [[ctx f t1 t3] (equality-narrative kb StateFn Thing Start Stop T1 T2 T2b T3)]
+      (testing "with :point, T1 is before T3 through the equality, clipped fires, and inertia stops"
+        (is (true? (v/ask? kb (list 'instantBefore t1 t3) ctx)))
+        (is (seq (v/sentexes-matching kb (list 'clipped t1 f t3) ctx)))
+        (is (not (holds-at? kb ctx f t3)))))))
+
+(tu/deftest-kb ^:red clipped-reads-an-entailed-order-in-a-narrative-placed-by-genlmonad
+  ;; The genlMonad twin of clipped-reads-an-order-the-point-prover-entails-once-it-is-registered.
+  (tu/with-terms [StateFn Thing Start Stop T1 T2 T2b T3]
+    (let [[ctx f t1 t3] (equality-narrative-under-genlmonad kb StateFn Thing Start Stop T1 T2 T2b T3)]
+      (testing "without :point, T1 is not ordered before T3, so neither clipped nor inertia reaches T3"
+        (is (not (v/ask? kb (list 'instantBefore t1 t3) ctx)))
+        (is (empty? (v/sentexes-matching kb (list 'clipped '?a f '?b) ctx)))
+        (is (not (holds-at? kb ctx f t3))))))
+  (v/add-reasoner kb :point)
+  (tu/with-terms [StateFn Thing Start Stop T1 T2 T2b T3]
+    (let [[ctx f t1 t3] (equality-narrative-under-genlmonad kb StateFn Thing Start Stop T1 T2 T2b T3)]
       (testing "with :point, T1 is before T3 through the equality, clipped fires, and inertia stops"
         (is (true? (v/ask? kb (list 'instantBefore t1 t3) ctx)))
         (is (seq (v/sentexes-matching kb (list 'clipped t1 f t3) ctx)))
