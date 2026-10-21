@@ -1,6 +1,6 @@
 # Temporal and monad context reasoning: test list
 
-Every test in `test/vaelii/temporal_capability_test.clj`, 85 in all: 60 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 25 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
+Every test in `test/vaelii/temporal_capability_test.clj`, 89 in all: 64 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 25 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
 The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original.
 
@@ -31,16 +31,20 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 15. `a-slice-keyed-by-an-intermittent-time-sits-between-its-pieces-and-its-whole`: **red**. Uses the weekends of 2000, ordered by `partOf` rather than `subintervalOf`.
     - R2: `a-slice-keyed-by-an-intermittent-time-sits-between-its-named-pieces-and-its-named-whole`: **red**
 
-## Ranges (`time_interval` given by its bounds)
+## Ranges (a `time_interval` given by its bounds, or a `DatetimeRangeFn`)
 
-16. `a-fact-in-a-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it`: **red**. A range is a named `time_interval` whose `startOf` and `endOf` are stated as `InstantFn` moments, since no shipped constructor names a range.
+16. `a-fact-in-a-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it`: **red**. A range is a named `time_interval` whose `startOf` and `endOf` are stated as `InstantFn` moments. Its R3 twin writes the same range as a `DatetimeRangeFn` term and states nothing.
     - R2: `a-fact-in-a-range-bounded-by-named-moments-is-visible-from-each-named-time-inside-it`: **red**
+    - R3: `a-fact-in-a-datetime-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it`: **red**
 17. `a-range-inside-a-month-sees-the-month-and-its-year`: **red**
     - R2: `a-range-bounded-by-named-moments-inside-a-named-month-sees-the-month-and-its-year`: **red**
+    - R3: `a-datetime-range-inside-a-month-sees-the-month-and-its-year`: **red**
 18. `two-partially-overlapping-ranges-and-their-intersection`: **red**. Jan–Jun and Apr–Sep 2000. No relation is stated between them: the ordering comes from the bounds alone.
     - R2: `two-partially-overlapping-ranges-bounded-by-named-moments-and-their-intersection`: **red**
+    - R3: `two-partially-overlapping-datetime-ranges-and-their-intersection`: **red**
 19. `a-range-and-a-calendar-term-with-the-same-bounds-name-one-context`: **red**
     - R2: `two-ranges-with-the-same-named-bounds-name-one-context`: **red**
+    - R3: `a-datetime-range-and-a-calendar-term-with-the-same-bounds-name-one-context`: **red**
 
 ## Monad
 

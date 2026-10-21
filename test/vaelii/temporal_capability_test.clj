@@ -1264,14 +1264,16 @@
 ;; =========================================================================
 ;; Ranges — a slice keyed by a time_interval given by its bounds
 ;; =========================================================================
-;; No constructor names a range such as 2000-01..2000-06: YearFn, MonthFn, DayFn and
-;; DatetimeFn each name one calendar unit, and calendar units nest or are disjoint and
-;; never partially overlap (docs/time.md).  A range is therefore a named time_interval
-;; whose startOf and endOf are stated as InstantFn moments, the bounds the calendar
-;; clock computes for a calendar term.  The end of one unit and the start of the next
-;; are the same InstantFn, so the bounds here are the clock's own.  Each test asks the
-;; slices to be ordered from the bounds alone: no subintervalOf and no Allen relation is
-;; stated between two ranges or between a range and a calendar term.
+;; YearFn, MonthFn, DayFn and DatetimeFn each name one calendar unit, and calendar units
+;; nest or are disjoint and never partially overlap (docs/time.md).  A range such as
+;; 2000-01..2000-06 is written two ways here.  Each original is a named time_interval
+;; whose startOf and endOf are stated as InstantFn moments, the bounds the calendar clock
+;; computes for a calendar term; the end of one unit and the start of the next are the
+;; same InstantFn, so the bounds are the clock's own.  Its DatetimeRangeFn twin, beside
+;; it, writes the same range as (DatetimeRangeFn "2000-01" "2000-06") and states nothing:
+;; time.txt's two rules give the term its bounds.  Each test asks the slices to be
+;; ordered from the bounds alone: no subintervalOf and no Allen relation is stated
+;; between two ranges or between a range and a calendar term.
 
 (defn- range!
   "Make `name` the time_interval from `start` to `end`, two InstantFn field vectors."
@@ -1286,6 +1288,13 @@
   (v/assert kb (list 'time_interval name) U)
   (v/assert kb (list 'startOf name start) U)
   (v/assert kb (list 'endOf name end) U))
+
+(defn- range-bounds
+  "The startOf and endOf the defining rules answer for the DatetimeRangeFn term `r`, as
+  `[start end]` (each a vector of the answers), with the calendar clock registered."
+  [kb r]
+  [(mapv #(get % '?i) (v/query kb (list 'startOf r '?i) U {:max-depth 3}))
+   (mapv #(get % '?i) (v/query kb (list 'endOf r '?i) U {:max-depth 3}))])
 
 (tu/deftest-kb ^:red a-fact-in-a-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it
   ;; The first quarter of 2000, and February to March inside it.
@@ -1326,6 +1335,28 @@
       (testing (str "and not from " outside ", which is not inside the range")
         (is (not (v/ask? kb (list p) (slice outside))))))))
 
+(tu/deftest-kb ^:red a-fact-in-a-datetime-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it
+  ;; The DatetimeRangeFn twin of a-fact-in-a-range-is-visible-from-a-subrange-and-from-each-calendar-term-inside-it:
+  ;; the first quarter is (DatetimeRangeFn "2000-01" "2000-03") and February to March
+  ;; (DatetimeRangeFn "2000-02" "2000-03"), with nothing stated of either.  The control
+  ;; is that the defining rules give each range the bounds the original states.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (let [q1     '(DatetimeRangeFn "2000-01" "2000-03")
+        febmar '(DatetimeRangeFn "2000-02" "2000-03")]
+    (testing "control: the ranges begin and end where the original's stated bounds do"
+      (is (= [['(InstantFn 2000 1 1 0 0 0)] ['(InstantFn 2000 4 1 0 0 0)]] (range-bounds kb q1)))
+      (is (= [['(InstantFn 2000 2 1 0 0 0)] ['(InstantFn 2000 4 1 0 0 0)]] (range-bounds kb febmar))))
+    (tu/with-terms [p]
+      (v/assert kb (list p) (slice q1))
+      (doseq [inside [(slice febmar) (slice '(MonthFn 2000 1)) (slice '(MonthFn 2000 3))
+                      (slice '(DayFn 2000 2 15)) (slice '(DatetimeFn "2000-03-31T23"))]]
+        (testing (str "the range's fact is visible from " (pr-str inside))
+          (is (true? (v/ask? kb (list p) inside)))))
+      (doseq [outside [(slice '(MonthFn 2000 4)) (slice '(YearFn 2000))]]
+        (testing (str "and not from " (pr-str outside) ", which is not inside the range")
+          (is (not (v/ask? kb (list p) outside))))))))
+
 (tu/deftest-kb ^:red a-range-inside-a-month-sees-the-month-and-its-year
   ;; The converse direction: a range is ordered under the calendar terms containing it.
   (declare-cxtimefn! kb)
@@ -1357,6 +1388,26 @@
       (is (true? (v/ask? kb (list q) (slice MidFeb)))))
     (testing "and not the named March's"
       (is (not (v/ask? kb (list r) (slice MidFeb)))))))
+
+(tu/deftest-kb ^:red a-datetime-range-inside-a-month-sees-the-month-and-its-year
+  ;; The DatetimeRangeFn twin of a-range-inside-a-month-sees-the-month-and-its-year: the
+  ;; tenth to the nineteenth of February, which ends when the nineteenth ends, at the
+  ;; original's stated end.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (let [midfeb '(DatetimeRangeFn "2000-02-10" "2000-02-19")]
+    (testing "control: the range begins and ends where the original's stated bounds do"
+      (is (= [['(InstantFn 2000 2 10 0 0 0)] ['(InstantFn 2000 2 20 0 0 0)]]
+             (range-bounds kb midfeb))))
+    (tu/with-terms [p q r]
+      (v/assert kb (list p) (slice '(MonthFn 2000 2)))
+      (v/assert kb (list q) (slice '(YearFn 2000)))
+      (v/assert kb (list r) (slice '(MonthFn 2000 3)))
+      (testing "the range's slice sees February's fact and 2000's"
+        (is (true? (v/ask? kb (list p) (slice midfeb))))
+        (is (true? (v/ask? kb (list q) (slice midfeb)))))
+      (testing "and not March's"
+        (is (not (v/ask? kb (list r) (slice midfeb))))))))
 
 (tu/deftest-kb ^:red two-partially-overlapping-ranges-and-their-intersection
   ;; Iris's third example as she put it: January to June 2000 and April to September
@@ -1426,6 +1477,44 @@
         (doseq [s [p q r]]
           (is (true? (v/ask? kb (list s) (slice May)))))))))
 
+(tu/deftest-kb ^:red two-partially-overlapping-datetime-ranges-and-their-intersection
+  ;; The DatetimeRangeFn twin of two-partially-overlapping-ranges-and-their-intersection,
+  ;; in the words Iris chose the function for: (DatetimeRangeFn "2000-01" "2000-06") and
+  ;; (DatetimeRangeFn "2000-04" "2000-09") overlap, and (DatetimeRangeFn "2000-04"
+  ;; "2000-06") is their intersection.  Nothing is stated of any of the three.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (let [jan-jun '(DatetimeRangeFn "2000-01" "2000-06")
+        apr-sep '(DatetimeRangeFn "2000-04" "2000-09")
+        apr-jun '(DatetimeRangeFn "2000-04" "2000-06")
+        h1      (slice jan-jun)
+        h2      (slice apr-sep)
+        both    (slice apr-jun)]
+    (testing "control: the ranges begin and end where the original's stated bounds do"
+      (is (= [['(InstantFn 2000 1 1 0 0 0)] ['(InstantFn 2000 7 1 0 0 0)]] (range-bounds kb jan-jun)))
+      (is (= [['(InstantFn 2000 4 1 0 0 0)] ['(InstantFn 2000 10 1 0 0 0)]] (range-bounds kb apr-sep)))
+      (is (= [['(InstantFn 2000 4 1 0 0 0)] ['(InstantFn 2000 7 1 0 0 0)]] (range-bounds kb apr-jun))))
+    (tu/with-terms [p q r]
+      (v/assert kb (list p) h1)
+      (v/assert kb (list q) h2)
+      (v/assert kb (list r) both)
+      (testing "the bounds entail the overlap and the intersection's place inside both"
+        (is (true? (v/ask? kb (list 'overlaps jan-jun apr-sep) U)))
+        (is (true? (v/ask? kb (list 'subintervalOf apr-jun jan-jun) U)))
+        (is (true? (v/ask? kb (list 'subintervalOf apr-jun apr-sep) U))))
+      (testing "neither overlapping range's slice sees the other's fact"
+        (is (not (v/ask? kb (list q) h1)))
+        (is (not (v/ask? kb (list p) h2))))
+      (testing "the intersection's slice sees both"
+        (is (true? (v/ask? kb (list p) both)))
+        (is (true? (v/ask? kb (list q) both))))
+      (testing "and neither overlapping slice sees the intersection's fact"
+        (is (not (v/ask? kb (list r) h1)))
+        (is (not (v/ask? kb (list r) h2))))
+      (testing "May 2000, inside the intersection, sees all three"
+        (doseq [s [p q r]]
+          (is (true? (v/ask? kb (list s) (slice '(MonthFn 2000 5))))))))))
+
 (tu/deftest-kb ^:red a-range-and-a-calendar-term-with-the-same-bounds-name-one-context
   ;; A range from the start of 2000 to the start of 2001 is the year 2000, as
   ;; (MonthFn 2000 1) and (DatetimeFn "2000-01") are one month
@@ -1457,6 +1546,24 @@
       (is (true? (v/ask? kb (list 'intervalEqual RangeA RangeB) U))))
     (let [{:keys [distinct? first-sees-second? second-sees-first?]}
           (two-spellings kb (slice RangeA) (slice RangeB))]
+      (testing "a write through either lands in one cx/ context"
+        (is (false? distinct?)))
+      (testing "and each sees the other's fact"
+        (is (true? first-sees-second?))
+        (is (true? second-sees-first?))))))
+
+(tu/deftest-kb ^:red a-datetime-range-and-a-calendar-term-with-the-same-bounds-name-one-context
+  ;; The DatetimeRangeFn twin of a-range-and-a-calendar-term-with-the-same-bounds-name-one-context:
+  ;; January through December 2000 is the year 2000.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar)
+  (let [jan-dec '(DatetimeRangeFn "2000-01" "2000-12")]
+    (testing "control: the range begins and ends where the year does"
+      (is (= [['(InstantFn 2000 1 1 0 0 0)] ['(InstantFn 2001 1 1 0 0 0)]] (range-bounds kb jan-dec))))
+    (testing "the bounds entail that the range and the year are one interval"
+      (is (true? (v/ask? kb (list 'intervalEqual jan-dec '(YearFn 2000)) U))))
+    (let [{:keys [distinct? first-sees-second? second-sees-first?]}
+          (two-spellings kb (slice jan-dec) (slice '(YearFn 2000)))]
       (testing "a write through either lands in one cx/ context"
         (is (false? distinct?)))
       (testing "and each sees the other's fact"
