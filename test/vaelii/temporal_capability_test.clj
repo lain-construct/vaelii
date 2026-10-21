@@ -139,7 +139,7 @@
         (is (true? (v/ask? kb (list p) jan)))
         (is (= :true (verdict kb (list p) jan)))))))
 
-(tu/deftest-kb iris-if-p-is-true-in-2000-it-is-true-in-january-and-unknown-in-2001
+(tu/deftest-kb a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year
   ;; Iris's second example.  "Unknown" is read with `argue`: neither p nor (not p)
   ;; answers.  2001 is a sibling of 2000, so it sees nothing stated for 2000.
   (declare-cxtimefn! kb)
@@ -160,7 +160,7 @@
           (is (= :unknown (verdict kb (list p) y2001)))
           (is (not (v/ask? kb (list 'not (list p)) y2001))))))))
 
-(tu/deftest-kb ^:red iris-if-p-is-true-eternally-it-is-true-in-2000
+(tu/deftest-kb ^:red a-fact-stated-unsliced-holds-in-every-year-slice
   ;; Iris's first example.  The KB has no "eternal" or "atemporal" context: `atemporal`
   ;; is a type of thing (core.txt), not a way of stating a fact.  The nearest is a fact
   ;; stated unsliced, in CxUniverse — the root every wired context sees.  Today a cx/
@@ -281,7 +281,7 @@
       (testing "nor does a month along another monad"
         (is (not (v/ask? kb (list p) (slice CxSouth '(DatetimeFn "2000-01")))))))))
 
-(tu/deftest-kb ^:red iris-partially-overlapping-slices-and-their-intersection
+(tu/deftest-kb ^:red partially-overlapping-slices-and-their-intersection
   ;; Iris's third example, with the overlap and the intersection given as Allen relations
   ;; between named intervals.  The Allen network entails (subintervalOf AprJun JanJun)
   ;; and (subintervalOf AprJun AprSep) from the two facts below, and the intersection
@@ -379,7 +379,7 @@
 
 (tu/deftest-kb ^:red a-slice-sees-a-monad-two-genlmonad-steps-up
   ;; Twin of the entailed-containment half of
-  ;; iris-partially-overlapping-slices-and-their-intersection: the ordering is entailed
+  ;; partially-overlapping-slices-and-their-intersection: the ordering is entailed
   ;; (genlMonad is transitive), not stated between the two monads the slices name.
   (declare-cxtimefn! kb)
   (tu/with-terms [p CxTop CxMid CxLow]
@@ -438,7 +438,7 @@
         (is (not (v/ask? kb (list q) north)))))))
 
 (tu/deftest-kb ^:red a-monad-below-two-monads-sees-both-at-the-same-time
-  ;; Twin of iris-partially-overlapping-slices-and-their-intersection: the intersection
+  ;; Twin of partially-overlapping-slices-and-their-intersection: the intersection
   ;; of two monads is a monad genlMonad-below both.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxLeft CxRight CxBoth]
@@ -908,7 +908,7 @@
 (tu/deftest-kb ^:red two-partially-overlapping-ranges-and-their-intersection
   ;; Iris's third example as she put it: January to June 2000 and April to September
   ;; 2000 overlap, and April to June is their intersection.  Unlike
-  ;; iris-partially-overlapping-slices-and-their-intersection, no relation between the
+  ;; partially-overlapping-slices-and-their-intersection, no relation between the
   ;; three is stated: the ordering comes from the bounds.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar)
