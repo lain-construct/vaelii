@@ -1,6 +1,6 @@
 # Temporal and monad context reasoning: test list
 
-Every test in `test/vaelii/temporal_capability_test.clj`, 133 in all: 102 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 31 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
+Every test in `test/vaelii/temporal_capability_test.clj`, 140 in all: 109 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 31 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
 The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original. The tests Iris's later rulings add that are not twins sit next to the test they extend (the exact-age tests, tagged *exact age*, under 38) or in sections of their own at the end.
 
@@ -166,3 +166,15 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
 - 48 and 49, plus the without-`:point` half of 47. The temporal provers are opt-in by design (docs/time.md).
 - 6 (unknown in 2001), 9 and 21 pin isolation that is correct: sibling times and unrelated monads see nothing of each other.
 - `happens` at a day (`common_sense_test.clj:665`) stays a correct-by-design limit and isn't in this namespace.
+
+## Time zones
+
+Nothing in the time vocabulary names a zone or an offset today: `InstantFn` is a wall-clock moment in no zone, and `DatetimeFn` does not read an ISO string with an offset or a `Z`, so such a string is no time term at all. `ZonedDatetimeFn` and `time_zone` are placeholder names. TEMPORAL-MATRIX.md has the inventory.
+
+- **TZ1.** `one-moment-written-in-two-offsets-is-one-moment`: **red**. 13:00-07:00 and 01:30+05:30 the next day are one moment; 13:00 at two offsets is two.
+- **TZ2.** `the-iso-offset-form-and-the-z-form-name-one-moment`: **red**. `…T13:00-07:00` is `…T20:00Z`, and `+00:00` is `Z`.
+- **TZ3.** `the-day-a-moment-falls-on-depends-on-the-offset`: **red**. 21:00 on 31 December 1999 at UTC−08:00 is on 1 January in UTC; against a zoneless date it is unknown, not read as UTC.
+- **TZ4.** `moments-at-different-offsets-are-ordered-by-the-moment-not-the-wall-clock`: **red**
+- **TZ5.** `the-kb-declares-a-named-time-zone-and-a-zoned-local-time`: **red**. The vocabulary the next two need.
+- **TZ6.** `a-local-time-a-daylight-saving-gap-skips-names-no-moment`: **red**. 01:30 in London on 26 March 2000.
+- **TZ7.** `a-local-time-a-daylight-saving-change-repeats-is-ambiguous-until-its-offset-is-given`: **red**. 01:30 in London on 29 October 2000.
