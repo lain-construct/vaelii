@@ -1,6 +1,6 @@
 # Temporal and monad context reasoning: test list
 
-Every test in `test/vaelii/temporal_capability_test.clj`, 108 in all: 79 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 29 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
+Every test in `test/vaelii/temporal_capability_test.clj`, 119 in all: 90 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 29 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
 The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original.
 
@@ -18,7 +18,9 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
     - R2: `a-fact-in-a-named-year-slice-holds-in-a-named-month-and-is-unknown-the-named-next-year`: green
     - R5: `a-fact-in-a-year-slice-holds-at-an-instant-inside-it-and-is-unknown-at-an-instant-of-the-next-year`: **red**
 7. `a-fact-stated-unsliced-holds-in-every-year-slice`: **red**. "Eternally" means stated unsliced, in CxUniverse.
+    - R6: `a-fact-stated-unsliced-holds-in-every-year-slice-along-a-monad-placed-by-genlmonad`: **red**
 8. `a-slice-along-a-monad-under-cxwell-sees-cxwell-and-not-the-reverse`: **red**
+    - R6: `a-slice-along-a-monad-genlmonad-below-cxwell-sees-cxwell-and-not-the-reverse`: **red**
 9. `sibling-month-slices-do-not-see-each-other`: green
     - R2: `sibling-named-month-slices-do-not-see-each-other`: green
     - R5: `two-instant-slices-in-one-year-each-see-the-year-and-not-each-other`: **red**
@@ -31,6 +33,7 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 12. `partially-overlapping-slices-and-their-intersection`: **red**. Named intervals related by Allen facts. The intersection slice has to be ordered from an *entailed* `subintervalOf`.
 13. `a-narrative-in-a-time-slice-gets-the-event-calculus`: **red**. The slice should see CxChange through its monad.
     - R2: `a-narrative-dated-by-calendar-moments-in-a-time-slice-gets-the-event-calculus`: **red**
+    - R6: `a-narrative-in-a-slice-along-a-monad-placed-by-genlmonad-gets-the-event-calculus`: **red**
 14. `a-fact-in-a-year-slice-holds-in-a-slice-keyed-by-an-instant-inside-it`: **red**. Homogeneity going downward: a slice keyed by an `InstantFn` point. Going upward doesn't hold, by design.
     - R2: `a-fact-in-a-named-year-slice-holds-in-a-slice-keyed-by-a-named-moment-inside-it`: **red**
 15. `a-slice-keyed-by-an-intermittent-time-sits-between-its-pieces-and-its-whole`: **red**. Uses the weekends of 2000, ordered by `partOf` rather than `subintervalOf`.
@@ -64,12 +67,17 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
     - R5: `instant-slices-along-two-monads-do-not-see-each-other`: green
 22. `the-monad-vocabulary-is-declared-in-the-shipped-kb`: **red**. Covers `genlMonad`, `monad_context`, `CxTimeOfFn`/`cxTimeOf` and `CxMonadOfFn`/`cxMonadOf` (#181).
 23. `a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad`: **red**
+    - R6: `a-slice-along-a-sub-monad-placed-by-genlcx-sees-the-same-time-along-its-super-monad`: **red**
 24. `a-slice-sees-a-monad-two-genlmonad-steps-up`: **red**. `genlMonad` is transitive. This is the monad twin of entailed rather than stated containment.
+    - R6: `a-slice-sees-a-monad-two-genlcx-steps-up`: **red**
 25. `genlcx-between-slices-is-genlmonad-times-time-containment`: **red**. Checks all 12 ordered pairs over 2 monads × 2 times.
     - R2: `genlcx-between-slices-over-named-times-is-genlmonad-times-time-containment`: **red**
     - R5: `genlcx-between-slices-over-a-year-and-an-instant-in-it-is-genlmonad-times-time-containment`: **red**
+    - R6: `genlcx-between-slices-is-the-monads-genlcx-times-time-containment`: **red**
 26. `sibling-sub-monads-each-see-their-super-monad-and-not-each-other`: **red**
+    - R6: `sibling-monads-placed-by-genlcx-each-see-their-super-monad-and-not-each-other`: **red**
 27. `a-monad-below-two-monads-sees-both-at-the-same-time`: **red**. The monad twin of the intersection test.
+    - R6: `a-monad-genlcx-below-two-monads-sees-both-at-the-same-time`: **red**
 28. `genlmonad-between-two-monad-contexts-is-their-genlcx`: **red**. Checks both directions.
 29. `cxtimeof-and-cxmonadof-take-a-slice-apart-and-cxtimefn-puts-it-back`: **red**
 30. `a-monad-context-is-its-own-monad-and-its-time-is-unbounded`: **red**
@@ -97,6 +105,7 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
     - R2: `a-reading-at-a-named-moment-places-now-after-a-named-past-year-and-inside-no-named-year`: **red**
 40. `a-past-slice-of-the-real-world-sees-the-real-world-and-not-what-holds-now`: **red**
 41. `an-eternal-fact-is-visible-from-now-and-from-every-slice`: **red**
+    - R6: `an-eternal-fact-is-visible-from-every-slice-along-a-monad-placed-by-genlmonad`: **red**
 42. `a-fluent-started-in-a-past-slice-holds-now`: **red**. Projection by inertia. A plain fact from 2000 is not projected.
     - R2: `a-fluent-started-at-a-named-moment-in-a-past-named-slice-holds-now`: **red**
 43. `a-fluent-ended-after-the-past-slice-does-not-hold-now`: **red**. The fluent is ended in 2005, before the reading.
@@ -110,7 +119,9 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
 
 46. `a-state-that-goes-draft-ready-draft-follows-both-transitions`: green
     - R2: `a-state-dated-by-calendar-moments-goes-draft-ready-draft-and-follows-both-transitions`: green
+    - R6: `a-state-in-a-narrative-placed-by-genlmonad-goes-draft-ready-draft`: **red**
 47. `clipped-reads-an-order-the-point-prover-entails-once-it-is-registered`: green
+    - R6: `clipped-reads-an-entailed-order-in-a-narrative-placed-by-genlmonad`: **red**
 
 ## Provers
 
