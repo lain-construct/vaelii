@@ -161,6 +161,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [koinii.md](docs/koinii.md#the-deployment-shape)
   *Migration:* none.
 
+### Additive: vocabulary and reasoning
+
+- **CxNow and CxRealWorldNow ship as middle contexts.** CxNow is what is true now, a
+  moving indexical present of no particular world: it sees CxUniverse, and what it
+  states need not hold timelessly or at any other time. The present is reached through
+  lower bounds, a clock reading stating that now is no earlier than a moment, and never
+  through an exact present or a dated present-tense fact. CxRealWorldNow is the real
+  world at the present time and sees both CxRealWorld and CxNow. CxWell sees neither, so
+  a context opts in by placing itself under one.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 ### Fix: answers
 
 - **A forward rule concluding `equals` or `sameAs` over applications of a
