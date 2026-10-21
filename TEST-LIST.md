@@ -1,6 +1,6 @@
 # Temporal and monad context reasoning: test list
 
-Every test in `test/vaelii/temporal_capability_test.clj`, 129 in all: 98 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 31 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
+Every test in `test/vaelii/temporal_capability_test.clj`, 130 in all: 99 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 31 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
 The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original.
 
@@ -110,6 +110,7 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
     - R2: `with-no-clock-reading-the-present-is-unknown-against-a-named-moment`: green
 37. `an-exact-present-and-a-dated-present-tense-fact-are-refused-in-cxnow`: **red**. "It is 3:41" and "today is Saturday" are both refused, while a reading is accepted.
     - R2: `an-exact-present-and-a-present-tense-fact-at-named-times-are-refused-in-cxnow`: **red**
+    - R8: `an-exact-present-and-a-dated-present-tense-fact-are-refused-in-a-spec-of-cxnow`: **red**
 38. `age-is-derived-as-a-lower-bound-and-never-as-an-exact-value`: **red**. A person born in 1977, read at 2026-10-17, is at least 48, and 49 is unknown. A later reading raises the bound. `ageAtLeast`/`ageOf` are placeholder names.
 39. `a-reading-places-now-after-a-past-year-and-inside-no-year`: **red**. There's no upper bound, so not even 2026 is known to contain now.
     - R2: `a-reading-at-a-named-moment-places-now-after-a-named-past-year-and-inside-no-named-year`: **red**
