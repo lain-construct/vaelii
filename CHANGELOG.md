@@ -66,6 +66,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
 
+### Additive: vocabulary and reasoning
+
+- **CxNow and CxRealWorldNow ship as middle contexts.** CxNow is what is true now, a
+  moving indexical present of no particular world: it sees CxUniverse, and what it
+  states need not hold timelessly or at any other time. The present is reached through
+  lower bounds, a clock reading stating that now is no earlier than a moment, and never
+  through an exact present or a dated present-tense fact. CxRealWorldNow is the real
+  world at the present time and sees both CxRealWorld and CxNow. CxWell sees neither, so
+  a context opts in by placing itself under one.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 
 | Area | Change |
