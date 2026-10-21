@@ -2675,3 +2675,114 @@
   (testing "the length of a calendar year"
     (is (= [{'?d '(QuantityFn 31622400 Second)}]
            (v/ask kb '(totalDuration (list (YearFn 2000)) ?d) U)))))
+
+;; =========================================================================
+;; Time zones
+;; =========================================================================
+;; Nothing in the time vocabulary names a zone or an offset.  `InstantFn` is six fields
+;; read as a java.time LocalDateTime: a wall-clock moment in no zone.  `DatetimeFn`'s
+;; reader (vaelii.impl.datetime) admits a date and up to three time fields, each one or
+;; two digits, so an ISO string with an offset ("13:00-07:00") or a `Z` is not a time term
+;; at all: it has no bounds, orders against nothing and keys a slice the producer cannot
+;; read.  time.txt has no zone type and no zoned constructor, so a named zone and its
+;; daylight-saving rules cannot be said.  The tests below ask for the classic cases:
+;; one moment in two offsets, the offset form against `Z`, a day boundary that moves
+;; with the offset, ordering across offsets, and a named zone's daylight-saving gap and
+;; repeated hour.  `ZonedDatetimeFn` (a local ISO string and an IANA zone name) and
+;; `time_zone` are placeholder names.
+
+(tu/deftest-kb ^:red one-moment-written-in-two-offsets-is-one-moment
+  ;; 13:00 at UTC-07:00 and 01:30 the next day at UTC+05:30 are both 20:00 UTC.  The same
+  ;; wall-clock time at two offsets is two moments.  The control is the zoneless
+  ;; spelling, which the calendar already places.
+  (v/add-reasoner kb :point :calendar)
+  (testing "control: a zoneless minute's start is the InstantFn moment of the same fields"
+    (is (true? (v/ask? kb '(instantEqual (StartFn (DatetimeFn "2000-01-15T20:00")) (InstantFn 2000 1 15 20 0 0)) U))))
+  (testing "13:00-07:00 and 01:30+05:30 the next day start at one moment and are one interval"
+    (is (true? (v/ask? kb '(instantEqual (StartFn (DatetimeFn "2000-01-15T13:00-07:00"))
+                                         (StartFn (DatetimeFn "2000-01-16T01:30+05:30"))) U)))
+    (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-01-15T13:00-07:00")
+                                          (DatetimeFn "2000-01-16T01:30+05:30")) U))))
+  (testing "and 13:00 at two offsets is two moments"
+    (is (= :false (verdict kb '(instantEqual (StartFn (DatetimeFn "2000-01-15T13:00-07:00"))
+                                             (StartFn (DatetimeFn "2000-01-15T13:00+05:30"))) U)))))
+
+(tu/deftest-kb ^:red the-iso-offset-form-and-the-z-form-name-one-moment
+  ;; ISO 8601's two spellings of an absolute moment: …T13:00-07:00 is …T20:00Z, and +00:00
+  ;; is Z.
+  (v/add-reasoner kb :point :calendar)
+  (testing "13:00-07:00 is 20:00Z"
+    (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-01-15T13:00-07:00")
+                                          (DatetimeFn "2000-01-15T20:00Z")) U))))
+  (testing "20:00+00:00 is 20:00Z"
+    (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-01-15T20:00+00:00")
+                                          (DatetimeFn "2000-01-15T20:00Z")) U))))
+  (testing "and 13:00Z is not 13:00-07:00"
+    (is (= :false (verdict kb '(intervalEqual (DatetimeFn "2000-01-15T13:00Z")
+                                              (DatetimeFn "2000-01-15T13:00-07:00")) U)))))
+
+(tu/deftest-kb ^:red the-day-a-moment-falls-on-depends-on-the-offset
+  ;; 21:00 on 31 December 1999 at UTC-08:00 is 05:00 on 1 January 2000 UTC: one hour, on
+  ;; the last day of 1999 at one offset and the first day of 2000 at the other.  A day at
+  ;; an offset is written as the range of its first and last hours there.  A zoneless
+  ;; date names a wall-clock day in no zone, so where an absolute moment falls against it
+  ;; is unknown rather than read as UTC.
+  (v/add-reasoner kb :point :calendar)
+  (let [hour      '(DatetimeFn "1999-12-31T21-08:00")
+        utc-jan1  '(DatetimeRangeFn "2000-01-01T00Z" "2000-01-01T23Z")
+        utc-dec31 '(DatetimeRangeFn "1999-12-31T00Z" "1999-12-31T23Z")
+        pst-dec31 '(DatetimeRangeFn "1999-12-31T00-08:00" "1999-12-31T23-08:00")]
+    (testing "the hour is 05:00 UTC on 1 January"
+      (is (true? (v/ask? kb (list 'intervalEqual hour '(DatetimeFn "2000-01-01T05Z")) U))))
+    (testing "it falls on 1 January in UTC and on 31 December at UTC-08:00"
+      (is (true? (v/ask? kb (list 'subintervalOf hour utc-jan1) U)))
+      (is (true? (v/ask? kb (list 'subintervalOf hour pst-dec31) U))))
+    (testing "and not on 31 December in UTC"
+      (is (= :false (verdict kb (list 'subintervalOf hour utc-dec31) U))))
+    (testing "against a zoneless 1 January it is unknown, not read as UTC"
+      (is (= :unknown (verdict kb (list 'subintervalOf hour '(DatetimeFn "2000-01-01")) U))))))
+
+(tu/deftest-kb ^:red moments-at-different-offsets-are-ordered-by-the-moment-not-the-wall-clock
+  ;; 13:00 at UTC+01:00 is 12:00 UTC, so it is before 12:30 UTC though its wall-clock
+  ;; reading is later.
+  (v/add-reasoner kb :allen :point :calendar)
+  (let [paris  '(DatetimeFn "2000-01-15T13:00+01:00")
+        london '(DatetimeFn "2000-01-15T12:30Z")]
+    (testing "13:00+01:00 is before 12:30Z"
+      (is (true? (v/ask? kb (list 'before paris london) U)))
+      (is (true? (v/ask? kb (list 'instantBefore (list 'StartFn paris) (list 'StartFn london)) U))))
+    (testing "and not after it, as the wall-clock reading would have it"
+      (is (= :false (verdict kb (list 'after paris london) U))))))
+
+(tu/deftest-kb ^:red the-kb-declares-a-named-time-zone-and-a-zoned-local-time
+  ;; A UTC offset fixes a moment; a named zone (Europe/London) fixes an offset only per
+  ;; date, through its daylight-saving rules, and time.txt has no way to say one.  The
+  ;; two tests after this one need it.
+  (testing "a type for a named time zone, and a constructor of a local time in one"
+    (is (true? (v/ask? kb '(arg ZonedDatetimeFn 2 time_zone) U)))
+    (is (true? (v/ask? kb '(result ZonedDatetimeFn time_interval) U)))))
+
+(tu/deftest-kb ^:red a-local-time-a-daylight-saving-gap-skips-names-no-moment
+  ;; On 26 March 2000 London's clocks went from 01:00 GMT to 02:00 BST, so 01:30 that
+  ;; night never happened there.  00:30 is 00:30 UTC and 02:30 is 01:30 UTC; 01:30 names
+  ;; no moment, rather than being moved silently to either side of the gap.
+  (v/add-reasoner kb :point :calendar)
+  (let [at (fn [local] (list 'ZonedDatetimeFn local "Europe/London"))]
+    (testing "the times either side of the gap are the moments their offsets give"
+      (is (true? (v/ask? kb (list 'intervalEqual (at "2000-03-26T00:30") '(DatetimeFn "2000-03-26T00:30Z")) U)))
+      (is (true? (v/ask? kb (list 'intervalEqual (at "2000-03-26T02:30") '(DatetimeFn "2000-03-26T01:30Z")) U))))
+    (testing "and the time in the gap has no start"
+      (is (empty? (v/query kb (list 'startOf (at "2000-03-26T01:30") '?i) U {:max-depth 3}))))))
+
+(tu/deftest-kb ^:red a-local-time-a-daylight-saving-change-repeats-is-ambiguous-until-its-offset-is-given
+  ;; On 29 October 2000 London's clocks went from 02:00 BST back to 01:00 GMT, so 01:30
+  ;; happened twice: at 00:30 UTC and at 01:30 UTC.  Without an offset which one is meant
+  ;; is unknown, and neither is picked silently; the offset form resolves it.
+  (v/add-reasoner kb :point :calendar)
+  (let [repeated '(ZonedDatetimeFn "2000-10-29T01:30" "Europe/London")]
+    (testing "the zoned local time is neither occurrence, as far as the KB knows"
+      (is (= :unknown (verdict kb (list 'intervalEqual repeated '(DatetimeFn "2000-10-29T00:30Z")) U)))
+      (is (= :unknown (verdict kb (list 'intervalEqual repeated '(DatetimeFn "2000-10-29T01:30Z")) U))))
+    (testing "the offset form names one occurrence each"
+      (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-10-29T01:30+01:00") (DatetimeFn "2000-10-29T00:30Z")) U)))
+      (is (true? (v/ask? kb '(intervalEqual (DatetimeFn "2000-10-29T01:30+00:00") (DatetimeFn "2000-10-29T01:30Z")) U))))))
