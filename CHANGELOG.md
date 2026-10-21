@@ -52,6 +52,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* fix the finding, or pass `:categories` naming the categories to run.
   *Breaks:* `kb-integrity`
 
+### Breaking: vocabulary
+
+- **`information_bearing_thing` renames to `information`.** CxTra declares
+  `information` with the same comment, examples and `genl` edges to `intangible` and
+  `acausal`, and `digital_artifact` sits below it. The name says what the type holds: the
+  content, apart from the medium that carries it.
+
+  *Class:* **Breaking** (shipped ontology content).
+  *Migration:* rename `information_bearing_thing` to `information` in any KB text that
+  names it.
+  *Breaks:* `information_bearing_thing`
+
 ### Additive: ASP
 
 - **`do/label`'s result carries `:unenumerated` and `:unenumerated-in-guards`**, naming
@@ -159,6 +171,23 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `vaelii.client` connection or a medium in place of a KB** with `:koinii/needs-kb`, whose
   `:fn` names the fn, where they threw an engine exception naming neither.
   [koinii.md](docs/koinii.md#the-deployment-shape)
+  *Migration:* none.
+
+### Additive: vocabulary and reasoning
+
+- **CxTra ships conceptual works, information carriers, `carries` and `claims`.**
+  `conceptual_work` is below `information`. `information_carrier` holds information in a
+  medium of any kind, is placed under neither `tangible` nor `intangible`, and is stated
+  `orthogonal` to both and to `information`, so a paper copy, a chirp and a web page are
+  each accepted as a carrier. `(carries ?carrier ?content)` types its positions
+  `information_carrier` and `information`. `(claims ?source (sentexHandle H))` says that
+  ?source presents sentex H as true; position 1 is `information_or_carrier`, a type
+  `covering` `information` and `information_carrier`, so a concluded claim derives
+  neither part. `claims` is `target_following_predicate`. A forward rule concludes
+  `(claims ?carrier ?s)` from `(carries ?carrier ?content)` and `(claims ?content ?s)`.
+  [contexts.md](docs/contexts.md).
+
+  *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
 
 ### Fix: answers
