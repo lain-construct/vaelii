@@ -91,6 +91,11 @@
   (doseq [t points] (v/assert kb (list 'time_point t) U))
   (doseq [[a b] (partition 2 1 points)] (v/assert kb (list 'instantBefore a b) U)))
 
+(defn- monads!
+  "Place each of `ms` under CxWell, so each is an ordinary context and a monad."
+  [kb & ms]
+  (doseq [m ms] (v/assert kb (list 'genlCx m 'CxWell) U)))
+
 ;; =========================================================================
 ;; Context slicing — a fact asserted into a time-keyed context
 ;; =========================================================================
@@ -197,6 +202,20 @@
         (is (true? (v/ask? kb (list p) noon)))
         (is (= :true (verdict kb (list p) noon)))))))
 
+(tu/deftest-kb ^:red a-slice-along-a-sub-monad-nobody-wrote-into-still-inherits
+  ;; The monad-dimension twin of a-slice-nobody-wrote-into-still-inherits: the unwritten
+  ;; slice narrows the monad, not the time.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p CxSuper CxSub]
+    (monads! kb CxSuper CxSub)
+    (v/assert kb (list 'genlMonad CxSub CxSuper) U)
+    (let [sup (slice CxSuper '(DatetimeFn "2000"))
+          sub (slice CxSub '(DatetimeFn "2000"))]
+      (v/assert kb (list p) sup)
+      (testing "the super-monad's 2000 fact is visible from the sub-monad's 2000 slice, which holds no fact of its own"
+        (is (true? (v/ask? kb (list p) sub)))
+        (is (= :true (verdict kb (list p) sub)))))))
+
 (tu/deftest-kb a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year
   ;; Iris's second example.  "Unknown" is read with `argue`: neither p nor (not p)
   ;; answers.  2001 is a sibling of 2000, so it sees nothing stated for 2000.
@@ -260,6 +279,27 @@
           (is (= :unknown (verdict kb (list p) noon2001)))
           (is (not (v/ask? kb (list 'not (list p)) noon2001))))))))
 
+(tu/deftest-kb ^:red a-fact-in-a-super-monads-slice-holds-along-its-sub-monad-and-is-unknown-along-an-unrelated-monad
+  ;; The monad-dimension twin of a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year:
+  ;; the sub-monad takes the month's place and an unrelated monad the next year's.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p CxSuper CxSub CxOther]
+    (monads! kb CxSuper CxSub CxOther)
+    (v/assert kb (list 'genlMonad CxSub CxSuper) U)
+    (let [sup   (slice CxSuper '(DatetimeFn "2000"))
+          sub   (slice CxSub '(DatetimeFn "2000"))
+          other (slice CxOther '(DatetimeFn "2000"))]
+      (v/assert kb (list p) sup)
+      (tu/with-terms [q r]
+        (v/assert kb (list q) other)
+        (v/assert kb (list r) sub)
+        (testing "p stated along the super-monad is true there and along the sub-monad"
+          (is (= :true (verdict kb (list p) sup)))
+          (is (= :true (verdict kb (list p) sub))))
+        (testing "and unknown along the unrelated monad: neither p nor its negation answers there"
+          (is (= :unknown (verdict kb (list p) other)))
+          (is (not (v/ask? kb (list 'not (list p)) other))))))))
+
 (tu/deftest-kb ^:red a-fact-stated-unsliced-holds-in-every-year-slice
   ;; Iris's first example.  The KB has no "eternal" or "atemporal" context: `atemporal`
   ;; is a type of thing (core.txt), not a way of stating a fact.  The nearest is a fact
@@ -299,6 +339,26 @@
           (is (= :true (verdict kb (list p) y2000))))
         (testing "and in January 2000, with nobody wiring either slice by hand"
           (is (true? (v/ask? kb (list p) jan))))))))
+
+(tu/deftest-kb ^:red a-fact-in-cxwells-year-slice-holds-that-year-along-every-monad-below-cxwell
+  ;; The monad-dimension twin of a-fact-stated-unsliced-holds-in-every-year-slice.  The
+  ;; original states a fact at no time in particular, along the root, and reads it at
+  ;; years; this states one at a year along CxWell, the monad every other monad here sits
+  ;; under, and reads it at that year along two monads below it, and at a month of it.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory]
+    (v/assert kb (list 'genlCx CxStory 'CxWell) U)
+    (v/assert kb (list 'genlMonad CxStory 'CxWell) U)
+    (let [top   (cx-of kb (v/assert kb (list p) (slice 'CxWell '(DatetimeFn "2000"))))
+          story (cx-of kb (v/assert kb (list q) (slice CxStory '(DatetimeFn "2000"))))]
+      (testing "the 2000 slice along CxStory sees the 2000 slice along CxWell, and p stated there is true"
+        (is (true? (v/sees? kb story top)))
+        (is (true? (v/ask? kb (list p) (slice CxStory '(DatetimeFn "2000")))))
+        (is (= :true (verdict kb (list p) (slice CxStory '(DatetimeFn "2000"))))))
+      (testing "and along CxMonad, and at January 2000 along either"
+        (is (true? (v/ask? kb (list p) (slice '(DatetimeFn "2000")))))
+        (is (true? (v/ask? kb (list p) (slice CxStory '(DatetimeFn "2000-01")))))
+        (is (true? (v/ask? kb (list p) (slice '(DatetimeFn "2000-01")))))))))
 
 (tu/deftest-kb ^:red a-slice-along-a-monad-under-cxwell-sees-cxwell-and-not-the-reverse
   ;; (d) CxWell is the shipped bottom anchor, below CxChange.  CxMonad sits under it
@@ -460,6 +520,25 @@
                (dissoc (two-spellings kb (slice CxOther start) (slice CxOther instant))
                        :distinct?)))))))
 
+(tu/deftest-kb ^:red two-names-of-one-monad-see-each-others-facts
+  ;; The monad-dimension twin of two-spellings-of-one-month-see-each-others-facts: two
+  ;; monads each genlMonad-below the other are one monad by two names, as two spellings
+  ;; each a subinterval of the other are one month.  The second arrival order uses a
+  ;; fresh year, so both slices are new, where the original uses a fresh monad.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [CxA CxB]
+    (monads! kb CxA CxB)
+    (v/assert kb (list 'genlMonad CxA CxB) U)
+    (v/assert kb (list 'genlMonad CxB CxA) U)
+    (testing "CxA written first: each name's slice sees the other's fact"
+      (is (= {:first-sees-second? true :second-sees-first? true}
+             (dissoc (two-spellings kb (slice CxA '(YearFn 2000)) (slice CxB '(YearFn 2000)))
+                     :distinct?))))
+    (testing "CxB written first, at a fresh year: the same"
+      (is (= {:first-sees-second? true :second-sees-first? true}
+             (dissoc (two-spellings kb (slice CxB '(YearFn 2001)) (slice CxA '(YearFn 2001)))
+                     :distinct?))))))
+
 (tu/deftest-kb ^:red a-slice-sees-its-monad-and-the-monad-does-not-see-the-slice
   ;; `CxStory` in `(CxTimeFn CxStory T)` is the dimension: "the year 2000, along the
   ;; CxStory dimension" (docs/context-nat.md).  A monad context's own time is unbounded
@@ -554,6 +633,25 @@
       (testing "nor does a moment of that year along another monad"
         (is (not (v/ask? kb (list p) (slice CxSouth '(InstantFn 2000 6 1 12 0 0)))))))))
 
+(tu/deftest-kb slices-keyed-by-two-unrelated-named-times-do-not-see-each-other
+  ;; The time-dimension twin of slices-along-two-monads-do-not-see-each-other: two named
+  ;; intervals with nothing stated between them are as unrelated as two monads with
+  ;; nothing stated between them, so the same monad at the two times is two unrelated
+  ;; contexts, and a named subinterval of one does not see the other.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p North South SouthPart]
+    (times! kb [North South SouthPart] [] ['subintervalOf SouthPart South])
+    (v/assert kb (list p) (slice North))
+    (tu/with-terms [q r]
+      (v/assert kb (list q) (slice South))
+      (v/assert kb (list r) (slice SouthPart))
+      (testing "control: the subinterval's slice sees its own interval's"
+        (is (true? (v/ask? kb (list q) (slice SouthPart)))))
+      (testing "the other named time does not see p"
+        (is (not (v/ask? kb (list p) (slice South)))))
+      (testing "nor does a named subinterval of it"
+        (is (not (v/ask? kb (list p) (slice SouthPart))))))))
+
 (tu/deftest-kb ^:red partially-overlapping-slices-and-their-intersection
   ;; Iris's third example, with the overlap and the intersection given as Allen relations
   ;; between named intervals.  The Allen network entails (subintervalOf AprJun JanJun)
@@ -638,6 +736,23 @@
       (testing "CxChange inertia runs over the narrative: the started state holds at T2"
         (is (true? (v/query? kb (list 'holdsAt f T2) ctx {:max-depth 3})))))))
 
+(tu/deftest-kb a-rule-stated-in-a-year-slice-runs-in-its-month-slice
+  ;; The time-dimension twin of a-narrative-in-a-time-slice-gets-the-event-calculus.  The
+  ;; original reads rules stated above the slice's monad; this reads a rule stated at a
+  ;; wider time along the same monad, which the month slice sees through the computed
+  ;; edge, and it passes today.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [blooms springHasCome Crocus]
+    (let [year  (slice '(DatetimeFn "2000"))
+          month (slice '(DatetimeFn "2000-03"))]
+      (tu/with-terms [p] (v/assert kb (list p) year))
+      (v/assert-rule kb [(list blooms '?x)] (list springHasCome '?x) year {:direction :backward})
+      (v/assert kb (list blooms Crocus) month)
+      (testing "the year's rule answers over the month's fact, from the month"
+        (is (true? (v/query? kb (list springHasCome Crocus) month {:max-depth 3}))))
+      (testing "and not from the year, which does not see the month's fact"
+        (is (not (v/query? kb (list springHasCome Crocus) year {:max-depth 3})))))))
+
 ;; =========================================================================
 ;; The monad dimension — issue #181, and the isomorphism with time
 ;; =========================================================================
@@ -647,12 +762,9 @@
 ;; is genlMonad-below the other's and its time is inside the other's.  `CxMonadOfFn` and
 ;; `CxTimeOfFn` take a context apart, and `monad_context` is a context with no temporal
 ;; part, the type of CxTimeFn's first argument.  Each test below is the monad-side twin
-;; of a time-side test above, named in its comment.
-
-(defn- monads!
-  "Place each of `ms` under CxWell, so each is an ordinary context and a monad."
-  [kb & ms]
-  (doseq [m ms] (v/assert kb (list 'genlCx m 'CxWell) U)))
+;; of a time-side test above, named in its comment.  A monad-dimension twin of any other
+;; time-side test sits beside that test, and a time-dimension twin of a test here sits
+;; beside it.
 
 (tu/deftest-kb ^:red the-monad-vocabulary-is-declared-in-the-shipped-kb
   ;; Twin of cxtimefn-is-declared-in-the-shipped-kb.  Issue #181 asks for each of these.
@@ -908,6 +1020,28 @@
     (testing "a stated genlCx between two monad contexts is a genlMonad"
       (is (true? (v/ask? kb (list 'genlMonad CxA CxB) U))))))
 
+(tu/deftest-kb ^:red subintervalof-between-the-times-of-two-slices-along-one-monad-is-their-genlcx
+  ;; The time-dimension twin of genlmonad-between-two-monad-contexts-is-their-genlcx.  Along
+  ;; one monad the monad half of the product always holds, so genlCx between two slices
+  ;; and subintervalOf between their times coincide, each way.  The first way is the
+  ;; computed edge and holds today; the second is a stated genlCx between two slices,
+  ;; which ought to be read back as a subintervalOf between the times.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p Wide Narrow A B]
+    (times! kb [Wide Narrow A B] [] ['subintervalOf Narrow Wide])
+    (let [kw (cx-of kb (v/assert kb (list p) (slice Wide)))]
+      (tu/with-terms [q]
+        (let [kn (cx-of kb (v/assert kb (list q) (slice Narrow)))]
+          (testing "control: a stated subintervalOf makes the narrower slice see the wider"
+            (is (true? (v/sees? kb kn kw)))
+            (is (true? (v/ask? kb (list p) (slice Narrow))))))))
+    (tu/with-terms [r s]
+      (let [ka (cx-of kb (v/assert kb (list r) (slice A)))
+            kb' (cx-of kb (v/assert kb (list s) (slice B)))]
+        (v/assert kb (list 'genlCx ka kb') U)
+        (testing "a stated genlCx between two slices along one monad is a subintervalOf between their times"
+          (is (true? (v/ask? kb (list 'subintervalOf A B) U))))))))
+
 (tu/deftest-kb ^:red cxtimeof-and-cxmonadof-take-a-slice-apart-and-cxtimefn-puts-it-back
   ;; The round trip: (CxTimeFn (CxMonadOfFn S) (CxTimeOfFn S)) names S itself.
   (declare-cxtimefn! kb)
@@ -979,6 +1113,20 @@
                                                 (slice (slice CxStory '(YearFn 2000))
                                                        '(MonthFn 2000 1)))))))))
 
+(tu/deftest-kb ^:red cxtimefns-second-argument-is-typed-a-time
+  ;; The time-dimension twin of monad-context-types-cxtimefns-first-argument: CxTimeFn's
+  ;; second argument is untyped today, so a write into a slice keyed by a context or by a
+  ;; number is stored like any other.  A slice is keyed by a time.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory]
+    (monads! kb CxStory)
+    (testing "control: a write into a slice keyed by a time is stored"
+      (is (= :answered (refusal-type #(v/assert kb (list p) (slice CxStory '(YearFn 2000)))))))
+    (testing "a write into a slice keyed by a context is refused for its argument type"
+      (is (= :arg-type (refusal-type #(v/assert kb (list q) (slice CxStory CxStory))))))
+    (testing "and so is a write into a slice keyed by a number"
+      (is (= :arg-type (refusal-type #(v/assert kb (list q) (slice CxStory 2000))))))))
+
 (tu/deftest-kb ^:red a-slice-of-a-slice-is-the-slice-of-its-monad-at-the-narrower-time
   ;; Issue #181 defines a slice of a slice through the two parts: January of the slice
   ;; (CxStory, 2000) is (CxTimeFn (CxMonadOfFn S) (MonthFn 2000 1)), which is the slice
@@ -1021,6 +1169,24 @@
       (testing "a write into the slice of S at the moment lands in (CxStory, that moment)"
         (is (= (cx-of kb (v/assert kb (list q) ss))
                (cx-of kb (v/assert kb (list q) (slice CxStory noon))))))
+      (testing "and that slice sees S's fact"
+        (is (true? (v/ask? kb (list p) ss)))))))
+
+(tu/deftest-kb ^:red a-slice-of-a-slice-along-the-monad-axis-is-the-slice-of-a-sub-monad-at-its-time
+  ;; The monad-dimension twin of a-slice-of-a-slice-is-the-slice-of-its-monad-at-the-narrower-time.
+  ;; The original keeps S's monad and narrows its time; this keeps S's time and narrows
+  ;; its monad: (CxTimeFn CxSubStory (CxTimeOfFn S)), for S the slice (CxStory, 2000) and
+  ;; CxSubStory genlMonad-below CxStory, is the slice (CxSubStory, 2000), and it sees what
+  ;; S holds.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory CxSubStory]
+    (monads! kb CxStory CxSubStory)
+    (v/assert kb (list 'genlMonad CxSubStory CxStory) U)
+    (let [s  (cx-of kb (v/assert kb (list p) (slice CxStory '(YearFn 2000))))
+          ss (list 'CxTimeFn CxSubStory (list 'CxTimeOfFn s))]
+      (testing "a write into the sub-monad's slice at S's time lands in (CxSubStory, 2000)"
+        (is (= (cx-of kb (v/assert kb (list q) ss))
+               (cx-of kb (v/assert kb (list q) (slice CxSubStory '(YearFn 2000)))))))
       (testing "and that slice sees S's fact"
         (is (true? (v/ask? kb (list p) ss)))))))
 
@@ -1478,6 +1644,17 @@
   (testing "control: the point network takes the two spellings for one moment"
     (v/add-reasoner kb :point)
     (is (true? (v/ask? kb '(instantEqual (InstantFn 2000 1 1 0 0 0) (StartFn (MonthFn 2000 1))) U)))))
+
+(tu/deftest-kb ^:red two-names-of-one-monad-name-one-context
+  ;; The monad-dimension twin of two-spellings-of-one-month-name-one-context.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [CxA CxB]
+    (monads! kb CxA CxB)
+    (v/assert kb (list 'genlMonad CxA CxB) U)
+    (v/assert kb (list 'genlMonad CxB CxA) U)
+    (testing "the year 2000 along two names of one monad reifies to one cx/ context"
+      (is (false? (:distinct? (two-spellings kb (slice CxA '(YearFn 2000))
+                                             (slice CxB '(YearFn 2000)))))))))
 
 (tu/deftest-kb ^:red a-fact-in-a-year-slice-holds-in-a-slice-keyed-by-an-instant-inside-it
   ;; Homogeneity, downward: a fact true throughout 2000 is true at each moment of 2000.
