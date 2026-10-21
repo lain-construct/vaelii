@@ -2103,7 +2103,21 @@ antecedents already get ([qcn.md](qcn.md), [inherit.md](inherit.md)):
   and no believed stored fact states. The settle then re-joins the rule, which derives the
   wider answer a departed source had narrowed.
 
-**The transitive one carries no roster, and that is the one difference.**
+**`ExpressionKindProver` reads two sources no functor names.** Under a quoted
+application's symbol head R it reads a membership `(T R)`, T any type at or below
+`relation`, and R's length. `provers/support-answers-reading` takes a membership of such a
+type as a source datum, by a lookup in `relation`'s subtypes, so a fact of any other type
+costs that lookup. A membership that passes it then reads the term index for the stored
+sentexes holding a quoting function and R, and the records of those, for a quoted
+application headed by R; it re-joins nothing without one. A length moves with a binding, a
+`genl` edge or a relabel, none of them a datum on a source, so a settle pass whose arity
+refresh moved R's length (`arity/drain!`), with a quoted application headed by R stored,
+queues the rules over a kind a length moves for a re-check of every firing and a re-join
+(`special/recheck-on-lengths`). The join asks a kind goal at the contexts of R's
+memberships beside those of the sources (`provers/stated-kind-handles`), so a membership
+stated in a context of its own classifies the form for that context's readers.
+
+**The transitive one carries no roster.**
 `support-functors` and `support-sources` are constants on a prover, and which predicates
 `TransitivePredicateProver` answers is whatever a KB declared `(transitive P)` of — a
 taxonomy read. So both its sets are empty and the two questions a roster would settle are
@@ -2316,9 +2330,10 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   other provers, since a constant or a function application can denote a number. This
   is the extension point for arithmetic / CLP / any calculated relation.
 - **ExpressionKindProver** — `(k (Quote X))`, `k` an expression kind, answered from X's
-  spelling and cited to the `termOfUnit` statement and the `genl` path it read
-  ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete (50): a stored
-  membership answers beside it.
+  spelling and, under a symbol head R, from R's stored membership in `predicate` or
+  `function` and R's length, cited to the `termOfUnit` statement, those statements and the
+  `genl` path it read ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete
+  (50): a stored membership answers beside it.
 - **AggregateProver** — the five reductions over a query's solutions:
   `(agg/count ?n ?v Body)` binds `?n` to how many **distinct** `?v` satisfy
   `Body`, `Sum` / `Min` / `Max` / `Avg` to the arithmetic ones. `?v` is projected out,

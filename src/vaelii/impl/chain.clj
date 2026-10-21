@@ -793,10 +793,20 @@
   from (`provers/source-contexts`).  They default to those of the whole registry's
   declared sources, which is what a `SupportingProver` with a fixed roster wants; a
   transitive antecedent passes its own walk's instead (`transitive-contexts`), since what
-  the walk reads is a taxonomy read rather than a constant."
+  the walk reads is a taxonomy read rather than a constant.  An antecedent on an
+  expression kind adds, per state, the contexts of the memberships of the quoted form's
+  head (`provers/stated-kind-handles`), which no source functor names."
   ([kb literal states]
-   (solve-computed kb literal states
-                   (provers/source-contexts kb (provers/support-source-preds kb))))
+   (let [preds (provers/support-source-preds kb)]
+     (if (contains? provers/expression-kind-predicates (nm/functor literal))
+       (distinct
+        (mapcat (fn [st]
+                  (solve-computed kb literal [st]
+                                  (provers/source-contexts
+                                   kb preds (provers/stated-kind-handles
+                                             kb (res/substitute literal (:bindings st))))))
+                states))
+       (solve-computed kb literal states (provers/source-contexts kb preds)))))
   ([kb literal states ctxs]
    (distinct
     (for [{:keys [bindings handles matched]} states
@@ -4009,6 +4019,7 @@
                          ;; first, since a tuple the refresh holds inert is OUT in the
                          ;; network every other family detects over
                          (into (let [{:keys [pairs moved]} (arity/drain! kb)]
+                                 (special/recheck-on-lengths kb moved)
                                  (into (sync-arity-pairs! kb pairs)
                                        (sync-negates-lengths! kb (arity/take-negates! kb) moved))))
                          (cond-> others?

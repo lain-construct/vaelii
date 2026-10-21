@@ -1184,11 +1184,10 @@
   [k x]
   ((value-kind-tests k) x))
 
-;; ---- expression kinds: what a quoted form is, read off its shape --------------
-;; `(Quote X)` denotes the expression X, and which kind of expression X is follows from
-;; how X is written (docs/argtypes.md, "What a quoted form is").  This section reads only
-;; the spelling; whether `(R a)` is a predication or a non_atomic_term is R's stored
-;; kind, which it does not read.
+;; ---- expression kinds: what a quoted form is ----------------------------------
+;; `(Quote X)` denotes the expression X.  Some of X's kinds follow from how X is written
+;; (`shape-kinds`); whether `(R a)` is a predication, a non_atomic_term or ill-formed is
+;; what the KB states of R (`stated-kinds`).  docs/argtypes.md, "What a quoted form is".
 
 (def formula-heads
   "The heads whose application is a formula whatever its operands: the connectives, the
@@ -1227,7 +1226,15 @@
   '#{expression atomic_expression non_atomic_expression atomic_term variable symbol
      unrepresented_term string number integer keyword boolean character
      denotational_term non_atomic_term formula sentence open_formula
-     wff_expression ill_formed_expression open_expression closed_expression})
+     predication closed_predication open_predication literal closed_literal open_literal
+     wff_expression ill_formed_expression ill_formed ill_formed_sentence
+     open_expression closed_expression})
+
+(def ^:private stated-kind-floor
+  "The kinds `stated-kinds` can give a form.  A relation's stored kind or length moves the
+  answers at or above one of them (`relation-moved-answers`)."
+  '[closed_predication open_predication non_atomic_term ill_formed_sentence ill_formed
+    open_formula ill_formed_expression])
 
 (defn- quoted-form
   "`[F x handles]` when the term `q` is a quoted form: `(F x)` with `F` a quoting function
@@ -1262,18 +1269,82 @@
          (tax/genl? tax (first goal) 'expression context)
          (some? (quoted-form kb q context)))))
 
+(defn- relation-kinds
+  "`{kind handles}` for each of `predicate` and `function` the symbol `r` is a member of
+  from `context`: the content-least believed membership `(T r)` whose `T` reaches the
+  kind (`res/type-memberships`), its handle followed by the edges of one `genl` path from
+  `T` to the kind (`tax/reach-support`)."
+  [kb r context]
+  (let [tax (reasoning/taxonomy kb)
+        ms  (sort-by (juxt #(nm/name-key (nm/functor (:sentence %))) #(nm/name-key (:context %)))
+                     (res/type-memberships kb r context))]
+    (into {}
+          (keep (fn [k]
+                  (some (fn [m]
+                          (let [t (nm/functor (:sentence m))]
+                            (when (tax/genl? tax t k context)
+                              [k (into [(:id m)] (map first) (tax/reach-support tax :genl t k context))])))
+                        ms)))
+          '[predicate function])))
+
+(defn stated-kinds
+  "The expression kinds of the compound `x` under a symbol head `r` that what the KB states
+  of `r` decides, as `{kind handles}`, each kind with the statements it rests on.  When
+  `r` is a predicate and not a function (`relation-kinds`), `x` is a `closed_predication`,
+  or an `open_predication` when a variable is free in it.  When `r` is a function and not
+  a predicate, a closed `x` is a `non_atomic_term`.  When the argument count breaks `r`'s
+  length (`arity/broken-binding`, read the same at every context), `x` is an
+  `ill_formed_sentence` for a predicate `r` and a closed `x`, an `ill_formed` and an
+  `open_formula` for a predicate `r` and an open `x`, and an `ill_formed_expression`
+  otherwise; the binding's grounds and route are among the handles.  The map is empty for
+  any other `x`, and for an `r` the KB places under both kinds or neither."
+  [kb x context]
+  (let [r (when (sequential? x) (first x))]
+    (if (or (not (symbol? r)) (sx/variable? r) (contains? formula-heads r))
+      {}
+      (let [open? (boolean (seq (sx/unquoted-free-vars x)))
+            rel   (relation-kinds kb r context)
+            p     (when-not (get rel 'function) (get rel 'predicate))
+            f     (when-not (get rel 'predicate) (get rel 'function))
+            bad   (arity/broken-binding kb r (dec (count x)))]
+        (cond
+          bad      (let [hs (into (:grounds bad) (:route bad))]
+                     (cond
+                       (nil? p) {'ill_formed_expression hs}
+                       open?    (let [hs (into hs p)] {'ill_formed hs 'open_formula hs})
+                       :else    {'ill_formed_sentence (into hs p)}))
+          p        {(if open? 'open_predication 'closed_predication) p}
+          (and f (not open?)) {'non_atomic_term f}
+          :else    {})))))
+
+(defn stated-kind-handles
+  "The handles of the believed memberships `(T r)`, at every context, of the symbol `r`
+  heading the compound the goal `g` quotes, when `g` is on an expression kind
+  (`expression-kind-predicates`); else nil.  `stated-kinds` reads these beside the
+  prover's source functors, so a forward join asks `g` at their contexts too
+  (`source-contexts`'s `also`)."
+  [kb g]
+  (when (and (sequential? g) (= 2 (count g)) (contains? expression-kind-predicates (first g)))
+    (when-let [[_ x _] (quoted-form kb (second g) '?ctx)]
+      (let [r (when (sequential? x) (first x))]
+        (when (and (symbol? r) (not (sx/variable? r)) (not (contains? formula-heads r)))
+          (not-empty (mapv :id (res/type-memberships kb r '?ctx))))))))
+
 (defn- expression-kind-support
   "The handles `(k q)` rests on, as a vector, or nil when no kind of the form `q` quotes
   reaches `k` from `context`: the `termOfUnit` statement when `q` is a reified constant,
-  then one `genl` path from the first kind of the form, in name order, that reaches `k`.
-  The quoting function itself is fixed by the engine and rests on no statement."
+  then one `genl` path from the first kind of the form that reaches `k`, the kinds its
+  spelling decides (`shape-kinds`) in name order and then the kinds the KB decides
+  (`stated-kinds`) in name order, each of these with the handles it rests on.  The
+  quoting function itself is fixed by the engine and rests on no statement."
   [kb [k q] context]
   (let [tax (reasoning/taxonomy kb)]
     (when-let [[_ x hs] (quoted-form kb q context)]
-      (some (fn [s]
-              (when-let [path (tax/reach-support tax :genl s k context)]
-                (into hs (map first) path)))
-            (sort-by nm/name-key (shape-kinds x))))))
+      (let [reach (fn [[s sup]]
+                    (when-let [path (tax/reach-support tax :genl s k context)]
+                      (-> hs (into sup) (into (map first) path))))]
+        (or (some reach (map vector (sort-by nm/name-key (shape-kinds x)) (repeat [])))
+            (some reach (sort-by (comp nm/name-key key) (stated-kinds kb x context))))))))
 
 (defrecord EvaluableProver []                    ; arithmetic comparison, EDN-kind + string-shape check
   Prover
@@ -1635,7 +1706,8 @@
   (est-bindings [_ _ goal _] (if (sx/variable? (second goal)) deferred-est 1))
   (cost         [_ _ _ _] :lookup)
   ;; 50, not 100: a stored membership of a quoted form answers beside this, and a kind
-  ;; this does not decide (a predication) is a contribution of none rather than a "no"
+  ;; this does not decide (a predication whose head the KB states nothing of) is a
+  ;; contribution of none rather than a "no"
   (completeness [_ _ _ _] 50)
   (solve [_ kb goal context]
     (if (expression-kind-support kb goal context) [{}] []))
@@ -3303,6 +3375,52 @@
                (or (ground? (second goal)) (ground? (nth goal 2))))
       (est-bindings (->DisjointnessProver) kb goal '?ctx))))
 
+(defn relation-moved-answers
+  "The functors the registered `ExpressionKindProver` answers that what the KB states of a
+  relation can move: those at or above a kind `stated-kinds` gives, read globally because
+  the re-join reads every context.  Nil when no `ExpressionKindProver` is registered."
+  [kb]
+  (when-let [pr (first (filter #(instance? ExpressionKindProver %) (:provers (support-summary kb))))]
+    (let [tx (reasoning/taxonomy kb)
+          fs (support-functors pr)]
+      (not-empty (into #{} (mapcat #(tax/genls-global-among tx % fs)) stated-kind-floor)))))
+
+(defn quoted-anywhere?
+  "Does a stored sentex hold a quoting function's application (`sx/quoting-functors`)?
+  One term-index read per quoting function, belief unread (`reads/as-stored-with-term`)."
+  [kb]
+  (boolean (some #(seq (reads/as-stored-with-term (:index kb) %)) sx/quoting-functors)))
+
+(defn quoted-head?
+  "Does a stored sentex hold a quoted application `(F (r …))` whose head is `r`, `F` a
+  quoting function?  One term-index intersection per quoting function names the
+  candidates (`reads/as-stored-with-terms`), and each candidate's record is read for the
+  form; belief is unread."
+  [kb r]
+  (let [recs (:records kb)]
+    (boolean
+     (some (fn [f]
+             (some (fn [h]
+                     (when-let [rec (p/get-sentex recs h)]
+                       (some #(and (sequential? %) (= 2 (count %)) (= f (first %))
+                                   (sequential? (second %)) (= r (first (second %))))
+                             (tree-seq sequential? seq (sx/sentence-of rec)))))
+                   (reads/as-stored-with-terms (:index kb) [f r])))
+           sx/quoting-functors))))
+
+(defn- relation-membership?
+  "Is `s` a membership `(T r)` of a symbol in a type `T` at or below `relation`, which can
+  move `r`'s kind (`stated-kinds`), with a quoted application headed by `r` stored
+  (`quoted-head?`)?  The type test is a lookup in `relation`'s subtypes, read globally
+  (`tax/specs-global`), which the taxonomy holds until a `genl` edge moves, and only a
+  membership that passes it reads the term index."
+  [kb s]
+  (and (seq? s) (= 2 (count s))
+       (let [t (first s)]
+         (and (symbol? t) (not (sx/variable? t)) (symbol? (second s))
+              (contains? (tax/specs-global (reasoning/taxonomy kb) 'relation) t)
+              (quoted-head? kb (second s))))))
+
 (defn support-answers-reading
   "The functors answered by the registered `SupportingProver`s that read `src`, or nil
   when none reads it: the answers the datum `s`, on `src`, can move.  A supporter reads
@@ -3310,14 +3428,18 @@
   (`tax/installed-edges`) moves only the answers at or above the edge's upper end,
   read globally because the re-join reads every context.  The test walks down from the
   answers (`tax/genls-global-among`), so its cost does not grow with the depth of the
-  edge's upper end."
+  edge's upper end.  A membership that can move a relation's kind
+  (`relation-membership?`) moves `relation-moved-answers` whatever its functor."
   [kb src s]
-  (when-let [answers (get (:reading (support-summary kb)) src)]
-    (if (contains? tax/edge-installing-functors src)
-      (let [tx (reasoning/taxonomy kb)]
-        (not-empty (into #{} (mapcat (fn [[_ super]] (tax/genls-global-among tx super answers)))
-                         (tax/installed-edges s))))
-      answers)))
+  (let [read (when-let [answers (get (:reading (support-summary kb)) src)]
+               (if (contains? tax/edge-installing-functors src)
+                 (let [tx (reasoning/taxonomy kb)]
+                   (not-empty (into #{} (mapcat (fn [[_ super]] (tax/genls-global-among tx super answers)))
+                                    (tax/installed-edges s))))
+                 answers))]
+    (if-let [moved (when (relation-membership? kb s) (relation-moved-answers kb))]
+      (into (or read #{}) moved)
+      read)))
 
 (defn support-source-preds
   "The functors a registered `SupportingProver` *reads*.  A datum on one of these moves an

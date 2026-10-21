@@ -1321,7 +1321,7 @@ E16_GLOBAL_ROSTER = {
     # or a report reads every stored rule, and `direct-concluders` is the stored graph.
     ("src/vaelii/impl/chain.clj", "fire-rules-for"),
     ("src/vaelii/impl/chain.clj", "permuting-rejoin-rules"),
-    ("src/vaelii/impl/special.clj", "computed-reading-rules"),
+    ("src/vaelii/impl/special.clj", "rules-taking"),
     ("src/vaelii/impl/chain.clj", "transitive-rejoin-rules"),
     ("src/vaelii/impl/chain.clj", "closure-rejoin-rules"),
     ("src/vaelii/impl/special.clj", "recheck-on-separation"),
@@ -1688,6 +1688,8 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "marked-roots"),
     # The re-join reads every context, so an edge's upper end is read through every edge.
     ("src/vaelii/impl/provers.clj", "support-answers-reading"),
+    ("src/vaelii/impl/provers.clj", "relation-moved-answers"),
+    ("src/vaelii/impl/provers.clj", "relation-membership?"),
 }
 E17_DEF = re.compile(r"\(def[\w-]*\s+(?:\^[^\s]+\s+)*([^\s\)]+)")
 E17_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|;[^\n]*|\\.[^\s,()\[\]{}]*|#_|#?[(\[{]|[)\]}]|[^\s,()\[\]{}";]+')

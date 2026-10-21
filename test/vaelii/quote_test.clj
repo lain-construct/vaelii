@@ -17,6 +17,7 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.order-independence-test :as oi]
             [vaelii.test-util :as tu]))
 
 ;; The fixture loads the upper layer, whose reflection.txt holds the expression lattice the
@@ -132,6 +133,114 @@
       (v/retract! kb m)
       (is (not (v/ask? kb (list asserter Tom) 'CxUniverse))
           "and retracting the fact withdraws the conclusion"))))
+
+;; ---- the head's stored kind: predication, non_atomic_term, ill-formed ---------------
+;; Whether `(R a)` is a predication or a non_atomic_term, and whether R's length admits its
+;; arguments, is what the KB states of R (`provers/stated-kinds`), never R's spelling.
+
+(tu/deftest-kb a-quoted-application-is-classified-by-its-heads-stored-kind
+  (tu/with-terms [dog MotherFn hound]
+    (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+    (v/assert kb (list 'predicate dog) 'CxUniverse)
+    (v/assert kb (list 'arity dog 1) 'CxUniverse)
+    (v/assert kb (list 'unreifiable_function MotherFn) 'CxUniverse)
+    (v/assert kb (list 'arity MotherFn 1) 'CxUniverse)
+    (doseq [[kind x holds? why]
+            [['closed_predication (list dog 'Muffet) true "dog is a predicate"]
+             ['literal (list dog 'Muffet) true "a predication is a literal"]
+             ['sentence (list dog 'Muffet) true "a closed predication is a sentence"]
+             ['open_predication (list dog '?x) true "?x is free in it"]
+             ['sentence (list dog '?x) false "an open predication is no sentence"]
+             ['non_atomic_term (list dog 'Muffet) false "dog is no function"]
+             ['non_atomic_term (list MotherFn 'Muffet) true "MotherFn is a function"]
+             ['wff_expression (list MotherFn 'Muffet) true "a denotational_term is a wff_expression"]
+             ['predication (list MotherFn 'Muffet) false "MotherFn is no predicate"]
+             ['non_atomic_term (list MotherFn '?x) false "a denotational_term is closed"]
+             ['open_expression (list MotherFn '?x) true "its spelling decides openness"]
+             ['predication (list hound 'Muffet) false "the KB states nothing of hound"]
+             ['non_atomic_term (list hound 'Muffet) false "the KB states nothing of hound"]
+             ['non_atomic_expression (list hound 'Muffet) true "its spelling decides that much"]
+             ['ill_formed_sentence (list dog 'Muffet 'Rex) true "dog takes one argument"]
+             ['predication (list dog 'Muffet 'Rex) false "an ill-formed expression predicates nothing"]
+             ['ill_formed (list dog '?x 'Rex) true "an open application of a predicate is a formula"]
+             ['ill_formed_expression (list MotherFn 'A 'B) true "MotherFn takes one argument"]
+             ['non_atomic_term (list MotherFn 'A 'B) false "an ill-formed expression denotes nothing"]]]
+      (testing (str (list kind (list 'Quote x)) " " holds? ": " why)
+        (is (= holds? (v/ask? kb (list kind (list Quote x)) 'CxUniverse)))))))
+
+;; The head's membership and its length are data on no functor a rule over a quoted form
+;; names: `provers/support-answers-reading` re-joins the rule when a membership of a type
+;; below `relation` arrives, and `special/recheck-on-lengths` when a settle moves a length.
+
+(tu/deftest-kb a-predication-antecedent-fires-in-every-arrival-order-and-withdraws-with-the-kind
+  (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+  (doseq [order (oi/permutations [:rule :fact :kind])]
+    (tu/with-terms [dog said asserter Tom]
+      (let [hs (into {} (for [o order]
+                          [o (case o
+                               :rule (v/assert kb (list 'implies (list 'and (list said '?a '?q) (list 'predication '?q))
+                                                        (list asserter '?a))
+                                               'CxUniverse {:direction :forward})
+                               :fact (v/assert kb (list said Tom (list Quote (list dog 'Muffet))) 'CxUniverse)
+                               :kind (v/assert kb (list 'predicate dog) 'CxUniverse))]))]
+        (is (v/ask? kb (list asserter Tom) 'CxUniverse) (str (vec order) " fires"))
+        (v/retract! kb (:kind hs))
+        (is (not (v/ask? kb (list asserter Tom) 'CxUniverse)) (str (vec order) " withdraws"))))))
+
+(tu/deftest-kb an-ill-formed-antecedent-fires-in-every-arrival-order-of-an-inherited-length
+  (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+  (doseq [order (oi/permutations [:rule :fact :length :edge])]
+    (tu/with-terms [dog animal said asserter Tom]
+      (let [hs (into {} (for [o order]
+                          [o (case o
+                               :rule   (v/assert kb (list 'implies (list 'and (list said '?a '?q)
+                                                                         (list 'ill_formed_expression '?q))
+                                                          (list asserter '?a))
+                                                 'CxUniverse {:direction :forward})
+                               :fact   (v/assert kb (list said Tom (list Quote (list dog 'A 'B))) 'CxUniverse)
+                               :length (v/assert kb (list 'arity animal 1) 'CxUniverse)
+                               :edge   (v/assert kb (list 'genl dog animal) 'CxUniverse))]))]
+        (is (v/ask? kb (list asserter Tom) 'CxUniverse) (str (vec order) " fires"))
+        (v/retract! kb (:edge hs))
+        (is (not (v/ask? kb (list asserter Tom) 'CxUniverse)) (str (vec order) " withdraws"))))))
+
+(tu/deftest-kb a-length-arriving-withdraws-the-predication-it-breaks
+  (tu/with-terms [dog said well_said ill_said Tom]
+    (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+    (v/assert kb (list 'predicate dog) 'CxUniverse)
+    (doseq [[k c] [['predication well_said] ['ill_formed ill_said]]]
+      (v/assert kb (list 'implies (list 'and (list said '?a '?q) (list k '?q)) (list c '?a))
+                'CxUniverse {:direction :forward}))
+    (v/assert kb (list said Tom (list Quote (list dog 'A 'B))) 'CxUniverse)
+    (let [read #(vector (v/ask? kb (list well_said Tom) 'CxUniverse)
+                        (v/ask? kb (list ill_said Tom) 'CxUniverse))
+          before (read)
+          h      (v/assert kb (list 'arity dog 1) 'CxUniverse)
+          during (read)]
+      (v/retract! kb h)
+      (is (= [[true false] [false true] [true false]] [before during (read)])
+          "(dog A B) is a predication until dog's length is one"))))
+
+;; The join asks a kind goal at the contexts of the head's memberships, which hold no
+;; source of the prover's, so the firing lands where the membership and the fact meet.
+(tu/deftest-kb a-head-kind-stated-in-a-context-classifies-for-its-readers-only
+  (v/assert kb (list 'unreifiable_function Quote) 'CxUniverse)
+  (doseq [kind-first? [true false]]
+    (tu/with-terms [dog said asserter Tom CxA CxReader CxOther]
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxReader CxA) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxOther 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'implies (list 'and (list said '?a '?q) (list 'predication '?q))
+                         (list asserter '?a))
+                'CxUniverse {:direction :forward})
+      (let [kind #(v/assert kb (list 'predicate dog) CxA)]
+        (when kind-first? (kind))
+        (doseq [c [CxReader CxOther]]
+          (v/assert kb (list said Tom (list Quote (list dog 'Muffet))) c))
+        (when-not kind-first? (kind)))
+      (is (= [true false]
+             [(v/ask? kb (list asserter Tom) CxReader) (v/ask? kb (list asserter Tom) CxOther)])
+          (str "kind first " kind-first?)))))
 
 ;; ---- closedness: a variable inside (Quote …) is not free around it ----------------
 ;; `sx/ground?` answers whether a sentence holds any variable at all.  `sx/closed?` answers

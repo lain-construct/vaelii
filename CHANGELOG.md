@@ -209,6 +209,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive
 
+- **A quoted application is classified by what the KB states of its head.** Under a
+  symbol head R, `(predication (Quote (R a)))` holds when R is a member of `predicate` or
+  a type below it, `(non_atomic_term (Quote (R a)))` when R is a function and the form is
+  closed, and `ill_formed_expression` (`ill_formed` for a predicate) when R's length rules
+  out the argument count. R's spelling is never read. The answer cites the membership,
+  the bindings and the `genl` edges it rests on, and a forward rule over one of these kinds
+  fires whether the head's kind arrives before or after the rule and the quoted fact
+  ([#145](https://github.com/vaelii/vaelii/issues/145)).
+  [argtypes.md](docs/argtypes.md#what-a-quoted-form-is).
+
 - **`core.txt` ships the predicate and function exact-arity mappings, whose stamped rules
   are inert.** `(predicateTypeByArity unary_predicate 1)` through `(predicateTypeByArity
   quinary_predicate 5)`, one fact per exact-arity predicate class, and the five

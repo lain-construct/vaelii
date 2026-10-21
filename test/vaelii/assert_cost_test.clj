@@ -14,13 +14,13 @@
   declaration-carrying predicate.  It was found by hand, against a worktree at the
   parent commit.
 
-  This gate closes that gap from the other side.  It runs seventeen fixed workloads with
+  This gate closes that gap from the other side.  It runs eighteen fixed workloads with
   `vaelii.impl.profile` collecting and pins the **exact** index-operation counts each one
   costs: every `IndexStore` read by family, every `index-sentex` batch op by family, and
-  every `unindex-sentex!` batch op by family.  Twelve of the seventeen assert and five retract,
+  every `unindex-sentex!` batch op by family.  Thirteen of the eighteen assert and five retract,
   so a constant added to either write path lands here.
 
-  **Eight of the twelve write a fact and four write the vocabulary**, which is the split to
+  **Nine of the thirteen write a fact and four write the vocabulary**, which is the split to
   read the assert half by.  A check that grows costs a fact nothing and a `genl` edge or
   an `(arity P n)` everything: a binding or an edge queues the functors below it for the
   settle's inert-tuple refresh (`arity/drain!`), which reads their lengths off the shape
@@ -101,9 +101,9 @@
 (use-fixtures :each (fn [t] (try (t) (finally (prof/stop)))))
 
 (def ^:private n
-  "Operations per workload — asserts in the twelve assert workloads, retractions in the five
+  "Operations per workload — asserts in the thirteen assert workloads, retractions in the five
   teardowns.  Large enough that a per-operation constant lands as a three-digit difference
-  rather than a rounding one, small enough that seventeen workloads are a few seconds."
+  rather than a rounding one, small enough that eighteen workloads are a few seconds."
   100)
 
 (def ^:private ^:dynamic *index*
@@ -174,6 +174,18 @@
       (v/assert kb (list 'genl (t i) (t (inc i))) 'CxPerf {:strength :monotonic}))
     (fn [] (dotimes [i n]
              (v/assert kb (list (t 0) (ind "AcDM" i)) 'CxPerf {})))))
+
+(defn- relation-membership
+  "A membership in a type below `relation`, the write that can move what the KB states of
+  a relation and so a quoted application's kind (`provers/stated-kinds`).  The workload
+  prices the re-join's presence check where the type test passes: no quoted form is
+  stored here, so the check asks the term index once per quoting function and reads no
+  record and no rule."
+  []
+  (let [kb (fresh)]
+    (v/assert kb '(genl acrm_t relation) 'CxPerf {:strength :monotonic})
+    (fn [] (dotimes [i n]
+             (v/assert kb (list 'acrm_t (ind "AcRM" i)) 'CxPerf {})))))
 
 (defn- declared
   "A fact of a predicate carrying an `arg` declaration at both positions, over
@@ -534,11 +546,16 @@
 ;; `nat-orphan-teardown` settles twice per retraction.
 
 (def ^:private budgets
+  ;; `:term-index` 2 in `:plain`, `:negative` and `:compound`: the KB's first settle
+  ;; refreshes every length (`arity/drain!`'s first call), and `special/recheck-on-lengths`
+  ;; asks the term index once per quoting function whether a quoted form is stored
+  ;; (`provers/quoted-anywhere?`).  None is, so no rule is read.  A workload whose build
+  ;; writes took the first settle before the thunk ran.
   [{:name    :plain
     :build   plain
     :sentexes 100
     :reads   {:arity-binding 3 :exception-index 100 :opposed 100 :predicate-extent 1104
-              :rule-index 100 :trie-counts 701 :trie-lookup 100 :mint 100}
+              :rule-index 100 :term-index 2 :trie-counts 701 :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1300 :roster 202 :slots 300}}
 
    ;; **One membership read per assert above `plain`**: a unary fact's argument is read
@@ -572,6 +589,20 @@
     :reads   {:arity-binding 11 :argument-root 100 :argument-slot 100 :exception-index 100
               :opposed 100 :predicate-extent 1500 :rule-index 100 :tax-support 100 :trie-counts 900
               :trie-lookup 100 :mint 100}
+    :writes  {:levels 400 :terms 300 :roots 1000 :roster 100 :slots 300}}
+
+   ;; **Four `:term-index` reads per assert above `:membership`, and nothing else.**  The
+   ;; type is below `relation`, so the membership can move a quoted application's kind,
+   ;; and the chainer and the re-check trigger (`special/computed-reading-rules`) each ask
+   ;; the term index for the stored sentexes holding a quoting function and the member,
+   ;; once per quoting function.  None is stored, so no record is read.  A membership in any other type stops at the lookup in
+   ;; `relation`'s subtypes, which reads no index entry: `:membership` above.
+   {:name    :relation-membership
+    :build   relation-membership
+    :sentexes 100
+    :reads   {:arity-binding 3 :argument-root 100 :argument-slot 100 :exception-index 100
+              :opposed 100 :predicate-extent 1500 :rule-index 100 :tax-support 100 :term-index 400
+              :trie-counts 900 :trie-lookup 100 :mint 100}
     :writes  {:levels 400 :terms 300 :roots 1000 :roster 100 :slots 300}}
 
    ;; **The workload the entailment moves most.**  Every predicate is declared, so the
@@ -632,7 +663,7 @@
     :build   negative
     :sentexes 100
     :reads   {:arity-binding 1 :exception-index 200 :opposed 100 :predicate-extent 1003
-              :rule-index 100 :tax-support 100 :trie-counts 701 :trie-lookup 100 :mint 100}
+              :rule-index 100 :tax-support 100 :term-index 2 :trie-counts 701 :trie-lookup 100 :mint 100}
     :writes  {:levels 400 :terms 400 :roots 1000 :roster 103 :slots 101}}
 
    ;; **One `:trie-lookup` and one `:predicate-extent` read per assert above the unmarked
@@ -660,7 +691,7 @@
     :build   compound
     :sentexes 100
     :reads   {:arity-binding 3 :exception-index 100 :opposed 100 :predicate-extent 1104
-              :rule-index 100 :trie-counts 701 :trie-lookup 100 :mint 100}
+              :rule-index 100 :term-index 2 :trie-counts 701 :trie-lookup 100 :mint 100}
     :writes  {:levels 800 :terms 600 :roots 1300 :roster 104 :slots 300}}
 
    ;; 200 indexed sentexes for 100 asserts — the rule concludes one apiece
@@ -688,12 +719,16 @@
    ;; below it and the argument-type entailment's two gates.  No rule reads a term above
    ;; the edge, so the chaining seeds read no subtree.  The arity refresh reads one
    ;; `:arity-binding` entry an edge, the probe of the lower end for a binding
-   ;; (`arity/drain!`), and the lower end's shape roster (`arity/refresh-shapes!`).
+   ;; (`arity/drain!`), and the lower end's shape roster (`arity/refresh-shapes!`).  The
+   ;; refresh moves the lengths at or below the lower end, so `special/recheck-on-lengths`
+   ;; asks the term index whether a quoted form is stored, once per quoting function: the
+   ;; `:term-index` 200, and the same 200 in `:arity-declaration` and the preserved-edge
+   ;; workloads.
    {:name    :taxonomy-edge
     :build   taxonomy-edge
     :sentexes 100
     :reads   {:arity-binding 100 :exception-index 300 :opposed 100 :predicate-extent 1400
-              :rule-index 500 :trie-counts 900 :trie-lookup 100 :mint 100}
+              :rule-index 500 :term-index 200 :trie-counts 900 :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1300 :roster 101 :slots 201}}
 
    ;; **No read per relative**: an arity arriving reads the lengths stored above its
@@ -712,7 +747,7 @@
     :build   arity-declaration
     :sentexes 100
     :reads   {:arity-binding 400 :exception-index 100 :opposed 100 :predicate-extent 1200
-              :rule-index 100 :trie-counts 900 :trie-lookup 100 :mint 100}
+              :rule-index 100 :term-index 200 :trie-counts 900 :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 300 :roots 1300 :roster 1 :slots 400}}
 
    ;; **Two workloads, one budget, and the equality is the claim.**  A `genl` edge on a KB
@@ -736,7 +771,7 @@
     :build   preserved-edges-4
     :sentexes 100
     :reads   {:arity-binding 100 :argument-root 2 :argument-slot 600 :exception-index 300 :opposed 100
-              :predicate-extent 3900 :rule-index 700 :trie-counts 900
+              :predicate-extent 3900 :rule-index 700 :term-index 200 :trie-counts 900
               :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1300 :roster 200 :slots 300}}
 
@@ -744,7 +779,7 @@
     :build   preserved-edges-32
     :sentexes 100
     :reads   {:arity-binding 100 :argument-root 2 :argument-slot 600 :exception-index 300 :opposed 100
-              :predicate-extent 3900 :rule-index 700 :trie-counts 900
+              :predicate-extent 3900 :rule-index 700 :term-index 200 :trie-counts 900
               :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1300 :roster 200 :slots 300}}])
 

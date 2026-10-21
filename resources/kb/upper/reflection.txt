@@ -10,10 +10,12 @@
 ;;
 ;; The engine reads a form's kinds off its spelling (provers/shape-kinds): a variable, a
 ;; symbol, a value, and for a compound open or closed, a formula under a connective or
-;; quantifier head, ill-formed under a head that is no symbol. (Quote X) is answered
-;; through those kinds (docs/argtypes.md, "What a quoted form is"); a quotedArg
-;; declaration does not read them. Whether (R a) is a predication or a non_atomic_term is
-;; R's stored kind, which the spelling does not say, and no reader decides it.
+;; quantifier head, ill-formed under a head that is no symbol. Under a symbol head R it
+;; reads what the KB states of R (provers/stated-kinds): (R a) is a predication when R is
+;; a predicate, a non_atomic_term when R is a function and (R a) is closed, and ill-formed
+;; when R's length rules out its argument count. (Quote X) is answered through those
+;; kinds (docs/argtypes.md, "What a quoted form is"); a quotedArg declaration does not
+;; read them.
 
 ;; The ladder is the standard one, and the docs are held to it (docs/naming.md's reserved
 ;; words).  A PREDICATION is a predicate applied to terms.  A CLOSED_PREDICATION is a

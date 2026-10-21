@@ -946,8 +946,8 @@ predicate.
 
 ## What a quoted form is
 
-`(Quote X)` denotes the expression X, and X's kind in `reflection.txt`'s expression lattice is
-read off how X is written (`provers/shape-kinds`):
+`(Quote X)` denotes the expression X. The kinds X's spelling decides in `reflection.txt`'s
+expression lattice are read off how X is written (`provers/shape-kinds`):
 
 | X | kinds |
 |---|---|
@@ -985,9 +985,33 @@ A **value kind** antecedent (`string`, `number`, `boolean`, `keyword`, `characte
 application reads the stored membership, since either can denote a value of any kind. A
 rule in which nothing binds the argument is refused (`:naf-not-closed`).
 
-**The spelling does not say whether `(R a)` is a predication or a `non_atomic_term`**: that
-is R's stored kind, and the prover does not decide it, so `(predication (Quote (dog
-Muffet)))` is not answered.
+**What the KB states of the head decides the rest** (`provers/stated-kinds`). The kinds of a
+compound `(R a …)` under a symbol head are read from R's stored memberships and length,
+never from R's spelling:
+
+| what the KB states of R | `(R a …)` closed | `(R a …)` open |
+|---|---|---|
+| a member of `predicate`, or of a type below it, and not of `function` | `closed_predication`, so a `literal` and a `sentence` | `open_predication` |
+| a member of `function`, or of a type below it, and not of `predicate` | `non_atomic_term`, so a `denotational_term` and a `wff_expression` | no further kind: a `denotational_term` is closed |
+| a length the argument count breaks (`arity/broken-binding`) | `ill_formed_sentence` for a predicate, else `ill_formed_expression` | `ill_formed` for a predicate, else `ill_formed_expression` |
+| neither, or both | no further kind | no further kind |
+
+An application whose length is broken is neither a predication nor a `non_atomic_term`:
+only a `wff_expression` predicates or denotes. The answer rests on the membership and one
+`genl` path from its type to `predicate` or `function`, and a broken length rests on the
+bindings stating it and the `genl` edges up to them, so a forward firing withdraws when one
+of them goes. A membership classifies the form for the contexts that see it; a length is
+read the same at every context ([taxonomy.md](taxonomy.md#arity)). A membership `(T R)` of
+a type at or below `relation` re-joins the rules over a kind it can move
+(`provers/support-answers-reading`) when a stored sentex holds a quoted application headed
+by R, and a settle pass that moved R's length re-joins them under the same condition
+(`special/recheck-on-lengths`). A rule over `(predication ?q)` therefore fires whether the
+head's membership arrives before or after the rule and the quoted fact (`quote_test`).
+
+Only the head is read. An ill-formed operand inside `(R a …)` leaves the form at the head's
+kinds, and `(not (R a))` stays at `sentence` or `open_formula`. No kind answers
+`wff_expression` for a formula, nor `wff` or `wff_sentence`: the positive half of
+well-formedness needs every operator's length in X, which no reader collects.
 
 **`quotedArg` does not read these kinds.** Its check runs at the assert entry point only:
 a value it refuses when the declaration is already stored is stored and believed when the

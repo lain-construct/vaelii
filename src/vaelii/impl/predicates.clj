@@ -1198,9 +1198,9 @@
     ;; discharges an antecedent on one through it (`provers/expression-kind-predicates`).
     (map (fn [[t why]]
            [t (enforced (collection :notes why)
-                        "impl/provers.clj — shape-kinds, expression-kind-predicates, ExpressionKindProver")])
+                        "impl/provers.clj — shape-kinds, stated-kinds, expression-kind-predicates, ExpressionKindProver")])
          '[[unrepresented_term "the expression kind the value kinds sit under, placed under linguistic so every value kind reads as nowhere_never and disjoint from relation. A quoted value reaches it through genl."]
-           [formula "a predication, an operator applied to formulas, or a quantifier binding variables in one. A quoted form under a connective or quantifier head reaches it."]
+           [formula "a predication, an operator applied to formulas, or a quantifier binding variables in one. A quoted form under a connective or quantifier head reaches it, and so does a quoted application of a stored predicate."]
            [sentence "a closed formula, which checks/check-ground enforces on the way in. shape-kinds names it of a closed quoted form under a connective or quantifier head."]
            [non_atomic_term "a function applied to as many closed terms as it takes — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this; ExpressionKindProver answers it of a quoted form."]])
     (map (fn [[t why]] [t (inert (collection :notes why) why)])

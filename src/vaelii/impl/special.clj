@@ -467,6 +467,18 @@
   (when-let [rs (inherit/rejoin-rules kb sentence)]
     (mark-recheck kb rs {::preserving sentence})))
 
+(defn- rules-taking
+  "The stored rules, in every context, carrying an antecedent on one of the functors
+  `answers`, or nil: the stored rule keys read once, and the rules only for the answers
+  some rule takes."
+  [kb answers]
+  (let [idx   (:index kb)
+        ruled (reads/as-stored-rule-keys idx)]
+    (not-empty
+     (into #{} (comp (filter #(contains? ruled %))
+                     (mapcat #(reads/as-stored-rules-by-antecedent-global idx %)))
+           answers))))
+
 (defn computed-reading-rules
   "The forward rules a datum on `bfn` re-joins and re-checks because `bfn` is a predicate
   a registered `SupportingProver` **reads**: the rules carrying an antecedent that a
@@ -487,12 +499,7 @@
   only the expression kinds at or above its upper end (`provers/support-answers-reading`)."
   [kb bfn s]
   (when-let [answers (provers/support-answers-reading kb bfn s)]
-    (let [idx   (:index kb)
-          ruled (reads/as-stored-rule-keys idx)]
-      (not-empty
-       (into #{} (comp (filter #(contains? ruled %))
-                       (mapcat #(reads/as-stored-rules-by-antecedent-global idx %)))
-             answers)))))
+    (rules-taking kb answers)))
 
 (defn- recheck-on-computed
   "A sentence on `bfn` arrived or left and moved what a `SupportingProver` computes: queue
@@ -504,6 +511,23 @@
   [kb bfn s]
   (when-let [rs (computed-reading-rules kb bfn s)]
     (mark-recheck kb rs ::computed)))
+
+(defn recheck-on-lengths
+  "The settle pass moved the length of the relations `moved` (`arity/drain!`'s `:moved`, a
+  set or `:all`): queue every rule carrying an antecedent a relation's length can move
+  (`provers/relation-moved-answers`) for a re-check of every firing and a fresh join in
+  this pass (`:all-rejoin`).  A binding, a `genl` edge and a relabel each move a length
+  with no datum on a functor the prover reads, so no write-time re-join
+  (`computed-reading-rules`) takes these.  Reads nothing while `moved` is empty, then the
+  term index for a stored quoted form (`provers/quoted-anywhere?`), then, for a set, the
+  term index for a stored quoted application headed by a member of `moved`
+  (`provers/quoted-head?`), and when one is stored, the stored rule keys once."
+  [kb moved]
+  (when (and (or (= :all moved) (seq moved))
+             (provers/quoted-anywhere? kb)
+             (or (= :all moved) (some #(provers/quoted-head? kb %) moved)))
+    (when-let [answers (provers/relation-moved-answers kb)]
+      (mark-recheck kb (rules-taking kb answers) :all-rejoin))))
 
 (defn- separation-moved-types
   "The types whose separations `s` arriving or leaving can move, as a set, or nil when it

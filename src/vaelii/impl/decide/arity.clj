@@ -399,28 +399,34 @@
       out?)
     false))
 
+(defn broken-binding
+  "The binding a tuple of `n` arguments of `q` breaks, as `{:length n :via p :grounds [h …]
+  :route [h …]}` with `:length` an exact length, or `{:min m …}` for a floor, or nil when
+  it breaks none (`relation-length` with its grounds).  `:route` holds the IN supporters of
+  one path of `genl` edges from `q` up to `:via` (`tax/genl-path-edges`), empty for a
+  length `q` binds itself."
+  [kb q n]
+  (let [b   (relation-length kb q true)
+        tax (reasoning/taxonomy kb)
+        tms (reasoning/tms kb)]
+    (when (breaks? b n)
+      (cond-> {:via     (:via b)
+               :grounds (vec (sort (:grounds b)))
+               :route   (if (= q (:via b))
+                          []
+                          (into [] (comp (mapcat #(keys (tax/supporters tax (into [:genl] %))))
+                                         (filter #(jtms/in? tms %))
+                                         (distinct))
+                                (tax/genl-path-edges tax q (:via b))))}
+        (:exact b) (assoc :length (:exact b))
+        (:min b)   (assoc :min (:min b))))))
+
 (defn inert-binding
-  "The binding a stored tuple `sx` in the `:out` forced set breaks, as `{:length n :via p
-  :grounds [h …] :route [h …]}` with `:length` an exact length, or `{:min m …}` for a
-  floor, or nil when `sx` breaks none (`relation-length` with its grounds).  `:route`
-  holds the IN supporters of one path of `genl` edges from the functor up to `:via`
-  (`tax/genl-path-edges`), empty for a length the functor binds itself."
+  "The binding a stored tuple `sx` in the `:out` forced set breaks (`broken-binding`), or
+  nil when `sx` breaks none."
   [kb sx]
   (when-let [[q n] (fact-shape sx)]
-    (let [b   (relation-length kb q true)
-          tax (reasoning/taxonomy kb)
-          tms (reasoning/tms kb)]
-      (when (breaks? b n)
-        (cond-> {:via     (:via b)
-                 :grounds (vec (sort (:grounds b)))
-                 :route   (if (= q (:via b))
-                            []
-                            (into [] (comp (mapcat #(keys (tax/supporters tax (into [:genl] %))))
-                                           (filter #(jtms/in? tms %))
-                                           (distinct))
-                                  (tax/genl-path-edges tax q (:via b))))}
-          (:exact b) (assoc :length (:exact b))
-          (:min b)   (assoc :min (:min b)))))))
+    (broken-binding kb q n)))
 
 (defn- refresh-shapes!
   "Move the stored tuples of `q` into or out of the `:out` forced set for each length
