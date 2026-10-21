@@ -792,6 +792,70 @@
         (is (= :unknown (verdict kb (list 'holdsAt kept t27) y27)))))))
 
 ;; =========================================================================
+;; Slices keyed by other kinds of time
+;; =========================================================================
+;; Every slice above is keyed by a calendar term or by a named interval ordered by
+;; stated or Allen-entailed relations.  These key a slice by a moment, by a time with
+;; gaps, and by the same month spelled two ways.
+
+(tu/deftest-kb ^:red two-spellings-of-one-month-name-one-context
+  ;; Stronger than two-spellings-of-one-month-see-each-others-facts: the two spellings
+  ;; denote one interval, so they are one context, and a write through either lands in
+  ;; the same cx/ constant.
+  (declare-cxtimefn! kb)
+  (testing "MonthFn and DatetimeFn for January 2000 reify to one cx/ context"
+    (is (false? (:distinct? (two-spellings kb (slice '(MonthFn 2000 1))
+                                           (slice '(DatetimeFn "2000-01"))))))))
+
+(tu/deftest-kb ^:red a-fact-in-a-year-slice-holds-in-a-slice-keyed-by-an-instant-inside-it
+  ;; Homogeneity, downward: a fact true throughout 2000 is true at each moment of 2000.
+  ;; A slice keyed by an InstantFn moment is ordered under a slice keyed by an interval
+  ;; that includes the moment (includesInstant), which is not subintervalOf: a time_point
+  ;; is not a time_interval.  Upward it does not hold, by design: a fact stated at one
+  ;; moment of 2000 is not thereby true throughout 2000.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q]
+    (let [y2000    (slice '(YearFn 2000))
+          noon     (slice '(InstantFn 2000 6 1 12 0 0))
+          noon2001 (slice '(InstantFn 2001 6 1 12 0 0))]
+      (v/assert kb (list p) y2000)
+      (v/assert kb (list q) noon)
+      (testing "the year's fact holds in the slice keyed by a moment inside the year"
+        (is (true? (v/ask? kb (list p) noon))))
+      (testing "and not in the slice keyed by a moment of 2001"
+        (is (not (v/ask? kb (list p) noon2001))))
+      (testing "the moment's own fact is not lifted to the year"
+        (is (not (v/ask? kb (list q) y2000)))))))
+
+(tu/deftest-kb ^:red a-slice-keyed-by-an-intermittent-time-sits-between-its-pieces-and-its-whole
+  ;; An intermittent_time has gaps, so it is not a time_interval and subintervalOf, the
+  ;; ordering CxTimeFn is declared over, does not apply to it.  The weekends of 2000 are
+  ;; part of 2000, and 1 January 2000, a Saturday, is part of the weekends.  A slice keyed
+  ;; by the weekends ought to see the year, and the Saturday's slice ought to see the
+  ;; weekends'; 3 January 2000, a Monday, is in a gap and sees nothing of the weekends.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r Weekends2000]
+    (v/assert kb (list 'intermittent_time Weekends2000) U)
+    (v/assert kb (list 'partOf Weekends2000 '(YearFn 2000)) U)
+    (v/assert kb (list 'partOf '(DayFn 2000 1 1) Weekends2000) U)
+    (v/assert kb (list 'temporallyDisjoint '(DayFn 2000 1 3) Weekends2000) U)
+    (let [year     (slice '(YearFn 2000))
+          weekends (slice Weekends2000)
+          saturday (slice '(DayFn 2000 1 1))
+          monday   (slice '(DayFn 2000 1 3))]
+      (v/assert kb (list p) year)
+      (v/assert kb (list q) weekends)
+      (v/assert kb (list r) monday)
+      (testing "the weekends' slice sees the year's fact"
+        (is (true? (v/ask? kb (list p) weekends))))
+      (testing "a Saturday's slice sees the weekends' fact, and the year's"
+        (is (true? (v/ask? kb (list q) saturday)))
+        (is (true? (v/ask? kb (list p) saturday))))
+      (testing "a Monday's slice sees the year's fact and not the weekends'"
+        (is (true? (v/ask? kb (list p) monday)))
+        (is (not (v/ask? kb (list q) monday)))))))
+
+;; =========================================================================
 ;; CxChange — two transitions in a row
 ;; =========================================================================
 
