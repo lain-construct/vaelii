@@ -251,6 +251,14 @@
 (arg claims 2 thing)
 (target_following_predicate claims)
 
+;; A carrier claims what the information it carries claims.  The rule reads carries in
+;; one direction only: a claim of a carrier concludes no claim of its content.  The
+;; conclusion's subject is typed information_or_carrier by the argument type of claims,
+;; and its carries antecedent already types it information_carrier.
+(set/forwardRule
+  (implies (and (carries ?carrier ?content) (claims ?content ?sentence))
+           (claims ?carrier ?sentence)))
+
 ;; ==== perception ==========================================================
 ;; Arg 1 of every perception relation names the perceiver and declares `thing`: vaelii's
 ;; `registered_agent` names a registered koinii participant
