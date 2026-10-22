@@ -24,6 +24,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none.
   *Breaks:* `kb-quality`
 
+- **`kb-quality`'s rule-clash reading types an application by its function's `result` and
+  the application's arguments by its function's `arg` declarations**, at any depth, so it
+  lists fewer unreachable `:disjoint` pairs: four `TimeOfFn` rules added to the starter
+  pair 103 times, and 17 times with this reading
+  ([#169](https://github.com/vaelii/vaelii/issues/169)).
+  [quality.md](docs/quality.md#contradictions-in-waiting)
+  *Migration:* none.
+  *Breaks:* `kb-quality`
+
 ### Refusal: clashes
 
 - **`try-assert` refuses a sentence whose complement is believed `:monotonic`** from the

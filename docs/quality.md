@@ -309,7 +309,9 @@ term bounded above the exact arity it is claimed to have — `(arity ?p ?n)` wit
 `(greaterThan ?n 2)` beside `(symmetric ?p)`, or `(arityMin ?p ?n)` with the same bound —
 and one term an `arg` declaration demands be of a type disjoint from one the two rules
 place it in — `arg` read with its covering forms, `(args P T)` and `(argAndRest P n T)`
-typing every position they reach, and `(genl a P)` typing `a` by `P`'s arity. Each of the five is a **declaration read**: **no inference is run and no fact is
+typing every position they reach, `(genl a P)` typing `a` by `P`'s arity, and an
+application written at any depth typed by its function's `result` and typing its own
+arguments by its function's `arg` declarations. Each of the five is a **declaration read**: **no inference is run and no fact is
 consulted.** This is what the rules say about each other, so a pair here is a clash that
 *could* form rather than one that has — a clash already formed is in
 `(contradictions kb)`, which is the other question and the other reader.
@@ -332,6 +334,17 @@ disjoint pair must be a declared arg type.
 `binary` for a binary `P`, `unary` for a type. A rule over the specs of a binary predicate
 then pairs with no rule concluding a type disjoint from `binary`, such as `person`, and
 still pairs with one concluding a class of binary relations.
+
+The unifier can bind one rule's variable to an application in the other:
+`(metal_stuff ?x) => (solid ?x)` against a rule `(uninterrupted ?y) => (uninterrupted_time
+(TimeOfFn ?y))` binds `?x` to `(TimeOfFn ?y)`. `(result TimeOfFn time)` types every
+application of `TimeOfFn` a `time`, which is `acausal` where `solid` is `causal`, so the
+pair is dropped; `(arg TimeOfFn 1 temporal)` types `?y` a `temporal` in the same way. A compound
+whose head is a connective or a `predicate` is a formula and is not read. An argument of
+a quoting predicate or quoting function, or at a position a `quotedArg` declaration types,
+is a mention and is not descended into, as in the argument checks
+([argtypes.md](argtypes.md)). `genlArg` and `genlResult` are not read:
+each bounds a subtype, one level above the memberships `disjoint` is asked of.
 
 Scoped to a context that can see **both** rules. That is a common descendant of the two
 contexts and not a `sees?` between them, for [nmtms.md](nmtms.md)'s reason: asking only

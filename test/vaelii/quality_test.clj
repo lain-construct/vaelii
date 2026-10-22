@@ -1010,6 +1010,42 @@
       (is (paired? kb lists walks) "listsOf is variable_arity")
       (is (paired? kb relates walks) "relatesTo binds no length"))))
 
+(tu/deftest-kb an-application-is-typed-by-its-functions-result-and-arg-declarations
+  ;; A term two rules unify can be an application, and the application is an instance of
+  ;; its function's `result` while its arguments take the function's `arg` types (#169).
+  ;; Each declaration is asserted after the pair is seen, so the same two rules over a
+  ;; function declaring nothing are the control.
+  (testing "a result disjoint from a type the other rule states of the application"
+    (tu/with-terms [moment metallic brief alloyed spanned SpanFn]
+      (v/assert kb (list 'disjoint moment metallic) 'CxUniverse)
+      (v/assert kb (list 'genl brief moment) 'CxUniverse)
+      (let [rule  #(v/assert-rule kb [%1] %2 'CxUniverse {:direction :forward})
+            metal (rule (list alloyed '?y) (list metallic '?y))
+            span  (rule (list spanned '?x) (list brief (list SpanFn '?x)))]
+        (is (paired? kb metal span) "SpanFn declares no result")
+        (v/assert kb (list 'result SpanFn moment) 'CxUniverse)
+        (is (not (paired? kb metal span)) "every application of SpanFn is a moment"))))
+  (testing "an arg type disjoint from a type the other rule states of the argument"
+    (tu/with-terms [temporal_kind counted_kind lasting counts brief SpanFn]
+      (v/assert kb (list 'disjoint temporal_kind counted_kind) 'CxUniverse)
+      (v/assert kb (list 'disjoint lasting counted_kind) 'CxUniverse)
+      (let [rule  #(v/assert-rule kb [%1] %2 'CxUniverse {:direction :forward})
+            tally (rule (list counts '?z) (list counted_kind '?z))
+            lasts (rule (list brief (list SpanFn '?w)) (list lasting '?w))]
+        (is (paired? kb tally lasts) "SpanFn declares no argument type")
+        (v/assert kb (list 'arg SpanFn 1 temporal_kind) 'CxUniverse)
+        (is (not (paired? kb tally lasts)) "SpanFn takes a temporal_kind, which nothing counted is"))))
+  (testing "an application at a position quotedArg types is a mention and demands nothing"
+    (tu/with-terms [temporal_kind counted_kind lasting counts spanned quotes SpanFn]
+      (v/assert kb (list 'disjoint temporal_kind counted_kind) 'CxUniverse)
+      (v/assert kb (list 'disjoint lasting counted_kind) 'CxUniverse)
+      (v/assert kb (list 'arg SpanFn 1 temporal_kind) 'CxUniverse)
+      (v/assert kb (list 'quotedArg quotes 2 'thing) 'CxUniverse)
+      (let [rule  #(v/assert-rule kb %1 %2 'CxUniverse {:direction :forward})
+            tally (rule [(list counts '?z)] (list counted_kind '?z))
+            lasts (rule [(list spanned '?w) (list quotes '?w (list SpanFn '?w))] (list lasting '?w))]
+        (is (paired? kb tally lasts) "the quoted (SpanFn ?w) is not a use of ?w")))))
+
 (tu/deftest-kb two-rules-no-context-can-see-together-are-not-a-clash-in-waiting
   ;; A nogood needs a context that sees both halves (docs/nmtms.md).  Asking only whether
   ;; one rule's context sees the other's would exempt every sibling pair, so the test is a

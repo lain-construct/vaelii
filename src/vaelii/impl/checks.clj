@@ -1193,6 +1193,16 @@
   [decls]
   (into #{} (map #(get (nth % 1) '?n)) (decls 'quotedArg)))
 
+(defn quoted-positions
+  "The positions of `pred` a `quotedArg` declaration visible from `context` types
+  (`mentioned-positions`), behind the O(1) presence check: `#{}` where no `quotedArg` is
+  stored."
+  [kb pred context]
+  (let [decls (declaration-reader kb pred context)]
+    (if (and (symbol? pred) (not (sx/variable? pred)) (kind-stored? decls 'quotedArg))
+      (mentioned-positions decls)
+      #{})))
+
 (defn- formula-head?
   "Does the compound `x`, written in an argument position, have a head the KB knows as a
   predicate — is it a `predication`, the other half of `non_atomic_expression`
