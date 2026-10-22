@@ -1679,8 +1679,8 @@
   ;; may already be past the start of 2027, and a state observed now is neither held nor
   ;; refuted there.  Correct by design under the ruling, and passing today because no
   ;; slice sees anything.  Projection forward from now to a dated future needs an upper
-  ;; bound on now, which the ruling does not provide: a question for the spec, not a
-  ;; red test.
+  ;; bound on now, and an upper bound goes stale, so the spec keeps the verdict unknown:
+  ;; a question about a dated future is asked from a dated fact, not from now.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar :point)
   (reading! kb [2026 10 17 9 0 0])
