@@ -399,15 +399,49 @@
                  (descension-clashes kb))
               (str "the pair is reported, " (name label))))))))
 
-(tu/deftest-kb a-membership-spelled-through-a-subtype-binds-no-length
-  ;; A binding is read by its own functor: `(myBinPred fatherOf)` is a membership off the
-  ;; forced-monotonic set, and a type `genl` edge is defeasible, so neither is a
-  ;; ground that goes OUT only by retraction (docs/taxonomy.md, "Arity").
-  (tu/with-terms [myBinPred fatherOf A B C]
-    (v/assert kb (list 'genl myBinPred 'binary_predicate) 'CxUniverse)
-    (v/assert kb (list myBinPred fatherOf) 'CxUniverse)
-    (v/assert kb (list fatherOf A B C) 'CxUniverse)
-    (is (believed-at? kb (list fatherOf A B C) 'CxUniverse))))
+(tu/deftest-kb every-arity-reader-reads-the-same-binding
+  ;; One row per spelling of a binding, or of a near-miss.  A `:monotonic` membership binds
+  ;; through `:monotonic` `genl` edges to an exact-arity class, and a `:default` membership
+  ;; or edge on the path binds nothing (docs/taxonomy.md, "Arity").  Each row reads the
+  ;; ternary tuple's belief, `admitsArgnum` at 2 and 3, `describe`'s `:arity` and the
+  ;; `(arg P 3 thing)` check, with the binding before the tuple and after it.  The KB is
+  ;; empty, so each row first states CxUniverse's two `:monotonic` edges the marks read.
+  (let [m     {:strength :monotonic}
+        bound [false [true false] 2 [:arg-position]]
+        open  [true [false false] nil []]
+        rows  {:binary_predicate  [(fn [_ _ p] [[(list 'binary_predicate p)]]) bound]
+               :arity-2           [(fn [_ _ p] [[(list 'arity p 2)]]) bound]
+               :kind-mark-mono    [(fn [_ _ p] [[(list 'instance_relation_predicate p) m]]) bound]
+               :kind-mark-default [(fn [_ _ p] [[(list 'instance_relation_predicate p)]]) open]
+               :functional-mono   [(fn [_ _ p] [[(list 'functional p) m]]) bound]
+               ;; forced-monotonic, as CxUniverse declares it: the mark keeps the strength
+               ;; it was written at, and a :default one binds nothing
+               :functional        [(fn [_ _ p] [[(list 'forced_monotonic_predicate 'functional) m]
+                                                [(list 'functional p)]])
+                                   open]
+               :default-edge      [(fn [k _ p] [[(list 'genl k 'binary_predicate)] [(list k p) m]]) open]
+               :default-both      [(fn [k _ p] [[(list 'genl k 'binary_predicate)] [(list k p)]]) open]
+               :two-lengths       [(fn [k j p] [[(list 'genl k 'binary_predicate) m] [(list k p) m]
+                                                [(list 'genl j 'ternary_predicate) m] [(list j p) m]])
+                                   open]}]
+    (doseq [[label [ops want]] rows
+            tuple-first? [false true]]
+      (tu/with-neutral-kb [kb tu/isolated-fresh]
+        (tu/with-terms [rel_kind other_kind pairOf A B C]
+          (let [tuple   (list pairOf A B C)
+                binding #(doseq [[s o] (ops rel_kind other_kind pairOf)]
+                           (v/assert kb s 'CxUniverse (or o {})))]
+            (doseq [k '[instance_relation_predicate functional]]
+              (v/assert kb (list 'genl k 'binary_predicate) 'CxUniverse m))
+            (when-not tuple-first? (binding))
+            (v/assert kb tuple 'CxUniverse)
+            (when tuple-first? (binding))
+            (is (= want
+                   [(believed-at? kb tuple 'CxUniverse)
+                    (mapv #(v/ask? kb (list 'admitsArgnum pairOf %) 'CxUniverse) [2 3])
+                    (:arity (v/describe kb pairOf 'CxUniverse))
+                    (mapv :type (v/check kb (list 'arg pairOf 3 'thing) 'CxUniverse))])
+                (str (name label) (if tuple-first? ", tuple first" ", binding first")))))))))
 
 (tu/deftest-kb supers-that-disagree-about-arity-bind-nothing
   ;; Unsettled is not the same as undeclared, and it constrains the same.
