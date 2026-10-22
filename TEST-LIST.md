@@ -170,15 +170,15 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
 
 ## Time zones
 
-Nothing in the time vocabulary names a zone or an offset today: `InstantFn` is a wall-clock moment in no zone, and `DatetimeFn` does not read an ISO string with an offset or a `Z`, so such a string is no time term at all. `ZonedDatetimeFn` and `time_zone` are placeholder names. TEMPORAL-MATRIX.md has the inventory.
+Nothing in the time vocabulary names a zone or an offset today: `InstantFn` is a wall-clock moment in no zone, and `DatetimeFn` does not read an ISO string with an offset or a `Z`, so such a string is no time term at all. `ZonedDatetimeFn` and `timezone` are the ruled names for this vocabulary; time.txt does not ship it yet. TEMPORAL-MATRIX.md has the inventory.
 
 - **TZ1.** `one-moment-written-in-two-offsets-is-one-moment`: **red**. 13:00-07:00 and 01:30+05:30 the next day are one moment; 13:00 at two offsets is two.
 - **TZ2.** `the-iso-offset-form-and-the-z-form-name-one-moment`: **red**. `…T13:00-07:00` is `…T20:00Z`, and `+00:00` is `Z`.
 - **TZ3.** `the-day-a-moment-falls-on-depends-on-the-offset`: **red**. 21:00 on 31 December 1999 at UTC−08:00 is on 1 January in UTC; against a zoneless date it is unknown, not read as UTC.
 - **TZ4.** `moments-at-different-offsets-are-ordered-by-the-moment-not-the-wall-clock`: **red**
 - **TZ5.** `the-kb-declares-a-named-time-zone-and-a-zoned-local-time`: **red**. The vocabulary the next two need.
-- **TZ6.** `a-local-time-a-daylight-saving-gap-skips-names-no-moment`: **red**. 01:30 in London on 26 March 2000.
-- **TZ7.** `a-local-time-a-daylight-saving-change-repeats-is-ambiguous-until-its-offset-is-given`: **red**. 01:30 in London on 29 October 2000.
+- **TZ6.** `a-local-time-a-daylight-saving-gap-skips-names-no-moment`: **red**. 01:30 in London on 26 March 2000. This is the ideal behaviour; an implementation may defer the gap as an edge case.
+- **TZ7.** `a-local-time-a-daylight-saving-change-repeats-is-ambiguous-until-its-offset-is-given`: **red**. 01:30 in London on 29 October 2000. This is the ideal behaviour; an implementation may defer the repeated hour as an edge case.
 
 ## Resolution
 
