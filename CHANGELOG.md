@@ -61,6 +61,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: vocabulary and reasoning
 
+- **`argN` is answered from how its formula is written.** `(argN ?t ?n (parentOf Tom
+  Bob))` binds `?t` and `?n` to each position, 0 being the operator, and a quoted formula
+  answers the positions of the form it names. A forward rule with an `argN` antecedent
+  fires, and a backward one proves, once another antecedent binds the formula.
+  [inference.md](docs/inference.md) ([#149](https://github.com/vaelii/vaelii/issues/149))
+  *Migration:* none.
+
 - **`(interArgEqual P n v m U)` types argument `m` of the `P` sentences whose argument `n`
   is the value `v`**, a number, string, keyword, boolean or character. It derives the type
   as `arg` does, convicts under the constraint-only reading, and `try-assert` refuses a

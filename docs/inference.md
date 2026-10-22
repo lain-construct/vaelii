@@ -2360,6 +2360,17 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `function` and R's length, cited to the `natFormula` statement, those statements and the
   `genl` path it read ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete
   (50): a stored membership answers beside it.
+- **ArgPositionProver** — `(argN term n formula)`, read off how `formula` is written:
+  each position binds `term` to the element there and `n` to the position, 0 being the
+  operator. A quoted `formula` answers the positions of the form it names: `(Quote
+  (parentOf Tom Bob))` and the constant it reifies to both answer those of `(parentOf Tom
+  Bob)`. A
+  variable at a position names no term and answers nothing, so an open formula answers
+  the positions of the pattern as written. The answer rests on the reified constant's
+  `natFormula` statement, or on no statement, and a forward firing over it also rests on
+  the antecedent that bound the formula. A backward rule or a conjunction runs an `argN`
+  literal after the literal binding its formula, since `est-goal` reports `deferred-est`
+  for an open formula. Not complete (50): a stored `argN` fact answers beside it.
 - **AggregateProver** — the five reductions over a query's solutions:
   `(agg/count ?n ?v Body)` binds `?n` to how many **distinct** `?v` satisfy
   `Body`, `Sum` / `Min` / `Max` / `Avg` to the arithmetic ones. `?v` is projected out,

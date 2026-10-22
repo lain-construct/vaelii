@@ -300,6 +300,73 @@
              [(v/ask? kb (list asserter Tom) CxReader) (v/ask? kb (list asserter Tom) CxOther)])
           (str "kind first " kind-first?)))))
 
+;; ---- argN: a position inside a written formula ------------------------------------
+;; `provers/ArgPositionProver` reads `(argN term n formula)` off how the formula is
+;; written: core.txt's `(quotedArg argN 3 formula)` takes it as a mention.
+
+(tu/deftest-kb argn-answers-the-positions-of-a-written-formula
+  (tu/with-terms [parentOf dog Tom Bob]
+    (let [ans (fn [goal] (set (v/query kb goal 'CxUniverse)))]
+      (is (= #{{'?t parentOf '?n 0} {'?t Tom '?n 1} {'?t Bob '?n 2}}
+             (ans (list 'argN '?t '?n (list parentOf Tom Bob)))))
+      (is (v/ask? kb (list 'argN Bob 2 (list parentOf Tom Bob)) 'CxUniverse))
+      (is (not (v/ask? kb (list 'argN Bob 1 (list parentOf Tom Bob)) 'CxUniverse)))
+      (is (= #{{'?t (list dog Tom)}} (ans (list 'argN '?t 1 (list 'not (list dog Tom)))))
+          "a connective's operand is the term at its position")
+      (is (= #{{'?n 2}} (ans (list 'argN Bob '?n (list parentOf '?x Bob))))
+          "an open formula answers the positions of the pattern as written")
+      (is (= #{{'?t Tom '?n 1}} (ans (list 'argN '?t '?n (list '?r Tom))))
+          "a variable operator answers no position 0"))))
+
+(tu/deftest-kb an-argn-antecedent-fires-in-either-arrival-order-and-withdraws-with-the-fact
+  (doseq [rule-first? [true false]]
+    (tu/with-terms [parentOf said mentions Tom Ann Bob]
+      (v/assert kb (list 'quotedArg said 2 'formula) 'CxUniverse)
+      (let [rule #(v/assert kb (list 'implies (list 'and (list said '?a '?f) (list 'argN '?t 1 '?f))
+                                     (list mentions '?a '?t))
+                            'CxUniverse {:direction :forward})
+            _    (when rule-first? (rule))
+            h    (v/assert kb (list said Tom (list parentOf Ann Bob)) 'CxUniverse)]
+        (when-not rule-first? (rule))
+        (is (v/ask? kb (list mentions Tom Ann) 'CxUniverse) (str "rule first " rule-first?))
+        (is (not (v/ask? kb (list mentions Tom Bob) 'CxUniverse)))
+        (v/retract! kb h)
+        (is (not (v/ask? kb (list mentions Tom Ann) 'CxUniverse))
+            (str "rule first " rule-first? ": withdrawn with the fact"))))))
+
+(tu/deftest-kb a-backward-argn-antecedent-is-proved-once-its-formula-is-bound
+  ;; nothing stores an argN row, so the index model alone would run the argN conjunct first
+  (tu/with-terms [parentOf said mentions Tom Ann Bob]
+    (v/assert kb (list 'quotedArg said 2 'formula) 'CxUniverse)
+    (v/assert kb (list said Tom (list parentOf Ann Bob)) 'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list said '?a '?f) (list 'argN '?t 1 '?f))
+                       (list mentions '?a '?t))
+              'CxUniverse)
+    (is (= #{{'?t Ann}} (set (v/prove kb (list mentions Tom '?t) 'CxUniverse))))
+    (is (= #{{'?t Ann '?f (list parentOf Ann Bob)}}
+           (set (v/prove kb [(list 'argN '?t 1 '?f) (list said Tom '?f)] 'CxUniverse)))
+        "a conjunction written with argN first")))
+
+;; A formula reached through a quoting function answers the positions of the form it names,
+;; written out or minted to a constant whose `natFormula` the firing then rests on.
+(tu/deftest-kb argn-reads-the-form-a-quoted-formula-names
+  (doseq [reifiable? [false true]]
+    (tu/with-terms [parentOf said mentions Tom Ann Bob]
+      (let [d (when reifiable? (v/assert kb (list 'reifiable_function Quote) 'CxUniverse))
+            _ (v/assert kb (list 'implies (list 'and (list said '?a '?f) (list 'argN '?t 1 '?f))
+                                 (list mentions '?a '?t))
+                        'CxUniverse {:direction :forward})
+            h (v/assert kb (list said Tom (list Quote (list parentOf Ann Bob))) 'CxUniverse)
+            f (nth (:sentence (v/sentex kb h)) 2)]
+        (is (= reifiable? (nat/reified-nat-symbol? f)))
+        (is (= #{{'?t parentOf '?n 0} {'?t Ann '?n 1} {'?t Bob '?n 2}}
+               (set (v/query kb (list 'argN '?t '?n f) 'CxUniverse)))
+            (str "reifiable " reifiable?))
+        (is (v/ask? kb (list mentions Tom Ann) 'CxUniverse) (str "reifiable " reifiable?))
+        (v/retract! kb h)
+        (is (not (v/ask? kb (list mentions Tom Ann) 'CxUniverse)) (str "reifiable " reifiable?))
+        (when d (v/retract! kb d))))))
+
 ;; ---- closedness: a variable inside (Quote …) is not free around it ----------------
 ;; `sx/ground?` answers whether a sentence holds any variable at all.  `sx/closed?` answers
 ;; whether a sentence has a free variable: one bound by an enclosing quantifier, or one

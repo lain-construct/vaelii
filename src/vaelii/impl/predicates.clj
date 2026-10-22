@@ -1695,14 +1695,13 @@
                      " of the classifier under the whole and separates the members; coverage"
                      " pends the engine reading it from the classifier's members"))]
      ['argN
-      (inert {:shape {:args [:term :integer :sentence]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "a position inside a written formula, 0 the relation or operator."
-                          " Nothing derives it, and its (quotedArg argN 3 formula) checks"
-                          " nothing, since no reader classifies a compound by its shape.")}
-             (str "a statement that a term is argument n of a written formula, position 0"
-                  " being the relation or operator. Nothing derives or reads it, and no reader"
-                  " classifies a compound by its shape yet."))]
+      (enforced {:shape {:args [:term :integer :sentence]} :storage [:none] :checked false
+                 :family nil :facets #{:answers}
+                 :notes (str "a position inside a written formula, 0 the relation or operator."
+                             " The answer is read off the formula as written and never stored.")}
+                (str "provers/ArgPositionProver — reads (argN term n formula) off the formula"
+                     " as written, binding the term and the position; a forward join takes"
+                     " the answer with no support of its own"))]
      ['termsRelated
       (inert {:shape {:args [:term :term] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}

@@ -72,7 +72,7 @@
 ;; ---- argN --------------------------------------------------------------------
 
 (tu/deftest-kb argN-is-declared-with-position-0-admitted
-  (is (:inert (v/interpreted 'argN)) "nothing in the engine derives or reads argN")
+  (is (:enforced (v/interpreted 'argN)) "provers/ArgPositionProver answers argN")
   (is (true? (v/ask? kb '(ternary_predicate argN) U)))
   (is (empty? (v/sentexes-matching kb '(arg argN 1 ?t) '?ctx)) "the term found declares no type")
   (is (true? (v/ask? kb '(arg argN 2 non_negative_integer) U))

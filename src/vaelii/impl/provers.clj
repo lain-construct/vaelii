@@ -1756,6 +1756,59 @@
   (solve-with-support [_ kb goal context]
     (if-let [sup (expression-kind-support kb goal context)] [[{} sup]] [])))
 
+;; ---- argN: a position inside a written formula --------------------------------
+
+(defn- arg-position-goal?
+  "Is `goal` `(argN term n formula)`?"
+  [goal]
+  (and (sequential? goal) (= 'argN (first goal)) (= 4 (count goal))))
+
+(defn- arg-positions
+  "The solutions of the goal `(argN term n formula)` read off how the formula is written,
+  as `[bindings handles]` pairs: one per position `i` of the compound, 0 its operator,
+  whose element `e` matches `term` (a variable binds to `e`, any other term equals it) and
+  whose `i` matches `n` the same way.  The compound is `formula` as written, or the form a
+  quoted `formula` names (`quoted-form`): `(Quote x)` names `x`, and a reified constant
+  names the form its `natFormula` statement quotes, whose handle every pair carries.  A
+  variable at a position is a hole and answers nothing, so a variable operator answers no
+  position 0, and an open formula answers the positions of the pattern as written rather
+  than of its instances.  `[]` when the compound is not a non-empty one."
+  [kb [_ term n formula] context]
+  (let [[x hs] (if-let [[_ x hs] (quoted-form kb formula context)] [x hs] [formula []])]
+    (if (and (sequential? x) (seq x))
+      (into []
+            (keep-indexed
+             (fn [i e]
+               (when (and (not (sx/variable? e))
+                          (or (sx/variable? n) (= n i))
+                          (or (sx/variable? term) (= term e)))
+                 [(cond-> {}
+                    (sx/variable? term) (assoc term e)
+                    (sx/variable? n)    (assoc n i))
+                  hs])))
+            x)
+      [])))
+
+(defrecord ArgPositionProver []             ; (argN term n formula), read off the formula
+  Prover
+  ;; Open in `formula` too, so the join planner reads `deferred-est` and binds the
+  ;; formula first; `solve` answers nothing until it is bound.
+  (applicable?  [_ _ goal _] (arg-position-goal? goal))
+  (est-bindings [_ _ goal _]
+    (let [f (nth goal 3)]
+      (if (sequential? f) (count f) deferred-est)))
+  (cost         [_ _ _ _] :lookup)
+  ;; 50, not 100: a stored argN fact answers beside this
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context] (mapv first (arg-positions kb goal context)))
+  SupportingProver
+  ;; A formula written out, or quoted by a quoting function, rests on no statement: the
+  ;; firing rests on the antecedent that bound it (`chain/solve-computed`).  A reified
+  ;; constant rests on its `natFormula` statement.
+  (support-functors [_] #{'argN})
+  (support-sources  [_] #{})
+  (solve-with-support [_ kb goal context] (arg-positions kb goal context)))
+
 (defrecord EvaluatableFn [pred f arities result cost-tier complete]
   Prover
   ;; Two shapes, one record, split on whether `result` names an output slot: a *check*
@@ -3372,7 +3425,7 @@
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver) (->CommonGenlProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
-   (->EvaluableProver) (->ExpressionKindProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
+   (->EvaluableProver) (->ExpressionKindProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->DisjointnessNegationProver)
@@ -3776,11 +3829,22 @@
   provers over the index, and their estimates are guesses about a fan-out the index
   models better — so nil, and `vaelii.impl.plan` uses its own count-aware model
   instead.  Returning a partial prover's number here would replace a measurement with
-  a constant (`ArgTypeProver` answers 3 for everything)."
+  a constant (`ArgTypeProver` answers 3 for everything).
+
+  One partial estimate is returned: `deferred-est`, from an applicable `SupportingProver`
+  that computes the goal from an argument still open, `(argN ?t 1 ?f)` before `?f` is
+  bound.  The index counts no row of a computed answer, so its model would run the goal
+  first and prune the branch; at `deferred-est` the goal waits for its binders."
   [kb goal context]
   (let [applicable (applicable-provers kb (registry kb) goal context)]
-    (when-let [complete (sole-prover kb applicable goal context)]
-      (est-bindings complete kb goal context))))
+    (if-let [complete (sole-prover kb applicable goal context)]
+      (est-bindings complete kb goal context)
+      (let [supporting (:provers (support-summary kb))]
+        (when (some #(and (some (partial identical? %) supporting)
+                          (= deferred-est (budget/checked-call
+                                           (fn [] (est-bindings % kb goal context)))))
+                    applicable)
+          deferred-est)))))
 
 (defn registry-est-override
   "`est-goal` as the `:est-override` a backward chainer plans with (`res/prove-from`,
