@@ -1389,71 +1389,88 @@
     (testing "a later reading raises the bound to 49"
       (is (true? (v/query? kb (list 'ageAtLeast Ann 49) 'CxRealWorldNow {:max-depth 3}))))))
 
-(tu/deftest-kb ^:red an-age-at-a-dated-moment-is-exact-to-the-minute-from-a-birth-to-the-minute
-  ;; Iris's ruling: a birth known to the minute and a reference moment known to the minute
-  ;; give an age known to the minute.  The person and the dates are made up.  Born at
-  ;; 14:32 on 17 May 1990, at 09:15 on 21 October 2026 the age is 36 years, 5 months,
-  ;; 3 days, 18 hours and 43 minutes: 19160323 minutes.  The reference is a dated moment
-  ;; stated in CxRealWorld, not the present, so the lower-bound ruling on CxNow does not
-  ;; apply (an-age-from-a-birth-to-the-minute-and-a-lower-bound-on-now-is-a-lower-bound
-  ;; is that case).  `bornDuring` (an organism, the time its birth fell in) and `ageAt`
-  ;; (an organism, a reference time, the age there as a QuantityFn) are placeholder
-  ;; names: the KB's only birth fact is birthYearOf, and it has no age relation.
-  (v/add-reasoner kb :point :calendar)
-  (tu/with-terms [Ann]
-    (v/assert kb (list 'person Ann) U)
-    (v/assert kb (list 'bornDuring Ann '(DatetimeFn "1990-05-17T14:32")) 'CxRealWorld)
-    (testing "the age at 09:15 on 21 October 2026 is 19160323 minutes, and nothing coarser or finer"
-      (is (= [{'?age '(QuantityFn 19160323 Minute)}]
-             (v/query kb (list 'ageAt Ann '(DatetimeFn "2026-10-21T09:15") '?age)
-                      'CxRealWorld {:max-depth 3}))))))
+(tu/deftest-kb ^:red a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded
+  ;; Iris's ruling: precision shows up in temporalDistance's answer, in its width, with
+  ;; no organism, no reading of a calendar convention and no rounding involved.  The
+  ;; two dates are made up.  A minute's StartFn is one sharp point, so the distance
+  ;; between the start of 14:32 on 17 May 1990 and the start of 09:15 on 21 October 2026
+  ;; is exact: 1149619380 seconds.  An instant only known to fall somewhere inside a
+  ;; minute (includesInstant) is a different term, not that minute's start, so the
+  ;; distance between two such instants is bounded rather than exact even though the two
+  ;; minutes are the same precision: each minute's own length counts against the bound,
+  ;; for a 120-second width.  The coarser-precision cases this generalises to are
+  ;; a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals.
+  (v/add-reasoner kb :point :calendar :metric-time)
+  (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
+    (v/assert kb s U))
+  (testing "the distance between the two minutes' starts is exact"
+    (is (= [{'?d '(QuantityFn 1149619380 Second)}]
+           (v/ask kb '(temporalDistance (StartFn (DatetimeFn "1990-05-17T14:32"))
+                                        (StartFn (DatetimeFn "2026-10-21T09:15")) ?d) U))))
+  (tu/with-terms [X Y]
+    (v/assert kb (list 'includesInstant '(DatetimeFn "1990-05-17T14:32") X) U)
+    (v/assert kb (list 'includesInstant '(DatetimeFn "2026-10-21T09:15") Y) U)
+    (testing "two unknown instants inside those same-precision minutes give a bounded distance, not an exact one"
+      (is (= [{'?d '(QuantityIntervalFn 1149619320 1149619440 Second)}]
+             (v/ask kb (list 'temporalDistance X Y '?d) U))))))
 
-(tu/deftest-kb ^:red an-age-from-a-birth-to-the-minute-and-a-lower-bound-on-now-is-a-lower-bound
-  ;; The exact birth does not make the age exact when the present is reached only through
-  ;; lower-bound readings: the age's precision is bounded by both inputs, and the present
-  ;; has no upper bound.  Born at 14:32 on 17 May 1990 (made up), read at no earlier than
-  ;; 09:00 on 17 October 2026: at least 36, 37 unknown, and no exact age.  The
-  ;; placeholders are those of age-is-derived-as-a-lower-bound-and-never-as-an-exact-value
-  ;; and an-age-at-a-dated-moment-is-exact-to-the-minute-from-a-birth-to-the-minute.
-  (v/add-reasoner kb :point :calendar)
-  (tu/with-terms [Ann]
-    (v/assert kb (list 'person Ann) U)
-    (v/assert kb (list 'bornDuring Ann '(DatetimeFn "1990-05-17T14:32")) 'CxRealWorld)
-    (reading! kb [2026 10 17 9 0 0])
-    (testing "at least 36, and 37 unknown"
-      (is (true? (v/query? kb (list 'ageAtLeast Ann 36) 'CxRealWorldNow {:max-depth 3})))
-      (is (= :unknown (verdict kb (list 'ageAtLeast Ann 37) 'CxRealWorldNow))))
-    (testing "no exact age is answered now"
-      (is (empty? (v/query kb (list 'ageAt Ann now '?age) 'CxRealWorldNow {:max-depth 3}))))))
+(tu/deftest-kb ^:red a-distance-from-a-minute-start-to-a-lower-bound-on-now-is-a-lower-bound
+  ;; The present reached only through CxNow's lower-bound readings does not give an
+  ;; exact distance: nothing bounds it from above.  The minute is the one from the
+  ;; control above, made up; the reading floor is 09:00 on 17 October 2026, also made
+  ;; up.  The distance down to the reading's own named moment is exact and stands for
+  ;; the lower bound on the distance to now, since now is no earlier than that moment;
+  ;; the distance to now itself has no finite upper bound, so temporalDistance returns
+  ;; nothing exact and nothing bounded for it.
+  (v/add-reasoner kb :point :calendar :metric-time)
+  (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
+    (v/assert kb s U))
+  (reading! kb [2026 10 17 9 0 0])
+  (testing "the distance down to the reading floor is exact: a lower bound on the distance to now"
+    (is (= [{'?d '(QuantityFn 1149272880 Second)}]
+           (v/ask kb '(temporalDistance (StartFn (DatetimeFn "1990-05-17T14:32"))
+                                        (InstantFn 2026 10 17 9 0 0) ?d) 'CxRealWorldNow))))
+  (testing "no exact or bounded distance to now itself is returned"
+    (is (empty? (v/ask kb (list 'temporalDistance '(StartFn (DatetimeFn "1990-05-17T14:32")) now '?d)
+                       'CxRealWorldNow)))))
 
-(tu/deftest-kb ^:red an-age-is-exactly-as-precise-as-the-coarser-of-the-birth-and-the-reference
-  ;; Varies the precision of each input on its own, the other held at the minute.  The age
-  ;; is counted in whole units of the coarser precision between the two terms cut to that
-  ;; precision, and answered in that unit alone: born on 17 May 1990 (made up), at a
-  ;; minute of 21 October 2026 the age is 13306 days, and so it is for a birth at a minute
-  ;; of 17 May 1990 read at a day; born in May 1990, it is 437 months.  Placeholders as in
-  ;; an-age-at-a-dated-moment-is-exact-to-the-minute-from-a-birth-to-the-minute, and
-  ;; Month, which measure.txt does not ship as a unit, names a calendar month as one.
-  (v/add-reasoner kb :point :calendar)
+(tu/deftest-kb ^:red a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals
+  ;; Varies the precision of each side's containing interval on its own, the other held
+  ;; at the minute, the shape this replaces kept.  Each side is an unknown instant
+  ;; stated only to fall inside a calendar interval (includesInstant), never a sharp
+  ;; point, so even the matching-precision minute/minute row is bounded and not exact —
+  ;; a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded
+  ;; already shows why.  includesInstant's half-open convention (at or after the
+  ;; interval's StartFn, before its EndFn) makes an interval's end exclusive, so the
+  ;; tightest bound for two such instants is [start(later) − end(earlier),
+  ;; end(later) − start(earlier)]: the earliest the gap can be is the later interval's
+  ;; own first moment minus the earlier interval's own end, and the widest is the later
+  ;; interval's own end minus the earlier interval's own first moment.  The dates are
+  ;; made up, and the width grows as either side is cut coarser: 120 seconds for two
+  ;; minutes, 86460 for a minute against a day, 172800 for two days, and 2678460 for a
+  ;; minute against a month.
+  (v/add-reasoner kb :point :calendar :metric-time)
+  (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
+    (v/assert kb s U))
   (let [minute-ref '(DatetimeFn "2026-10-21T09:15")
         day-ref    '(DayFn 2026 10 21)
-        age        (fn [who ref] (v/query kb (list 'ageAt who ref '?age) 'CxRealWorld {:max-depth 3}))]
-    (tu/with-terms [ByMinute ByDay ByMonth]
-      (doseq [[who born] [[ByMinute '(DatetimeFn "1990-05-17T14:32")]
-                          [ByDay '(DayFn 1990 5 17)]
-                          [ByMonth '(MonthFn 1990 5)]]]
-        (v/assert kb (list 'person who) U)
-        (v/assert kb (list 'bornDuring who born) 'CxRealWorld))
-      (testing "birth and reference to the minute: the age to the minute"
-        (is (= [{'?age '(QuantityFn 19160323 Minute)}] (age ByMinute minute-ref))))
-      (testing "birth to the day, reference to the minute: the age to the day"
-        (is (= [{'?age '(QuantityFn 13306 Day)}] (age ByDay minute-ref))))
-      (testing "birth to the minute, reference to the day: the age to the day"
-        (is (= [{'?age '(QuantityFn 13306 Day)}] (age ByMinute day-ref))))
-      (testing "birth and reference to the day: the age to the day"
-        (is (= [{'?age '(QuantityFn 13306 Day)}] (age ByDay day-ref))))
-      (testing "birth to the month, reference to the minute: the age to the month"
-        (is (= [{'?age '(QuantityFn 437 Month)}] (age ByMonth minute-ref)))))))
+        gap        (fn [x y] (v/ask kb (list 'temporalDistance x y '?d) U))]
+    (tu/with-terms [XMinute XDay XMonth YMinute YDay]
+      (v/assert kb (list 'includesInstant '(DatetimeFn "1990-05-17T14:32") XMinute) U)
+      (v/assert kb (list 'includesInstant '(DayFn 1990 5 17) XDay) U)
+      (v/assert kb (list 'includesInstant '(MonthFn 1990 5) XMonth) U)
+      (v/assert kb (list 'includesInstant minute-ref YMinute) U)
+      (v/assert kb (list 'includesInstant day-ref YDay) U)
+      (testing "both sides to the minute: bounded to a 120-second width"
+        (is (= [{'?d '(QuantityIntervalFn 1149619320 1149619440 Second)}] (gap XMinute YMinute))))
+      (testing "the earlier side to the day, the later to the minute: bounded to an 86460-second width"
+        (is (= [{'?d '(QuantityIntervalFn 1149585300 1149671760 Second)}] (gap XDay YMinute))))
+      (testing "the earlier side to the minute, the later to the day: bounded to an 86460-second width"
+        (is (= [{'?d '(QuantityIntervalFn 1149586020 1149672480 Second)}] (gap XMinute YDay))))
+      (testing "both sides to the day: bounded to a 172800-second width"
+        (is (= [{'?d '(QuantityIntervalFn 1149552000 1149724800 Second)}] (gap XDay YDay))))
+      (testing "the earlier side to the month, the later to the minute: bounded to a 2678460-second width"
+        (is (= [{'?d '(QuantityIntervalFn 1148375700 1151054160 Second)}] (gap XMonth YMinute)))))))
 
 (tu/deftest-kb ^:red a-reading-places-now-after-a-past-year-and-inside-no-year
   ;; A reading of 17 October 2026 places the present after all of 2000, and, with no
