@@ -76,7 +76,9 @@ a type whose genl closure reaches `type`. Open-world and context-scoped. See
 [taxonomy.md](taxonomy.md). `interArg` is the **conditional** form —
 `(interArg pred n T m U)` requires argument *m* to be a `U` only when argument *n* is
 a `T` — and it reads open-world in *both* directions at once: an unestablished trigger
-leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md).
+leaves it dormant, an unreachable target convicts. `(interArgEqual pred n v m U)` conditions argument *m*
+on argument *n* being the value `v`, a number, string, keyword, boolean or character.
+See [argtypes.md](argtypes.md).
 
 **Arity vocabulary** ![kb](../.github/badges/cat-kb.svg): `fixed_arity` and
 `variable_arity` partition `relation` into two argument policies. Unsuffixed `unary`,

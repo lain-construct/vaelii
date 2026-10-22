@@ -47,6 +47,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a caller that records a rebuttal of known-true content calls `assert`.
   *Breaks:* `try-assert`, `:complement`
 
+### Additive: vocabulary and reasoning
+
+- **`(interArgEqual P n v m U)` types argument `m` of the `P` sentences whose argument `n`
+  is the value `v`**, a number, string, keyword, boolean or character. It derives the type
+  as `arg` does, convicts under the constraint-only reading, and `try-assert` refuses a
+  separated argument from both arrival orders. CxUniverse types a `closedExtentForArg`
+  grant's predicate by the grant's position, so `try-assert` refuses a grant past a stated
+  arity, which closed nothing ([#175](https://github.com/vaelii/vaelii/issues/175)).
+  [argtypes.md](docs/argtypes.md#a-type-conditioned-on-an-argument-value-interargequal)
+  *Migration:* none; a stored grant past its predicate's arity is reported in `conflicts`.
+
 ### Fix: order independence
 
 - **A reified NAT constant whose function declares `genlResult` is collected when its

@@ -451,13 +451,15 @@
 (def ^:private declaration-functors
   "The argument constraints, in the order this walks them.  A vector rather than the
   set in `checks`, because this is a walk order and that is a membership test."
-  '[arg genlArg interArg])
+  '[arg genlArg interArg interArgEqual])
 
 (defn- thing-typed
   "The type a declaration's `sentence` mints in is `thing`: the last argument of `arg` and
-  `genlArg`, the fifth of `interArg`."
+  `genlArg`, the fifth of `interArg` and `interArgEqual`."
   [sentence]
-  (= 'thing (if (= 'interArg (nm/functor sentence)) (nth sentence 5 nil) (last sentence))))
+  (= 'thing (if (contains? '#{interArg interArgEqual} (nm/functor sentence))
+              (nth sentence 5 nil)
+              (last sentence))))
 
 (defn- stranded-declarations
   "Which argument constraints name a position their predicate does not have, and which

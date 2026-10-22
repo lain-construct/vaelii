@@ -946,6 +946,24 @@
                                               " (special/note-unmintable-fact!)."))
                            (str "checks/args-problem and checks/constraint-entailments over"
                                 " checks/arg-arg-rows — arg with a per-sentence type"))]
+     ['interArgEqual (enforced (assoc (prop :declares-inter-arg-equal :arg :relation
+                                            :facets #{:reach :convicts :answers})
+                                      :shape  {:args [:relation :position :term :position :type]}
+                                      :family :argument-constraint
+                                      :stops-short
+                                      {:retriggers
+                                       (str "genlArg's reason: the inference it licenses is a"
+                                            " stored membership, which reaches an exception"
+                                            " through that membership's own fact trigger.")}
+                                      :notes (str "arg on the sentences whose argument ?position1"
+                                                  " is ?thing: checks/inter-arg-equal-rows"
+                                                  " reads each declaration as arg rows per"
+                                                  " sentence, so the conviction, the entailment"
+                                                  " and entail-existing are arg's own.  ?thing"
+                                                  " is an unrepresented_term, compared by =,"
+                                                  " which no equality merge holds."))
+                               (str "checks/args-problem and checks/constraint-entailments over"
+                                    " checks/inter-arg-equal-rows — arg conditioned on an argument value"))]
 
      ;; ---- the homogeneity constraints: interArg over a whole suffix ------
      ;; `interArgs` / `interArgAndRest` demand of every argument in a suffix a type one

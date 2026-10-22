@@ -1767,8 +1767,8 @@
   the table `entail-existing` dispatches on, so another kind is one line rather than a
   widened `and`.  Every kind of the `:argument-constraint` family but `quotedArg`, which
   types the term as written and has nothing to derive (docs/argtypes.md)."
-  '{arg 3, argArg 3, genlArg 3, interArg 5, args 2, argAndRest 3, argsGenl 2,
-    argAndRestGenl 3, interArgs 2, interArgAndRest 3})
+  '{arg 3, argArg 3, genlArg 3, interArg 5, interArgEqual 5, args 2, argAndRest 3,
+    argsGenl 2, argAndRestGenl 3, interArgs 2, interArgAndRest 3})
 
 (def ^:private mint-informants
   "The informants an argument declaration's mint is justified under: the kinds
@@ -2415,14 +2415,21 @@
                               (and (= 'natFormula (nm/functor s)) (sequential? e) (= f (first e))))))
           (sort (reads/as-stored-with-term (:index kb) f)))))
 
+(defn- trigger-extent
+  "The stored sentexes of `pred` and its specs holding the value `v` at argument `n`: the
+  extent an `(interArgEqual pred n v m U)` binds.  The value is an `unrepresented_term`,
+  which has no argument root, so the extent is read and filtered."
+  [kb pred n v]
+  (filterv #(= v (nth (:sentence %) n nil)) (subtree-sentexes kb pred)))
+
 (defn- declared-types
   "The types an entailing declaration mints memberships in: the last argument of every
-  kind but `interArg`, whose target type `U` of `(interArg P n T m U)` is its fifth, and
+  kind but `interArg` and `interArgEqual`, whose target type is their fifth argument, and
   `argArg`, which names no type of its own: each fact's argument `m` names it, and a fact
   whose named type is not mintable waits on its own handle (`note-unmintable-fact!`)."
   [sentence]
   (case (nm/functor sentence)
-    interArg [(nth sentence 5)]
+    (interArg interArgEqual) [(nth sentence 5)]
     argArg   []
     (when (contains? entailing-declarations (nm/functor sentence))
       [(last sentence)])))
@@ -6356,7 +6363,9 @@
   off `P` alone would mint over `(parentOf …)` and not over `(fatherOf …)` —
   a type the same three sentences produce in one arrival order and not the other.
   `subtree-sentexes` reads it, and snapshots it before the first mint.  A `(resultArg F
-  n)` binds the stored `natFormula` facts of `F`'s applications (`result-arg-extent`).
+  n)` binds the stored `natFormula` facts of `F`'s applications (`result-arg-extent`), and
+  an `interArgEqual` the tuples holding its value at its trigger position
+  (`trigger-extent`).
 
   A declaration whose type is not mintable reads no extent: every arm asks
   `checks/mintable-type?` of that type before it draws, so no fact would yield an
@@ -6383,7 +6392,9 @@
                                                              (placements sx)))
                                     (merge-with into acc (retroactive-mints kb sx dh placements)))
                                   empty-entailment-result
-                                  (if ra? (result-arg-extent kb pred) (subtree-sentexes kb pred)))))))))))
+                                  (cond ra?                  (result-arg-extent kb pred)
+                                        (= 'interArgEqual f) (trigger-extent kb pred (nth sentence 2) (nth sentence 3))
+                                        :else                (subtree-sentexes kb pred)))))))))))
 
 (defn release-mint!
   "Re-ask declaration `dh`'s waiting entry under generations `gens`: `{:new [handle …]}`
@@ -7923,6 +7934,7 @@
     'quotedArg (assoc (prop-entry 'quotedArg) :wff wff/arg-constraint-problems)
     'interArg  (assoc (prop-entry 'interArg)  :wff wff/inter-arg-constraint-problems)
     'argArg    (assoc (prop-entry 'argArg)    :wff wff/arg-arg-constraint-problems)
+    'interArgEqual (assoc (prop-entry 'interArgEqual) :wff wff/inter-arg-equal-constraint-problems)
     ;; the covering constraints type a whole tail at once — each marks its subject
     ;; predicate as declaring one, exactly as the four above, and validates its own form
     ;; through one arm reading both the two- and three-argument shapes

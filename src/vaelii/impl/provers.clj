@@ -3245,6 +3245,9 @@
     interArg {:pred 1 :fixed [2 4] :types-up [5] :types-down [3]}
     ;; `argArg` names positions only, so both are fixed and only the predicate descends
     argArg   {:pred 1 :fixed [2 3]}
+    ;; `interArgEqual`'s trigger is a value compared by `=`, so it is fixed with both
+    ;; positions, and its target type reads up genl as `arg`'s does
+    interArgEqual {:pred 1 :fixed [2 3 4] :types-up [5]}
     ;; the covering constraints: an every-position form has no fixed position, a tail
     ;; form fixes its start and reads its one type up genl as the singular forms do
     args           {:pred 1 :types-up [2]}

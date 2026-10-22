@@ -160,6 +160,7 @@
     quotedArg   (quotedArg ?n ?type)
     interArg (interArg ?n ?type ?m ?utype)
     argArg   (argArg ?n ?m)
+    interArgEqual (interArgEqual ?n ?value ?m ?type)
     args           (args ?type)
     argsGenl        (argsGenl ?type)
     argAndRest      (argAndRest ?start ?type)
@@ -287,6 +288,22 @@
         :when (and (symbol? t) (not (sx/variable? t)))]
     [h {'?n (get b '?n) '?type t '?m m} sx]))
 
+(defn- inter-arg-equal-rows
+  "The `(interArgEqual pred n v m U)` declarations `decls` reads, as `arg` rows over the
+  argument vector `as` of one sentence: `[handle {?n m ?type U ?trigger n ?value v}
+  sentex]` for each declaration whose argument `n` is `v`, compared by `=`.  The shape
+  `(decls 'arg)` yields, so the conviction, the entailment and the late sweep read the
+  declaration as the `arg` it amounts to for that sentence, and its support is the
+  `interArgEqual` declaration.  A sentence whose argument `n` is another term, or that has
+  no argument `n`, yields no row.  `(decls 'interArgEqual)` reads only the predicates the
+  taxonomy marks as declaring one, as `(decls 'arg)` does.  See docs/argtypes.md."
+  [decls as]
+  (for [[h b sx] (decls 'interArgEqual)
+        :let  [n (get b '?n)
+               v (get b '?value)]
+        :when (= v (arg-at as n))]
+    [h {'?n (get b '?m) '?type (get b '?type) '?trigger n '?value v} sx]))
+
 (defn- result-arg-rows
   "The `(resultArg F n)` declarations `decls` reads, as `arg` rows over the `natFormula`
   fact `sentence`, `(natFormula K E)` with `E` an application of `F`: `[handle {?n 1
@@ -305,9 +322,12 @@
 
 (defn- arg-rows
   "Every `arg` row binding one sentence with argument vector `as`: the `arg`
-  declarations, then the `argArg` ones read over `as` (`arg-arg-rows`)."
+  declarations, then the `argArg` ones read over `as` (`arg-arg-rows`), then the
+  `interArgEqual` ones it triggers (`inter-arg-equal-rows`)."
   [decls as]
-  (into (vec (decls 'arg)) (arg-arg-rows decls as)))
+  (-> (vec (decls 'arg))
+      (into (arg-arg-rows decls as))
+      (into (inter-arg-equal-rows decls as))))
 
 (defn- declared-of
   "The predicate a declaration match is *about* — its first argument, which is `pred`
@@ -692,6 +712,8 @@
                                (str (when r (str " — " (first arg) " results in a " r))
                                     " (arg " n " of " pred
                                     (when-let [tp (get b '?m)] (str ", the type its arg " tp " names"))
+                                    (when-let [tp (get b '?trigger)]
+                                      (str ", because arg " tp " is " (pr-str (get b '?value))))
                                     (via-clause (declared-of m) pred) ")"))))))))
 
 (defn- inter-args-problem
@@ -1405,8 +1427,8 @@
   than with a sentence it constrains — two ways one can contradict what the KB already
   says about the predicate it is about:
 
-  * a position the predicate does not have (`arg-position-problem`).  `interArg` and
-    `argArg` name two, and each is checked.
+  * a position the predicate does not have (`arg-position-problem`).  `interArg`,
+    `interArgEqual` and `argArg` name two, and each is checked.
   * a `genlArg` on an `instance_relation_predicate`.  Its arguments are individuals,
     and an individual is never a subtype of anything.
 
@@ -1445,6 +1467,11 @@
       (and (= 'interArg f) (= 5 (nm/arity sentence)) (symbol? pred))
       (some-> (or (arg-position-problem kb f pred n types)
                   (arg-position-problem kb f pred m types))
+              (assoc :sentence sentence))
+
+      (and (= 'interArgEqual f) (= 5 (nm/arity sentence)) (symbol? pred))
+      (some-> (or (arg-position-problem kb f pred n types)
+                  (arg-position-problem kb f pred (nth sentence 4) types))
               (assoc :sentence sentence))
 
       (and (= 'argArg f) (= 3 (nm/arity sentence)) (symbol? pred))
@@ -2683,6 +2710,13 @@
                                          ([op functor] (decls op functor))))
                                      'argArg checkable-term?
                                      (fn [arg t] (list t arg)))
+                    ;; `interArgEqual` is `arg` on the sentences its value triggers
+                    (arg-entailments kb sentence context
+                                     (let [as (vec (nm/args sentence))]
+                                       (fn ([k] (if (= k 'interArgEqual) (vec (inter-arg-equal-rows decls as)) []))
+                                         ([op functor] (decls op functor))))
+                                     'interArgEqual checkable-term?
+                                     (fn [arg t] (list t arg)))
                     (result-arg-entailments kb sentence context decls)
                     (arg-entailments kb sentence context decls 'genlArg
                                      #(and (checkable-term? %) (not (nm/individual? %)))
@@ -3113,9 +3147,10 @@
   "The constraints an argument declaration not yet stored places on the variables `as`
   of a literal on `pred`, read from `context`.  `dm` is the declaration's demand
   (`declaration-demand`); it binds the literal when its predicate is `pred` or above it.
-  An `interArg` demand places none."
+  A conditional demand, `interArg`'s or `interArgEqual`'s, places none."
   [tax dm pred as context]
-  (when (and dm (or (= pred (:pred dm)) (tax/genl? tax pred (:pred dm) context)))
+  (when (and dm (nil? (:trigger-pos dm))
+             (or (= pred (:pred dm)) (tax/genl? tax pred (:pred dm) context)))
     (let [n (:pos dm)
           a (arg-at as n)
           c {:position n :pred pred :via (:pred dm)}]
@@ -3357,8 +3392,10 @@
 (defn- declaration-demand
   "What the argument declaration `chk` demands of its predicate's tuples, or nil:
   `{:kind :pred :pos :type}`, the kind being the violation a tuple breaking it is
-  convicted of, with `:trigger-pos` and `:trigger-type` for an `interArg`.  `arg1`,
-  `arg2` and `arg3` read as `arg` at their position."
+  convicted of, with `:trigger-pos` and `:trigger-type` for an `interArg` and
+  `:trigger-pos` and `:trigger-value` for an `interArgEqual`, which demands what `arg`
+  does of the tuples its value triggers.  `arg1`, `arg2` and `arg3` read as `arg` at
+  their position."
   [chk]
   (let [[f pred a b c d] chk
         n (nm/arity chk)
@@ -3369,6 +3406,8 @@
             quotedArg        (when (= 3 n) {:kind :quoted-arg-type :pos a :type b})
             interArg         (when (= 5 n) {:kind :inter-arg-type :pos c :type d
                                             :trigger-pos a :trigger-type b})
+            interArgEqual    (when (and (= 5 n) (pos-int? a))
+                               {:kind :arg-type :pos c :type d :trigger-pos a :trigger-value b})
             nil)]
     (when (and m (symbol? pred) (not (sx/variable? pred)) (pos-int? (:pos m))
                (symbol? (:type m)) (not (sx/variable? (:type m))))
@@ -3408,9 +3447,9 @@
   off the functor in those contexts and each is tested.  A tuple in a context
   `context` sees is read from `context`, and one below it from its own context.  An
   `interArg` tuple is convicted only where its trigger argument believes the trigger
-  type."
+  type, and an `interArgEqual` tuple only where its trigger argument is the value."
   [kb chk context]
-  (when-let [{:keys [pred pos type trigger-pos trigger-type] :as dm} (declaration-demand chk)]
+  (when-let [{:keys [pred pos type trigger-pos trigger-type trigger-value] :as dm} (declaration-demand chk)]
     (let [tax     (reasoning/taxonomy kb)
           idx     (:index kb)
           recs    (:records kb)
@@ -3425,8 +3464,10 @@
                     (and s (nil? (:antecedent s)) (not (sx/negative? s)) (jtms/in? tms (:id s))
                          (or (nil? trigger-pos)
                              (let [tr (arg-at (vec (nm/args (:sentence s))) trigger-pos)]
-                               (and tr (checkable-term? tr)
-                                    (kb/isa-among? (types tr) trigger-type))))))
+                               (if trigger-type
+                                 (and tr (checkable-term? tr)
+                                      (kb/isa-among? (types tr) trigger-type))
+                                 (= trigger-value tr))))))
           specs   (nm/sort-by-content-key nm/name-key compare (tax/specs tax pred context))
           atoms   (for [p     specs
                         x     (nm/sort-by-content-key nm/print-key compare
@@ -3494,7 +3535,8 @@
 
 (def ^:private argument-declaring-kinds
   "The declaration kinds `argument-problem` reads, as `declaration-queries` keys."
-  '[arg genlArg interArg args argsGenl argAndRest argAndRestGenl interArgs interArgAndRest])
+  '[arg genlArg interArg interArgEqual args argsGenl argAndRest argAndRestGenl interArgs
+    interArgAndRest])
 
 (defn- below-declaration-conflict
   "The first argument conviction of `chk` read from a context below `context` that holds
@@ -3736,8 +3778,8 @@
   with its predicate's `relation_kind`, and an arity arriving is not what makes that true,
   so asking it here would report a second finding under the first one's trigger.
 
-  Both of `interArg`'s and `argArg`'s positions are asked, as at the entry point, and the
-  first that convicts is the answer.
+  Both of `interArg`'s, `interArgEqual`'s and `argArg`'s positions are asked, as at the
+  entry point, and the first that convicts is the answer.
 
   Through `checked-sentence`, like the entry point: a doubly negated
   declaration is a declaration and is read as one, and a genuinely negative sentence keeps
@@ -3755,6 +3797,11 @@
          (and (= 'interArg f) (= 5 (nm/arity chk)))
          (some-> (or (arg-position-problem kb f pred n types)
                      (arg-position-problem kb f pred m types))
+                 (assoc :sentence chk))
+
+         (and (= 'interArgEqual f) (= 5 (nm/arity chk)))
+         (some-> (or (arg-position-problem kb f pred n types)
+                     (arg-position-problem kb f pred (nth chk 4) types))
                  (assoc :sentence chk))
 
          (and (= 'argArg f) (= 3 (nm/arity chk)))

@@ -777,6 +777,41 @@
     (is (empty? (v/ask kb (list 'not (list accountOn Alice '?host)) CxHosts))
         "an open argument 2 is a search over the complement, which the grant does not license")))
 
+;; core.txt's `interArgEqual` rows: a grant at argument N types its predicate an
+;; `at_least_…` floor, which the floor's disjointness with the exact class below it
+;; separates from a binary predicate.  Per reading, row and order of {arity, grant}: what
+;; `try-assert` of the later write answers, whether `assert` leaves the grant believed, and
+;; whether the derived floor `(at_least_ternary P)` is reported in `conflicts`: the floor
+;; and the class are forced-monotonic, so neither is defeated.
+(tu/deftest-kb a-per-argument-grant-past-its-predicate-s-arity-clashes
+  (doseq [entail?              [true false]
+          [row pos arity?]     [[:past 3 true] [:within 2 true] [:untyped 3 false]]
+          arity-first?         (if arity? [true false] [false])]
+    ((if entail? #(tu/with-entailing (%)) #(tu/without-entailing (%)))
+     (fn []
+       (tu/with-terms [accountOn HostA]
+         (let [arity (list 'binary_predicate accountOn)
+               grant (list 'closedExtentForArg accountOn pos HostA)
+               ws    (cond (not arity?) [grant] arity-first? [arity grant] :else [grant arity])
+               hs    (mapv #(v/assert kb % 'CxUniverse) (butlast ws))
+               later (last ws)
+               tried (try (v/try-assert kb later 'CxUniverse) :stored
+                          (catch clojure.lang.ExceptionInfo e [(:type (ex-data e)) (:violation (ex-data e))]))
+               lh    (or (v/handle-of kb later 'CxUniverse) (v/assert kb later 'CxUniverse))
+               gh    (v/handle-of kb grant 'CxUniverse)
+               fh    (v/handle-of kb (list 'at_least_ternary accountOn) 'CxUniverse)]
+           (is (= (case [row entail? arity-first?]
+                    [:past true true]   [[:definitional-clash :arg-type] true true]
+                    [:past true false]  [[:definitional-clash :disjoint] true true]
+                    [:past false true]  [[:definitional-clash :arg-type] false false]
+                    [:past false false] [:stored false false]
+                    [:stored true false])
+                  [tried
+                   (boolean (v/believed? kb gh 'CxUniverse))
+                   (boolean (and fh (some #(contains? (set (:nogood %)) fh) (v/conflicts kb))))])
+               (pr-str [row entail? arity-first?]))
+           (doseq [h (rseq (conj hs lh))] (v/retract! kb h))))))))
+
 (tu/deftest-kb a-per-argument-closed-extent-rule-antecedent-is-negation-as-failure
   (tu/with-terms [accountOn candidate unknown_on_host Carol HostA CxHosts]
     (v/assert kb (list 'genlCx CxHosts 'CxUniverse) 'CxUniverse)

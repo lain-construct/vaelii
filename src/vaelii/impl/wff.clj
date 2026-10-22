@@ -210,6 +210,27 @@
     (conj (str f " target position must be a positive integer"))
     :always (into (type-problems (str f " expects a type") [type utype]))))
 
+(defn inter-arg-equal-constraint-problems
+  "`interArgEqual` — a relation, a trigger position, the value that triggers it, and a
+  target position and type: `(interArgEqual closedExtentForArg 2 3 1 at_least_ternary)`.
+  The latitude on the constrained relation `arg-constraint-problems` argues for, both
+  positions checked and the type checked.  The value is an `unrepresented_term` — a
+  number, string, keyword, boolean or character, compared by `=` (docs/argtypes.md)."
+  [_ [f pred n v m utype :as s] _context]
+  (cond-> []
+    (not= 6 (count s))    (conj (str f " takes five arguments"))
+    (not (or (symbol? pred) (sequential? pred)))
+    (conj (str f " constrains a relation, which is named by a symbol or denoted by a"
+               " non-atomic term; " (pr-str pred) " is neither"))
+    (not (and (integer? n) (pos? n)))
+    (conj (str f " trigger position must be a positive integer"))
+    (not (or (number? v) (string? v) (keyword? v) (boolean? v) (char? v)))
+    (conj (str f " trigger value must be a number, string, keyword, boolean or character,"
+               " which no equality merge holds; " (pr-str v) " is none of those"))
+    (not (and (integer? m) (pos? m)))
+    (conj (str f " target position must be a positive integer"))
+    :always (into (type-problems (str f " expects a type") [utype]))))
+
 (defn arg-arg-constraint-problems
   "`argArg` — a relation, the position it constrains, and the position whose argument
   names the type: `(argArg holdsOf 1 2)`.  The latitude on the constrained relation

@@ -1,7 +1,7 @@
 # Assertive argument types: `arg` as an entailment
 
 - **Covers:** how, by default, an argument constraint — `arg`, `argArg`, `genlArg`,
-  `interArg`, the covering and the homogeneity forms — derives the type it names as a derived, justified,
+  `interArg`, `interArgEqual`, the covering and the homogeneity forms — derives the type it names as a derived, justified,
   retractable sentex and refuses nothing on a membership; the pass that records those
   derivations over a store loaded without them.
 - **Not here:** `arg` / `genlArg` read as a constraint that rejects a wrongly-typed
@@ -995,6 +995,43 @@ reading (`VAELII_ASSERTIVE_ARG_TYPES=0`) draws none, and a minted constant there
 runs the six orders of the declaration, the write and the type edge, each with a recover,
 beside a name that is no type and a retracted declaration. An application that is never
 minted is typed at check time ([nat.md](nat.md#typing-an-application-that-is-never-minted)).
+
+## A type conditioned on an argument value: `interArgEqual`
+
+`(interArgEqual P n v m U)` says that argument `m` of every application of `P` whose
+argument `n` is `v` is a `U`. `interArg` conditions on argument `n`'s type and
+`interArgEqual` conditions on its value, compared by `=`: `(interArgEqual grants 2 3 1
+admin)` over `(grants Rex 3)` derives `(admin Rex)`, and over `(grants Fido 4)` derives
+nothing. A sentence holding another value at `n`, or a variable, is not constrained.
+
+`checks/inter-arg-equal-rows` reads each declaration as an `arg` row for the sentence in
+hand, as `argArg`'s rows are read, so the conviction, the entailment and the derivation's
+justification (the fact and the declaration) are `arg`'s own. Under the constraint-only
+reading a sentence whose argument `m` misses `U` is convicted and held inert. `try-assert`
+refuses a provable clash from both arrival orders: the fact after the declaration and a
+held separation (`:arg-type`), and the declaration after a stored triggered fact
+(`checks/declaration-demand`). A declaration arriving after the facts reads the stored
+sentences of `P` and its specs and keeps those holding `v` at `n`
+(`special/entail-existing`).
+
+**The value is a number, string, keyword, boolean or character.** `wff` refuses a symbol
+at argument 3 (`:not-well-formed`). The equality partition holds symbols only
+([equality.md](equality.md)), and a merge moves stored sentences to the representative
+without drawing their argument entailments again, so a symbol value would derive in one
+arrival order and not in the other. No merge changes a value of the five kinds, so `=` on
+one reads the same in every order.
+
+**CxUniverse types a `closedExtentForArg` grant's predicate by the grant's position.** The
+rows `(interArgEqual closedExtentForArg 2 2 1 at_least_binary)` through `(… 2 5 1
+at_least_quinary)` derive `(at_least_ternary accountOn)` from `(closedExtentForArg
+accountOn 3 HostA)`. On a `binary` `accountOn`, the shipped `(disjoint at_least_ternary
+binary)` separates the two. Under the entailing reading `try-assert` refuses the grant,
+or refuses the arity statement that arrives after it; under the constraint-only reading
+it refuses the grant, and a grant stored first is held inert once the arity arrives ([naf.md](naf.md#a-closed-extent-for-one-argument-value)).
+`argtype_entail_test/an-inter-arg-equal-types-the-tuples-its-value-triggers-in-every-order`
+runs every order of the declaration and two facts, and
+`naf_test/a-per-argument-grant-past-its-predicate-s-arity-clashes` both readings and both
+orders of the grant and the arity.
 
 ## Suffix homogeneity: `interArgs` and `interArgAndRest`
 

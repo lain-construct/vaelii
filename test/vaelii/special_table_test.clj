@@ -152,6 +152,7 @@
     [quotedArg                        [:integrate :disintegrate :rebuild :wff]       :declares-quoted-arg       true]
     [interArg                         [:integrate :disintegrate :rebuild :wff]       :declares-inter-arg-isa    true]
     [argArg                           [:integrate :disintegrate :rebuild :wff]       :declares-arg-arg          true]
+    [interArgEqual                    [:integrate :disintegrate :rebuild :wff]       :declares-inter-arg-equal  true]
     [interArgs                        [:integrate :disintegrate :rebuild :wff]       :declares-inter-args-isa   true]
     [interArgAndRest                  [:integrate :disintegrate :rebuild :wff]       :declares-inter-arg-and-rest-isa true]
     [args                             [:integrate :disintegrate :rebuild :wff]       :declares-args-isa         true]

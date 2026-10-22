@@ -407,6 +407,9 @@ The per-argument grant is scoped and belief-following exactly as the whole-predi
 is. Its arms mark `P` under the taxonomy prop `:closed-extent-arg`, read from the asking
 context, as the presence check; the prover then reads the grant's position and value back from the
 believed grants visible there. A position past the goal's arity matches no goal.
+CxUniverse's `interArgEqual` rows type the predicate by the grant's position, so a grant
+past a stated arity is a clash that `try-assert` refuses
+([argtypes.md](argtypes.md#a-type-conditioned-on-an-argument-value-interargequal)).
 
 `closedExtentForArg1`, `closedExtentForArg2` and `closedExtentForArg3` are binary
 spellings: `(closedExtentForArg2 P v)` means `(closedExtentForArg P 2 v)`. A CxUniverse forward

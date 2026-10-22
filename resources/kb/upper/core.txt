@@ -36,6 +36,14 @@
 ;; term.
 (set/inertRule (implies (and (closed_extent_predicate ?pred) (admitsArgnum ?pred ?position) (thing ?value)) (closedExtentForArg ?pred ?position ?value)))
 
+;; A grant at argument N names a predicate with N or more arguments.  Under assertive
+;; argument types a grant past a predicate's arity derives a membership the floor's
+;; disjointness with the exact class below it separates, and try-assert refuses it.
+(interArgEqual closedExtentForArg 2 2 1 at_least_binary)
+(interArgEqual closedExtentForArg 2 3 1 at_least_ternary)
+(interArgEqual closedExtentForArg 2 4 1 at_least_quaternary)
+(interArgEqual closedExtentForArg 2 5 1 at_least_quinary)
+
 (comment closedExtentForArg1
          "(closedExtentForArg1 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 1 ?value). The two rules below state the equivalence. The rule deriving the ternary is a forward rule, so the engine reads only the ternary; the rule deriving the binary spelling is inert, so a ternary grant mints no binary twin.")
 (binary_predicate closedExtentForArg1)
@@ -536,6 +544,17 @@
 (arg argArg 1 relation)
 (arg argArg 2 positive_integer)
 (arg argArg 3 positive_integer)
+
+(comment interArgEqual
+         "(interArgEqual ?relation ?position1 ?thing ?position2 ?type) means that whenever argument ?position1 of ?relation is ?thing, argument ?position2 must be a ?type. The conditional argument constraint triggered by a value instead of a type: (interArgEqual closedExtentForArg 2 3 1 at_least_ternary) says a grant at argument 3 names a predicate of three or more arguments, and a grant at argument 2 is unconstrained by it. ?thing is a value — a number, string, keyword, boolean or character — and the trigger is equality of the argument with it, which no sameAs or equals merge changes, since the equality partition holds symbols only. A sentence holding any other term at ?position1 is not constrained. On the sentences it triggers it reads as arg does: under assertive argument types it derives the ?type membership of a symbol argument, and under the constraint-only reading it convicts an argument the KB places outside ?type. See docs/argtypes.md.")
+(arity interArgEqual 5)
+(quinary_predicate interArgEqual)
+(arg interArgEqual 1 relation)
+(arg interArgEqual 2 positive_integer)
+(arg interArgEqual 3 unrepresented_term)
+(arg interArgEqual 4 positive_integer)
+(arg interArgEqual 5 unary_predicate)
+(termsRelated interArgEqual interArg arg)
 
 (comment resultArg
          "(resultArg ?function ?position) means that an application of ?function denotes an instance of the type the application's argument ?position names. result with the type read off each application: (resultArg SomeMemberFn 1) says (SomeMemberFn dog) denotes a dog. Derived as a membership of the constant a reifiable function's application mints, off its natFormula fact, while argument types entail, and read at check time for an unreifiable function's application, which is never minted. See docs/argtypes.md.")

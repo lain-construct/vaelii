@@ -807,6 +807,63 @@
                 :type        (v/retract! kb bh))))
           (is (believed? kb (list dog Rex) CxWorld) (str "entailed under " (vec order))))))))
 
+;; `(interArgEqual grants 2 3 1 t)` types argument 1 of the `grants` tuples holding 3 at
+;; argument 2 and no other tuple, in every order of the declaration and two tuples, one
+;; holding 3 and one holding 4.  The membership rests on the declaration.
+(tu/deftest-kb an-inter-arg-equal-types-the-tuples-its-value-triggers-in-every-order
+  (doseq [order (permutations [:declaration :three :four])]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (tu/with-terms [grants t Rex Fido CxWorld]
+        (with-entailing
+          (a-context kb CxWorld)
+          (a-type kb t CxWorld)
+          (let [dh (volatile! nil)]
+            (doseq [step order]
+              (case step
+                :declaration (vreset! dh (v/assert kb (list 'interArgEqual grants 2 3 1 t) CxWorld))
+                :three       (v/assert kb (list grants Rex 3) CxWorld)
+                :four        (v/assert kb (list grants Fido 4) CxWorld)))
+            (is (= [true false] (mapv #(believed? kb (list t %) CxWorld) [Rex Fido])) (str (vec order)))
+            (is (= 'interArgEqual
+                   (:informant (first (:support (v/why kb (v/handle-of kb (list t Rex) CxWorld))))))
+                (str (vec order)))
+            (v/retract! kb @dh)
+            (is (not (believed? kb (list t Rex) CxWorld))
+                (str (vec order) " the declaration's retraction takes the membership back"))))))))
+
+;; Under the constraint-only reading a tuple the value triggers is held inert when its
+;; argument 1 is separated from the type, in either order, and one holding another value
+;; is not.  `try-assert` refuses the later write in either order, under both readings.
+(tu/deftest-kb an-inter-arg-equal-convicts-the-tuples-its-value-triggers-in-either-order
+  (doseq [entail?      [true false]
+          [v refused?] [[3 true] [4 false]]
+          decl-first?  [true false]]
+    (binding [checks/*assertive-arg-types?* entail?]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (tu/with-terms [grants t u Rex]
+          (doseq [s [(list 'genl t 'thing) (list 'genl u 'thing) (list 'disjoint t u) (list u Rex)]]
+            (v/assert kb s 'CxUniverse))
+          (let [decl  (list 'interArgEqual grants 2 3 1 t)
+                tuple (list grants Rex v)
+                [w1 w2] (if decl-first? [decl tuple] [tuple decl])
+                tag   (pr-str [entail? v decl-first?])
+                _     (v/assert kb w1 'CxUniverse)
+                e     (try (v/try-assert kb w2 'CxUniverse) :stored
+                           (catch clojure.lang.ExceptionInfo e [(:type (ex-data e)) (:violation (ex-data e))]))]
+            (is (= (if refused? [:definitional-clash :arg-type] :stored) e) (str tag " try-assert"))
+            (when-not (v/handle-of kb w2 'CxUniverse) (v/assert kb w2 'CxUniverse))
+            (is (= (not (and refused? (not entail?)))
+                   (boolean (v/believed? kb (v/handle-of kb tuple 'CxUniverse) 'CxUniverse)))
+                (str tag " assert holds a convicted tuple inert under the constraint-only reading"))))))))
+
+(tu/deftest-kb an-inter-arg-equal-names-a-value-at-its-trigger
+  ;; the equality partition holds symbols only, so a value is the one trigger no merge moves
+  (tu/with-terms [grants t HostA]
+    (is (= [:not-well-formed :stored]
+           (mapv #(try (v/assert kb (list 'interArgEqual grants 2 % 1 t) 'CxUniverse) :stored
+                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))
+                 [HostA "host-a"])))))
+
 ;; `(resultArg MemberFn 1)` types the constant `(MemberFn x)` mints by the type `x` names,
 ;; derived off the `natFormula` fact as an `argArg` mint is off its fact.  A row is the
 ;; steps in order, the name the application holds, and whether `(name K)` is believed

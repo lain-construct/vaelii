@@ -6700,6 +6700,7 @@
     genlArg   (?n ?type)
     quotedArg (?n ?type)
     interArg  (?n ?type ?m ?utype)
+    interArgEqual (?n ?value ?m ?utype)
     argArg    (?n ?m)})
 
 (defn- declarations-on
