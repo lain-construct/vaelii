@@ -131,14 +131,12 @@
 
 ;; ---- a media resource's address ------------------------------------------
 (comment resourceUrl "(resourceUrl ?resource ?url) means that ?resource is retrievable at ?url, e.g. an https address.")
-(binary_predicate resourceUrl)
 (set/monotonic (instance_relation_predicate resourceUrl))
 (arg resourceUrl 1 media_resource)
 (quotedArg resourceUrl 2 string)
 
 ;; ---- a tool's name, its declared arguments and its availability ----------
 (comment toolName "(toolName ?tool ?name) means that ?name is the identifier ?tool is invoked by, e.g. the program name of a command-line tool, the tool name a Model Context Protocol server lists.")
-(binary_predicate toolName)
 (set/monotonic (instance_relation_predicate toolName))
 (arg toolName 1 software_tool)
 (quotedArg toolName 2 string)
@@ -157,20 +155,17 @@
 (quotedArg toolArgComment 3 string)
 
 (comment agentHasTool "(agentHasTool ?agent ?tool) means that ?tool is available to ?agent: ?agent can invoke ?tool.")
-(binary_predicate agentHasTool)
 (set/monotonic (instance_relation_predicate agentHasTool))
 (arg agentHasTool 1 thing)
 (arg agentHasTool 2 software_tool)
 
 (comment probesPredicate "(probesPredicate ?tool ?predicate) means that an invocation of ?tool can return evidence about a sentence whose predicate is ?predicate.")
-(binary_predicate probesPredicate)
 (set/monotonic (instance_relation_predicate probesPredicate))
 (arg probesPredicate 1 software_tool)
 (arg probesPredicate 2 predicate)
 
 ;; ---- invocations and receipts --------------------------------------------
 (comment toolInvoked "(toolInvoked ?invocation ?tool) means that ?invocation is a call of ?tool.")
-(binary_predicate toolInvoked)
 (set/monotonic (instance_relation_predicate toolInvoked))
 (arg toolInvoked 1 tool_invocation)
 (arg toolInvoked 2 software_tool)
@@ -182,7 +177,6 @@
 (quotedArg toolInvocationArg 3 string)
 
 (comment receipt "(receipt ?invocation ?receipt) means that ?invocation produced ?receipt as the record of its output.")
-(binary_predicate receipt)
 (set/monotonic (instance_relation_predicate receipt))
 (arg receipt 1 tool_invocation)
 (arg receipt 2 tool_receipt)
@@ -190,7 +184,6 @@
 ;; ---- name resolution -----------------------------------------------------
 (comment dnsResolvesTo "(dnsResolvesTo ?name ?address) means that DNS resolves the host name ?name to the address ?address, under the resolver in effect where the fact is stated. One name can resolve to several addresses.")
 (positiveExampleComment dnsResolvesTo "example.org resolved to 192.0.2.1")
-(binary_predicate dnsResolvesTo)
 (set/monotonic (instance_relation_predicate dnsResolvesTo))
 (quotedArg dnsResolvesTo 1 string)
 (quotedArg dnsResolvesTo 2 string)

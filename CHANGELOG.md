@@ -46,6 +46,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [nat.md](docs/nat.md#a-reifiable-mark-moving)
   *Migration:* none.
 
+### Internal
+
+- **The shipped ontology states no exact-arity membership that a `:monotonic` metatype
+  route entails.** The upper files drop 169 `(binary_predicate P)` and 5 `(unary_predicate
+  T)` premises, and `CxTra.txt` drops 7 `(binary_predicate P)`. The engine stores each of
+  the 181 in CxUniverse under an `arityClass` justification, so every relation's length,
+  `describe`'s `:arity` and each exact-class answer in CxUniverse reads the same. `why`
+  names the membership and the edges instead of a premise, and `sync!` over a store loaded
+  from 0.28.0's files retracts the 181 premises.
+  [taxonomy.md](docs/taxonomy.md#arity) ([#116](https://github.com/vaelii/vaelii/issues/116))
+
 ## 0.28.0 — 2026-10-21 — "Ill-typed facts and rules stored inert, term kinds and arity policies forced-monotonic, a `:default` `genl` that does not contrapose, parthood and the example predicates restated, `:recover? :trust` by default"
 
 | Area | Change |

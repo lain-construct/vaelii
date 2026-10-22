@@ -135,7 +135,6 @@
 
 (comment largerThan
          "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArgInverse on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
-(binary_predicate largerThan)
 (set/monotonic (type_relation_predicate largerThan))
 (genlArg largerThan 1 tangible)
 (genlArg largerThan 2 tangible)
@@ -155,7 +154,6 @@
 
 (comment locatedIn
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is the spatial calculi's business, and partOfRegion is the relation to reach for there.")
-(binary_predicate locatedIn)
 (set/monotonic (instance_relation_predicate locatedIn))
 (arg locatedIn 1 tangible)
 (arg locatedIn 2 tangible)
@@ -194,7 +192,6 @@
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
-(binary_predicate madeOf)
 (set/monotonic (instance_relation_predicate madeOf))
 (arg madeOf 1 tangible)
 (arg madeOf 2 substance)
@@ -223,7 +220,6 @@
 
 (comment partOf
          "(partOf ?part ?whole) means that ?part is a part of ?whole, of any kind. A component of an object, a region inside a region and a stage of a situation are all parts. Declared transitive, so a part of a part is a part. Both positions declare thing, because a part and its whole can be of any kind.")
-(binary_predicate partOf)
 (arg partOf 1 thing)   ;; a part of any kind: a component of an object, a region, a stage of a situation
 (arg partOf 2 thing)   ;; a whole of any kind: an object, a region, a situation
 (set/monotonic (instance_relation_predicate partOf))
@@ -237,7 +233,6 @@
 
 (comment properPartOf
          "(properPartOf ?part ?whole) means that ?part is a part of ?whole and ?whole is not a part of ?part, of any kind. Both positions declare thing, as partOf's do. Two things each a part of the other are neither a proper part of the other, and they stay two things.")
-(binary_predicate properPartOf)
 (arg properPartOf 1 thing)   ;; a proper part of any kind, as partOf's part is of any kind
 (arg properPartOf 2 thing)   ;; a whole of any kind, as partOf's whole is of any kind
 (set/monotonic (instance_relation_predicate properPartOf))
@@ -251,7 +246,6 @@
 
 (comment tangiblePartOf
          "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
-(binary_predicate tangiblePartOf)
 (set/monotonic (instance_relation_predicate tangiblePartOf))
 (arg tangiblePartOf 1 tangible)
 (arg tangiblePartOf 2 tangible)
@@ -261,7 +255,6 @@
 
 (comment properTangiblePartOf
          "(properTangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole and ?whole is not a component of ?part.")
-(binary_predicate properTangiblePartOf)
 (set/monotonic (instance_relation_predicate properTangiblePartOf))
 (arg properTangiblePartOf 1 tangible)
 (arg properTangiblePartOf 2 tangible)
@@ -273,7 +266,6 @@
 
 (comment partType
          "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of tangiblePartOf: (partType bird wing) says birds have wings, where (tangiblePartOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArgInverse along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to tangiblePartOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
-(binary_predicate partType)
 (set/monotonic (type_relation_predicate partType))
 (genlArg partType 1 tangible)
 (genlArg partType 2 tangible)
@@ -346,7 +338,6 @@
 (comment subSituationOf
          "(subSituationOf ?part ?whole) means that the situation ?part is a part of the situation ?whole. Declared transitive, so a part of a part is a part. A part's time is within its whole's time. The converse does not hold: two situations sharing a time are not thereby parts of one another. subSituationOf supplies parthood only. It rolls no role of the part up to the whole, and it closes no situation under the sum of its parts.")
 (implementationNote subSituationOf "No rule concludes the temporal containment of a part in its whole. The upper ontology has no relation for one time falling within another that covers an intermittent time.")
-(binary_predicate subSituationOf)
 (set/monotonic (instance_relation_predicate subSituationOf))
 (arg subSituationOf 1 situation)
 (arg subSituationOf 2 situation)
@@ -356,7 +347,6 @@
 
 (comment properSubSituationOf
          "(properSubSituationOf ?part ?whole) means that the situation ?part is a part of the situation ?whole and ?whole is not a part of ?part.")
-(binary_predicate properSubSituationOf)
 (set/monotonic (instance_relation_predicate properSubSituationOf))
 (arg properSubSituationOf 1 situation)
 (arg properSubSituationOf 2 situation)
@@ -427,13 +417,11 @@
 
 ;; --- actor / thingPerceived: a happening's participants ---------------------
 (comment actor "(actor ?happening ?participant) means that ?participant participates meaningfully in ?happening.")
-(binary_predicate actor)
 (set/monotonic (instance_relation_predicate actor))
 (arg actor 1 happening)
 (arg actor 2 thing)
 
 (comment thingPerceived "(thingPerceived ?happening ?thing) means that ?thing is what is perceptually taken in during ?happening.")
-(binary_predicate thingPerceived)
 (set/monotonic (instance_relation_predicate thingPerceived))
 (arg thingPerceived 1 happening)
 (arg thingPerceived 2 thing)
@@ -442,7 +430,6 @@
 ;; --- doneBy / performedBy: a happening's doer -------------------------------
 (comment doneBy
          "(doneBy ?happening ?doer) means that ?doer brought about ?happening, intentionally or not.")
-(binary_predicate doneBy)
 (set/monotonic (instance_relation_predicate doneBy))
 (arg doneBy 1 happening)
 (arg doneBy 2 thing)   ;; an event's doer: a person, an animal, a machine or a process
@@ -450,24 +437,22 @@
 
 (comment performedBy
          "(performedBy ?happening ?doer) means that ?doer intentionally initiated ?happening.")
-(binary_predicate performedBy)
 (set/monotonic (instance_relation_predicate performedBy))
 (arg performedBy 1 happening)
 (arg performedBy 2 thing)   ;; an event's doer: a person, an animal, a machine or a process
 (genl performedBy doneBy)
 
 ;; --- input / output: what went into a happening and what it left behind -----
-;; Each relation takes the happening first. Each states
-;; binary_predicate beside instance_relation_predicate.  The arity check holds out a fact
-;; of the wrong length only where binary_predicate is stated, and the genl edge from
-;; instance_relation_predicate does not reach that check.  CxChange states when an input
-;; and an output exist relative to their happening, in time.txt's point relations.
+;; Each relation takes the happening first.  Each relation's :monotonic
+;; instance_relation_predicate mark binds it to two arguments through core.txt's
+;; :monotonic edge to binary_predicate.
+;; CxChange states when an input and an output exist relative to their happening, in
+;; time.txt's point relations.
 (comment input "(input ?happening ?thing) means that ?thing went into ?happening. An instrument the happening used and left unchanged is not an input.")
 (positiveExampleComment input "the lettuce in a salad")
 (positiveExampleComment input "the ore in smelting")
 (positiveExampleComment input "the plank in sawing")
 (negativeExampleComment input "the knife or the saw, an instrument the event used and left unchanged")
-(binary_predicate input)
 (set/monotonic (instance_relation_predicate input))
 (arg input 1 happening)
 (arg input 2 thing)   ;; what went into an event: a thing of any kind
@@ -479,14 +464,12 @@
 (positiveExampleComment destroyedInput "the plank in sawing")
 (positiveExampleComment destroyedInput "the egg in an omelet")
 (negativeExampleComment destroyedInput "the lettuce in a salad, an input but not a destroyed one")
-(binary_predicate destroyedInput)
 (set/monotonic (instance_relation_predicate destroyedInput))
 (arg destroyedInput 1 happening)
 (arg destroyedInput 2 thing)   ;; what went into an event: a thing of any kind
 (genl destroyedInput input)
 
 (comment preservedInput "(preservedInput ?happening ?thing) means that ?thing went into ?happening and still exists when ?happening ends, e.g. the lettuce in a salad, the thread in a woven cloth.")
-(binary_predicate preservedInput)
 (set/monotonic (instance_relation_predicate preservedInput))
 (arg preservedInput 1 happening)
 (arg preservedInput 2 thing)   ;; what went into an event: a thing of any kind
@@ -500,7 +483,6 @@
 (positiveExampleComment output "sawdust from sawing")
 (positiveExampleComment output "a footprint from a step")
 (positiveExampleComment output "a file from a program run")
-(binary_predicate output)
 (set/monotonic (instance_relation_predicate output))
 (arg output 1 happening)
 (arg output 2 thing)   ;; what an event left behind, tangible or intangible
@@ -512,7 +494,6 @@
 (positiveExampleComment tangibleOutput "steel from smelting")
 (positiveExampleComment tangibleOutput "sawdust from sawing")
 (positiveExampleComment tangibleOutput "a footprint from a step")
-(binary_predicate tangibleOutput)
 (set/monotonic (instance_relation_predicate tangibleOutput))
 (arg tangibleOutput 1 happening)
 (arg tangibleOutput 2 tangible)
@@ -523,7 +504,6 @@
 (positiveExampleComment intangibleOutput "a file from a program run")
 (positiveExampleComment intangibleOutput "a receipt from a tool call")
 (positiveExampleComment intangibleOutput "a recorded measurement from an observation")
-(binary_predicate intangibleOutput)
 (set/monotonic (instance_relation_predicate intangibleOutput))
 (arg intangibleOutput 1 happening)
 (arg intangibleOutput 2 intangible)

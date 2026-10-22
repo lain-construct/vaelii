@@ -22,7 +22,6 @@
 
 (comment adultFormOf
          "(adultFormOf ?stage ?kind) means that ?stage is a kind of ?kind in its adult stage: (adultFormOf butterfly lepidopteran) says butterflies are adult lepidopterans. A claim about kinds, like partType: it says what the stage is a stage of and nothing about any particular organism, and (genl ?stage ?kind) is stated beside it, because the organism goes on existing through the change. Companion to larvalFormOf.")
-(binary_predicate adultFormOf)
 (set/monotonic (type_relation_predicate adultFormOf))
 (genlArg adultFormOf 1 organism)
 (genlArg adultFormOf 2 organism)
@@ -122,7 +121,6 @@
 (positiveExample folk_species (Quote (folk_species dog)))
 (positiveExample folk_species (Quote (folk_species oak)))
 (positiveExample folk_species (Quote (folk_species human)))
-(unary_predicate folk_species)
 (genlArg folk_species 1 organism)
 (metatype folk_species)
 (typeGenl folk_species organism)
@@ -179,7 +177,6 @@
 
 (comment invertebrate_class
          "(invertebrate_class ?type) means that ?type is one of the classes of animal without a backbone. A disjoint_metatype, so its members are pairwise disjoint and every kind below one is separated from every kind below another.")
-(unary_predicate invertebrate_class)
 (genlArg invertebrate_class 1 invertebrate)
 (metatype invertebrate_class)
 (set/monotonic (disjoint_metatype invertebrate_class))
@@ -187,7 +184,6 @@
 
 (comment larvalFormOf
          "(larvalFormOf ?stage ?kind) means that ?stage is a kind of ?kind in its larval stage: (larvalFormOf caterpillar lepidopteran) says caterpillars are larval lepidopterans. A claim about kinds, like partType: it says what the stage is a stage of and nothing about any particular organism, and (genl ?stage ?kind) is stated beside it, because the organism goes on existing through metamorphosis. Companion to adultFormOf.")
-(binary_predicate larvalFormOf)
 (set/monotonic (type_relation_predicate larvalFormOf))
 (genlArg larvalFormOf 1 organism)
 (genlArg larvalFormOf 2 organism)
@@ -231,7 +227,6 @@
 (positiveExample plant_class (Quote (plant_class tree)))
 (positiveExample plant_class (Quote (plant_class flower)))
 (positiveExample plant_class (Quote (plant_class grass)))
-(unary_predicate plant_class)
 (genlArg plant_class 1 plant)
 (metatype plant_class)
 (set/monotonic (disjoint_metatype plant_class))
@@ -278,7 +273,6 @@
 
 (comment vertebrate_class
          "(vertebrate_class ?type) means that ?type is one of the classes of animal with a backbone. A disjoint_metatype, so its members are pairwise disjoint and nothing has to say so pair by pair: five members separate ten pairs, and the separation is inherited by every subtype — which is what makes a penguin and a dog disjoint without a word being written about either.")
-(unary_predicate vertebrate_class)
 (genlArg vertebrate_class 1 vertebrate)
 (metatype vertebrate_class)
 (set/monotonic (disjoint_metatype vertebrate_class))

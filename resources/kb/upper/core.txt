@@ -708,7 +708,6 @@
 
 (comment relationTypeByArity
          "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its five declarations drive the rule that classifies a relation from its asserted arity. predicateTypeByArity and functionTypeByArity map the predicate and function exact-arity types, five facts each.")
-(binary_predicate relationTypeByArity)
 (set/monotonic (instance_relation_predicate relationTypeByArity))
 (set/monotonic (functional relationTypeByArity))
 (arg relationTypeByArity 1 unary_predicate)
@@ -716,14 +715,12 @@
 
 (comment predicateTypeByArity
          "(predicateTypeByArity ?type ?arity) maps a predicate exact-arity type to its arity. Related to relationTypeByArity (termsRelated) and not a specialization of it: a predicate mapping classifies a predicate only.")
-(binary_predicate predicateTypeByArity)
 (set/monotonic (instance_relation_predicate predicateTypeByArity))
 (arg predicateTypeByArity 1 unary_predicate)
 (arg predicateTypeByArity 2 non_negative_integer)
 
 (comment functionTypeByArity
          "(functionTypeByArity ?type ?arity) maps a function exact-arity type to its arity. Related to relationTypeByArity (termsRelated) and not a specialization of it: a function mapping classifies a function only.")
-(binary_predicate functionTypeByArity)
 (set/monotonic (instance_relation_predicate functionTypeByArity))
 (arg functionTypeByArity 1 unary_predicate)
 (arg functionTypeByArity 2 non_negative_integer)
@@ -758,7 +755,6 @@
 
 (comment arity
          "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary, three to ternary, four to quaternary and five to quinary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one. A query for the arity of a class member is proved from the membership by a backward rule, and no arity is stored for it. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
-(binary_predicate arity)
 (set/monotonic (instance_relation_predicate arity))
 (set/monotonic (functional arity))
 (arg arity 1 fixed_arity)
@@ -768,14 +764,12 @@
 
 (comment arityMin
          "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. The arity check refuses an application of the relation shorter than ?n.")
-(binary_predicate arityMin)
 (set/monotonic (instance_relation_predicate arityMin))
 (arg arityMin 1 relation)
 (arg arityMin 2 non_negative_integer)
 
 (comment admitsArgnum
          "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. Answered at query time from the relation's declared arity and variable-arity mark. The backward rules below state the same definition, so an answer can be justified from them.")
-(binary_predicate admitsArgnum)
 (set/monotonic (instance_relation_predicate admitsArgnum))
 (arg admitsArgnum 1 relation)
 (arg admitsArgnum 2 positive_integer)
@@ -979,7 +973,6 @@
 
 (comment believes
          "(believes ?agent ?sentence) means that ?agent holds ?sentence true in its own context — answered by proving ?sentence in ?agent's context (CxAgent<agent>) rather than in the asker's, so two agents may believe contradictory things without the KB being inconsistent. A modal_predicate: the projection is what BeliefProjectionProver does, and the marker is what turns it on (docs/belief.md). An ordinary relation for the rest — assertible and storable like any fact, so an asserted (believes a p) is answerable as a stored fact too; the projector augments, it does not shadow.")
-(binary_predicate believes)
 (set/monotonic (instance_relation_predicate believes))
 (arg believes 2 sentence)
 (arg believes 1 thing)   ;; a believer, whose type the upper ontology does not name
@@ -990,7 +983,6 @@
 
 (comment comment
          "(comment ?term ?text) means that ?text documents ?term. Ordinary sentexes, so the KB documents itself in its own representation and a comment is queried, retracted and justified like anything else. Written as a signature and a definition, as this one is, so that first clause doubles as the template an English gloss of any (?term …) sentence is composed from; everything after it is prose for a reader and no machine reads it.")
-(binary_predicate comment)
 (set/monotonic (instance_relation_predicate comment))
 (arg comment 2 string)
 (quotedArg comment 1 denotational_term)   ;; the commented term as written: a type, a predicate, an individual or a context
@@ -1019,14 +1011,12 @@
 
 (comment disjoint
          "(disjoint ?type1 ?type2) means that the two types have no common instance. Inherited by subtypes through genl, so declaring it of dog and cat separates every breed from every breed. A hard constraint: a membership that violates it is refused where it is written, and one that only becomes visible from some descendant context is reported by exposed-clashes rather than thrown at whoever wrote the second half.")
-(binary_predicate disjoint)
 (set/monotonic (type_relation_predicate disjoint))
 (genlArg disjoint 1 thing)
 (genlArg disjoint 2 thing)
 
 (comment diachronicallyDisjoint
          "(diachronicallyDisjoint ?type1 ?type2) means that nothing is an instance of both types at the same time, though one thing can be an instance of each at different times: caterpillar and butterfly, a child and an adult. disjoint is a genl of it, because never sharing an instance means never sharing one at once. Stated and queryable, not enforced: memberships are checked without time, so the engine cannot yet tell an instance that is both at once from one that is each in turn.")
-(binary_predicate diachronicallyDisjoint)
 (set/monotonic (symmetric diachronicallyDisjoint))
 (set/monotonic (type_relation_predicate diachronicallyDisjoint))
 (genlArg diachronicallyDisjoint 1 thing)
@@ -1430,7 +1420,6 @@
 
 (comment evaluate
          "(evaluate ?result ?expression) means that ?result is the value of the symbolic ?expression. So (evaluate ?sum (+ 1 2)) binds ?sum to 3. A safe whitelist over +, -, *, /, mod, min, max, abs and expt rather than clojure eval, computed on demand and never stored.")
-(binary_predicate evaluate)
 (set/monotonic (instance_relation_predicate evaluate))
 (arg evaluate 1 number)
 (arg evaluate 2 thing)   ;; the expression: a number or an application
@@ -1702,7 +1691,6 @@
 
 (comment genl
          "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The type hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Muffet) and never (isa Muffet Dog). The same relation relates predicate specializations of any arity: every tuple of the subtype is a tuple of the supertype, which is what a type reading of it is the unary case of, so neither argument is declared a subtype of thing.")
-(binary_predicate genl)
 (set/monotonic (type_relation_predicate genl))
 ;; NEITHER position is declared, and both are left so deliberately.
 ;; (genlArg genl 1 thing) reads "the subtype is a subtype of thing", which is false of
@@ -1759,7 +1747,6 @@
 
 (comment natFormula
          "(natFormula ?constant ?expression) means that the reified constant ?constant stands for the non-atomic term ?expression. The engine stores one when it reifies an application and reads it to get the expression back from the constant; the inverted term index answers the other direction, from expression to constant. A quoting predicate: ?expression is stored as written, neither reified nor type-checked as a term.")
-(binary_predicate natFormula)
 (set/monotonic (instance_relation_predicate natFormula))
 (arg natFormula 2 non_atomic_term)
 (arg natFormula 1 thing)   ;; the reified constant: a term of any kind
@@ -1808,7 +1795,6 @@
 
 (comment genlCx
          "(genlCx ?subcontext ?supercontext) means that ?subcontext inherits from and sees everything asserted in ?supercontext. Transitive, and what places every derived conclusion: a firing lands in the most general contexts that see the rule, the facts and the taxonomy edges it used. Stored in CxUniverse by force, so the topology has one canonical home. A cycle is refused at assert, like a genl cycle, so the context hierarchy is a partial order; a cycle a recovered or foreign store presents is still condensed.")
-(binary_predicate genlCx)
 (set/monotonic (instance_relation_predicate genlCx))
 (arg genlCx 1 context)
 (arg genlCx 2 context)
@@ -1857,7 +1843,6 @@
 (comment inverse
          "(inverse ?predicate1 ?predicate2) means that ?predicate1 and ?predicate2 are inverse relations, so (?predicate1 a b) holds exactly when (?predicate2 b a) does. Answered by a prover that hands the swapped goal back to the engine rather than matching raw facts, so an inverse composes with its partner's transitivity.")
 (positiveExample inverse (Quote (inverse parentOf childOf)))
-(binary_predicate inverse)
 (set/monotonic (instance_relation_predicate inverse))
 (arg inverse 1 predicate)
 (arg inverse 2 predicate)
@@ -1867,7 +1852,6 @@
          "(negates ?predicate1 ?predicate2) means that no argument list satisfies both relations: (?predicate1 a b) entails (not (?predicate2 a b)), and the converse. Read down genl on both sides, so (negates scorns admires) with (genl sneersAt scorns) also rules out (sneersAt a b) beside (admires a b). Two stored tuples of one argument list under the two sides are a placed nogood, and a ground denial is answered from a believed tuple of the other side. (negates P P) says P holds of nothing, so each P tuple is a one-member clash. A declaration whose sides are bound to lengths no argument list fits is a clash of the declaration. For two types, disjoint is the declaration, and a declaration over two predicates bound to one argument is a clash of the declaration. See docs/taxonomy.md.")
 (positiveExampleComment negates "(negates likes dislikes)")
 (negativeExampleComment negates "(negates loves hates), since one person can love and hate another at once")
-(binary_predicate negates)
 (set/monotonic (symmetric negates))
 (arg negates 1 predicate)
 (arg negates 2 predicate)
@@ -1876,7 +1860,6 @@
 
 (comment ist
          "(ist ?context ?sentence) means that ?sentence holds in ?context. Never stored as a sentex of its own: given to assert it finds or creates ?sentence in ?context and returns that handle, and given to a read it asks ?sentence in ?context. A rule refuses it in every position: as an antecedent it matches nothing, and as a consequent it would place a conclusion in a context that need not see the rule or its facts. The wrapped sentence is a term, so one sentence is findable from another through the term index.")
-(binary_predicate ist)
 (set/monotonic (instance_relation_predicate ist))
 (arg ist 1 context)
 (arg ist 2 sentence)
@@ -1999,7 +1982,6 @@
 (negativeExample relation_kind (Quote (relation_kind result)))
 (negativeExample relation_kind (Quote (relation_kind genlResult)))
 (negativeExample relation_kind (Quote (relation_kind functionCorrespondingPredicate)))
-(unary_predicate relation_kind)
 (genlArg relation_kind 1 predicate)
 (set/monotonic (disjoint_metatype relation_kind))
 (metatype relation_kind)
@@ -2078,7 +2060,6 @@
 (comment commutativeInArgAndRest
          "(commutativeInArgAndRest ?relation ?position) means that the arguments of ?relation from ?position through the end of an application may be permuted without changing the proposition, while every earlier argument stays where it was written. The canonical runtime spelling of commutativity: the other two marks reduce to it, and the assert entry point sorts the arguments inside the component it names, so every permitted permutation of a ground fact is one sentex and one handle. Variable arity is respected rather than flattened — the component is closed by the application's own arity, so a relation applied at three arguments and at four states two claims and no permutation moves an argument between them. Repeated argument values keep their multiplicity: commutativity changes order, never content. See docs/canonicalization.md.")
 (positiveExampleComment commutativeInArgAndRest "a whole-and-parts relation at position 2, so the whole stays in position 1 and only the parts commute")
-(binary_predicate commutativeInArgAndRest)
 (decontextualized_predicate commutativeInArgAndRest)
 (set/monotonic (instance_relation_predicate commutativeInArgAndRest))
 (arg commutativeInArgAndRest 1 relation)
@@ -2261,7 +2242,6 @@
 (comment typeToInstancePred
          "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")
 (positiveExample typeToInstancePred (Quote (typeToInstancePred partType tangiblePartOf)))
-(binary_predicate typeToInstancePred)
 (set/monotonic (instance_relation_predicate typeToInstancePred))
 (arg typeToInstancePred 1 type_relation_predicate)
 (arg typeToInstancePred 2 instance_relation_predicate)
@@ -2276,7 +2256,6 @@
 (comment properCounterpart
          "(properCounterpart ?predicate ?properPredicate) means that ?properPredicate is the proper reading of ?predicate: (?properPredicate x y) holds exactly when (?predicate x y) holds and (?predicate y x) does not. Declared of partOf and properPartOf, for instance. A reverse tuple nobody stated is not a reverse tuple denied, so the proper tuple needs (not (?predicate y x)) believed and is not concluded from the absence of (?predicate y x).")
 (implementationNote properCounterpart "A generator generates the definition half of the contract per pair. The other half, the proper tuple denying the reverse plain one, is a rule stated once at the root of a family of pairs, since generating it per pair would repeat what the root's rule already concludes through genl.")
-(binary_predicate properCounterpart)
 (set/monotonic (instance_relation_predicate properCounterpart))
 (arg properCounterpart 1 binary_predicate)
 (arg properCounterpart 2 binary_predicate)
@@ -2338,7 +2317,6 @@
 
 (comment seeAlso
          "(seeAlso ?term1 ?term2) means that ?term1 and ?term2 are worth reading together — an editorial 'see also' cross-reference between two terms. Directional: (seeAlso a b) points a reader from a to b, and the reverse is a separate assertion, not implied. Documentation only, like comment: nothing in the engine reads it and it draws no inference.")
-(binary_predicate seeAlso)
 (set/monotonic (instance_relation_predicate seeAlso))
 (quotedArg seeAlso 1 denotational_term)   ;; a cross-referenced term, taken as written
 (quotedArg seeAlso 2 denotational_term)
@@ -2361,19 +2339,16 @@
 
 (comment positiveExample
          "(positiveExample ?term (Quote ?sentence)) means that ?sentence is a TRUE example of ?term's usage. The second argument is only a quoted sentence, closed and written in full: (positiveExample ip_address (Quote (ip_address \"192.0.2.1\"))). Tested by curation_test, which asks ?sentence in the context this fact is stated in and requires it to be provable there. Names no sentex, so it is not target_following_predicate: retracting what made ?sentence provable leaves the example standing and turns that test red. ?term is the term being exemplified.")
-(binary_predicate positiveExample)
 (set/monotonic (instance_relation_predicate positiveExample))
 (quotedArg positiveExample 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment negativeExample
          "(negativeExample ?term (Quote ?sentence)) means that ?sentence is a FALSE example of ?term's usage — a use of ?term that does not hold. The second argument is only a quoted sentence, closed and written in full, as for positiveExample. Tested by curation_test, which asks ?sentence in the context this fact is stated in and requires it NOT to be provable there; unknown is enough, so the KB need not prove the negation. Names no sentex, so it is not target_following_predicate. ?term is the term being exemplified.")
-(binary_predicate negativeExample)
 (set/monotonic (instance_relation_predicate negativeExample))
 (quotedArg negativeExample 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment borderlineExample
          "(borderlineExample ?term (Quote ?sentence)) means that ?sentence is a BORDERLINE example of ?term's usage — a case where whether it holds is arguable. The second argument is only a quoted sentence, closed and written in full, as for positiveExample. Truth-agnostic by design: curation_test does not check whether ?sentence is provable. Names no sentex, so it is not target_following_predicate.")
-(binary_predicate borderlineExample)
 (set/monotonic (instance_relation_predicate borderlineExample))
 (quotedArg borderlineExample 1 denotational_term)   ;; the exemplified term, taken as written
 
@@ -2384,21 +2359,18 @@
 
 (comment positiveExampleComment
          "(positiveExampleComment ?term ?text) means that ?text describes, as a string, a TRUE example of ?term: something ?term holds of, or a use of ?term that is true. The string sibling of positiveExample, for an example that is not a sentence the KB can state, or whose sentence the KB does not prove. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and no test checks ?text against the KB.")
-(binary_predicate positiveExampleComment)
 (set/monotonic (instance_relation_predicate positiveExampleComment))
 (arg positiveExampleComment 2 string)
 (quotedArg positiveExampleComment 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment negativeExampleComment
          "(negativeExampleComment ?term ?text) means that ?text describes, as a string, a FALSE example of ?term: something ?term does not hold of, or a use of ?term that is false. The string sibling of negativeExample, for an example that is not a sentence the KB can state. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and no test checks ?text against the KB.")
-(binary_predicate negativeExampleComment)
 (set/monotonic (instance_relation_predicate negativeExampleComment))
 (arg negativeExampleComment 2 string)
 (quotedArg negativeExampleComment 1 denotational_term)   ;; the exemplified term, taken as written
 
 (comment borderlineExampleComment
          "(borderlineExampleComment ?term ?text) means that ?text describes, as a string, a BORDERLINE example of ?term: a case where whether ?term holds is arguable. The string sibling of borderlineExample, for an example that is not a sentence the KB can state. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and no test checks ?text against the KB.")
-(binary_predicate borderlineExampleComment)
 (set/monotonic (instance_relation_predicate borderlineExampleComment))
 (arg borderlineExampleComment 2 string)
 (quotedArg borderlineExampleComment 1 denotational_term)   ;; the exemplified term, taken as written

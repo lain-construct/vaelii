@@ -191,7 +191,6 @@
 
 (comment means "(means ?expression ?meaning) means that ?expression, a closed wff_expression, has ?meaning as its semantic content: for a term what it denotes, for a sentence the proposition it expresses. Read in the context the sentence is stated in, which supplies the interpretation. Functional: an expression has at most one meaning in a context.")
 (positiveExampleComment means "(means (Quote Muffet) Muffet)")
-(binary_predicate means)
 (arg means 1 wff_expression)
 (arg means 1 closed_expression)
 (arg means 2 thing)   ;; the meaning: what a term denotes or the proposition a sentence expresses
