@@ -828,6 +828,64 @@
         (let [h (v/assert kb (list sees Bob (list MotherFn Muffet)) 'CxUniverse)]
           (is (nat/reified-nat-symbol? (nth (:sentence (v/sentex kb h)) 2))))))))
 
+;; ---- a map leaving before or without its mark ------------------------------
+
+(defn- stored-sentences
+  "Every stored sentex's sentence, believed or not: a re-spell in place keeps the handle,
+  so the handle set alone misses it."
+  [kb]
+  (into #{} (keep #(some-> (v/sentex kb %) v/sentence-of)) (tu/sentex-ids kb)))
+
+(tu/deftest-kb a-mark-and-its-maps-retracted-in-any-order-leave-no-constant
+  (doseq [[label teardown]
+          [["the mark alone"          (fn [kb mark _] (v/retract! kb mark))]
+           ["every map, then the mark" (fn [kb mark maps] (run! #(v/retract! kb %) maps) (v/retract! kb mark))]
+           ["one map, then the mark"  (fn [kb mark maps] (v/retract! kb (first maps)) (v/retract! kb mark))]]]
+    (tu/with-terms [SkillFn Rex Ann likes]
+      (let [before (stored-sentences kb)
+            uses   (mapv #(v/assert kb (list likes % (list SkillFn %)) 'CxUniverse) [Rex Ann])
+            mark   (v/assert kb (list 'reifiable_function SkillFn) 'CxUniverse)
+            maps   (mapv (fn [x use]
+                           (v/handle-of kb (list 'natFormula (nth (:sentence (v/sentex kb use)) 2) (list SkillFn x))
+                                        'CxUniverse))
+                         [Rex Ann] uses)]
+        (is (every? some? maps) label)
+        (teardown kb mark maps)
+        (is (= (mapv #(list likes % (list SkillFn %)) [Rex Ann])
+               (mapv #(:sentence (v/sentex kb %)) uses))
+            label)
+        (run! #(v/retract! kb %) uses)
+        (is (= before (stored-sentences kb)) label)))))
+
+(tu/deftest-kb a-map-retracted-under-its-believed-mark-is-minted-again
+  (tu/with-terms [SkillFn Rex likes]
+    (let [use  (v/assert kb (list likes Rex (list SkillFn Rex)) 'CxUniverse)
+          _    (v/assert kb (list 'reifiable_function SkillFn) 'CxUniverse)
+          k    (nth (:sentence (v/sentex kb use)) 2)
+          map-handle (fn [] (v/handle-of kb (list 'natFormula k (list SkillFn Rex)) 'CxUniverse))]
+      (is (nat/reified-object-symbol? k))
+      (v/retract! kb (map-handle))
+      (is (some? (map-handle)))
+      (is (= (list likes Rex k) (:sentence (v/sentex kb use))))
+      (is (v/ask? kb (list likes Rex (list SkillFn Rex)) 'CxUniverse)))))
+
+(tu/deftest-kb an-inner-constant-whose-map-left-is-minted-again-and-expanded-with-the-marks
+  ;; the inner constant's only row besides its map is the outer constant's map, a mention
+  (tu/with-terms [InnerFn OuterFn Rex likes]
+    (let [before  (stored-sentences kb)
+          written (list likes Rex (list OuterFn (list InnerFn Rex)))
+          use     (v/assert kb written 'CxUniverse)
+          marks   (mapv #(v/assert kb (list 'reifiable_function %) 'CxUniverse) [InnerFn OuterFn])
+          spelled (:sentence (v/sentex kb use))
+          inner   (list 'natFormula (second (nat/nat-expression kb (nth spelled 2))) (list InnerFn Rex))]
+      (v/retract! kb (v/handle-of kb inner 'CxUniverse))
+      (is (some? (v/handle-of kb inner 'CxUniverse)))
+      (is (= spelled (:sentence (v/sentex kb use))))
+      (run! #(v/retract! kb %) marks)
+      (is (= written (:sentence (v/sentex kb use))))
+      (v/retract! kb use)
+      (is (= before (stored-sentences kb))))))
+
 (tu/deftest-kb an-ill-formed-correspondence-is-refused
   (tu/with-terms [MotherFn motherOf Mary]
     ;; the arity-1 row is caught by the NAMING entry point, which runs upstream of `wff`: a

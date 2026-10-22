@@ -24,6 +24,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [nat.md](docs/nat.md#rename-and-remove--keeping-the-11-invariant)
   *Migration:* none.
 
+- **Retracting a `natFormula` map before its `reifiable_function` mark no longer leaves
+  the constant's uses spelled `nat/K`** ([#216](https://github.com/vaelii/vaelii/issues/216)).
+  The uses a departing map leaves are re-spelled in the same teardown: under a believed
+  mark the constant is minted again, and with the mark gone each use names the
+  application. The mark and its maps leave the same store in any retraction order.
+  [nat.md](docs/nat.md#a-reifiable-mark-moving)
+  *Migration:* none.
+
 ## 0.28.0 — 2026-10-21 — "Ill-typed facts and rules stored inert, term kinds and arity policies forced-monotonic, a `:default` `genl` that does not contrapose, parthood and the example predicates restated, `:recover? :trust` by default"
 
 | Area | Change |

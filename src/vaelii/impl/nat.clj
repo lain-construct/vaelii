@@ -582,6 +582,20 @@
   [form]
   (boolean (some reified-nat-symbol? (tree-seq sequential? seq form))))
 
+(defn- expand-through
+  "`form` with every constant `expand?` accepts replaced, recursively, by the expression
+  `expression-of` answers for it, kept where that is nil.  A vector rebuilds as a vector."
+  [expression-of form expand?]
+  (cond
+    (expand? form) (if-let [e (expression-of form)]
+                     (expand-through expression-of e expand?)
+                     form)
+    (and (seq? form) (contains-reified-nat? form))
+    (apply list (map #(expand-through expression-of % expand?) form))
+    (and (vector? form) (contains-reified-nat? form))
+    (mapv #(expand-through expression-of % expand?) form)
+    :else form))
+
 (defn expand-expression
   "Recursively replace every reified NAT constant in `form` with the functional
   expression it denotes — human-readable printing / export
@@ -591,16 +605,7 @@
   vector — an antecedent list stays the shape its record stores.  `expand?` narrows which
   constants are expanded."
   ([kb form] (expand-expression kb form reified-nat-symbol?))
-  ([kb form expand?]
-   (cond
-     (expand? form) (if-let [e (nat-expression kb form)]
-                      (expand-expression kb e expand?)
-                      form)
-     (and (seq? form) (contains-reified-nat? form))
-     (apply list (map #(expand-expression kb % expand?) form))
-     (and (vector? form) (contains-reified-nat? form))
-     (mapv #(expand-expression kb % expand?) form)
-     :else form)))
+  ([kb form expand?] (expand-through #(nat-expression kb %) form expand?)))
 
 ;; ---- the reify walk (parameterized over the leaf action) -----------------
 ;; The sentence/literal walk is shared by the write path (mint) and the read path
@@ -1369,19 +1374,34 @@
   [f sentence]
   (boolean (some #(and (sequential? %) (= f (first %))) (tree-seq sequential? seq sentence))))
 
-(defn respell-region
-  "The stored sentexes a `reifiable_function` mark on `f` moving can re-spell: each one
-  holding an application of `f`, and each use of an object constant whose expression
-  holds one, at any nesting (a constant whose expression names such a constant
-  included).  Left out: a quoting predicate's row, whose payload is a mention, a
-  constant's own sentexes (`own-sentex-test`), which the orphan sweep collects once the
-  uses have moved, and the uses of a constant an equality retired.  Stored, not believed: a use sitting OUT moves as a believed one does,
-  so its revival finds it spelled as the KB spells it.
+(defn departed-map
+  "`[k E]` for `sentence` `(natFormula k E)` with `k` an object constant, else nil: the
+  pair a map leaving the store takes with it."
+  [sentence]
+  (when (and (seq? sentence) (= 'natFormula (first sentence)))
+    (let [[_ k E] sentence]
+      (when (and (reified-object-symbol? k) (sequential? E)) [k E]))))
 
-  One term-index read for `f` and one per constant reached, so the cost is the size of
-  `f`'s applications and their constants' uses."
-  [kb f]
-  (loop [todo [f] seen #{f} rows {}]
+(defn written-as
+  "`form` with every object constant expanded, recursively, to the expression it maps to,
+  each key of `departed` (`{k E}`, constants whose map left the store) to its value."
+  [kb form departed]
+  (expand-through #(or (get departed %) (nat-expression kb %)) form reified-object-symbol?))
+
+(defn- quoting-row?
+  "Is `sx` a quoting predicate's row, whose payload is a mention and does not move?"
+  [sx]
+  (contains? nat-quoting-predicates (nm/functor (sx/sentence-of sx))))
+
+(defn- region-from
+  "The stored sentexes a walk from term `root` reaches, believed or not: the rows
+  `(root-uses sxs)` picks out of `root`'s term-index answer, and each use of an object
+  constant whose stored map's expression holds a term already reached, at any nesting.
+  Left out: a quoting predicate's row, a constant's own sentexes (`own-sentex-test`), and
+  the uses of a constant an equality retired.  Nil when `root-uses` answers nil.  One
+  term-index read per term reached."
+  [kb root root-uses]
+  (loop [todo [root] seen #{root} rows {}]
     (if (empty? todo)
       (vals rows)
       (let [t    (peek todo)
@@ -1397,14 +1417,33 @@
             ;; cover")
             rep  #(tax/representative (reasoning/taxonomy kb) %)
             ks   (into [] (comp (keep maps) (remove seen) (filter #(= % (rep %))) (distinct)) sxs)
-            own? (if (= t f)
-                   (constantly false)
-                   (if-let [E (authoritative-expression
-                               (mapped-expressions t (filter #(jtms/in? (reasoning/tms kb) (:id %)) sxs)))]
-                     (own-sentex-test kb t E sxs)
-                     (constantly false)))
-            uses (into [] (remove #(or (contains? nat-quoting-predicates (nm/functor (sx/sentence-of %)))
-                                       (own? %)
-                                       (and (= t f) (not (applies? f (sx/sentence-of %))))))
-                       sxs)]
-        (recur (into (pop todo) ks) (into seen ks) (into rows (map (juxt :id identity)) uses))))))
+            uses (if (= t root)
+                   (root-uses sxs)
+                   (let [own? (if-let [E (authoritative-expression
+                                          (mapped-expressions t (filter #(jtms/in? (reasoning/tms kb) (:id %)) sxs)))]
+                                (own-sentex-test kb t E sxs)
+                                (constantly false))]
+                     (into [] (remove #(or (quoting-row? %) (own? %))) sxs)))]
+        (when uses
+          (recur (into (pop todo) ks) (into seen ks) (into rows (map (juxt :id identity)) uses)))))))
+
+(defn stranded-uses
+  "The stored uses, believed or not, of object constant `k` once no stored `natFormula`
+  maps it, `E` being the expression its departed map held: every sentex naming `k` that
+  is neither a quoting predicate's row nor `k`'s own (`own-sentex-test`), and every use
+  of a constant whose stored map's expression names `k`, at any nesting (`region-from`).
+  Nil while a map of `k` is stored, since `respell-region` reaches those uses."
+  [kb k E]
+  (region-from kb k (fn [sxs]
+                      (when (empty? (mapped-expressions k sxs))
+                        (let [own? (own-sentex-test kb k E sxs)]
+                          (into [] (remove #(or (quoting-row? %) (own? %))) sxs))))))
+
+(defn respell-region
+  "The stored sentexes a `reifiable_function` mark on `f` moving can re-spell: each one
+  holding an application of `f`, and each use of an object constant whose expression
+  holds one, at any nesting (`region-from`)."
+  [kb f]
+  (region-from kb f (fn [sxs]
+                      (into [] (filter #(and (not (quoting-row? %)) (applies? f (sx/sentence-of %))))
+                            sxs))))

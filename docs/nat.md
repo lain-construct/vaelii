@@ -551,6 +551,17 @@ own walk. A rule's antecedent and consequent move the same way.
   the rows moved off. A settle has no teardown entry point, so each bookkeeping handle is
   taken out through `integrate/take-out!`.
 
+**A map that leaves while uses still name its constant re-spells those uses.** The region
+walk reaches a constant only through its stored `natFormula` map, so a map retracted
+before the mark would leave its uses spelled with a constant nothing expands. The teardown
+that removes the map reads the expression off its removal record and re-spells each
+remaining use, and each use of a constant whose expression names the departed one, with
+the departed constant written as that expression (`chain/reconcile-stranded!`, run from
+`nat-maintenance/collect-orphans!` before the orphan sweep). Under a believed mark the
+use keeps its spelling and the constant is minted again, map included, under a new
+handle. With the mark gone the use names the application. The mark and its maps
+therefore leave the same store in any retraction order.
+
 A reader that does not believe the mark reads no row naming a constant minted for `F`,
 the mint and its result types included, and a reader that believes it reads no row holding
 an application of `F` unreified (`res/without-unbelieved-spellings`). A goal is reified

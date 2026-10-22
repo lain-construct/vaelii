@@ -4915,6 +4915,47 @@
           (let [[s1 w] (first sp)] [s1 w {}])
           (let [u (spell (set fs))] [u (set fs) (dissoc sp u)]))))))
 
+(defn- reconcile-reified-row!
+  "Bring stored row `h` to the spellings its readers read, planned from `(pre sentence)`,
+  and return the handles that are new content.  `pre` is `identity`, or for a use a
+  departed map left behind, `nat/written-as` over the departed maps
+  (`reconcile-stranded!`).  A row moved off its spelling is added to `moved`; `witness`
+  is the mark handle a fold carries metas on, or nil; `memo` is `reified-plan`'s."
+  [kb memo moved witness pre h]
+  (let [tax (reasoning/taxonomy kb)
+        tms (reasoning/tms kb)]
+    (when-let [sx (p/get-sentex (:records kb) h)]
+      (when (piece-holder? kb h)
+        (let [s          (sx/sentence-of sx)
+              ctx        (:context sx)
+              s'         (pre s)
+              [home w r] (reified-plan kb memo s' ctx)
+              h'         (when (not= home s)
+                           (vswap! moved conj sx)
+                           (binding [nat/*withheld* (or w #{})]
+                             (integrate/move-row!
+                              kb sx home witness
+                              #(binding [nat/*withheld* (or w #{})]
+                                 (nat/respelled kb (pre %))))))
+              at         (or (:at h') h)]
+          (cond-> (sync-respellings!
+                   kb at
+                   (into {}
+                         (map (fn [[s2 w2]]
+                                [s2 [#(binding [nat/*withheld* w2]
+                                        (kb/find-or-create-sentex kb s2 ctx))
+                                     (into [] (comp (filter (fn [m] (jtms/in? tms m)))
+                                                    (map vector))
+                                           (sort (mapcat (fn [g] (tax/prop-supporters tax :reifiable g))
+                                                         (remove w2 (reified-fns kb s')))))]]))
+                         r))
+            h' (into (:new h'))))))))
+
+(defn- mark-witness
+  "The believed supporter of `f`'s `reifiable_function` mark chosen by content, or nil."
+  [kb f]
+  (integrate/witness-among kb (tax/prop-supporters (reasoning/taxonomy kb) :reifiable f)))
+
 (defn reconcile-reified!
   "Bring the stored rows a `reifiable_function` mark moving re-spells to the spellings
   their readers read, for every function in `fns` — the ones whose mark moved since the
@@ -4933,49 +4974,52 @@
   a declaration written before its applications reaches none of them, and a KB declaring
   no reifiable function never queues one."
   [kb fns]
-  (let [recs    (:records kb)
-        tax     (reasoning/taxonomy kb)
-        tms     (reasoning/tms kb)
-        moved   (volatile! [])
-        memo    (volatile! {})
-        new     (binding [wiring/*defer-settle?* true]
-                  (into []
-                        (mapcat
-                         (fn [f]
-                           (let [witness (integrate/witness-among kb (tax/prop-supporters tax :reifiable f))]
-                             (into []
-                                   (mapcat
-                                    (fn [h]
-                                      (when-let [sx (p/get-sentex recs h)]
-                                        (when (piece-holder? kb h)
-                                          (let [s           (sx/sentence-of sx)
-                                                ctx         (:context sx)
-                                                [home w r]  (reified-plan kb memo s ctx)
-                                                h'          (when (not= home s)
-                                                              (vswap! moved conj sx)
-                                                              (binding [nat/*withheld* (or w #{})]
-                                                                (integrate/move-row!
-                                                                 kb sx home witness
-                                                                 #(binding [nat/*withheld* (or w #{})]
-                                                                    (nat/respelled kb %)))))
-                                                at          (or (:at h') h)]
-                                            (cond-> (sync-respellings!
-                                                     kb at
-                                                     (into {}
-                                                           (map (fn [[s2 w2]]
-                                                                  [s2 [#(binding [nat/*withheld* w2]
-                                                                          (kb/find-or-create-sentex kb s2 ctx))
-                                                                       (into [] (comp (filter (fn [m] (jtms/in? tms m)))
-                                                                                      (map vector))
-                                                                             (sort (mapcat (fn [g] (tax/prop-supporters tax :reifiable g))
-                                                                                           (remove w2 (reified-fns kb s)))))]]))
-                                                           r))
-                                              h' (into (:new h'))))))))
-                                   (map :id (nm/sort-by-content-key #(vector (sx/sentence-of %) (:context %))
-                                                                    (nat/respell-region kb f)))))))
-                        (sort fns)))]
+  (let [moved (volatile! [])
+        memo  (volatile! {})
+        new   (binding [wiring/*defer-settle?* true]
+                (into []
+                      (mapcat
+                       (fn [f]
+                         (let [witness (mark-witness kb f)]
+                           (into []
+                                 (mapcat #(reconcile-reified-row! kb memo moved witness identity %))
+                                 (map :id (nm/sort-by-content-key #(vector (sx/sentence-of %) (:context %))
+                                                                  (nat/respell-region kb f)))))))
+                      (sort fns)))]
     (collect-respelled-orphans! kb @moved)
     new))
+
+(defn reconcile-stranded!
+  "Re-spell the stored uses departed `natFormula` maps left naming their object constants
+  (`nat/stranded-uses`), `maps` holding the departed `[k E]` pairs.  Each use is planned
+  from its sentence with every constant expanded and each departed `k` written `E`
+  (`nat/written-as`), so the write path's walk spells it again.  Returns the handles that
+  are new content, or nil when no map left a use behind (docs/nat.md, A reifiable mark
+  moving)."
+  [kb maps]
+  (let [maps     (nm/sort-by-content-key identity maps)
+        departed (update-vals (group-by first maps) #(nat/authoritative-expression (map second %)))
+        groups   (second
+                  (reduce (fn [[seen acc] [k E]]
+                            (let [us (into [] (remove #(contains? seen (:id %))) (nat/stranded-uses kb k E))]
+                              [(into seen (map :id) us) (cond-> acc (seq us) (conj [E us]))]))
+                          [#{} []]
+                          maps))]
+    (when (seq groups)
+      (let [moved (volatile! [])
+            memo  (volatile! {})
+            pre   #(nat/written-as kb % departed)
+            new   (binding [wiring/*defer-settle?* true]
+                    (into []
+                          (mapcat
+                           (fn [[E us]]
+                             (let [witness (mark-witness kb (first E))]
+                               (into []
+                                     (mapcat #(reconcile-reified-row! kb memo moved witness pre %))
+                                     (map :id (nm/sort-by-content-key #(vector (sx/sentence-of %) (:context %)) us))))))
+                          groups))]
+        (collect-respelled-orphans! kb @moved)
+        new))))
 
 (defn- fire-rule
   "Apply a newly added rule over existing facts, at the rule's own strength.  `admit` is

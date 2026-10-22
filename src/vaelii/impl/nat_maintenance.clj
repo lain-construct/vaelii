@@ -15,13 +15,15 @@
     references any more, removed to a fixpoint.
 
   Sits above both `vaelii.impl.nat` and `vaelii.impl.context-nat`, because the assert-path
-  sequencing spans the two, and above `vaelii.impl.settle`, because a computed `genlCx`
-  edge owes a chain and a settle of its own.
+  sequencing spans the two; above `vaelii.impl.settle`, because a computed `genlCx` edge
+  owes a chain and a settle of its own; and above `vaelii.impl.chain`, whose reconcile
+  re-spells the uses a departed `natFormula` map left (`respell-stranded!`).
 
   The teardown entry point is an **argument**, not a require: the orphan sweep retracts
   through `vaelii.core/retract!`, and the engine never requires the API namespace
   (docs/namespaces.md, \"The layering\").  `vaelii.core` hands its own `retract!` in."
-  (:require [vaelii.impl.context-nat :as context-nat]
+  (:require [vaelii.impl.chain :as chain]
+            [vaelii.impl.context-nat :as context-nat]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.settle :as settle]))
 
@@ -136,10 +138,22 @@
           (doseq [h handles] (retract! kb h))
           (recur (count removed) (inc guard)))))))
 
+(defn- respell-stranded!
+  "Re-spell the uses of each object constant whose `natFormula` map is in the removal
+  record `sink` and that uses still name (`chain/reconcile-stranded!`), then re-chain
+  what that made and settle.  One pass over `sink`."
+  [kb sink]
+  (let [maps (into [] (comp (keep #(nat/departed-map (:sentence %))) (distinct)) @sink)]
+    (when-let [new (and (seq maps) (chain/reconcile-stranded! kb maps))]
+      (when (seq new) (settle/rechain-seeds kb new))
+      (settle/settle kb))))
+
 (defn collect-orphans!
-  "Sweep a reified NAT orphaned by a teardown — its natFormula map and materialized types
-  would dangle a raw `nat/` symbol (docs/nat.md), and an emptied `cx/` context would be
-  a place nothing can reach and nothing is in (docs/context-nat.md).  It runs
+  "Re-spell the uses a removed `natFormula` map left naming its constant
+  (`respell-stranded!`) when a removal record is passed, then sweep a reified NAT
+  orphaned by a teardown — its natFormula map and materialized types would dangle a raw
+  `nat/` symbol (docs/nat.md), and an emptied `cx/` context would be a place nothing can
+  reach and nothing is in (docs/context-nat.md).  It runs
   only when `nat/any-reified-constants?` holds, and is suppressed while already removing orphans.  `retract!` is the teardown entry point the
   sweep takes each bookkeeping handle out with.
 
@@ -167,5 +181,7 @@
   constants are orphaned *now*, which is the stronger reading and the one a restore owes."
   ([kb retract!] (collect-orphans! kb nil retract!))
   ([kb sink retract!]
-   (when (and (not *in-orphan-removal?*) (nat/any-reified-constants? kb))
-     (remove-orphaned-nats! kb sink retract!))))
+   (when-not *in-orphan-removal?*
+     (when sink (respell-stranded! kb sink))
+     (when (nat/any-reified-constants? kb)
+       (remove-orphaned-nats! kb sink retract!)))))
