@@ -431,6 +431,7 @@
     ;; audited collection, which is the caller's to spend (docs/predall.md)
     :specified-violations     (op v/specified-violations)
     :all-specified-violations (op v/all-specified-violations)
+    :exists-violations        (op v/exists-violations)
     ;; the fluent-lane twin: per-instant clashes of a `functional_at_instant` function,
     ;; one declaration or every visible one.  Reported rather than filed, and a sweep
     ;; over every believed `time_point`, like the pair above (docs/time.md)

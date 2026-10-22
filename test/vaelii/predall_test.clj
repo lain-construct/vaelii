@@ -212,6 +212,48 @@
     (is (empty? (into [] (v/ask kb (list rel '?x '?y) 'CxUniverse)))
         "none of the four declarations concludes a single fact of the subject predicate")))
 
+(tu/deftest-kb each-exists-cell-reports-the-subjects-with-no-filler
+  (tu/with-terms [owns person dog Alice Bob Rex Fido]
+    (v/assert kb (list 'binary_predicate owns) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate person) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate dog) 'CxUniverse)
+    (doseq [x [Alice Bob]] (v/assert kb (list person x) 'CxUniverse))
+    (doseq [x [Rex Fido]] (v/assert kb (list dog x) 'CxUniverse))
+    (v/assert kb (list owns Alice Rex) 'CxUniverse)
+    (doseq [[declaration violations]
+            [[(list 'predAllExists owns person dog)      #{Bob}]
+             [(list 'predExistsAll owns person dog)      #{Fido}]
+             [(list 'predExistsInstance owns person Rex) #{}]
+             [(list 'predExistsInstance owns person Fido) #{Fido}]
+             [(list 'predInstanceExists owns Alice dog)  #{}]
+             [(list 'predInstanceExists owns Bob dog)    #{Bob}]]]
+      (is (= {:status :audited :violations violations}
+             (v/exists-violations kb declaration 'CxUniverse))
+          (pr-str declaration)))
+    (testing "all-specified-violations audits each stored declaration, keyed by its tuple"
+      (v/assert kb (list 'predAllExists owns person dog) 'CxUniverse)
+      (v/assert kb (list 'predInstanceExists owns Alice dog) 'CxUniverse)
+      (is (= {['predAllExists owns person dog] {:status :audited :violations #{Bob}}}
+             (v/all-specified-violations kb 'CxUniverse))))
+    (is (= :bad-args (try (v/exists-violations kb (list 'predAllSpecified owns person) 'CxUniverse)
+                          nil
+                          (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))
+
+(tu/deftest-kb an-exists-audit-counts-a-placeholder-and-an-indeterminate-filler
+  ;; existence is the whole requirement, where predAllSpecified asks for a determinate one
+  (tu/with-terms [owns person dog vague_kind Alice Bob Fuzzy]
+    (v/assert kb (list 'binary_predicate owns) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate person) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate dog) 'CxUniverse)
+    (v/assert kb (list 'genl vague_kind 'indeterminate_term) 'CxUniverse)
+    (doseq [x [Alice Bob]] (v/assert kb (list person x) 'CxUniverse))
+    (v/assert kb (list owns Alice (list 'PredAllExistsFn owns person dog Alice)) 'CxUniverse)
+    (v/assert kb (list vague_kind Fuzzy) 'CxUniverse)
+    (v/assert kb (list dog Fuzzy) 'CxUniverse)
+    (v/assert kb (list owns Bob Fuzzy) 'CxUniverse)
+    (is (= {:status :audited :violations #{}}
+           (v/exists-violations kb (list 'predAllExists owns person dog) 'CxUniverse)))))
+
 (tu/deftest-kb a-placeholder-fact-types-its-subject-and-its-placeholder
   ;; `predAllExistsPlaceholder`'s subject is a member of the second argument and its
   ;; placeholder of the third (`argArg`), so a stated fact types both

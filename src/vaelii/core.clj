@@ -5860,11 +5860,11 @@
 
 (defn all-specified-violations
   "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
-  `context`, and return `{[functor pred indep] result…}` — each result carrying a
-  `:status`, either `{:status :audited :violations #{…}}` or a `{:status :gap …}`
-  diagnostic (`:missing-slot-typing`, or `:legacy-ternary-declaration` for a stored
-  pre-migration ternary sentex the bulk import path can carry past the assert-time
-  refusal).  A `:legacy-ternary-declaration` gap is keyed by its whole stale argument
+  `context`, and every *Exists* declaration (`exists-violations`, keyed `[functor pred a
+  b]`), and return `{[functor pred indep] result…}` — each result carrying a `:status`,
+  either `{:status :audited :violations #{…}}` or a `{:status :gap …}` diagnostic
+  (`:missing-slot-typing`, or `:legacy-ternary-declaration` for a stored pre-migration
+  ternary sentex the bulk import path can carry past the assert-time refusal).  A `:legacy-ternary-declaration` gap is keyed by its whole stale argument
   tuple, `[functor pred a b]`, so it displaces neither the migrated declaration it
   shares a prefix with nor another stale sentex over the same predicate.  Declarations
   that hold are omitted and gaps never are, so an empty map is a clean sweep a gap
@@ -5874,6 +5874,22 @@
   per-declaration audit stream; only this wrapper returns its complete aggregate map."
   [kb context]
   (predall/all-specified-violations kb context))
+
+(defn exists-violations
+  "The audit result for one *Exists* declaration in `context`, `{:status :audited
+  :violations #{x…}}`: for `(predAllExists pred indep dep)` each member x of `indep` with no
+  believed `(pred x y)` whose y is a member of `dep`; for `(predExistsAll pred dep indep)`
+  each member x of `indep` with no believed `(pred y x)` whose y is a member of `dep`; for
+  `(predExistsInstance pred indep fixed)` and `(predInstanceExists pred fixed dep)` the
+  fixed term when no such tuple bears to it or from it.  The cell's placeholder for the
+  subject is a filler, and so is any member, an `indeterminate_term` included, since the
+  declaration asks for existence.  Throws `:bad-args` for any other sentence.
+
+  **Computed on demand and not filed**, like `specified-violations`: the declaration
+  derives nothing, and the audit is one read per member of the universal collection plus
+  one membership read per candidate filler ([predall.md](../docs/predall.md))."
+  [kb declaration context]
+  (predall/exists-violations kb declaration context))
 
 (defn functional-at-instant-violations
   "The per-instant functionality clashes of one `(functional_at_instant f)` declaration in
@@ -9034,6 +9050,7 @@
     :contradictions :count-in-context :count-with-arg :count-with-functor
     :defeat-class :dependent-justifications :deprecated? :describe
     :direct-genls :direct-specs :disjoint-metatypes :disjoint? :disjointness-audit :equiv-class :escalate
+    :exists-violations
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification

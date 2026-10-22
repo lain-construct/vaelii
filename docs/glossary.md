@@ -915,11 +915,12 @@ See [predicates.md](predicates.md).
 quantify one argument position of a binary predicate and fix the other, in three
 classes. The *Instance* pair (`predAllInstance` / `predInstanceAll`) is a rule generator
 and produces inference. The *Exists* four are inert records beside a sanctioned
-placeholder functor. The *Specified* pair (`predAllSpecified` / `predSpecifiedAll`) is an
-on-demand integrity audit reporting the instances with no determinate filler — binary,
-the filler's required type derived from the predicate's own slot contract rather than
-restated, and a predicate with no visible slot typing reported as an explicit
-declaration-contract gap. See [predall.md](predall.md).
+placeholder functor, audited on demand for the members with no filler. The *Specified*
+pair (`predAllSpecified` / `predSpecifiedAll`) is an on-demand integrity audit reporting
+the instances with no determinate filler — binary, the filler's required type derived
+from the predicate's own slot contract rather than restated, and a predicate with no
+visible slot typing reported as an explicit declaration-contract gap. See
+[predall.md](predall.md).
 
 **Predicate extent** ![backend](../.github/badges/cat-backend.svg): The count trie
 `[:predicate-extent … [pred ctx]]` — every fact by functor, any arity, either polarity,

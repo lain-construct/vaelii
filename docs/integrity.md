@@ -1,9 +1,9 @@
 # Bounded KB integrity
 
 - **Covers:** `kb-integrity` — one read-only checkpoint report for the complete visible
-  `predAllSpecified` / `predSpecifiedAll` population, query-only definition clashes
-  over a caller-owned finite set of ground candidate terms, the predicate `genl`
-  edges that widen a declared argument type, the candidate types with no `genl`
+  `predAllSpecified` / `predSpecifiedAll` and *Exists* declaration population, query-only
+  definition clashes over a caller-owned finite set of ground candidate terms, the
+  predicate `genl` edges that widen a declared argument type, the candidate types with no `genl`
   path to `thing`, the `genl` edges a cover forces on a candidate type that the
   closure does not hold, the exact-arity class a candidate predicate or function's kind
   and arity force that it is not an instance of, the orthogonal declarations (`orthogonal` and

@@ -1793,12 +1793,13 @@
 
      ;; ---- the predAll / predExists / predSpecified matrix ------------------
      ;;
-     ;; Quantifier-family declarations (docs/predall.md).  The
-     ;; *Instance* and *Exists* relations are each declared beside a core.txt **rule
-     ;; generator** — a rule whose consequent is a rule — so their enforcement is generic
-     ;; forward chaining, keyed on nothing; like `equivalence_relation`, no arm reads the
-     ;; functor.  The *Specified* pair is an on-demand integrity audit reached through
-     ;; `vaelii.core/specified-violations`.
+     ;; Quantifier-family declarations (docs/predall.md).  The *Instance* relations are
+     ;; each declared beside a core.txt **rule generator** — a rule whose consequent is a
+     ;; rule — so their enforcement is generic forward chaining, keyed on nothing; like
+     ;; `equivalence_relation`, no arm reads the functor.  The *Exists* relations derive
+     ;; nothing.  The *Specified* pair and the *Exists* four are on-demand integrity audits
+     ;; reached through `vaelii.core/specified-violations` and
+     ;; `vaelii.core/exists-violations`.
      ['predAllInstance
       (enforced {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
                  :family nil :facets #{}
@@ -1815,38 +1816,39 @@
                 (str "generic rule generator: the core.txt generator generates (implies (?dep ?y)"
                      " (?pred ?fixed ?y)), the argument-swapped twin"))]
      ['predAllExists
-      (inert {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "the whole Exists class is inferentially inert by ruling —"
-                          " a stored record plus a sanctioned per-cell placeholder"
-                          " functor for authors, nothing derived.")}
-             (str "an inert record: every ?indep member bears ?pred to some ?dep member,"
-                  " stated and stored, inferred from by nothing. (PredAllExistsFn ?pred"
-                  " ?indep ?dep ?subject) is the sanctioned placeholder an author may use"
-                  " for the filler the member ?subject bears ?pred to."))]
+      (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "the whole Exists class derives nothing by ruling — a stored"
+                             " record plus a sanctioned per-cell placeholder functor for"
+                             " authors, read by an on-demand audit.")}
+                (str "vaelii.core/exists-violations — the on-demand audit returns the ?indep"
+                     " members with no believed ?pred tuple to a ?dep member; generates no"
+                     " rule. (PredAllExistsFn ?pred ?indep ?dep ?subject) is the sanctioned"
+                     " placeholder an author may use for the filler the member ?subject"
+                     " bears ?pred to."))]
      ['predExistsAll
-      (inert {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes "the argument-swapped twin of predAllExists, inert like the class."}
-             (str "an inert record, the argument-swapped twin: every ?indep member has some"
-                  " ?dep member bearing ?pred to it. (PredExistsAllFn ?pred ?dep ?indep"
-                  " ?subject) is the sanctioned placeholder an author may use for the filler"
-                  " that bears ?pred to the member ?subject."))]
+      (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the argument-swapped twin of predAllExists, audited like the class."}
+                (str "vaelii.core/exists-violations — the argument-swapped twin: the ?indep"
+                     " members no ?dep member bears ?pred to. (PredExistsAllFn ?pred ?dep"
+                     " ?indep ?subject) is the sanctioned placeholder an author may use for"
+                     " the filler that bears ?pred to the member ?subject."))]
      ['predExistsInstance
-      (inert {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "a pure existential — no universal to range over — expressible"
-                          " precisely because the class generates nothing.")}
-             (str "an inert record: some ?indep member bears ?pred to the fixed filler."
-                  " (PredExistsInstanceFn ?pred ?indep ?fixed) is its sanctioned"
-                  " placeholder."))]
+      (enforced {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a pure existential — no universal to range over — expressible"
+                             " precisely because the class generates nothing.")}
+                (str "vaelii.core/exists-violations — the fixed filler, when no ?indep member"
+                     " bears ?pred to it. (PredExistsInstanceFn ?pred ?indep ?fixed) is its"
+                     " sanctioned placeholder."))]
      ['predInstanceExists
-      (inert {:shape {:args [:predicate :term :type]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes "the argument-swapped twin of predExistsInstance."}
-             (str "an inert record: the fixed subject bears ?pred to some ?dep member."
-                  " (PredInstanceExistsFn ?pred ?fixed ?dep) is its sanctioned"
-                  " placeholder."))]
+      (enforced {:shape {:args [:predicate :term :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the argument-swapped twin of predExistsInstance."}
+                (str "vaelii.core/exists-violations — the fixed subject, when it bears ?pred"
+                     " to no ?dep member. (PredInstanceExistsFn ?pred ?fixed ?dep) is its"
+                     " sanctioned placeholder."))]
      ['predAllSpecified
       (enforced {:shape {:args [:predicate :type]} :storage [:none] :checked false
                  :family nil :facets #{}

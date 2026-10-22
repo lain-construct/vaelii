@@ -1,11 +1,12 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.predall
-  "The *Specified* half of the predAll / predExists / predInstance / predSpecified matrix
-  (docs/predall.md, resources/kb/upper/core.txt).
+  "The audits of the predAll / predExists / predInstance / predSpecified matrix: the
+  *Specified* pair's and the *Exists* four's (docs/predall.md, resources/kb/upper/core.txt).
 
-  Reached from outside through `vaelii.core/specified-violations` and
-  `vaelii.core/all-specified-violations`, which are thin delegations to the readers here.
+  Reached from outside through `vaelii.core/specified-violations`,
+  `vaelii.core/exists-violations` and `vaelii.core/all-specified-violations`, which are
+  thin delegations to the readers here.
   The audit reads through `vaelii.core/ask`'s per-context step (`quasiquote/ask-prepared`),
   so this namespace sits **below** `vaelii.core` and `vaelii.core` requires it — no layering
   inversion.  The audit still answers what a user's `ask` answers: it passes only concrete
@@ -13,7 +14,8 @@
   layer below (docs/namespaces.md, \"The layering\").
 
   Where the *Instance* relations generate real inference and the *Exists* relations are
-  inert records beside a sanctioned placeholder functor, `predAllSpecified` / `predSpecifiedAll` are an **integrity
+  records beside a sanctioned placeholder functor, audited for existence alone
+  (`exists-violations`), `predAllSpecified` / `predSpecifiedAll` are an **integrity
   audit**: given a declaration that every instance of a collection ought to have a
   *determinate*, contract-satisfying filler, the reader here reports the instances
   with no admissible one — `{:status :audited :violations #{…}}` — or an explicit
@@ -204,6 +206,45 @@
                     (remove #(admissible-filler? kb pred % typings n ctx)))
               (quasiquote/ask-prepared kb (list indep '?x) ctx))}))))
 
+(defn- exists-reading
+  "`[subjects goal filler-type placeholder]` for the *Exists* declaration `(functor pred a
+  b)`: the terms the audit asks of (the members of the universal collection, or the fixed
+  term), a fn from a subject to the goal whose `?y` is the filler, the collection the
+  filler is a member of, and a fn from a subject to the cell's placeholder application.
+  Nil for any other functor."
+  [kb [functor pred a b] ctx]
+  (let [members #(keep (fn [m] (get m '?x)) (quasiquote/ask-prepared kb (list % '?x) ctx))]
+    (case functor
+      predAllExists      [(members a) #(list pred % '?y) b #(list 'PredAllExistsFn pred a b %)]
+      predExistsAll      [(members b) #(list pred '?y %) a #(list 'PredExistsAllFn pred a b %)]
+      predExistsInstance [[b]         #(list pred '?y %) a (constantly (list 'PredExistsInstanceFn pred a b))]
+      predInstanceExists [[a]         #(list pred % '?y) b (constantly (list 'PredInstanceExistsFn pred a b))]
+      nil)))
+
+(defn exists-violations
+  "Audit one *Exists* declaration `(functor pred a b)` in `ctx`, `functor` one of
+  `predAllExists`, `predExistsAll`, `predExistsInstance` and `predInstanceExists`, and
+  return `{:status :audited :violations #{x …}}`: each member of the universal collection,
+  or the fixed term of a pure existential, with no believed tuple of `pred` relating it to
+  a member of the filler collection or to the cell's placeholder for it.  Any member
+  counts, an indeterminate one (a skolem) included, since the declaration asks for
+  existence only.  Throws `:bad-args` for any other functor."
+  [kb declaration ctx]
+  (if-let [[subjects goal filler-type placeholder]
+           (and (sequential? declaration) (= 4 (count declaration))
+                (exists-reading kb declaration ctx))]
+    {:status :audited
+     :violations
+     (into #{}
+           (remove (fn [x]
+                     (some #(let [y (get % '?y)]
+                              (and (some? y)
+                                   (or (= y (placeholder x)) (ask? kb (list filler-type y) ctx))))
+                           (quasiquote/ask-prepared kb (goal x) ctx))))
+           subjects)}
+    (throw (ex-info (str "not an Exists declaration: " (pr-str declaration))
+                    {:type :bad-args :op 'exists-violations}))))
+
 (defn- content-ordered
   "The distinct tuples `xs` in content order, so a sweep cut short keeps the same prefix
   in every arrival order."
@@ -217,6 +258,14 @@
   (content-ordered
    (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
      [(get b '?pred) (get b '?indep)])))
+
+(defn- exists-declarations
+  "Read the stored *Exists* declarations `(functor pred a b)` in `ctx` as `[functor pred a
+  b]` tuples, in content order."
+  [kb functor ctx]
+  (content-ordered
+   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?a '?b) ctx)]
+     [functor (get b '?pred) (get b '?a) (get b '?b)])))
 
 (defn- legacy-ternary-declarations
   "The retired ternary `(functor pred a b)` sentexes stored in a context `ctx` sees, as
@@ -257,10 +306,18 @@
                 {:status :gap :gap :legacy-ternary-declaration
                  :pred pred :sentence (list functor pred a b)}]))
        (legacy-ternary-declarations kb functor ctx)))
-    '[predAllSpecified predSpecifiedAll])))
+    '[predAllSpecified predSpecifiedAll])
+   (res/lazy-mapcat
+    (fn [functor]
+      (res/lazy-mapcat
+       (fn [declaration]
+         (list [declaration (exists-violations kb (apply list declaration) ctx)]))
+       (exists-declarations kb functor ctx)))
+    '[predAllExists predExistsAll predExistsInstance predInstanceExists])))
 
 (defn all-specified-violations
-  "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `ctx`
+  "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `ctx`,
+  and every *Exists* declaration (`exists-violations`, keyed `[functor pred a b]`),
   and return `{[functor pred indep] result …}` — each result carrying a `:status`:
   `{:status :audited :violations #{…}}` where the audit ran, or `{:status :gap …}`
   for a declaration-contract diagnostic.  Two gap kinds ship: `:missing-slot-typing`

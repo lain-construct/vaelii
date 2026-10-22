@@ -68,6 +68,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [inference.md](docs/inference.md) ([#149](https://github.com/vaelii/vaelii/issues/149))
   *Migration:* none.
 
+- **`exists-violations` audits a `predAllExists`, `predExistsAll`, `predExistsInstance`
+  or `predInstanceExists` declaration on demand**, returning the members of the universal
+  collection, or the fixed term, with no believed filler. `all-specified-violations` and
+  `kb-integrity` audit every visible one beside the *Specified* declarations. Served as
+  the `:exists-violations` op. [predall.md](docs/predall.md)
+  ([#149](https://github.com/vaelii/vaelii/issues/149))
+  *Migration:* a caller of `all-specified-violations` sees a key per *Exists* declaration
+  with a violation.
+
 - **`(interArgEqual P n v m U)` types argument `m` of the `P` sentences whose argument `n`
   is the value `v`**, a number, string, keyword, boolean or character. It derives the type
   as `arg` does, convicts under the constraint-only reading, and `try-assert` refuses a

@@ -66,6 +66,7 @@
   equiv-class "[[conn term] [conn term context]]",
   escalate
   "[[conn goal] [conn goal context] [conn goal context floor] [conn goal context floor opts]]",
+  exists-violations "[[conn declaration context]]",
   explain-levels "[[conn goal] [conn goal context]]",
   export! "[[conn dir] [conn dir opts]]",
   exposed-clashes "[[conn]]",
@@ -254,6 +255,7 @@
   escalate
   "[[kb goal] [kb goal context] [kb goal context floor] [kb goal context floor opts]]",
   escalate-opt-keys [:max-ms],
+  exists-violations "[[kb declaration context]]",
   explain-levels "[[kb goal] [kb goal context]]",
   export! "[[kb dir] [kb dir opts]]",
   export-text! "[[kb dir] [kb dir opts]]",
@@ -445,6 +447,7 @@
    :edit-with-consequences
    :equiv-class
    :escalate
+   :exists-violations
    :explain-levels
    :export
    :exposed-clashes
@@ -581,6 +584,7 @@
    :edit-with-consequences
    :equiv-class
    :escalate
+   :exists-violations
    :explain-levels
    :export
    :exposed-clashes

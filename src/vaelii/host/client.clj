@@ -226,11 +226,11 @@
 
 (defn all-specified-violations
   "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
-  `context`, and return `{[functor pred indep] result…}` — each result carrying a
-  `:status`, either `{:status :audited :violations #{…}}` or a `{:status :gap …}`
-  diagnostic (`:missing-slot-typing`, or `:legacy-ternary-declaration` for a stored
-  pre-migration ternary sentex the bulk import path can carry past the assert-time
-  refusal)."
+  `context`, and every *Exists* declaration (`exists-violations`, keyed `[functor pred a
+  b]`), and return `{[functor pred indep] result…}` — each result carrying a `:status`,
+  either `{:status :audited :violations #{…}}` or a `{:status :gap …}` diagnostic
+  (`:missing-slot-typing`, or `:legacy-ternary-declaration` for a stored pre-migration
+  ternary sentex the bulk import path can carry past the assert-time refusal)."
   [conn context]
   (call conn :all-specified-violations [context]))
 
@@ -508,6 +508,16 @@
   ([conn goal context] (call conn :escalate [goal context]))
   ([conn goal context floor] (call conn :escalate [goal context floor]))
   ([conn goal context floor opts] (call conn :escalate [goal context floor opts])))
+
+(defn exists-violations
+  "The audit result for one *Exists* declaration in `context`, `{:status :audited
+  :violations #{x…}}`: for `(predAllExists pred indep dep)` each member x of `indep` with
+  no believed `(pred x y)` whose y is a member of `dep`; for `(predExistsAll pred dep
+  indep)` each member x of `indep` with no believed `(pred y x)` whose y is a member of
+  `dep`; for `(predExistsInstance pred indep fixed)` and `(predInstanceExists pred fixed
+  dep)` the fixed term when no such tuple bears to it or from it."
+  [conn declaration context]
+  (call conn :exists-violations [declaration context]))
 
 (defn explain-levels
   "What every level yields for `goal`: a seq of {:level :name :count}."

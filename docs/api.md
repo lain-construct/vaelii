@@ -165,7 +165,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; {[functor pred indep] result…}, the ones that hold
                                                 ; omitted and the gaps never, so an empty map is a clean
                                                 ; sweep. A legacy-ternary gap keys by its whole stale
-                                                ; tuple [functor pred a b], displacing nothing
+                                                ; tuple [functor pred a b], displacing nothing. Each
+                                                ; Exists declaration is audited too, keyed by its tuple
+(exists-violations kb declaration ctx)          ; audit one Exists declaration, e.g.
+                                                ; '(predAllExists owns person dog): {:status :audited
+                                                ; :violations #{…}}, the members of the universal
+                                                ; collection (or the fixed term) with no believed tuple
+                                                ; to a member of the filler collection or to the cell's
+                                                ; placeholder. An indeterminate member is a filler.
+                                                ; Reads only, nothing filed (docs/predall.md)
 (kb-integrity kb candidate-terms ctx)
 (kb-integrity kb candidate-terms ctx opts)       ; the bounded checkpoint sweep: the complete specified
                                                 ; audit above, query-only definition clashes over an

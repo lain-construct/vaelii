@@ -1276,6 +1276,9 @@
 ;; asserted, the placeholder is determinate — it satisfies a predAllSpecified audit —
 ;; where a skolem witness would not be.  Each functor is unreifiable_function so its
 ;; ground application stays a structural NAT, readable inside the sentence.
+;; vaelii.core/exists-violations audits a declaration when a caller asks: it reports
+;; each member of the universal collection, or the fixed term, with no believed tuple to a
+;; member of the filler collection or to the cell's placeholder, and derives nothing.
 ;;
 ;; Inertness is also what makes all FOUR cells expressible.  An earlier design generated a
 ;; rule per declaration via a generator; the two pure-existential cross-cells
