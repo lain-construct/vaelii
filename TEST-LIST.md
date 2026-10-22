@@ -126,7 +126,7 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
     - R2: `a-fluent-ended-at-a-named-moment-before-the-reading-does-not-hold-now`: **red**
 44. `a-fluent-ended-after-the-reading-is-not-known-to-hold-now`: **red**. The fluent is ended in 2030, after the reading, so whether it holds now is unknown.
     - R2: `a-fluent-ended-at-a-named-moment-after-the-reading-is-not-known-to-hold-now`: **red**
-45. `projection-from-now-into-a-dated-future-slice-is-unknown-with-only-lower-bounds`: green, by design. Under lower bounds no dated slice is known to lie after now. This is an open question for the spec.
+45. `projection-from-now-into-a-dated-future-slice-is-unknown-with-only-lower-bounds`: green, by design. Under lower bounds no dated slice is known to lie after now. The spec keeps this unknown: forward projection from now needs an upper bound on now, which goes stale.
     - R2: `projection-from-now-into-a-named-future-slice-is-unknown-with-only-lower-bounds`: green
 
 ## CxChange
