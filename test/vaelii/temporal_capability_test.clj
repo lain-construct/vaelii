@@ -2706,7 +2706,8 @@
 ;; one moment in two offsets, the offset form against `Z`, a day boundary that moves
 ;; with the offset, ordering across offsets, and a named zone's daylight-saving gap and
 ;; repeated hour.  `ZonedDatetimeFn` (a local ISO string and an IANA zone name) and
-;; `time_zone` are placeholder names.
+;; `timezone` (the zone type) are the ruled names for this vocabulary; time.txt does not
+;; ship it yet.
 
 (tu/deftest-kb ^:red one-moment-written-in-two-offsets-is-one-moment
   ;; 13:00 at UTC-07:00 and 01:30 the next day at UTC+05:30 are both 20:00 UTC.  The same
@@ -2776,13 +2777,14 @@
   ;; date, through its daylight-saving rules, and time.txt has no way to say one.  The
   ;; two tests after this one need it.
   (testing "a type for a named time zone, and a constructor of a local time in one"
-    (is (true? (v/ask? kb '(arg ZonedDatetimeFn 2 time_zone) U)))
+    (is (true? (v/ask? kb '(arg ZonedDatetimeFn 2 timezone) U)))
     (is (true? (v/ask? kb '(result ZonedDatetimeFn time_interval) U)))))
 
 (tu/deftest-kb ^:red a-local-time-a-daylight-saving-gap-skips-names-no-moment
   ;; On 26 March 2000 London's clocks went from 01:00 GMT to 02:00 BST, so 01:30 that
   ;; night never happened there.  00:30 is 00:30 UTC and 02:30 is 01:30 UTC; 01:30 names
-  ;; no moment, rather than being moved silently to either side of the gap.
+  ;; no moment, rather than being moved silently to either side of the gap.  This is the
+  ;; ideal behaviour, and an implementation may defer the gap as an edge case.
   (v/add-reasoner kb :point :calendar)
   (let [at (fn [local] (list 'ZonedDatetimeFn local "Europe/London"))]
     (testing "the times either side of the gap are the moments their offsets give"
@@ -2794,7 +2796,9 @@
 (tu/deftest-kb ^:red a-local-time-a-daylight-saving-change-repeats-is-ambiguous-until-its-offset-is-given
   ;; On 29 October 2000 London's clocks went from 02:00 BST back to 01:00 GMT, so 01:30
   ;; happened twice: at 00:30 UTC and at 01:30 UTC.  Without an offset which one is meant
-  ;; is unknown, and neither is picked silently; the offset form resolves it.
+  ;; is unknown, and neither is picked silently; the offset form resolves it.  This is
+  ;; the ideal behaviour, and an implementation may defer the repeated hour as an edge
+  ;; case.
   (v/add-reasoner kb :point :calendar)
   (let [repeated '(ZonedDatetimeFn "2000-10-29T01:30" "Europe/London")]
     (testing "the zoned local time is neither occurrence, as far as the KB knows"
