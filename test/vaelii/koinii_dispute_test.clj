@@ -273,10 +273,10 @@
   ;; A pure test — `dispute-term` needs no KB, and the collision is a property of the
   ;; term rather than of any clash a scenario happens to build.
   (testing "the pair case is a sorted pair, unchanged"
-    (is (= '(dispute (sentexHandle 478) (sentexHandle 479))
+    (is (= '(DisputeFn (sentexHandle 478) (sentexHandle 479))
            (d/dispute-term [479 478]))))
   (testing "a three-member clash names all three, sorted"
-    (is (= '(dispute (sentexHandle 478) (sentexHandle 479) (sentexHandle 999))
+    (is (= '(DisputeFn (sentexHandle 478) (sentexHandle 479) (sentexHandle 999))
            (d/dispute-term [999 478 479]))))
   (testing "so two three-member disputes sharing their lowest pair are told apart"
     (is (not= (d/dispute-term [478 479 999]) (d/dispute-term [478 479 1234]))))

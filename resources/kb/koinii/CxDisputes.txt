@@ -7,18 +7,18 @@
 ;; Sees CxUniverse for its vocabulary.  vaelii.koinii.dispute loads this file the first time
 ;; it writes a mark into a KB that does not hold it, so the declarations below are in
 ;; force where the marks are stored.  Every position is typed as written (quotedArg): the
-;; dispute term is a mention whose sentexHandle arguments no argument type names, the
+;; DisputeFn term is a mention whose sentexHandle arguments no argument type names, the
 ;; time is the clock's integer and the reason a symbol, and none of them is a thing a
 ;; type membership should be entailed of.
 
 (genlCx CxDisputes CxUniverse)  ; CxDisputes speaks CxUniverse's vocabulary
 
-(comment dispute
-         "(dispute (sentexHandle ?h1) (sentexHandle ?h2) …) denotes the dispute over the clash between the sentexes it names, the handles sorted and as many as the clash has: a nogood is a set, and an anti_transitive clash has three members. An unreifiable_function, so an application stays a structural term inside the mark that carries it and nothing is minted for it. The term is the key the notify and stale sweeps read a mark back by (dispute/dispute-term).")
-(unreifiable_function dispute)
-(variable_arity_function dispute)
-(unbounded_arity_function dispute)
-(arityMin dispute 1)
+(comment DisputeFn
+         "(DisputeFn (sentexHandle ?h1) (sentexHandle ?h2) …) denotes the dispute over the clash between the sentexes it names, the handles sorted and as many as the clash has: a nogood is a set, and an anti_transitive clash has three members. DisputeFn is an unreifiable_function, so an application stays a structural term inside the mark that carries it and nothing is minted for it. The term is the key the notify and stale sweeps read a mark back by (dispute/dispute-term). No predicate relates a DisputeFn term to the handles it names: the term is a lookup key inside a mark, and no rule reads its arguments.")
+(unreifiable_function DisputeFn)
+(variable_arity_function DisputeFn)
+(unbounded_arity_function DisputeFn)
+(arityMin DisputeFn 1)
 
 (comment disputeNotified
          "(disputeNotified ?dispute ?at) records that the dispute ?dispute was pushed to subscribers or a person at time ?at, a millisecond clock reading the driver supplies. The mark stops the driver announcing one clash twice; retracting it (dispute/reopen!) returns the dispute to open. See dispute/mark-notified.")

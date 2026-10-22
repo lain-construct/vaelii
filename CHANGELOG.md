@@ -33,6 +33,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none.
   *Breaks:* `kb-quality`
 
+### Breaking: koinii
+
+- **koinii's dispute lifecycle term is `DisputeFn`**, the spelling every other shipped
+  function has. `dispute/dispute-term` returns `(DisputeFn (sentexHandle h) …)`, and the
+  `disputeNotified` and `disputeStale` marks carry it
+  ([#159](https://github.com/vaelii/vaelii/issues/159)).
+  [koinii.md](docs/koinii.md)
+  *Migration:* none for a new store. A store holding marks under `(dispute …)` reads
+  those disputes as un-notified and not stale, so the notify and stale sweeps fire once
+  more for each.
+  *Breaks:* `dispute/dispute-term`, `(dispute …)`
+
 ### Refusal: clashes
 
 - **`try-assert` refuses a sentence whose complement is believed `:monotonic`** from the

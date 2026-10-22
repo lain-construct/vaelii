@@ -70,8 +70,8 @@
   (if (sequential? id) (vec (sort id)) id))
 
 (defn dispute-term
-  "The reified term naming a dispute by its id, for the stored lifecycle marks:
-  `(dispute (sentexHandle h) …)`, handles sorted (`dispute-key`) so the term is a function
+  "The structural term naming a dispute by its id, for the stored lifecycle marks:
+  `(DisputeFn (sentexHandle h) …)`, handles sorted (`dispute-key`) so the term is a function
   of the clash and not of argument order.  `id` is a `dispute-id` or any handle seq.
 
   **As many handles as the clash has**, never the first two.  A nogood is a *set* and
@@ -83,7 +83,7 @@
   never announced."
   [id]
   (let [k (dispute-key id)]
-    (list* 'dispute (map v/sentex-handle (if (sequential? k) k [k])))))
+    (list* 'DisputeFn (map v/sentex-handle (if (sequential? k) k [k])))))
 
 ;; ---- disputes-in: the whole surface, scoped to what a context sees -------
 
@@ -165,7 +165,7 @@
 (defn- ensure-state-context!
   "Load koinii's `CxDisputes` seed (`resources/kb/koinii/CxDisputes.txt`) into `kb` unless it
   is already stored there.  The seed places `CxDisputes` under `CxUniverse` and declares the two
-  marks and the `dispute` term they carry, so the arity check reads a declaration where
+  marks and the `DisputeFn` term they carry, so the arity check reads a declaration where
   every mark is stored.  Called by the two writes, which is the first time a KB needs the
   context: a deployment that never marks a dispute never loads it."
   [kb]
@@ -191,7 +191,7 @@
 (defn mark-notified
   "Record that dispute `id` has been pushed to subscribers / a human, at time `at` (the
   caller — the driver — supplies the clock).  An ordinary assertion
-  `(disputeNotified (dispute …) at)` in `state-context`, so `why` explains it and a
+  `(disputeNotified (DisputeFn …) at)` in `state-context`, so `why` explains it and a
   retract (`reopen!`) un-notifies.  The mark is what stops the driver re-notifying a clash it
   has already announced.  Returns the mark's handle."
   [kb id at]
@@ -201,7 +201,7 @@
 (defn mark-stale
   "Record that dispute `id` aged out — open past the driver's timeout with no ruling — at time
   `at`, tagged with `reason` (a symbol, e.g. `TimedOut`).  An ordinary assertion
-  `(disputeStale (dispute …) at reason)` in `state-context`, so open disputes do not pile
+  `(disputeStale (DisputeFn …) at reason)` in `state-context`, so open disputes do not pile
   up unmarked and `why` can explain the sweep.  Staleness does not resolve the clash — the
   dispute is still live — it only flags it.  Returns the mark's handle."
   [kb id at reason]
