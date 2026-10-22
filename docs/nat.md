@@ -453,9 +453,14 @@ the constant *is*, and counting it as a use would make every placeholder immorta
 `natFormula` map plus exactly what `mint-nat!` wrote about it, and `nat/minted-for`
 re-derives that set the way the mint derived it: `(T K)` for each believed `(result F
 T)`, `(genl K T)` for each `(genlResult F T)`, `F` being the function of the expression
-`K` maps to, and the correspondence projection. A membership an argument declaration on
-`natFormula` or a `resultArg` of `F` derives off the map alone is `K`'s own as well
-(`nat/derived-from-map?`), and leaves when the map does. Everything else naming `K` is somebody's
+`K` maps to, and the correspondence projection. A record the argument-type entailment
+derives off `K`'s own sentexes alone is `K`'s own as well (`nat/entailed-from?`), and
+leaves with them. Two such records are a membership an argument declaration on
+`natFormula` or a `resultArg` of `F` derives off the map, and the `(predicate K)` the
+declaration on `genl` derives off a materialized `(genl K T)`. The test follows the
+source of each justification, so a record entailed off such a record is `K`'s own too;
+a record with one justification resting on a use, or a rule's conclusion, is a use.
+Everything else naming `K` is somebody's
 assertion whatever its arity — `(prime K)` is a claim about `K` exactly as `(noted Author
 K)` is, and a sweep reading arity alone would retract the claim along with the constant.
 The set is computed behind a **delay**, and the `natFormula` clause is what makes that

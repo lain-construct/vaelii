@@ -632,6 +632,35 @@
                                                  'CxUniverse)))
         "and one naming a type disjoint from it is held inert")))
 
+(defn- believed-naming
+  "The believed sentences naming any of `terms`."
+  [kb terms]
+  (into #{} (comp (mapcat #(kb/find-sentexes kb %)) (filter #(v/in? kb (:id %))) (map :sentence))
+        terms))
+
+(tu/deftest-kb a-membership-entailed-off-a-materialized-genl-edge-is-bookkeeping
+  (doseq [order [:declared-before-the-use :declared-after-the-use]]
+    (tu/with-terms [FruitFn AppleTree sub_t color]
+      (tu/with-entailing
+        (let [decls  [(list 'reifiable_function FruitFn) (list 'genl sub_t 'thing)]
+              gr     (list 'genlResult FruitFn sub_t)
+              terms  [FruitFn AppleTree sub_t color]
+              _      (doseq [s decls] (v/assert kb s 'CxUniverse))
+              _      (when (= order :declared-before-the-use) (v/assert kb gr 'CxUniverse))
+              h      (v/assert kb (list color (list FruitFn AppleTree) 'Red) 'CxUniverse)
+              k      (k-of kb h)
+              _      (when (= order :declared-after-the-use) (v/assert kb gr 'CxUniverse))]
+          ;; `(predicate k)` rests on the materialized `(genl k sub_t)`, not on the map
+          (is (v/believed? kb (v/handle-of kb (list 'predicate k) 'CxUniverse) 'CxUniverse)
+              (str order))
+          (v/retract! kb h)
+          (is (empty? (kb/find-sentexes kb k)) (str order))
+          (is (= (tu/with-cleared-kb [fresh #(tu/load-core! (tu/isolated-fresh))]
+                   (tu/with-entailing (doseq [s (conj decls gr)] (v/assert fresh s 'CxUniverse)))
+                   (believed-naming fresh terms))
+                 (believed-naming kb terms))
+              (str order ": belief matches a fresh load of the final state")))))))
+
 (tu/deftest-kb rewriteof-reifies-a-nat-to-an-existing-real-term
   (tu/with-terms [CapitalFn France Paris]
     (v/assert kb (list 'reifiable_function CapitalFn) 'CxUniverse)

@@ -11,6 +11,19 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Fix: order independence
+
+- **A reified NAT constant whose function declares `genlResult` is collected when its
+  last use is retracted**, whether the declaration arrives before or after the mint. The
+  `(predicate K)` the argument-type entailment draws off the materialized `(genl K T)`
+  edge counted as a use and kept the constant. Belief after the retract matches a fresh
+  load of the remaining knowledge
+  ([#225](https://github.com/vaelii/vaelii/issues/225)).
+  [nat.md](docs/nat.md#rename-and-remove--keeping-the-11-invariant)
+  *Migration:* none.
+
 ## 0.28.0 — 2026-10-21 — "Ill-typed facts and rules stored inert, term kinds and arity policies forced-monotonic, a `:default` `genl` that does not contrapose, parthood and the example predicates restated, `:recover? :trust` by default"
 
 | Area | Change |

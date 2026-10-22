@@ -801,7 +801,7 @@
   `E`: the materialized result types — `(T k)` per believed `(result F T)` and
   `(genl k T)` per `(genlResult F T)`, `F` being `E`'s function — and the correspondence
   projection.  All of them land in `universal-context`, which is where the mint puts
-  them.  A `resultArg` membership is derived, not written (`derived-from-map?`).
+  them.  A `resultArg` membership is derived, not written (`entailed-from?`).
 
   This is what the orphan sweep discriminates by, and the question it asks is
   **authorship**, not shape: the engine wrote these, so it re-reads the declarations the
@@ -872,14 +872,12 @@
     (or (and (= 'natFormula (nm/functor s)) (= k (first (nm/args s))))
         (and (= universal-context (:context sx)) (contains? @minted s)))))
 
-(defn- derived-from-map?
-  "Is `sx` a record the argument-type entailment derives from `k`'s own map alone — not a
-  premise, and every justification an argument declaration's
-  (`tax/arg-declaration-props`) or a `resultArg`'s whose source fact is one of
-  `map-handles`?  An argument declaration on `natFormula`, and a `resultArg` of the
-  function, derives such a record about every constant it maps, and the record is gone
-  when the map is, so it keeps the constant alive no more than the map does."
-  [kb map-handles sx]
+(defn- entailed-from?
+  "Is `sx` a record the argument-type entailment derives from sources `own-source?`
+  accepts alone: not a premise, and every justification an argument declaration's
+  (`tax/arg-declaration-props`) or a `resultArg`'s whose source handle `own-source?`
+  accepts?"
+  [kb own-source? sx]
   (let [tms (reasoning/tms kb)
         h   (:id sx)
         js  (keep #(jtms/justification tms %) (jtms/supports tms h))]
@@ -888,7 +886,7 @@
          (every? #(and (symbol? (:informant %))
                        (or (= 'resultArg (:informant %))
                            (contains? tax/arg-declaration-props (:informant %)))
-                       (contains? map-handles (first (:antecedents %))))
+                       (own-source? (first (:antecedents %))))
                  js))))
 
 (defn- mapped-expressions
@@ -906,22 +904,24 @@
 
 (defn- own-sentex-test
   "A test of whether a stored sentex naming constant `k` is `k`'s own rather than a use:
-  its bookkeeping (`nat-bookkeeping-of?`), a record the argument-type entailment derives
-  from its map alone (`derived-from-map?`), or for a context a `genlCx` edge the
-  structural producer computed (`computed-genlCx-edge?`).  `E` is the expression `k`
-  maps to, and `sentexes` the term-index answer for `k`."
+  its bookkeeping (`nat-bookkeeping-of?`), for a context a `genlCx` edge the structural
+  producer computed (`computed-genlCx-edge?`), or a record the argument-type entailment
+  derives from `k`'s own sentexes alone (`entailed-from?`), read transitively over
+  `sentexes`.  `E` is the expression `k` maps to, and `sentexes` the term-index answer
+  for `k`."
   [kb k E sentexes]
   (let [minted (delay (minted-for kb k E))
-        maps   (into #{} (comp (filter #(let [s (:sentence %)]
-                                          (and (= 'natFormula (nm/functor s))
-                                               (= k (second s)))))
-                               (map :id))
-                     sentexes)
+        by-id  (delay (into {} (map (juxt :id identity)) sentexes))
         ctx?   (reified-context-symbol? k)]
-    (fn [sx]
-      (or (nat-bookkeeping-of? k minted sx)
-          (and ctx? (computed-genlCx-edge? kb sx))
-          (derived-from-map? kb maps sx)))))
+    (letfn [(own? [seen sx]
+              (or (nat-bookkeeping-of? k minted sx)
+                  (and ctx? (computed-genlCx-edge? kb sx))
+                  (entailed-from? kb
+                                  (fn [h] (and (not (contains? seen h))
+                                               (when-let [src (get @by-id h)]
+                                                 (own? (conj seen h) src))))
+                                  sx)))]
+      (fn [sx] (own? #{(:id sx)} sx)))))
 
 (defn orphan?
   "Is the reified constant `k` orphaned — is every **stored** sentex naming it one of
