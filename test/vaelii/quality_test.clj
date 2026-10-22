@@ -977,6 +977,39 @@
     (is (= 1 (:pair-count (clashes kb)))
         "the genlArg subtype bound is not read, so the disjoint conclusions stay a candidate")))
 
+(defn- paired? [kb a b] (boolean (some #(= #{a b} (set (:rules %))) (:pairs (clashes kb)))))
+
+(tu/deftest-kb a-genl-antecedent-types-its-first-argument-by-the-arity-of-its-second
+  ;; `(genl ?r actsIn)` holds only of a relation of actsIn's length, so `?r` is demanded
+  ;; `binary`, which no walker is (#210).  A class of relations that `binary` does not
+  ;; exclude stays a candidate, and so does a class of types when the second argument is
+  ;; itself a type.  A second argument of no exact length demands nothing.
+  (tu/with-terms [actsIn acting_relation idle_relation walker strides lazes
+                  mammalish furred_kind bald_kind shaves listsOf relatesTo]
+    (v/assert kb (list 'arity actsIn 2) 'CxUniverse)
+    (v/assert kb (list 'variable_arity listsOf) 'CxUniverse)
+    (v/assert kb (list 'arity mammalish 1) 'CxUniverse)
+    (doseq [c '[unary binary]] (v/assert kb (list 'genl c 'relation) 'CxUniverse))
+    (doseq [t [acting_relation idle_relation]] (v/assert kb (list 'genl t 'binary) 'CxUniverse))
+    (doseq [t [furred_kind bald_kind]] (v/assert kb (list 'genl t 'unary) 'CxUniverse))
+    (v/assert kb (list 'disjoint walker 'relation) 'CxUniverse)
+    (v/assert kb (list 'disjoint acting_relation idle_relation) 'CxUniverse)
+    (v/assert kb (list 'disjoint furred_kind bald_kind) 'CxUniverse)
+    (let [rule   #(v/assert-rule kb [%1] %2 'CxUniverse {:direction :forward})
+          acting (rule (list 'genl '?r actsIn) (list acting_relation '?r))
+          walks  (rule (list strides '?x) (list walker '?x))
+          idle   (rule (list lazes '?r) (list idle_relation '?r))
+          furred (rule (list 'genl '?t mammalish) (list furred_kind '?t))
+          bald   (rule (list shaves '?t) (list bald_kind '?t))
+          lists  (rule (list 'genl '?r listsOf) (list acting_relation '?r))
+          relates (rule (list 'genl '?r relatesTo) (list acting_relation '?r))]
+      (is (not (paired? kb acting walks)) "a binary relation is no walker")
+      (is (not (paired? kb furred walks)) "a type is no walker")
+      (is (paired? kb acting idle) "binary excludes neither class of relations")
+      (is (paired? kb furred bald) "unary excludes neither class of types")
+      (is (paired? kb lists walks) "listsOf is variable_arity")
+      (is (paired? kb relates walks) "relatesTo binds no length"))))
+
 (tu/deftest-kb two-rules-no-context-can-see-together-are-not-a-clash-in-waiting
   ;; A nogood needs a context that sees both halves (docs/nmtms.md).  Asking only whether
   ;; one rule's context sees the other's would exempt every sibling pair, so the test is a

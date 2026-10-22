@@ -1095,6 +1095,20 @@
         n (range from (inc (min (or to arity) arity)))]
     [n type]))
 
+(def ^:private relation-wide-arity-classes
+  "Each length's relation-wide class in `tax/exact-arity-classes`, the one the predicate
+  and function classes of that length specialize."
+  (into {} (keep (fn [c] (when-let [n (get tax/exact-arity-classes c)] [n c])))
+        '[unary binary ternary quaternary quinary]))
+
+(defn- genl-arity-class
+  "The relation-wide exact-arity class `(genl a P)` demands of `a`, or nil: a spec of `P`
+  has `P`'s length, read by `kb/relation-arity`."
+  [kb l]
+  (let [[f _ p] l]
+    (when (and (= 'genl f) (= 3 (count l)) (symbol? p) (not (sx/variable? p)))
+      (some-> (kb/relation-arity kb p) relation-wide-arity-classes))))
+
 (defn- arg-type-conflicted?
   "Does an antecedent `arg` declaration demand a term be of a type disjoint from another
   type the two rules place that term in?  The separation `separated-antecedents?` cannot
@@ -1117,6 +1131,11 @@
   a type, and a reader honoring one spelling and not another would prune a pair under
   one way of writing the declaration and report it under the other.
 
+  **A `(genl a P)` literal demands `a` the relation-wide arity class of `P`'s length**
+  (`genl-arity-class`): `genl` declares no type on its first position, and a spec of `P`
+  takes `P`'s arguments, so `?r` in `(genl ?r actsIn)` is `binary` for a binary `actsIn`
+  and `unary` for a type.
+
   **`genlArg` is not read.**  `genlArg` demands the argument be a *subtype* of the named type rather than a member of
   it — a claim one stratum up — so reading a `genlArg` bound against a membership type
   through `disjoint?` would compare two different levels.  A sound `genlArg` reading is its
@@ -1133,6 +1152,9 @@
                        m
                        (let [m (if (= 1 (count as))
                                  (update m (first as) (fnil conj #{}) [f :stated])
+                                 m)
+                             m (if-let [c (genl-arity-class kb l)]
+                                 (update m (first as) (fnil conj #{}) [c :declared])
                                  m)]
                          (reduce (fn [m [n t]]
                                    (update m (nth as (dec n)) (fnil conj #{}) [t :declared]))
@@ -1174,8 +1196,9 @@
   Five things rule it out and nothing else does: a literal appearing under σ together with
   its own negation, or with the negation of a predicate it is a spec of; one term claimed to
   be of two separated types; one term bound to two arities; one term bounded above the
-  exact arity it is claimed to have; and one term an `arg` declaration demands be of a type
-  disjoint from one the two rules place it in.  **No
+  exact arity it is claimed to have; and one term an `arg` declaration, or a `genl` literal's
+  second argument by its arity, demands be of a type disjoint from one the two rules place
+  it in.  **No
   inference is run and no fact is consulted** — each of the five is a declaration read.  This is what the rules say about each other, and a pair it admits
   is a clash that *could* form rather than one that will — which is the whole reading,
   since a clash that had already formed would be in `(contradictions kb)` instead.

@@ -309,7 +309,7 @@ term bounded above the exact arity it is claimed to have — `(arity ?p ?n)` wit
 `(greaterThan ?n 2)` beside `(symmetric ?p)`, or `(arityMin ?p ?n)` with the same bound —
 and one term an `arg` declaration demands be of a type disjoint from one the two rules
 place it in — `arg` read with its covering forms, `(args P T)` and `(argAndRest P n T)`
-typing every position they reach. Each of the five is a **declaration read**: **no inference is run and no fact is
+typing every position they reach, and `(genl a P)` typing `a` by `P`'s arity. Each of the five is a **declaration read**: **no inference is run and no fact is
 consulted.** This is what the rules say about each other, so a pair here is a clash that
 *could* form rather than one that has — a clash already formed is in
 `(contradictions kb)`, which is the other question and the other reader.
@@ -326,6 +326,12 @@ rule concludes a type no person has, such as a signed refinement of `integer`. A
 domain the other conclusion does not exclude, and an undeclared one, both stay candidates
 — two stated types clashing is the clash the pair reports, so at least one side of the
 disjoint pair must be a declared arg type.
+
+`genl` declares no type on its first position, and a spec of `P` has `P`'s length, so
+`(genl ?r P)` demands `?r` the relation-wide exact-arity class of `(relation-arity kb P)`:
+`binary` for a binary `P`, `unary` for a type. A rule over the specs of a binary predicate
+then pairs with no rule concluding a type disjoint from `binary`, such as `person`, and
+still pairs with one concluding a class of binary relations.
 
 Scoped to a context that can see **both** rules. That is a common descendant of the two
 contexts and not a `sees?` between them, for [nmtms.md](nmtms.md)'s reason: asking only

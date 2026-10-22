@@ -13,6 +13,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Breaking: quality
+
+- **`kb-quality`'s rule-clash reading types the first argument of a `(genl ?r P)`
+  antecedent by `P`'s arity.** A rule over the specs of a binary predicate paired as
+  `:disjoint` with every rule concluding a type no relation has, such as `person`; the
+  pair is now dropped as unreachable
+  ([#210](https://github.com/vaelii/vaelii/issues/210)).
+  [quality.md](docs/quality.md#contradictions-in-waiting)
+  *Migration:* none.
+  *Breaks:* `kb-quality`
+
 ### Refusal: clashes
 
 - **`try-assert` refuses a sentence whose complement is believed `:monotonic`** from the
