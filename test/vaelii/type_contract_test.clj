@@ -383,7 +383,7 @@
     :bad-level :bad-pattern :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :backup-failed :base-is-overlay :body-too-large :budget-exhausted
     :choice-head-not-positive
-    :compaction-failed :cover :cross-origin :daemon-error :damaged-dictionary
+    :compaction-failed :complement :cover :cross-origin :daemon-error :damaged-dictionary
     :damaged-frame :definitional-clash :derived-only :disallowed-class
     :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
     :exception-not-closed :export-busy :fork-base-overlap :frozen-base :functional

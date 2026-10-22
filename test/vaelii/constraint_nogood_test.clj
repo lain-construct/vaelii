@@ -193,6 +193,68 @@
       (is (integer? h))
       (is (= h (v/handle-of kb (list cat_t Rex) 'CxUniverse))))))
 
+;; [label held strength held-in arriving written-in edge refused?]: `held` stored at
+;; `strength` in `held-in`, with `(genl dog_t animal_t)` stored at `edge` when it is not
+;; nil, then `try-assert` of `arriving` in `written-in`.  `siblingOf` is symmetric and
+;; `(genl kinOf siblingOf)` is `:monotonic`, so one `kinOf` row reads the denial mirrored.
+;; `likes` is declared forced-monotonic, and a `disjoint` is forced-monotonic, so either
+;; reads `:monotonic` at the `:default` strength written.
+(defn- complement-rows [{:keys [dog_t animal_t cat_t siblingOf kinOf likes Rex Ann CxLow]}]
+  (let [m :monotonic d :default U 'CxUniverse
+        dog (list dog_t Rex) animal (list animal_t Rex)
+        dis (list 'disjoint dog_t cat_t) sib (list siblingOf Ann Rex) lk (list likes Ann Rex)
+        no  #(list 'not %)]
+    [[:denial        dog m U (no dog) U nil true]
+     [:positive      (no dog) m U dog U nil true]
+     [:from-below    dog m U (no dog) CxLow nil true]
+     [:not-visible   dog m CxLow (no dog) U nil false]
+     [:default       dog d U (no dog) U nil false]
+     [:forced-denial dis d U (no dis) U nil true]
+     [:symmetric     sib m U (no (list siblingOf Rex Ann)) U nil true]
+     [:symmetric-super (no sib) m U (list kinOf Ann Rex) U nil true]
+     [:symmetric-super-mirrored (no sib) m U (list kinOf Rex Ann) U nil true]
+     [:fan-denial    (no animal) m U dog U m true]
+     [:fan-positive  dog m U (no animal) U m true]
+     [:default-edge-denial   (no animal) m U dog U d false]
+     [:default-edge-positive dog m U (no animal) U d false]
+     [:forced-positive (no lk) m U lk U nil false]]))
+
+(deftest try-assert-refuses-a-sentence-whose-complement-is-believed-monotonic
+  ;; per row: `try-assert` of the arriving sentence, then, where it refused, `assert` of
+  ;; it on the same KB; a `:default` pair is a dilemma, and a forced positive is believed
+  (doseq [row-index (range 14)]
+    (tu/with-kb [kb]
+      (tu/with-terms [dog_t animal_t cat_t siblingOf kinOf likes Rex Ann CxLow]
+        (v/assert kb (list 'genlCx CxLow 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'symmetric siblingOf) 'CxUniverse)
+        (v/assert kb (list 'genl kinOf siblingOf) 'CxUniverse {:strength :monotonic})
+        (v/assert kb (list 'forced_monotonic_predicate likes) 'CxUniverse)
+        (let [[label held strength held-in arriving written-in edge refused?]
+              (nth (complement-rows {:dog_t dog_t :animal_t animal_t :cat_t cat_t
+                                     :siblingOf siblingOf :kinOf kinOf :likes likes
+                                     :Rex Rex :Ann Ann :CxLow CxLow})
+                   row-index)
+              _ (when edge (v/assert kb (list 'genl dog_t animal_t) 'CxUniverse {:strength edge}))
+              h (v/assert kb held held-in {:strength strength})
+              e (try (v/try-assert kb arriving written-in) :stored
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (testing (name label)
+            (if refused?
+              (do (is (= [:definitional-clash :complement
+                          [{:handle h :sentence (v/sentence-of (v/sentex kb h)) :context held-in}]]
+                         [(:type e) (:violation e) (:clashes-with e)]))
+                  (is (nil? (v/handle-of kb arriving written-in)) "nothing stored")
+                  (is (integer? (v/assert kb arriving written-in)) "assert stores it")
+                  (is (v/in? kb h) "the complement stands"))
+              (is (= :stored e)))
+            (case label
+              :default (is (some #(= #{h (v/handle-of kb arriving written-in)} (set (:nogood %)))
+                                 (v/contradictions kb))
+                           "a default pair is a dilemma")
+              :forced-positive (is (= [true false] [(v/ask? kb arriving written-in) (v/in? kb h)])
+                                   "the forced positive is believed and its denial loses")
+              nil)))))))
+
 ;;; ── an argument conflict ──────────────────────────────────────────────
 
 (defn- write-outcome

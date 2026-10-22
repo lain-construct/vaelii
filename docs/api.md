@@ -1027,7 +1027,7 @@ that would open a definitional clash with believed content visible from the cont
 ;;         :detail {:types [cat dog]}}
 ```
 
-The refusal reads seven things, and the call stores nothing when one of them clashes:
+The refusal reads eight things, and the call stores nothing when one of them clashes:
 
 - the sentence against believed content: a `:disjoint`, `:functional`, `:asymmetric`,
   `:anti-transitive` or `:cover` clash, from the checks `assert` runs;
@@ -1060,17 +1060,31 @@ The refusal reads seven things, and the call stores nothing when one of them cla
   ([contexts.md](contexts.md#forced_decontextualized_predicate-a-canonical-home-in-cxuniverse)),
   against believed content there. A refused move leaves the premise where it was stored;
 - the sentence and those mints against each other. A member that is part of the write
-  appears in `:clashes-with` without a `:handle`.
+  appears in `:clashes-with` without a `:handle`;
+- the sentence against its complement, `(not S)` for a positive `S` and `S` for a denial,
+  as a read from the context answers it: a believed `:monotonic` match whose path to the
+  complement crosses only `genl` and `genlInverse` edges held at `:monotonic` is
+  `:violation :complement`, and `:clashes-with` names each such match. With
+  `(genl dog animal)` at `:monotonic`, a stored `(not (animal Rex))` refuses `(dog Rex)`
+  and a stored `(dog Rex)` refuses `(not (animal Rex))`; a `:default` edge on the path
+  refuses nothing ([inference.md](inference.md#predicate-subsumption-in-matching)). A
+  forced-monotonic literal reads `:monotonic` at either written strength
+  ([nmtms.md](nmtms.md#the-forced-monotonic-set)), so a denial of a believed one is
+  refused. A forced-monotonic positive is never refused here, since it wins against its
+  denial. A complement at `:default` refuses nothing: the pair is stored and
+  `contradictions` lists it. A rebuttal whose loss the complement's strength alone decides
+  is refused here, and a rebuttal the settle weighs lands. `assert` stores both.
 
 `:violation` names the clash kind and `:detail` holds that kind's own keys. Every other
-refusal is `assert`'s, under its own `:type`. The refusal does not depend on strength: a `:monotonic` write that would defeat
-a `:default` member is refused too.
+refusal is `assert`'s, under its own `:type`. Only the complement arm reads strength, and
+it reads the complement's: a `:monotonic` write that would defeat a `:default` member of
+any other clash is refused too.
 
 The check reads the written sentence, the mints placed in its own context and the
 argument declarations stated below it, so four clashes still land and are placed by the
 settle: a clash a rule concludes when it fires; a declaration other than the three above,
 or a `genl` edge, that turns stored content into a clash, such as a `disjoint` over two
-types with a shared instance; a rebuttal `(not S)` of a believed `S`; and a clash with
+types with a shared instance; a rebuttal `(not S)` of an `S` believed at `:default`; and a clash with
 content that is stored and not believed. A compound argument at a declared position is
 not read by the declaration check. `check` reports what `assert` refuses, and does not report the
 clashes `try-assert` adds, a fact's own argument conviction among them.

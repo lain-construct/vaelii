@@ -3520,6 +3520,57 @@
                           (assoc :placed-in c))))
               cs)))))
 
+(defn- complement-conflict
+  "The `:complement` violation for the ground literal `sentence` written in `context`: a
+  believed match of its complement (`(not S)` for a positive `S`, `S` for a denial) that
+  `res/matches-visible` answers from `context`, whose handle `res/holding-class` reads
+  `:monotonic` and whose path to the complement crosses only `genl` and `genlInverse`
+  edges the reader holds at `:monotonic` (`res/contrapositive-predicates`).  Each such
+  match is named in `:clashes-with`, in content order; nil when there is none.
+
+  A positive forced-monotonic literal (`decide/forced-literal?`) is never refused here:
+  it wins the negation nogood against its denial at either class (docs/nmtms.md, \"The
+  forced-monotonic set\").  `try-assert` asks this (`*refuse-clashes?*`); `assert` stores
+  the rebuttal and `settle` weighs it."
+  [kb sentence context]
+  (let [tax  (reasoning/taxonomy kb)
+        s    (:sentence (res/kb-sentex kb sentence context))
+        neg? (sx/negation? s)
+        body (if neg? (second s) s)
+        f    (when (sequential? body) (nm/functor body))]
+    (when (and (symbol? f) (not= sx/not-functor f)
+               (or neg? (not (decide/forced-literal? tax s))))
+      (let [cmp   (if neg? body (list sx/not-functor body))
+            args  (vec (nm/args body))
+            class (res/holding-class kb)
+            ;; a match on `q` entails the complement through `q ⊑ f` (a positive
+            ;; complement) or `f ⊑ q` (a denial), straight or with arguments 1 and 2
+            ;; exchanged.  Either orientation holds when `context` believes `q` or `f`
+            ;; symmetric.
+            held? (fn [x]
+                    (let [mb       (sx/underlying-body (:sentence x))
+                          q        (nm/functor mb)
+                          margs    (vec (nm/args mb))
+                          swapped? (and (= 2 (count args)) (not= margs args) (= margs (rseq args)))
+                          sym?     (or (tax/has-prop? tax :symmetric q context)
+                                       (tax/has-prop? tax :symmetric f context))
+                          [sub super] (if neg? [q f] [f q])
+                          [straight swapped] (res/contrapositive-predicates kb sub context)]
+                      (or (and (= q f) (or sym? (not swapped?)))
+                          (contains? (if swapped? swapped straight) super)
+                          (and sym? (contains? (if swapped? straight swapped) super)))))
+            hits  (->> (res/matches-visible kb cmp context)
+                       (keep (fn [[h _ x]]
+                               (when (and (= :monotonic (class h)) (held? x))
+                                 {:handle h :sentence (sx/sentence-of x) :context (:context x)})))
+                       (distinct)
+                       (nm/sort-by-content-key #(nm/print-key [(:sentence %) (:context %)]) compare))]
+        (when (seq hits)
+          {:type :complement :sentence s
+           :clashes-with hits
+           :message (str "complement: " (nm/print-key s) " clashes with "
+                         (nm/print-key (:sentence (first hits))) ", believed :monotonic")})))))
+
 (defn constraint-checks
   "Throw the first definitional violation that `refuses-assert?`, as typed ex-info — the
   assert path.  Under `*refuse-clashes?*`, the first violation of any kind (`refusal`).
@@ -3551,7 +3602,8 @@
                   (when *refuse-clashes?*
                     (or (below-declaration-conflict kb chk context)
                         (declaration-conflict kb chk context)
-                        (rule-declaration-conflict kb chk context))))
+                        (rule-declaration-conflict kb chk context)
+                        (complement-conflict kb sentence context))))
         ;; an argument conviction `assert` holds inert, and a later arm's refusal behind it
         held  (when (and (not *refuse-clashes?*) (held-inert? p)) p)
         p     (if held (constraint-problem kb chk context types decls fact-refuses?) p)]

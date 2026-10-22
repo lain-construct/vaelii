@@ -13,6 +13,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Refusal: clashes
+
+- **`try-assert` refuses a sentence whose complement is believed `:monotonic`** from the
+  context, stored or entailed through `:monotonic` `genl` edges, as `:definitional-clash`
+  with `:violation :complement` and the complement in `:clashes-with`. It stored the
+  sentence, the settle defeated it, and neither `conflicts` nor `contradictions` listed
+  the pair, so the caller held a handle to a sentence the KB did not believe. A denial of
+  a believed forced-monotonic literal is refused at either written strength; a
+  forced-monotonic positive is not refused. A `:default` complement or edge refuses
+  nothing, and `assert` stores every rebuttal as before.
+  [api.md](docs/api.md#refusing-a-clash) ([#211](https://github.com/vaelii/vaelii/issues/211))
+  *Migration:* a caller that records a rebuttal of known-true content calls `assert`.
+  *Breaks:* `try-assert`, `:complement`
+
 ### Fix: order independence
 
 - **A reified NAT constant whose function declares `genlResult` is collected when its

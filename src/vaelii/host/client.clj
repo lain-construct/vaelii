@@ -985,8 +985,12 @@
   the taxonomy separates from its declared type (`:arg-type`, `:arg-genl`,
   `:inter-arg-type`), under either argtype reading; an `arg` / `genlArg` / `interArg`
   declaration a stored tuple breaks; a rule one of whose variables no term can fill
-  (`:arg-variable`); and an `arg` / `genlArg` / `quotedArg` declaration that would convict
-  a stored, believed rule so, which names the rule in `:clashes-with`."
+  (`:arg-variable`); an `arg` / `genlArg` / `quotedArg` declaration that would convict a
+  stored, believed rule so, which names the rule in `:clashes-with`; and a literal whose
+  complement (`(not S)` for `S`, `S` for `(not S)`) a read from `context` answers
+  `:monotonic` through `:monotonic` edges alone (`:complement`), a forced-monotonic
+  complement at either written strength, unless the literal is itself a forced-monotonic
+  positive."
   ([conn sentence] (call conn :try-assert [sentence]))
   ([conn sentence context] (call conn :try-assert [sentence context]))
   ([conn sentence context opts] (call conn :try-assert [sentence context opts])))
