@@ -210,6 +210,12 @@
 (arg carries 1 temporal)
 (arg carries 2 information)
 
+(comment encodes "(encodes ?info1 ?info2) means that ?info1, read under its code, gives ?info2, e.g. a ciphertext encodes its plaintext, a JPEG's data encodes the image it shows, and a translation encodes the work it translates. Both positions are information: encodes relates one piece of information to another and never a carrier to its content.")
+(binary_predicate encodes)
+(set/monotonic (instance_relation_predicate encodes))
+(arg encodes 1 information)
+(arg encodes 2 information)
+
 ;; ==== perception ==========================================================
 ;; Arg 1 of every perception relation names the perceiver and declares `thing`: vaelii's
 ;; `registered_agent` names a registered koinii participant
