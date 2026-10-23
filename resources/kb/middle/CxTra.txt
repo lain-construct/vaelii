@@ -235,6 +235,23 @@
 (arg agentClaims 2 thing)
 (target_following_predicate agentClaims)
 
+;; dataContent and propositionalContent are both stated, never derived: no rule here
+;; computes either one from an information's author, its encoding or its context. A
+;; translation of the same text, or a message with a different author, states its own
+;; propositionalContent independently of another information's data content.
+(comment dataContent "(dataContent ?info ?string) means that ?string, taken as written, is what ?info holds: the exact sequence of symbols, independent of any byte encoding that stores it. Functional: one piece of information has one data content.")
+(binary_predicate dataContent)
+(set/monotonic (instance_relation_predicate dataContent))
+(arg dataContent 1 information)
+(quotedArg dataContent 2 string)
+(set/monotonic (functional dataContent))
+
+(comment propositionalContent "(propositionalContent ?info ?proposition) means that ?info says ?proposition. Not functional: one piece of information can say more than one proposition, and two pieces of information with equal data content can say different propositions, e.g. the same words from two different speakers.")
+(binary_predicate propositionalContent)
+(set/monotonic (instance_relation_predicate propositionalContent))
+(arg propositionalContent 1 information)
+(arg propositionalContent 2 proposition)
+
 ;; ==== perception ==========================================================
 ;; Arg 1 of every perception relation names the perceiver and declares `thing`: vaelii's
 ;; `registered_agent` names a registered koinii participant
