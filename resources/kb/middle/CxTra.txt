@@ -1,7 +1,7 @@
 ;; CxTra — vocabulary that is generally useful but specific to one domain, outside the
 ;; starter contexts CxWell sees: software tools, their invocations and receipts, media
-;; resources and network names, information, its carriers and the sentences it claims, and
-;; perception relations. Sees the shared upper
+;; resources and network names, information content, its carriers, and the sentences an
+;; agent claims about it, and perception relations. Sees the shared upper
 ;; ontology via CxUniverse. CxWell does not see it, so the everyday contexts below CxWell
 ;; read none of this vocabulary. A context opts in by placing itself under CxTra.
 
@@ -75,7 +75,7 @@
 (genl information intangible)
 (genl information acausal)
 
-(comment digital_artifact "An information-bearing thing encoded as bits.")
+(comment digital_artifact "Information encoded as bits, apart from the storage medium that carries it.")
 (positiveExampleComment digital_artifact "a file")
 (positiveExampleComment digital_artifact "a byte stream")
 (positiveExampleComment digital_artifact "a web page")
@@ -189,17 +189,13 @@
 (quotedArg dnsResolvesTo 1 string)
 (quotedArg dnsResolvesTo 2 string)
 
-;; ==== content, carriers and claims ========================================
+;; ==== content and carriers =================================================
 ;; information, among the computing kinds above, is the content: what a document says,
-;; apart from the paper or the disk that holds it.  An information_carrier holds content
-;; in a medium of any kind.  A paper copy and the molecules of a cell's DNA are tangible,
-;; and a bird's chirp is an event, which is intangible, so information_carrier is placed
-;; under neither tangible nor intangible and is stated orthogonal to both.  A digital
-;; artifact can be content and carrier at once: a web page is information, and the web
-;; page carries the article it shows.  carries relates a carrier to its content.  claims
-;; relates a content or a carrier to the sentex it presents as true.  Carrying and claiming
-;; are separate relations: the molecules of a cell's DNA carry information, and the
-;; information claims nothing.
+;; apart from the paper or the disk that holds it.  carries relates a temporal carrier to
+;; the information it holds in its medium: a paper copy and the molecules of a cell's DNA
+;; are tangible carriers, and a bird's chirp is an event, an intangible carrier.  A
+;; digital artifact can be a carrier and content at once: a web page is information, and
+;; the web page carries the article it shows.
 
 (comment conceptual_work "Information composed as one work, which stays the same work in each copy and each encoding of it. A copy of a work is a carrier of the work and is not the work.")
 (positiveExampleComment conceptual_work "the novel Moby-Dick")
@@ -208,56 +204,11 @@
 (negativeExampleComment conceptual_work "the information content of a cell's DNA, which is information that nobody composed")
 (genl conceptual_work information)
 
-;; Carrying fixes nothing about a carrier's mass, so the carrier type takes no genl edge
-;; to tangible or intangible.  The orthogonal pairs below state that the carrier type
-;; overlaps tangible, intangible and information with neither side subsuming the other.
-(comment information_carrier "Something that holds information in a medium, so that reading the medium in the right way gives the information. A carrier and the information it holds are two things: destroying a carrier destroys the carrier and not, by that alone, the information.")
-(positiveExampleComment information_carrier "a physical copy of a newspaper article")
-(positiveExampleComment information_carrier "the physical molecules of a cell's DNA, which carry information and claim nothing")
-(positiveExampleComment information_carrier "a bird's chirp that encodes a text file")
-(positiveExampleComment information_carrier "the five aliens in Charlie and the Great Glass Elevator whose bodies spell SCRAM, which carry a command and claim nothing")
-(positiveExampleComment information_carrier "a web page, which carries the article it shows")
-(negativeExampleComment information_carrier "the information content of a cell's DNA, which the molecules carry")
-(genl information_carrier thing)
-(orthogonal information_carrier tangible)
-(orthogonal information_carrier intangible)
-(orthogonal information_carrier information)
-
-;; claims takes a content or a carrier in position 1.  The cover below gives the two one
-;; supertype, so the argument type of claims derives membership in information_or_carrier
-;; and in neither part: a carrier concluded to claim a sentex by the rule below is not
-;; thereby concluded information.
-(comment information_or_carrier "Information, or a thing that carries information. Membership says nothing about which of the two a thing is, so a thing concluded a member is concluded neither information nor a carrier.")
-(positiveExampleComment information_or_carrier "the information content of a newspaper article")
-(positiveExampleComment information_or_carrier "a physical copy of a newspaper article")
-(negativeExampleComment information_or_carrier "the time 3 PM on 14 October 2024")
-(genl information_or_carrier thing)
-(covering information_or_carrier information information_carrier)
-(orthogonal information_or_carrier tangible)
-(orthogonal information_or_carrier intangible)
-
-(comment carries "The carrier in position 1 holds the information in position 2 in its medium. Carrying information makes a carrier claim only what the information claims, and destroying the carrier changes nothing about the information.")
+(comment carries "(carries ?carrier ?info) means that the temporal ?carrier holds ?info in its medium: reading the medium in the right way gives ?info. A carrier and the information it holds are two things, so destroying a carrier destroys the carrier and not, by that alone, the information. Not functional in position 2: one carrier holds more than one piece of information, e.g. a tree's rings hold the tree's age and each year's rainfall.")
 (binary_predicate carries)
 (set/monotonic (instance_relation_predicate carries))
-(arg carries 1 information_carrier)
+(arg carries 1 temporal)
 (arg carries 2 information)
-
-;; Position 2 holds a sentex handle (sentexHandle H), which the engine mints with no result
-;; type, so the position declares thing, as koinii's endorses does (CxSpeechActs).
-(comment claims "The information or carrier in position 1 presents the sentex named by the handle in position 2 as true. A claim is not a belief: the KB believes the sentex only where a context the reader sees asserts it. A command, an instruction and a genome are information that claims nothing. Declared target_following_predicate, so retracting the sentex retracts each claim that names it.")
-(binary_predicate claims)
-(set/monotonic (instance_relation_predicate claims))
-(arg claims 1 information_or_carrier)
-(arg claims 2 thing)
-(target_following_predicate claims)
-
-;; A carrier claims what the information it carries claims.  The rule reads carries in
-;; one direction only: a claim of a carrier concludes no claim of its content.  The
-;; conclusion's subject is typed information_or_carrier by the argument type of claims,
-;; and its carries antecedent already types it information_carrier.
-(set/forwardRule
-  (implies (and (carries ?carrier ?content) (claims ?content ?sentence))
-           (claims ?carrier ?sentence)))
 
 ;; ==== perception ==========================================================
 ;; Arg 1 of every perception relation names the perceiver and declares `thing`: vaelii's
