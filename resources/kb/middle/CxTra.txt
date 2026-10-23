@@ -216,6 +216,14 @@
 (arg encodes 1 information)
 (arg encodes 2 information)
 
+(comment subInformationOf "(subInformationOf ?part ?whole) means that the information ?part is a component of the information ?whole, e.g. a chapter in a book or a frame in a video. A spec of intangiblePartOf, since information has no mass. Declared transitive, so a part of a part is a part.")
+(set/monotonic (instance_relation_predicate subInformationOf))
+(arg subInformationOf 1 information)
+(arg subInformationOf 2 information)
+(set/monotonic (transitive subInformationOf))
+(set/monotonic (reflexive subInformationOf))
+(genl subInformationOf intangiblePartOf)
+
 ;; ==== perception ==========================================================
 ;; Arg 1 of every perception relation names the perceiver and declares `thing`: vaelii's
 ;; `registered_agent` names a registered koinii participant
