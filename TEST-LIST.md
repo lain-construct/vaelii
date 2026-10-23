@@ -128,6 +128,10 @@ Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound c
     - R2: `a-fluent-ended-at-a-named-moment-after-the-reading-is-not-known-to-hold-now`: **red**
 45. `projection-from-now-into-a-dated-future-slice-is-unknown-with-only-lower-bounds`: green, by design. Under lower bounds no dated slice is known to lie after now. The spec keeps this unknown: forward projection from now needs an upper bound on now, which goes stale.
     - R2: `projection-from-now-into-a-named-future-slice-is-unknown-with-only-lower-bounds`: green
+    - backward from now: `a-state-holding-now-is-unknown-at-a-dated-past-moment`: green, by design. The start of 2025 is before now, but a state observed now may have started after it; inertia runs forward only.
+        - R2: `a-state-holding-now-is-unknown-at-a-named-past-moment`: green
+    - past to past: `a-fluent-started-in-a-past-slice-holds-at-a-later-dated-past-moment`: **red**. Started June 2000, never ended, holds at the start of 2025.
+        - R2: `a-fluent-started-at-a-named-moment-holds-at-a-later-named-past-moment`: **red**
 
 ## CxChange
 
