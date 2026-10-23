@@ -2892,11 +2892,11 @@
 ;; the shortest interval a calendar term names is (DatetimeFn "…Thh:mm:ss"), one second
 ;; long, and two moments a calendar term can tell apart are at least a second apart.  A
 ;; named interval with stated bounds can be shorter only by bounds the metric layer
-;; states, which no calendar term reads.  The tests below pin the second and ask for the
-;; millisecond and the microsecond.
+;; states, which no calendar term reads.  The first test below asserts that one second is
+;; the finest unit, and the red tests after it ask for the millisecond and the microsecond.
 
 (tu/deftest-kb the-shortest-calendar-interval-is-one-second
-  ;; Pinned: this is the resolution today, and the red tests after it ask for finer.
+  ;; One second is the finest resolution today; the red tests after this one ask for finer.
   (v/add-reasoner kb :calendar)
   (testing "a DatetimeFn to the second begins at that second and ends at the next"
     (is (= [{'?i '(InstantFn 2000 1 15 13 0 0)}] (v/ask kb '(startOf (DatetimeFn "2000-01-15T13:00:00") ?i) U)))
