@@ -1712,6 +1712,82 @@
       (testing "it is unknown at the later named moment, which now may be past"
         (is (= :unknown (verdict kb (list 'holdsAt kept Later) y27)))))))
 
+(tu/deftest-kb a-state-holding-now-is-unknown-at-a-dated-past-moment
+  ;; Projection backward, under the lower-bound ruling.  The reading puts the start of
+  ;; 2025 before now, so the order is known, but a state stated to hold now says nothing
+  ;; about an earlier moment: it may have started after it.  Inertia carries a state
+  ;; forward from where it started, never back from where it is observed.  Correct by
+  ;; design.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar :point)
+  (reading! kb [2026 10 17 9 0 0])
+  (tu/with-terms [StateFn Kept]
+    (let [kept (fluent! kb StateFn Kept)
+          t25  '(InstantFn 2025 1 1 0 0 0)
+          y25  (real-slice '(YearFn 2025))]
+      (v/assert kb (list 'holdsAt kept now) 'CxRealWorldNow)
+      (testing "control: it holds now, as stated"
+        (is (true? (v/ask? kb (list 'holdsAt kept now) 'CxRealWorldNow))))
+      (testing "it is unknown at the start of 2025, which is before now"
+        (is (= :unknown (verdict kb (list 'holdsAt kept t25) y25)))))))
+
+(tu/deftest-kb a-state-holding-now-is-unknown-at-a-named-past-moment
+  ;; The reified twin of a-state-holding-now-is-unknown-at-a-dated-past-moment: the
+  ;; earlier moment and the reading are named, the earlier moment stated first.  Correct
+  ;; by design.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :point)
+  (tu/with-terms [StateFn Kept Earlier Read Y2025]
+    (times! kb [Y2025] [] ['includesInstant Y2025 Earlier])
+    (chain! kb Earlier Read)
+    (reading-at! kb Read)
+    (let [kept (fluent! kb StateFn Kept)
+          y25  (real-slice Y2025)]
+      (v/assert kb (list 'holdsAt kept now) 'CxRealWorldNow)
+      (testing "control: it holds now, as stated"
+        (is (true? (v/ask? kb (list 'holdsAt kept now) 'CxRealWorldNow))))
+      (testing "it is unknown at the earlier named moment"
+        (is (= :unknown (verdict kb (list 'holdsAt kept Earlier) y25)))))))
+
+(tu/deftest-kb ^:red a-fluent-started-in-a-past-slice-holds-at-a-later-dated-past-moment
+  ;; Projection between two past slices: a state started in June 2000, stated in the real
+  ;; world's 2000 slice, that nothing has ended, holds at the start of 2025, asked in the
+  ;; 2025 slice.  The calendar fields put 2025 after June 2000; no reading is needed.  A
+  ;; plain fact of 2000 is not projected.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :calendar :point)
+  (tu/with-terms [StateFn Thing Start p]
+    (let [f   (fluent! kb StateFn Thing)
+          y2k (real-slice '(YearFn 2000))
+          t25 '(InstantFn 2025 1 1 0 0 0)
+          y25 (real-slice '(YearFn 2025))]
+      (happened! kb y2k Start 'initiates f '(InstantFn 2000 6 1 12 0 0))
+      (v/assert kb (list p) y2k)
+      (testing "the state holds at the start of 2025"
+        (is (true? (v/query? kb (list 'holdsAt f t25) y25 {:max-depth 3}))))
+      (testing "and a plain fact of 2000 is not projected"
+        (is (not (v/ask? kb (list p) y25)))))))
+
+(tu/deftest-kb ^:red a-fluent-started-at-a-named-moment-holds-at-a-later-named-past-moment
+  ;; The reified twin of a-fluent-started-in-a-past-slice-holds-at-a-later-dated-past-moment:
+  ;; the start, the later moment and both years are named, the start stated first.  The
+  ;; point prover takes the place of the calendar fields.
+  (declare-cxtimefn! kb)
+  (v/add-reasoner kb :point)
+  (tu/with-terms [StateFn Thing Start p Y2000 Y2025 Began Later]
+    (times! kb [Y2000 Y2025] []
+            ['includesInstant Y2000 Began] ['includesInstant Y2025 Later])
+    (chain! kb Began Later)
+    (let [f   (fluent! kb StateFn Thing)
+          y2k (real-slice Y2000)
+          y25 (real-slice Y2025)]
+      (happened! kb y2k Start 'initiates f Began)
+      (v/assert kb (list p) y2k)
+      (testing "the state holds at the later named moment"
+        (is (true? (v/query? kb (list 'holdsAt f Later) y25 {:max-depth 3}))))
+      (testing "and a plain fact of the named 2000 is not projected"
+        (is (not (v/ask? kb (list p) y25)))))))
+
 ;; =========================================================================
 ;; Slices keyed by other kinds of time
 ;; =========================================================================
