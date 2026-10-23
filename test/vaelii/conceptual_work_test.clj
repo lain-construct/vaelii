@@ -101,7 +101,7 @@
       (is (holds-isa Chirp 'intangible CxDesk)))
     (testing "no clash is reported over the two carriers of one work"
       (is (empty? (filter #(some #{Article PaperCopy Chirp} (flatten (map :sentence (:sides %))))
-                           (concat (v/contradictions kb) (v/conflicts kb))))))))
+                          (concat (v/contradictions kb) (v/conflicts kb))))))))
 
 (tu/deftest-kb destroying-a-carrier-does-not-destroy-what-it-carries
   (tu/with-terms [CxDesk Article PaperCopy Burning]
