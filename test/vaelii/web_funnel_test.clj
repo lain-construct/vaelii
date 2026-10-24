@@ -122,3 +122,32 @@
       (is (some (fn [row]
                   (some #(= :naf (:reason %)) (:refusals row)))
                 blocked)))))
+
+(deftest chain-report-counts-void-firings-apart-from-placed
+  ;; an `equals` firing over a predicate the forced-monotonic set does not hold is held
+  ;; void; an `unknown` consequent is dropped as not well-formed at every firing, which
+  ;; `violations` reports under the rule's handle
+  (let [kb tu/*kb*
+        mono {:strength :monotonic}
+        row  (fn [h] (select-keys (first (filter #(= h (:rule %)) (v/chain-report kb)))
+                                  [:placed :void :refused :status]))]
+    (tu/with-terms [PairFn Ann Bob Cal Dee linkedQuad bears grownIn AppleTree PearTree Orchard]
+      (v/assert kb (list 'reifiable_function PairFn) 'CxUniverse mono)
+      (v/assert kb (list 'binary_function PairFn) 'CxUniverse mono)
+      (v/assert kb (list 'arity linkedQuad 4) 'CxUniverse mono)
+      (let [hv (v/assert kb (list 'set/forwardOnlyRule
+                                  (list 'implies (list linkedQuad '?a '?b '?c '?d)
+                                        (list 'equals (list PairFn '?a '?b) (list PairFn '?c '?d))))
+                         'CxUniverse mono)
+            hu (v/assert kb (list 'set/forwardOnlyRule
+                                  (list 'implies (list bears '?t '?o) (list 'unknown (list grownIn '?t '?o))))
+                         'CxUniverse)]
+        (v/assert kb (list linkedQuad Ann Bob Cal Dee) 'CxUniverse mono)
+        (v/assert kb (list bears AppleTree Orchard) 'CxUniverse)
+        (v/assert kb (list bears PearTree Orchard) 'CxUniverse)
+        (is (= {:placed 0 :void 1 :refused 0 :status :blocked} (row hv)))
+        (is (= {:placed 0 :void 0 :refused 0 :status :silent} (row hu)))
+        (is (= #{[(list 'unknown (list grownIn AppleTree Orchard)) :not-well-formed]
+                 [(list 'unknown (list grownIn PearTree Orchard)) :not-well-formed]}
+               (into #{} (comp (filter #(= hu (:rule %))) (map (juxt :sentence :violation)))
+                     (v/violations kb))))))))

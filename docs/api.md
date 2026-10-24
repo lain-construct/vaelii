@@ -117,9 +117,9 @@ default-chain-opts                              ; the bounds a chain run takes w
 (settle-stats kb) / (reset-settle-stats! kb)     ; the exceptWhen fixpoint's iteration instrumentation
 (chain-stats kb)                               ; {:runs n :last {:derived n :truncated? bool}} — a capped run is visible
 (chain-report kb)                              ; the per-rule breakdown behind chain-stats: per forward rule
-                                               ; {:rule :sentence :believed? :placed :refused :refusals
-                                               ; :status} — :fires / :blocked (with the reason) /
-                                               ; :silent.  O(rules), off the ledger
+                                               ; {:rule :sentence :believed? :placed :void :refused
+                                               ; :refusals :status} — :fires / :blocked (with the
+                                               ; reason) / :silent.  O(rules), off the ledger
 (violations kb) / (clear-violations! kb)         ; accumulating ledger of dropped derived conclusions (tagged with the run, capped),
                                                 ; then the :forced-conclusion entries read off the stored void firings
                                                 ; and the :inert-argument / :inert-rule entries read off the held sentexes

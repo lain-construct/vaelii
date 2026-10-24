@@ -5934,7 +5934,8 @@
   `O(rules)`, off the rule index and the state a run leaves standing — the refusal ledger
   (re-decided against current belief) and the justification graph — so it needs no
   instrumentation and reflects the KB as it is now, not a snapshot of one run. Each row is
-  `{:rule :sentence :believed? :placed :refused :refusals :status}`; see
+  `{:rule :sentence :believed? :placed :void :refused :refusals :status}`, `:void` the
+  firings the forced-monotonic set holds void; see
   `vaelii.impl.chain/rule-firing-report`.  The `:no-placement` and other violations a
   firing files are read separately through `violations`, keyed by the same `:rule` handle."
   [kb]

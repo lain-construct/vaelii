@@ -54,6 +54,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [nat.md](docs/nat.md#derivation-path)
   *Migration:* none.
 
+- **`chain-report` counts a firing the forced-monotonic set holds void under `:void`, not
+  under `:placed`**, and a rule whose every firing is void reads `:status :blocked`, where
+  it read `:fires`. [exceptions.md](docs/exceptions.md)
+  *Migration:* read `:void` beside `:placed` for the firings a rule made that support
+  nothing.
+
 - **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a
   `(reifiable_function Quote)` declaration. `(different (Quote Bar) (Quote Baz))` holds for
   quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc

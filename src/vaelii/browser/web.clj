@@ -5625,7 +5625,7 @@
 (defn- funnel-why
   "Why a rule placed nothing — the reasons its refusals cluster on, which is what separates
   'never completed an antecedent set' from 'completes them and every one is blocked'."
-  [{:keys [status refused refusals]}]
+  [{:keys [status refused refusals void]}]
   (case status
     :fires  [:span.tag.tag-in "fires"]
     :silent [:span.muted "no antecedent set completed"]
@@ -5642,7 +5642,8 @@
                              [:span (commas n) " " [:span.tag (name reason)]]))
                 (when (= :overflow refused) [:span.tag.tag-superseded " overflow"])
                 (when (pos? freed) [:span.muted (str " (" freed " since freed)")])
-                (when (and (empty? by) (not= :overflow refused) (zero? freed))
+                (when (pos? (long (or void 0))) [:span " " (commas void) " " [:span.tag "void"]])
+                (when (and (empty? by) (not= :overflow refused) (zero? freed) (zero? (long (or void 0))))
                   [:span.muted "blocked"])])
     [:span.muted "—"]))
 

@@ -4512,24 +4512,30 @@
   the funnel needs no per-run instrumentation: the stored ledger and the justification
   graph answer it, and a counter beside them would only restate what they already hold.
 
-  Each row is `{:rule :sentence :believed? :placed :refused :refusals :status}`.
-  `:placed` is the firing count. `:refused` is `:overflow` when the ledger capped the rule,
+  Each row is `{:rule :sentence :believed? :placed :void :refused :refusals :status}`.
+  `:void` is the count of its firings the forced-monotonic set holds void, and `:placed`
+  the rest of its firings.  A conclusion dropped for a violation is in the
+  dropped-conclusion ledger (`violations`), keyed by the rule handle, and in no count
+  here. `:refused` is `:overflow` when the ledger capped the rule,
   else the entry count. `:refusals` is one map per recorded refusal — its live `:state`
   (`:blocked` / `:dead` / `:free`, re-decided now) and, for one that still blocks, the
   `:reason` (`:post-join` / `:naf` / `:separation` / `:hidden` / `:constraint`), plus the `:conseq` it could
   not place and the `:context`. `:status` is `:fires` (placed at least one), `:blocked`
-  (placed none, refused at least one), or `:silent` (no antecedent set ever completed —
-  nothing placed and nothing refused)."
+  (placed none, and refused or voided at least one), or `:silent` (no antecedent set ever
+  completed — nothing placed, voided or refused)."
   [kb]
   (let [rec (:records kb)
         tms (reasoning/tms kb)
         idx (:index kb)
-        rule-hs (into (sorted-set) (reads/as-stored-rules-in-global idx :rule))]
+        rule-hs (into (sorted-set) (reads/as-stored-rules-in-global idx :rule))
+        void    (jtms/forced-members tms :void)]
     (into []
           (keep (fn [rh]
                   (when-let [rsx (p/get-sentex rec rh)]
                     (when (rules/forward-sentex? rsx)
-                      (let [placed  (count (jtms/dependents tms rh))
+                      (let [deps    (jtms/dependents tms rh)
+                            voided  (count (filter void deps))
+                            placed  (- (count deps) voided)
                             ref     (refusals kb rh)
                             over?   (= :overflow ref)
                             rfields (delay (rule-fields-of kb rh rsx))
@@ -4552,11 +4558,12 @@
                          :sentence  (sx/authored-sentence rsx)
                          :believed? (boolean (jtms/in? tms rh))
                          :placed    placed
+                         :void      voided
                          :refused   (if over? :overflow (count entries))
                          :refusals  entries
-                         :status    (cond (pos? placed)              :fires
-                                          (or over? (seq entries))   :blocked
-                                          :else                      :silent)}))))
+                         :status    (cond (pos? placed)                          :fires
+                                          (or over? (seq entries) (pos? voided)) :blocked
+                                          :else                                  :silent)}))))
                 rule-hs))))
 
 (defn release-refusal!

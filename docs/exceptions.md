@@ -495,8 +495,10 @@ The record is also what the **chaining funnel** reads. `core/chain-report` walks
 forward rule (enumerated `O(rules)` off the antecedent index, never the fact extent) and
 for each reports what it placed — `jtms/dependents` on the rule handle is its firings —
 against what this record says it refused and why, re-deciding each entry through
-`refusal-state` so a reason shown is one that still holds. A rule that placed nothing and
-refused nothing never completed an antecedent set. That is the per-rule breakdown the
+`refusal-state` so a reason shown is one that still holds. `:void` counts the firings the
+forced-monotonic set holds void, which `:placed` leaves out. A rule that placed, voided
+and refused nothing completed no antecedent set, or had every conclusion dropped for a
+violation, which `violations` names by the rule's handle. That is the per-rule breakdown the
 browser draws at `/funnel` ([web.md](web.md)), and it needs no per-run counter: the ledger
 and the justification graph already hold the answer.
 
