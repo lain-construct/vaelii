@@ -53,6 +53,18 @@
     (is (sx/indexable-term? h) "the handle compound is an index key")
     (is (not (sx/indexable-term? 7)) "the raw id is not")))
 
+(tu/deftest-kb sentexes-naming-answers-every-meta-nesting-the-handle-and-no-other
+  (tu/with-terms [sourcedFrom Wiki Fido Rex dog CxMeta]
+    (let [h      (v/assert kb (list dog Fido) CxMeta)
+          other  (v/assert kb (list dog Rex) CxMeta)
+          direct (v/assert kb (list sourcedFrom (v/sentex-handle h) Wiki) CxMeta)
+          nested (v/assert kb (list sourcedFrom (list sourcedFrom (v/sentex-handle h) Wiki) Wiki) CxMeta)]
+      (v/assert kb (list sourcedFrom (v/sentex-handle other) Wiki) CxMeta)
+      (is (= #{direct nested} (set (map :id (v/sentexes-naming kb h)))))
+      (is (= #{direct nested} (set (map :id (v/sentexes-naming kb h {:believed? true})))))
+      (is (empty? (v/sentexes-naming kb direct)))
+      (is (empty? (v/sentexes-naming kb nil))))))
+
 ;; ---- exceptWhen: the exception names its rule by handle ------------------
 
 (tu/deftest-kb exceptWhen-can-name-a-rule-by-handle-directly

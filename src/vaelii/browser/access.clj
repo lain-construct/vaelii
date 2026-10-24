@@ -100,6 +100,9 @@
   justification-verdicts
   lookup escalate count-in-context
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
+  ;; the sentex page's two annotation sections: the metas naming a handle, and the
+  ;; provenance map recorded beside it
+  sentexes-naming provenance
   count-with-functor disjoint-metatypes metatype-members separating-covers conflicts
   ;; a type's members off the index, and whether one is believed: the whole-KB list of
   ;; types without a genl reads every member of `unary_predicate`'s subtypes this way

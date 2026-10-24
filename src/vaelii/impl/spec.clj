@@ -373,6 +373,8 @@
   :args (s/cat :kb ::kb :pos pos-int? :term ::term :opts (s/? ::extent-opts)) :ret ::sentex-seq)
 (s/fdef vaelii.core/count-with-arg
   :args (s/cat :kb ::kb :pos pos-int? :term ::term) :ret nat-int?)
+(s/fdef vaelii.core/sentexes-naming
+  :args (s/cat :kb ::kb :handle ::handle-arg :opts (s/? ::extent-opts)) :ret ::sentex-seq)
 
 ;; the vocabulary — the terms themselves, not the sentexes holding them
 (s/def ::match #{:prefix :substring :regex})
@@ -522,6 +524,7 @@
     vaelii.core/count-with-functor
     vaelii.core/sentexes-with-arg
     vaelii.core/count-with-arg
+    vaelii.core/sentexes-naming
     vaelii.core/in?
     vaelii.core/believed?
     vaelii.core/belief-status

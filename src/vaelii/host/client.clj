@@ -902,6 +902,12 @@
   ([conn sentence] (call conn :sentexes-matching [sentence]))
   ([conn sentence context] (call conn :sentexes-matching [sentence context])))
 
+(defn sentexes-naming
+  "Every **stored** sentex whose sentence nests `(sentexHandle handle)` — the meta-sentexes
+  naming `handle` — a defeated or unsupported one included."
+  ([conn handle] (call conn :sentexes-naming [handle]))
+  ([conn handle opts] (call conn :sentexes-naming [handle opts])))
+
 (defn sentexes-with-arg
   "Every **stored** fact sentex holding `term` at 1-based argument position `pos` — a
   defeated or unsupported one included."

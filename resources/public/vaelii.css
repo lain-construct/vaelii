@@ -700,6 +700,11 @@ a.stat:hover { border-color: var(--accent); text-decoration: none; }
   padding-left: 0;
 }
 
+/* The sentex page's provenance map: a key column and a value column. */
+.provenance    { display: grid; grid-template-columns: max-content 1fr; gap: .1rem 1rem; margin: .2rem 0; }
+.provenance dt { color: var(--muted); }
+.provenance dd { margin: 0; overflow-wrap: anywhere; }
+
 /* A sentex row is text.  It carries no script and no selected state, so a press-drag
    across it selects the sentence the way a press-drag across any other text does. */
 .sx-item {

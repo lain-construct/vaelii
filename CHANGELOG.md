@@ -22,6 +22,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [asp.md](docs/asp.md#getting-a-solver)
   *Migration:* none.
 
+### Additive: browser
+
+- **The sentex page lists the meta-sentexes naming the sentex and shows its provenance
+  map.** `sentexes-naming` answers every stored sentex nesting `(sentexHandle h)`, with
+  `{:believed? true}` to filter, and the daemon serves it.
+  [web.md](docs/web.md), [api.md](docs/api.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a

@@ -134,6 +134,7 @@
   sentex-count "[[conn]]",
   sentexes-in-context "[[conn context] [conn context opts]]",
   sentexes-matching "[[conn sentence] [conn sentence context]]",
+  sentexes-naming "[[conn handle] [conn handle opts]]",
   sentexes-with-arg "[[conn pos term] [conn pos term opts]]",
   sentexes-with-functor "[[conn pred] [conn pred opts]]",
   separating-covers "[[conn]]",
@@ -358,6 +359,7 @@
   sentex-handle? "[[form]]",
   sentexes-in-context "[[kb context] [kb context opts]]",
   sentexes-matching "[[kb sentence] [kb sentence context]]",
+  sentexes-naming "[[kb handle] [kb handle opts]]",
   sentexes-with-arg "[[kb pos term] [kb pos term opts]]",
   sentexes-with-functor "[[kb pred] [kb pred opts]]",
   separating-covers "[[kb]]",
@@ -516,6 +518,7 @@
    :sentex-count
    :sentexes-in-context
    :sentexes-matching
+   :sentexes-naming
    :sentexes-with-arg
    :sentexes-with-functor
    :separating-covers
@@ -653,6 +656,7 @@
    :sentex-count
    :sentexes-in-context
    :sentexes-matching
+   :sentexes-naming
    :sentexes-with-arg
    :sentexes-with-functor
    :separating-covers

@@ -627,6 +627,8 @@ assertable-strengths                            ; #{:monotonic :default}, the se
 ;; predicate about it — `except` / `exceptWhen` and a `target_following_predicate` reply
 (sentex-handle n)                               ; the (sentexHandle n) term naming handle n
 (sentex-handle? form) / (handle-id form)        ; is it one? / the id it names, or nil
+(sentexes-naming kb handle [opts])              ; every stored sentex nesting (sentexHandle handle):
+                                                ; the metas naming it; {:believed? true} filters
 (provenance kb handle)                          ; the per-handle bookkeeping map, or nil
 (add-provenance kb handle m)                     ; merge application fields into it
 (retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}

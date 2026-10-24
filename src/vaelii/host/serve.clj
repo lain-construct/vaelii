@@ -471,6 +471,7 @@
     :sentexes-in-context   (op v/sentexes-in-context)
     :sentexes-with-arg     (op v/sentexes-with-arg)
     :sentexes-with-functor (op v/sentexes-with-functor)
+    :sentexes-naming       (op v/sentexes-naming)
     :count-with-arg        (op v/count-with-arg)
     :count-with-functor    (op v/count-with-functor)
     :stored-first-args     (op v/stored-first-args)

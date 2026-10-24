@@ -1784,6 +1784,19 @@
         r   (GET (str "/sentex/" bob))]
     (is (re-find #"tag-in" (:body r)))))                  ; the IN belief pill
 
+(tu/deftest-kb sentex-page-lists-the-metas-naming-it-and-its-provenance
+  (tu/with-terms [sourcedFrom Wiki Fido dog CxMeta]
+    (let [h    (v/assert kb (list dog Fido) CxMeta)
+          mh   (v/assert kb (list sourcedFrom (v/sentex-handle h) Wiki) CxMeta)]
+      (v/add-provenance kb h {:source "imported-feed"})
+      (let [body (:body (GET (str "/sentex/" h)))]
+        (is (re-find (re-pattern (str "(?s)Metas naming it.*?data-h=\"" mh "\".*?Provenance")) body))
+        (is (re-find #"(?s)<dt>:source</dt><dd>&quot;imported-feed&quot;</dd>" body))
+        (is (re-find #"<dt>:created</dt><dd>\d{4}-\d\d-\d\d \d\d:\d\d</dd>" body)))
+      (testing "a sentex nothing names and nothing annotates says so"
+        (is (re-find #"(?s)Metas naming it.*?none.*?Provenance"
+                     (:body (GET (str "/sentex/" mh)))))))))
+
 (tu/deftest-kb sentex-page-shows-a-superseded-spelling
   (tu/with-terms [bornIn Chicago CxName]
     (tu/with-terms [Pref Dep]

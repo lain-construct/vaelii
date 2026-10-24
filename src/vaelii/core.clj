@@ -3749,6 +3749,20 @@
       (p/put-provenance (:records kb) h (merge cur (dissoc m integrate/spellings-key)))
       (dissoc (merge cur m) integrate/spellings-key))))
 
+(defn sentexes-naming
+  "Every **stored** sentex whose sentence nests `(sentexHandle handle)` — the
+  meta-sentexes naming `handle` — a defeated or unsupported one included.  One
+  term-index read.  Pass `{:believed? true}` to keep only what the JTMS believes (O(n)
+  in the answer).  An opts key this fn does not read is refused (`:unknown-option`).
+  Empty for a nil handle; a non-handle is refused (`:bad-handle`).  A lazy seq over live
+  state, as `sentexes-in-context` is — `vec` it for a snapshot."
+  ([kb handle] (sentexes-naming kb handle nil))
+  ([kb handle opts]
+   (check-extent-opts! opts "sentexes-naming")
+   (if-some [h (the-handle handle "sentexes-naming")]
+     (believed-filter kb opts (records-of kb (reads/as-stored-naming-handle (:index kb) h)))
+     ())))
+
 (def ^:dynamic *query-engine*
   "Which backward executor `prove` and `prove-within` run:
 
@@ -9064,7 +9078,8 @@
     :query-plan :query-status :query? :relation? :relation-arity :representative :same-class?
     :search-tree
     :sees? :sentex :sentex-count :sentexes-in-context :sentexes-matching
-    :sentexes-with-arg :sentexes-with-functor :settle-stats :specified-violations
+    :sentexes-naming :sentexes-with-arg :sentexes-with-functor :settle-stats
+    :specified-violations
     :stored-first-args
     :specs :store-state :subsumption-status :subsumption-statuses
     :supporting-justifications :term-count :term-expression :terms :types :types-of

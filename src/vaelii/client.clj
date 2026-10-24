@@ -833,6 +833,12 @@
   ([conn context] (c/sentexes-in-context conn context))
   ([conn context opts] (c/sentexes-in-context conn context opts)))
 
+(defn sentexes-naming
+  "Every **stored** sentex whose sentence nests `(sentexHandle handle)` — the meta-sentexes
+  naming `handle` — a defeated or unsupported one included."
+  ([conn handle] (c/sentexes-naming conn handle))
+  ([conn handle opts] (c/sentexes-naming conn handle opts)))
+
 (defn sentexes-with-arg
   "Every **stored** fact sentex holding `term` at 1-based argument position `pos` — a
   defeated or unsupported one included."

@@ -3924,6 +3924,20 @@
             ""
             (find-list env q offset (drop offset hits))))))
 
+(defn- provenance-list
+  "The provenance map `v/provenance` answers, a row per key in key order.  `:created` is
+  epoch milliseconds (`*clock*`) and shows as local time; every other value prints as
+  EDN."
+  [prov]
+  (if (seq prov)
+    [:dl.provenance
+     (for [k (by-print-key (keys prov)) :let [x (get prov k)]]
+       (list [:dt (pr-str k)]
+             [:dd (if (and (= :created k) (integer? x))
+                    (local-time (java.time.Instant/ofEpochMilli x))
+                    (pr-str x))]))]
+    [:p.muted "none"]))
+
 (defn sentex-page [{:keys [kb] :as env} h]
   (if-let [s (v/sentex kb h)]
     (let [premise? (v/premise? kb h)]
@@ -3955,6 +3969,13 @@
                [:span.muted " — the full proof tree, not just the first hop."]]
               [:h3 "Dependents " [:span.muted "(justifications using it as an argument)"]]
               (justification-list env (v/dependent-justifications kb h))
+              [:h3 "Metas naming it " [:span.muted "(sentexes holding (sentexHandle " h "))"]]
+              (let [ms (into [] (take (inc group-cap)) (v/sentexes-naming kb h))]
+                (list (sentex-list env (take group-cap ms))
+                      (when (> (count ms) group-cap)
+                        [:p.muted "the first " group-cap " shown"])))
+              [:h3 "Provenance"]
+              (provenance-list (v/provenance kb h))
               [:h3 "Subterms " [:span.muted "(each findable individually)"]]
               [:p (interpose " · " (map #(term-link env %) (by-print-key (v/indexable-terms s))))]
               [:p [:a {:href (str "/levels?q=" (url-enc (pr-str (readable s)))
