@@ -371,8 +371,8 @@
             ;; tag or a perf-sensitive land.  `lein gate` drops perf and only asks
             ;; for it; this always runs it.  See scripts/gate.sh's PERF header.
             "release-gate"    ["shell" ~bash "scripts/gate.sh" "--release"]
-            ;; rewrite the three goldens — the published API surface, the extension
-            ;; seams, the config surface — from the live tree.  `test` is already on a
+            ;; rewrite the four goldens — the published API surface, the extension
+            ;; points, the config surface, koinii's surface — from the live tree.  `test` is already on a
             ;; plain `run`'s classpath here, so no profile is needed.  Read
             ;; `vaelii.regen-goldens` before reaching for it: regenerating is how a
             ;; deliberate surface change is recorded, and never how a red golden is

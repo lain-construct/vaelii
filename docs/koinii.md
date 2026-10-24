@@ -28,8 +28,13 @@ It is an **application, not part of the engine**, and the tree says so: koinii l
 `vaelii.impl` — every module is built on the public core API and the thin `vaelii.client`,
 exactly as an outside consumer would be (`public_api_test/koinii-reaches-into-no-impl`
 checks it). That is also why it is out of the engine's frozen lists (the API golden, the
-SPI protocols, the refusal-type list): koinii's own development would otherwise churn the
-engine's compatibility contract. When koinii needs something the API does not publish, the
+SPI protocols, the refusal-type list). Koinii's surface is frozen in a golden of its own,
+`test/golden/koinii-surface.edn`: the public vars of `vaelii.koinii.*` with their
+arglists, the refusal `:type`s its modules raise, and the arity of each term CxRegistry,
+CxSpeechActs and CxDisputes declare. A koinii change moves that file and none of the
+engine's, and a removed var, `:type` or term, or a changed arglist or arity, is a
+Breaking changelog entry (CONTRIBUTING §3.8).
+When koinii needs something the API does not publish, the
 answer is to publish it — `sort-by-content` is here for that reason — never to reach past
 it.
 

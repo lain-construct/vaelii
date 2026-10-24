@@ -12,7 +12,8 @@
 those six namespaces are the compatibility boundary. Everything else is private and free
 to change: the engine internals and the ontology content under `vaelii.impl.*`, the
 servers, CLI and loaders under `vaelii.host.*`, and the two applications over
-this API, `vaelii.koinii.*` and the browser (`vaelii.browser.*`). Tests
+this API, `vaelii.koinii.*` and the browser (`vaelii.browser.*`). Koinii's surface is
+frozen apart from this API, in a golden of its own ([koinii.md](koinii.md)). Tests
 reach into `impl` freely, which is what unit tests are for; nothing outside this repo
 should. The file map is [namespaces.md](namespaces.md). Entry points are `lein run` (→
 `vaelii.core`) and `lein run -m vaelii.web`.

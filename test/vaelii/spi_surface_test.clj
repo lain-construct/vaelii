@@ -188,9 +188,10 @@
   The `koinii/` subtree is excluded: koinii is an **application layered on the public
   API** (`docs/koinii.md`) — it sits beside `impl/` rather than inside it and requires
   nothing under `vaelii.impl` — not part of the engine, so its extension points
-  (`CursorStore`, `Medium`) are koinii's own surface documented in koinii's own page and
-  this classification covers the *engine's* protocols.  koinii is free to grow protocols
-  without reshaping the engine's frozen set; the directory it lives in is that boundary, and
+  (`CursorStore`, `Medium`) are koinii's own surface, whose methods `koinii_surface_test`
+  freezes as vars, and this classification covers the *engine's* protocols.  A koinii
+  protocol moves koinii's golden and not the engine's frozen set; the directory it lives in
+  is that boundary, and
   extracting it to its own repo would only move the same line."
   []
   (into #{}

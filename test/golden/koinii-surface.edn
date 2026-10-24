@@ -1,0 +1,193 @@
+;; Frozen koinii surface — the vars of vaelii.koinii.*, the refusal :types its
+;; sources raise, and the arity of each term its seed contexts declare.
+;; Regenerate: `lein regen-goldens`, after the changelog entry
+;; (vaelii.koinii-surface-test).
+{:vars
+ {vaelii.koinii.adjudication
+  {*notify-sink* :var,
+   *stale-sink* :var,
+   *timeout-ms* :var,
+   cast-ballot "[[kb principal stance claim-handle]]",
+   contested-premises "[[kb S ctx]]",
+   majority-arbiter :var,
+   notify-disputes "[[kb channel]]",
+   poll "[[kb channel]]",
+   quarantine "[[kb channel target-handle]]",
+   quarantined "[[kb channel]]",
+   resolve-by-majority "[[kb id claim-handle channel]]",
+   rests-on-contested? "[[kb S ctx]]",
+   rule "[[kb arbiter id upheld channel]]",
+   standing-rulings "[[kb arbiter id]]",
+   sweep-stale "[[kb channel]]",
+   tally "[[kb claim-handle]]",
+   unquarantine! "[[kb handle]]",
+   who-ruled "[[kb ruling-handle]]"},
+  vaelii.koinii.belief
+  {belief-context "[[agent]]",
+   believe-own "[[kb agent]]",
+   convene "[[kb spec-ctx agents]]",
+   convened-agents "[[kb spec-ctx]]",
+   disagreements "[[kb spec-ctx]]",
+   disregard "[[kb agent target-handle]]",
+   disregards "[[kb agent]]",
+   project "[[kb agent goal] [kb agent goal asker]]",
+   restore! "[[kb handle]]",
+   would-believe?
+   "[[kb agent proposition] [kb agent proposition asker]]"},
+  vaelii.koinii.catchup
+  {->AtomStore "[[a]]",
+   atom-store "[[]]",
+   map->AtomStore "[[m__7997__auto__]]",
+   open
+   "[[handle goal context store] [handle goal context store initial-replica]]",
+   replica-of "[[consumer]]",
+   snapshot "[[handle goal context]]",
+   sync! "[[consumer]]"},
+  vaelii.koinii.channel
+  {->LocalMedium "[[kb]]",
+   ->WireMedium "[[conn]]",
+   answer "[[handle content target-handle]]",
+   answer-content "[[sentex]]",
+   answers-to "[[handle query-handle]]",
+   assert "[[handle sentence] [handle sentence opts]]",
+   dispute "[[handle target-handle]]",
+   endorse "[[handle target-handle]]",
+   endorsements-of "[[handle target-handle]]",
+   join "[[medium channel agent-id] [medium channel agent-id opts]]",
+   justify "[[handle ground target-handle]]",
+   local "[[kb]]",
+   map->LocalMedium "[[m__7997__auto__]]",
+   map->WireMedium "[[m__7997__auto__]]",
+   open-queries "[[handle]]",
+   pose-query "[[handle question]]",
+   query "[[handle goal context]]",
+   reply-many "[[handle sentences]]",
+   speaker-of "[[sentex]]",
+   subscribe
+   "[[handle goal context callback] [handle goal context callback opts]]",
+   unsubscribe "[[subscription]]",
+   vote "[[handle stance target-handle]]",
+   wire "[[conn]]",
+   writer-order :var},
+  vaelii.koinii.deref
+  {->SentexRef "[[tag payload]]",
+   commit-id "[[kb]]",
+   dereference "[[kb marker]]",
+   inclusion-proof "[[kb locator]]",
+   locate "[[kb sentence context]]",
+   locator-index "[[kb]]",
+   locator-of "[[kb handle]]",
+   marker "[[kb handle]]",
+   publish! "[[kb dir] [kb dir opts]]",
+   pull! "[[kb dir] [kb dir opts]]",
+   resolve-by-locator "[[kb locator] [kb locator index]]",
+   state-root "[[kb]]",
+   verify-inclusion "[[locator proof root]]",
+   why-marker "[[kb marker]]"},
+  vaelii.koinii.dispute
+  {dispute-id "[[entry]]",
+   dispute-key "[[id]]",
+   dispute-state "[[kb id]]",
+   dispute-term "[[id]]",
+   disputed? "[[kb ctx] [kb S ctx] [kb S ctx opts]]",
+   disputes-in "[[kb ctx]]",
+   mark-notified "[[kb id at]]",
+   mark-stale "[[kb id at reason]]",
+   notified? "[[kb id]]",
+   pending-disputes "[[kb ctx]]",
+   reopen! "[[kb id]]",
+   stale? "[[kb id]]",
+   state-context :var},
+  vaelii.koinii.identity
+  {*attest-key* :var,
+   *policy* :var,
+   *verify-fn* :var,
+   agent-context "[[kb deploy-ctx agent-id]]",
+   agent-context-mark "[[ctx agent]]",
+   attested-by "[[kb handle]]",
+   authenticate "[[request] [request opts]]",
+   check-registry-write! "[[who target-ctx]]",
+   check-write-boundary! "[[principal target-ctx]]",
+   co-attribution "[[kb sentence]]",
+   context-for "[[agent-id]]",
+   display-name-of "[[kb agent-id]]",
+   ingest "[[kb principal sentence]]",
+   ingest-into "[[kb principal target-ctx sentence]]",
+   load-registry "[[kb]]",
+   load-seed-context "[[kb context]]",
+   place-agent-context "[[write! parent agent-id roots]]",
+   register-agent "[[kb principal agent-id display-name trust]]",
+   registered-agents "[[kb]]",
+   registry-context :var,
+   set-trust! "[[kb principal agent-id new-value]]",
+   trust-of "[[kb agent-id]]"},
+  vaelii.koinii.speech-acts
+  {answer "[[kb agent content target-handle]]",
+   answers-to "[[kb query-handle] [kb query-handle context]]",
+   assert-claim "[[kb agent claim] [kb agent claim ctx]]",
+   dispute "[[kb agent target-handle]]",
+   endorse "[[kb agent target-handle]]",
+   endorsements-of "[[kb target-handle] [kb target-handle context]]",
+   justify "[[kb agent ground target-handle]]",
+   load-speech-acts "[[kb]]",
+   not-understood "[[kb agent received-handle]]",
+   pose-query "[[kb agent question] [kb agent question ctx]]",
+   refuse "[[kb agent received-handle]]",
+   responder-of "[[kb handle]]",
+   retract-move "[[kb handle]]",
+   speaker-context "[[kb channel agent]]"},
+  vaelii.koinii.types
+  {-assert "[[medium sentence context opts]]",
+   -check-edit "[[medium batch]]",
+   -edit "[[medium batch]]",
+   -feed-close "[[medium token]]",
+   -feed-open "[[medium goal context]]",
+   -feed-poll "[[medium token cursor opts]]",
+   -matching "[[medium sentence context]]",
+   -query "[[medium goal context]]",
+   -sentex "[[medium handle]]",
+   -subscribe "[[medium goal context callback opts]]",
+   CursorStore
+   [:doc :method-builders :method-map :on :on-interface :sigs :var],
+   Medium
+   [:doc :method-builders :method-map :on :on-interface :sigs :var],
+   read-position "[[store]]",
+   write-position! "[[store position]]"}},
+ :refusal-types
+ [:arbiter-is-party
+  :koinii/bad-attest-key
+  :koinii/catchup-thrashing
+  :koinii/compression-fixed
+  :koinii/creator-mismatch
+  :koinii/feed-error
+  :koinii/identity-unverified
+  :koinii/missing-seed
+  :koinii/no-cursor
+  :koinii/no-such-handle
+  :koinii/no-such-stance
+  :koinii/no-wire-feed
+  :koinii/not-a-channel
+  :koinii/not-own-statement
+  :koinii/registry-forbidden
+  :koinii/registry-not-functional
+  :koinii/reply-inadmissible
+  :koinii/speaker-mismatch
+  :koinii/uncanonical-value
+  :koinii/unknown-policy],
+ :vocabulary
+ {CxDisputes {DisputeFn {:min 1}, disputeNotified 2, disputeStale 3},
+  CxRegistry {displayNameOf 2, registered_agent 1, trustLevel 2},
+  CxSpeechActs
+  {agentContext 2,
+   answers 3,
+   asserts 2,
+   contested 1,
+   disputes 2,
+   endorses 2,
+   justifies 3,
+   notUnderstood 2,
+   queries 2,
+   refuse 2,
+   retracts 2,
+   votesAgainst 2,
+   votesFor 2}}}

@@ -152,7 +152,8 @@ source path is what stops `:uberjar {:aot :all}` from compiling and shipping the
 **`vaelii.core` is the engine's whole API**, and five thin entry points are public
 beside it: `vaelii.client`, `vaelii.starter`, `vaelii.web`, `vaelii.serve` and
 `vaelii.cli`. Everything else lives under `vaelii.impl.*`, `vaelii.host.*` or one of the
-two apps (`vaelii.koinii.*`, `vaelii.browser.*`) and is free to change without notice. Tests reach
+two apps (`vaelii.koinii.*`, `vaelii.browser.*`) and is free to change without notice,
+except koinii's surface, which its own golden freezes (below). Tests reach
 into `impl` freely, which is what unit tests are for; nothing outside this repo should.
 
 The five exist so that the entry points a first-time reader is pointed at are ones the
@@ -170,8 +171,9 @@ namespace is [`docs/namespaces.md`](docs/namespaces.md).
 **application** built on those six ([`docs/koinii.md`](docs/koinii.md)), so it lives at
 `src/vaelii/koinii/` rather than under `impl/` and requires nothing from there — the same
 test checks that. It is not a seventh public namespace: the engine's frozen lists (the API
-golden, the SPI interfaces, the refusal types) exclude it, because freezing an app's surface
-there would put its development inside the engine's compatibility contract. What koinii
+golden, the SPI interfaces, the refusal types) exclude it. Koinii's surface is frozen apart
+from them, in `test/golden/koinii-surface.edn` (§3.8), so a koinii change moves that file and
+none of the engine's. What koinii
 needs and the API lacks gets published in `vaelii.core`, never reached around.
 
 ### 2.2 Five properties that hold everywhere
@@ -370,8 +372,17 @@ keyword-set member, or changing an arglist, is class 1 and takes the label with 
 line. Adding one is Additive. **Both move the
 golden**, which is the point: a golden that only moved on a break would be regenerated
 by whoever hit the break, and the additions — the way a surface actually grows — would
-never be read by anyone. `lein regen-goldens` rewrites all three, and the diff belongs
+never be read by anyone. `lein regen-goldens` rewrites every golden, and the diff belongs
 in the same commit as the change that caused it, where a reviewer sees the two together.
+
+**Koinii's surface is frozen in its own golden**, `test/golden/koinii-surface.edn`, apart
+from the engine's: every public var of `vaelii.koinii.*` with its arglists, every refusal
+`:type` the koinii sources raise, and the arity of every term CxRegistry, CxSpeechActs and
+CxDisputes declare. A caller that requires `vaelii.koinii.*` relies on all three, so
+removing one or changing an arglist or an arity is class 1: a **Breaking** entry under
+`### Breaking: koinii`, whose `*Breaks:*` line names the var, the `:type` or the term.
+Adding one is Additive. The seed terms' arities are frozen although they are shipped data,
+because the koinii modules write and read those terms at those arities.
 
 Adding a **method to an existing interface** is class 1 rather than Additive, and it is the
 case people misfile: an implementer that satisfied the protocol yesterday satisfies it

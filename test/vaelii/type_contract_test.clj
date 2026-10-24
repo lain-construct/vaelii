@@ -726,8 +726,8 @@
   **except the `koinii/` subtree**.  koinii is an application layered on the public API
   (`docs/koinii.md`), not the engine, and it namespaces its own refusals (`:koinii/…`) as
   a deliberate subsystem vocabulary rather than adding to this flat caller-visible one;
-  those are koinii's contract, tracked in koinii's own tests, and folding them in would
-  churn this set on koinii's active development.  The directory koinii lives in is that
+  those are koinii's contract, frozen in `koinii_surface_test`'s golden, and folding them in
+  would move this set on every koinii change.  The directory koinii lives in is that
   boundary — the same line `spi_surface_test` draws — and extracting it to its own repo
   would only move it.
 

@@ -12,7 +12,7 @@
   Plus the drift check that keeps it true: the generated sections are compared against
   what `vaelii.regen-client` would write **now**, so an op added to `serve/ops` reds this
   file until somebody runs `lein regen-client` and reads the diff.  That is the same
-  bargain the three goldens make — the red is the notification, not the chore.
+  bargain the goldens make — the red is the notification, not the chore.
 
   These read var metadata and file text, or call a wrapper with its HTTP send stubbed,
   never a KB, so they are identical across the backends and owe the matrix nothing."

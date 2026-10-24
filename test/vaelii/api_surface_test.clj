@@ -61,10 +61,10 @@
   The namespace list is **derived from the tree** — every `.clj` under `src/vaelii`
   outside `impl/`, `host/`, `koinii/` and `browser/` — rather than listed here.  `public_api_test`'s
   `no-public-namespace-is-spelled-impl` asserts that the derivation equals the six, so the
-  two disagree only when one of them is wrong.  `koinii/` is out for the reason it is out
-  of the SPI and refusal-type lists: it is an application shipped in this tree, a *consumer*
-  of the six rather than one of them (`docs/koinii.md`), and freezing its arglists here
-  would put koinii's own development in the engine's compatibility contract.  `browser/` is
+  two disagree only when one of them is wrong.  `koinii/` is out, as it is out of the SPI
+  and refusal-type lists: it is an application shipped in this tree, a *consumer* of the
+  six rather than one of them (`docs/koinii.md`), and `koinii_surface_test` freezes its
+  vars in a golden of its own.  `browser/` is
   out for the same reason: the browser is the second application (`docs/web.md`)."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -82,7 +82,7 @@
   under `impl/`, `host/`, `koinii/` or `browser/`.  Sorted, so the golden's order is the
   tree's and not a hash's.  `host/` is private like `impl/` — the tooling above core,
   fronted by four of the five thin entry points (docs/namespaces.md) — and `koinii/` and
-  `browser/` are the two apps, so none of them is a public promise."
+  `browser/` are the two apps, so none of them is one of the six."
   []
   (->> (file-seq (io/file "src/vaelii"))
        (filter #(.isFile ^File %))
@@ -105,7 +105,7 @@
     (when (and (coll? x) (seq ks) (every? keyword? ks))
       (vec (sort ks)))))
 
-(defn- surface-of
+(defn surface-of
   "`{var-name frozen-value}` for one namespace.  A fn or macro freezes its arglists as a
   string, a keyword-set var its members as a vector of keywords (`keyword-set-members`), and any other var
   `:var`, its name alone."

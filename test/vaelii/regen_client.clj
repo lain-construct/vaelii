@@ -20,7 +20,7 @@
 
   **A red `client_surface_test` is the point, not the cost.** The test compares each
   file against what this would write now, so an op added to `serve/ops` fails the suite
-  until somebody runs this and reads the diff — the same bargain the three goldens make
+  until somebody runs this and reads the diff — the same bargain the goldens make
   (`vaelii.api-surface-test`). Regenerating is how a deliberate change is recorded, never
   how a red is silenced."
   (:require [clojure.java.io :as io]

@@ -337,10 +337,9 @@
   (testing "the six public namespaces are the whole public surface"
     ;; `koinii/` is neither engine nor API: it is an application shipped in this tree,
     ;; layered on the six below exactly as an outside consumer would be (docs/koinii.md).
-    ;; It is excluded here for the same reason it is excluded from the SPI and refusal
-    ;; lists — freezing it as a public promise would make koinii's own development churn
-    ;; the engine's contract. The other direction is checked:
-    ;; `koinii-reaches-into-no-impl` below.
+    ;; It is excluded here as it is from the engine's SPI and refusal lists: its surface
+    ;; is frozen in a golden of its own (`koinii_surface_test`), so a koinii change moves
+    ;; that file alone. The other direction is checked: `koinii-reaches-into-no-impl` below.
     ;; `browser/` is the second application, excluded for the same reason; its own check
     ;; is `browser-reaches-into-no-impl` below.
     ;; `host/` is private too: the tooling above core (the servers, the CLI, the loaders)

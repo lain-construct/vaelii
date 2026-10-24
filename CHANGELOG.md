@@ -45,6 +45,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [web.md](docs/web.md), [api.md](docs/api.md)
   *Migration:* none.
 
+### Additive: koinii
+
+- **koinii's surface is frozen in `test/golden/koinii-surface.edn`**, apart from the
+  engine's goldens: the public vars of `vaelii.koinii.*` with their arglists, the refusal
+  `:type`s its modules raise, and the arity of each term CxRegistry, CxSpeechActs and
+  CxDisputes declare. A koinii change that removes one, or changes an arglist or an arity,
+  is a contract change, and its changelog entry names it (CONTRIBUTING §3.8).
+  [koinii.md](docs/koinii.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **A forward rule concluding `equals` or `sameAs` over applications of a
