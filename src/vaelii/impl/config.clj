@@ -47,8 +47,9 @@
 
   ## What is not checkable here
 
-  Five switches name a path or a label with no domain to check — `vaelii.disk.dir`,
-  `vaelii.kb.path`, `vaelii.kb.catalog`, `vaelii.build`, `vaelii.clingo.lib`.
+  Six switches name a path or a label with no domain to check — `vaelii.disk.dir`,
+  `vaelii.kb.path`, `vaelii.kb.catalog`, `vaelii.build`, `vaelii.clingo.lib`,
+  `vaelii.clasp.bin`.
   `vaelii.web.port` / `VAELII_WEB_PORT` is the browser's
   own, read at `web/default-port`, where an unparseable value falls through to the next
   source rather than stopping a start over a convenience variable (docs/web.md).

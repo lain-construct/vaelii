@@ -23,6 +23,8 @@ with forward/backward inference and JTMS truth maintenance.
   with it the reasoning image, the operation log and the background rebuild that ride on
   it ([why](docs/storage.md#the-image-disk-snapshot)); `lein lint` and the other script
   aliases need Git for Windows ([CONTRIBUTING §1.1](CONTRIBUTING.md#11-static-analysis-lein-lint-setup))
+- Optional: an ASP solver, `clasp` or `clingo`, for labeling, `classify` and
+  brave/cautious queries ([install](docs/asp.md#getting-a-solver))
 
 ## Quick start
 

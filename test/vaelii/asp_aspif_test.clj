@@ -16,6 +16,7 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.impl.asp.aspif :as aspif]
             [vaelii.impl.asp.atoms :as atoms]
+            [vaelii.impl.asp.clasp :as clasp]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.config :as config]))
 
@@ -194,14 +195,17 @@
 
 (defn- backends
   "Every backend this JVM can actually run, as `[name (fn [stmts mode])]` — clasp when
-  the binary answers (on the rendered ASPIF text), clingo when libclingo loaded (on the
-  structured statements through the backend accessors)."
+  the binary answers and the clingo executable in its place (both on the rendered ASPIF
+  text), clingo when libclingo loaded (on the structured statements through the backend
+  accessors)."
   []
   (cond-> []
-    (do (require 'vaelii.impl.asp.clasp)
-        ((resolve 'vaelii.impl.asp.clasp/available?)))
-    (conj ["clasp" (let [f (resolve 'vaelii.impl.asp.clasp/solve)]
-                     (fn [stmts mode] (f (aspif/render stmts) mode)))])
+    (clasp/available?)
+    (conj ["clasp" (fn [stmts mode] (clasp/solve (aspif/render stmts) mode))])
+    (binding [clasp/*clasp-binary* "clingo"] (clasp/available?))
+    (conj ["the clingo executable"
+           (fn [stmts mode]
+             (binding [clasp/*clasp-binary* "clingo"] (clasp/solve (aspif/render stmts) mode)))])
     (try (require 'vaelii.impl.asp.clingo)
          ((resolve 'vaelii.impl.asp.clingo/available?))
          (catch Throwable _ false))
@@ -263,15 +267,33 @@
           (is (#{:optimum :sat} (:status (solve cover :label))))
           (is (= :unsat (:status (solve (pigeonhole 6) :sat)))))))))
 
-(deftest both-backends-agree
-  ;; The facade routes by program size and availability; a program must mean the
-  ;; same thing whichever backend sees it.
-  (when (and asp? (some? (resolve 'vaelii.impl.asp.clasp/solve)))
-    (require 'vaelii.impl.asp.clasp)
-    (let [clasp-solve (resolve 'vaelii.impl.asp.clasp/solve)
-          stmts [(aspif/choice 1) (aspif/choice 2)
-                 (aspif/constraint [1 2])
-                 (aspif/minimize 1 [[1 1] [2 1]])
-                 (aspif/show 1 "a") (aspif/show 2 "b")]]
-      (is (= (set (:atoms (solver/solve (pm stmts) :label)))
-             (set (:atoms (clasp-solve (aspif/render stmts) :label))))))))
+;; Each program with the modes it is solved in: `:sat` takes the first model, which
+;; depends on the search, so it runs only on a program with no objective, as `solve`
+;; runs it.
+(def ^:private agreement-programs
+  {"a fact"              [[(aspif/fact 1) (aspif/show 1 "a")] :sat]
+   "an unsatisfiable"    [[(aspif/fact 1) (aspif/constraint [1])] :sat]
+   "two free choices"    [[(aspif/choice 1) (aspif/choice 2) (aspif/show 1 "a") (aspif/show 2 "b")]]
+   "a two-level minimize" [[(aspif/choice 1) (aspif/choice 2)
+                            (aspif/constraint [1 2]) (aspif/constraint [-1 -2])
+                            (aspif/minimize 5 [[1 1]]) (aspif/minimize 1 [[2 1]])
+                            (aspif/show 1 "a") (aspif/show 2 "b")]]
+   "a weight constraint" [[(aspif/choice 1) (aspif/choice 2) (aspif/choice 3)
+                           (aspif/weight-constraint 2 [[1 1] [2 1] [3 1]])
+                           (aspif/minimize 1 [[1 1] [2 1]])
+                           (aspif/show 1 "a") (aspif/show 2 "b") (aspif/show 3 "c")]]})
+
+(deftest every-backend-answers-every-mode-alike
+  ;; The facade routes by program size and availability, and VAELII_CLASP_BIN may name
+  ;; the clingo executable, so a program must mean the same thing whichever backend
+  ;; sees it.  The atoms are compared as sets and the witnesses as a set of sets: the
+  ;; order a backend lists them in is not part of the answer.
+  (let [answer (fn [r] (-> (select-keys r [:status :cost])
+                           (assoc :atoms (set (:atoms r))
+                                  :witnesses (some->> (:witnesses r) (map set) set))))
+        bs     (backends)]
+    (doseq [[nm [stmts & extra]] agreement-programs
+            mode (into [:label :all-optima :classify-true :classify-supportable] extra)]
+      (let [answers (into {} (for [[b solve] bs] [b (answer (solve stmts mode))]))]
+        (is (>= 1 (count (distinct (vals answers))))
+            (str nm " under " mode ": " (pr-str answers)))))))

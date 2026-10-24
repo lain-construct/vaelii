@@ -69,6 +69,18 @@
                          (clasp/solve "asp 1 0 0\n0\n" :label)))]
       (is (= :solver-unavailable (:type (ex-data e)))))))
 
+(deftest the-clasp-executable-is-read-from-the-property-then-the-environment
+  ;; the property names the executable; a blank one is unset, so the environment
+  ;; variable or the default `clasp` answers as it would with no property set
+  (let [read  #(#'clasp/configured-binary)
+        unset (do (System/clearProperty "vaelii.clasp.bin") (read))]
+    (try
+      (System/setProperty "vaelii.clasp.bin" " /opt/clingo/bin/clingo ")
+      (is (= "/opt/clingo/bin/clingo" (read)))
+      (System/setProperty "vaelii.clasp.bin" "  ")
+      (is (= unset (read)))
+      (finally (System/clearProperty "vaelii.clasp.bin")))))
+
 (defn- exits-within?
   "Has process `pid` exited, or does it exit within `ms`?  A killed grandchild is
   reaped by init rather than by the JVM, so its exit is waited for, not sampled."

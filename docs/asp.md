@@ -46,18 +46,41 @@ from the config, from whether libclingo loaded, and from the program's size.
 
 ## Getting a solver
 
-Either backend is enough; both is better.
+A solver is optional. A KB that never calls `set-solver :asp`, `do/label`, `classify` or
+`bravely`/`cautiously` runs on the in-process `local-solver` and needs nothing installed.
+The edge solver takes either backend, and both is better.
 
-```sh
-brew install clingo          # provides the clingo binary, libclingo, and clasp
-lein with-profile +with-clingo test     # points JNA at /opt/homebrew/lib
+- **The executable** runs as a subprocess: ASPIF on stdin, `--outf=2` JSON on stdout. It
+  is `clasp`, found on `PATH`, or the executable `VAELII_CLASP_BIN` (or
+  `-Dvaelii.clasp.bin=…`) names. The `clingo` executable takes clasp's flags and writes
+  the same JSON, so it serves in clasp's place. An in-process native crash would take the
+  JVM with it, so a long-running process wants this backend.
+- **The library** is `libclingo`, loaded in-process through raw JNA: no JNI, no generated
+  bindings, no clingo Java library. JNA finds it on `jna.library.path`, or at the name or
+  absolute path `-Dvaelii.clingo.lib=…` gives. It is the faster backend on small programs,
+  which is the common case here.
+
+| Platform | Executable | Library |
+|---|---|---|
+| macOS (Homebrew) | `brew install clingo` installs `clasp` and `clingo` | the same install puts `libclingo.dylib` in `/opt/homebrew/lib` |
+| Debian, Ubuntu | `apt-get install clasp` (Ubuntu universe) | no package; build clingo from source, which installs `libclingo.so` |
+| any platform with Python 3 | `pip install clingo`, then a wrapper script that runs `python3 -m clingo "$@"`, named by `VAELII_CLASP_BIN` | none: the wheel's `_clingo` module is a Python extension, not `libclingo` |
+
+No Ubuntu suite packages `clingo` or `libclingo`. Windows has no tested install.
+
+Run from this checkout, `lein with-profile +with-clingo …` points `jna.library.path` at
+`VAELII_CLINGO_LIB`, default `/opt/homebrew/lib`. A project that depends on vaelii does not
+get the profile, so it passes the property itself:
+
+```clojure
+:jvm-opts ["-Dvaelii.clingo.lib=/opt/homebrew/lib/libclingo.dylib"   ; or a libclingo.so path
+           "--enable-native-access=ALL-UNNAMED"]                     ; JDK 24+ warns without it
 ```
 
-- **clingo** runs in-process through raw JNA — no JNI, no generated bindings, no
-  clingo Java library. Fastest for small programs, which is the common case here.
-- **clasp** is a subprocess taking ASPIF on stdin and returning JSON. It is the
-  deliberate fallback for long-running processes, where an in-process native crash
-  would take the JVM with it.
+`(solver/available?)` answers whether the selected backend can solve, and
+`VAELII_ASP_SOLVER=clasp` routes every solve to the executable, the setting CI runs on
+Ubuntu. The two executables and the library give one answer per mode on each program
+`asp_aspif_test/every-backend-answers-every-mode-alike` solves.
 
 `solver.clj` picks per program size (`VAELII_CLINGO_MAX_BYTES`, default 3000 bytes:
 clingo below, clasp above) and loads the clingo namespace lazily via

@@ -401,7 +401,8 @@
    A search is stopped short when the interrupted bit is set, or when neither the
    exhausted nor the unsat bit is, except a `:sat` search holding a model.  A stopped
    `:label` or `:sat` search holding a model is `:best-effort`; any other is
-   `:interrupted`."
+   `:interrupted`.  An exhausted search with a cost is `:optimum`, as clasp's `OPTIMUM
+   FOUND` is: under `--opt-mode=opt` no streamed model is marked proven."
   [{:keys [result models any-optimal?] opt :optimum :as raw} mode]
   (let [cost     (first opt)
         stopped? (or (pos? (bit-and result result-interrupted))
@@ -411,7 +412,8 @@
                    (and stopped? (#{:label :sat} mode) (seq models)) :best-effort
                    stopped?                                          :interrupted
                    (pos? (bit-and result result-unsat))              :unsat
-                   (and opt any-optimal?)                            :optimum
+                   (and opt (or any-optimal?
+                                (pos? (bit-and result result-exhausted)))) :optimum
                    (pos? (bit-and result result-sat))                :sat
                    :else                                             :unknown)]
     (case mode

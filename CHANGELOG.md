@@ -13,6 +13,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Additive: ASP
+
+- **`VAELII_CLASP_BIN` (or `-Dvaelii.clasp.bin`) names the executable the subprocess
+  backend runs**, and the `clingo` executable serves in clasp's place: a machine with
+  `clingo` alone, or `pip install clingo` behind a wrapper script, gets the edge solver
+  without `clasp` on `PATH`. The solver install steps are per platform.
+  [asp.md](docs/asp.md#getting-a-solver)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a
