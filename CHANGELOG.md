@@ -257,6 +257,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **The inert rule from `(commutativeInArgAndRest ?p 1)` to `(commutative ?p)` leaves a
+  unary relation out.** `(commutativeInArgAndRest P 1)` holds vacuously of a unary `P`, and
+  a commutative relation is `at_least_binary`. Two inert rules replace the one, requiring
+  `(arity ?p ?n)` or `(arityMin ?p ?n)` with `(greaterThan ?n 1)`, as the
+  `at_least_binary` floor rules do, so `kb-quality` no longer pairs the bridge with the
+  arity-1 and `empty` rules. [canonicalization.md](docs/canonicalization.md)
+
+  *Class:* **Fix** (shipped ontology content).
+  *Migration:* a query for the unguarded rule by `handle-of` answers nil.
+
 ### Fix: storage
 
 - **A recover makes no network node for an `assert-inert` record**, as `assert-inert`

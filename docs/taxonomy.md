@@ -22,7 +22,7 @@ rather than a forward one](defenses.md#an-inert-rule-records-transitivity-not-a-
 
 `core.txt` states no rule for `genl`'s transitivity, inert or otherwise: `genl`
 carries its account in the `comment` on the predicate, where the closure is described,
-and `(transitive genl)` classifies it without handing it to the generic prover. The two
+and `(transitive genl)` classifies it without handing it to the generic prover. The three
 inert rules `core.txt` does state record the `commutative` / `commutativeInArgAndRest` bridge.
 
 ## genl: the type hierarchy

@@ -2377,7 +2377,7 @@
 ;; commutative and (commutativeInArgAndRest P 1) are the same licence, and the engine has
 ;; no iff. Each mark installs the commuting group [:rest 1] at its own arm in
 ;; special/arms, so the canonicalizer reads one table whichever spelling was written and
-;; neither spelling has to be derived from the other. The two directions stay here as
+;; neither spelling has to be derived from the other. The directions stay here as
 ;; set/inertRule: believed, indexed and queryable, run by neither engine.
 ;;
 ;; They are inert rather than forward rules because a derivation between them is a cycle —
@@ -2391,7 +2391,14 @@
 ;; every open (relation ?x) query — which is what made vaelii.arity-vocabulary-test never
 ;; finish under VAELII_QUERY_ENGINE=inference.
 (set/inertRule (implies (and (commutative ?p)) (commutativeInArgAndRest ?p 1)))
-(set/inertRule (implies (and (commutativeInArgAndRest ?p 1)) (commutative ?p)))
+;; (commutativeInArgAndRest P 1) holds vacuously of a unary P, which has no two arguments to
+;; permute, and a commutative relation is at_least_binary.  So the bridge back to
+;; commutative reads the length the way the at_least_binary floor rules do: an arity, or a
+;; minimum arity, greater than 1.
+(set/inertRule (implies (and (commutativeInArgAndRest ?p 1) (arity ?p ?n) (greaterThan ?n 1))
+                        (commutative ?p)))
+(set/inertRule (implies (and (commutativeInArgAndRest ?p 1) (arityMin ?p ?n) (greaterThan ?n 1))
+                        (commutative ?p)))
 
 ;; Every symmetric relation is commutative over its two arguments, stated as a genl edge.
 ;; The membership it gives is inherited rather than stored. The two rules above are inert,
