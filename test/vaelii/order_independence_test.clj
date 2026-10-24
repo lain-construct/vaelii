@@ -1001,12 +1001,11 @@
    :compound (v/ask? kb skill-use 'CxUniverse)
    :genl     (v/ask? kb '(genl (SkillFn Rex) happening) 'CxUniverse)})
 
-(deftest ^:red a-reifiable-declaration-retracted-on-a-core-kb-reads-as-one-never-made
+(deftest a-reifiable-declaration-retracted-on-a-core-kb-reads-as-one-never-made
   ;; The core.txt/retraction twin of `a-reifiable-declaration-leaving-reads-as-one-never-made`'s
   ;; "denied" and "denied, then the denial retracted" legs: on a KB that loads core.txt a
   ;; denial of a mark in the forced-monotonic set is inert, so the same question is put to
   ;; retraction instead.
-  ;; Red until #225: a retraction that is the last write leaves the minted constant in place on a KB that loads the upper KB.
   (let [decl     (assert-op '(reifiable_function SkillFn))
         h        (atom nil)
         never    (run-ops-on core-kb
@@ -1048,13 +1047,12 @@
            result)))
   (tu/clear-kb! (tu/test-kb)))
 
-(deftest ^:red a-reifiable-declaration-retracted-is-read-the-same-by-every-reader-on-a-core-kb
+(deftest a-reifiable-declaration-retracted-is-read-the-same-by-every-reader-on-a-core-kb
   ;; The core.txt/retraction twin of `a-reifiable-declaration-denied-below-the-use-is-read-per-reader`.
   ;; A context-scoped denial cannot ask the same question on a KB that loads core.txt — the
   ;; denial is never believed at all there, so CxSkillD would just inherit CxUniverse's
   ;; declaration unopposed — so this asks what retraction, the forced-monotonic set's way off,
   ;; reads instead: taking the mark off reaches every reader alike, not CxSkillD only.
-  ;; Red until #225: a retraction that is the last write leaves the minted constant in place on a KB that loads the upper KB.
   ;; `capability` was retired upstream (v0.24); `hasCapability`'s own arg 2 constraint
   ;; (resources/kb/upper/life.txt) now names a `happening` kind, so the fixture's result
   ;; type is `happening` here, as in `core-skill-reading` above.
