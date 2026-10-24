@@ -384,17 +384,18 @@
 
 (deftest a-kb-whose-nodes-are-all-out-says-so-though-every-handle-has-one
   ;; The other beliefless state, and the one a probe for *any* node reads as healthy:
-  ;; `recover` gives every stored record a node before it labels anything, so a store
+  ;; `recover` gives every stored record but an inert one a node, so a store
   ;; whose records ground nothing recovers into a full network with all of it OUT.  The
   ;; result is a KB that is `:done`, has a node per handle, and believes not one thing —
   ;; every belief-filtered read empty, which is exactly what the caveat exists to name.
   (let [spaces {:backend :memory :space (beside-the-block ::all-out) :recover? false}
         kb     (v/open-kb spaces)]
     (try
-      ;; an inert sentex is the cheap way to a record nothing grounds: stored and
-      ;; indexed, never a premise, so the rebuild has a node to build and no strength
-      ;; to build it from
-      (v/assert-inert kb '(dog Muffet) 'CxUniverse)
+      ;; an inert sentex with its `:inert` mark taken off is the cheap way to a record
+      ;; nothing grounds: stored and indexed, never a premise, so the rebuild has a node
+      ;; to build and no strength to build it from
+      (let [h (v/assert-inert kb '(dog Muffet) 'CxUniverse)]
+        (p/put-provenance (:records kb) h (dissoc (p/get-provenance (:records kb) h) :inert)))
       (v/recover kb)
       (is (seq (jtms/datums (reasoning/tms kb))) "the rebuild gave the stored record a node")
       (is (empty? (jtms/in-datums (reasoning/tms kb))) "and nothing grounds it, so it is OUT")

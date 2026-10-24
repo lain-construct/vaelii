@@ -66,6 +66,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
 
+### Fix: storage
+
+- **A recover makes no network node for an `assert-inert` record**, as `assert-inert`
+  makes none. `export-text!` after a reopen that recovered writes each such record as
+  `(set/inert S)`, where it wrote none of them, and the first `lein cli upgrade --verify` of
+  a freshly built `:disk-snapshot` store reads `:labels :same`, where it read `:differs`.
+  [storage.md](docs/storage.md)
+  *Migration:* none.
+
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 
 | Area | Change |

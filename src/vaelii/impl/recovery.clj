@@ -230,10 +230,25 @@
          :when (kb/rewritable-sentex? kb sx)]
      [(:id sx) {}])))
 
+(defn inert-marked?
+  "Does the record at handle `h` carry the `:inert` provenance mark `assert-inert`
+  writes?"
+  [kb h]
+  (true? (:inert (p/get-provenance (:records kb) h))))
+
 (defn- rebuild-tms
-  "Rebuild the network from the store: a node per stored sentex, a premise per handle in the
-  premise set, and a justification per stored justification.  Belief is the composition of the
-  region relabels the adds run, not a separate whole-graph pass.
+  "Rebuild the network from the store: a premise per handle in the premise set, a
+  justification per stored justification, and a node per stored sentex that is neither
+  marked `:inert` nor otherwise a node yet.  Belief is the composition of the region
+  relabels the adds run, not a separate whole-graph pass.
+
+  **An inert record gets no node**, as `assert-inert` mints none: the image a build writes
+  and the one a recover writes then hold one node set, and the readers that tell an inert
+  record by its missing node (`io.text`'s export, `core/retract!`) read a recovered KB as
+  they read the live one.  The mark is read only for the records left without a node once
+  the premises and justifications are in, which are the inert records and the
+  unsupported ones `note-unsupported!` reports.  An inert record that a justification
+  names gets its node from that justification.
 
   **No whole-graph relabel closes this.**  `add-justification` relabels its consequence's
   affected region as it lands, and a region relabel over the affected closure is equal to a
@@ -298,11 +313,6 @@
     ;; the fixpoint (no closing whole-graph pass and no chaining), so this is the belief
     ;; work a partition-relabel candidate would divide.  Off a timing run, one `nil?` check.
     (phases/with-phase :belief
-      (with-open [r (progress/start ::network-nodes "recover: add the network's nodes"
-                                    (cap/count-sentexes rec))]
-        (doseq [id live]
-          (jtms/ensure-node tms id 0)
-          (progress/tick! r)))
       (with-open [r (progress/start ::network-premises "recover: mark the premises" nil)]
         (doseq [id (p/premise-ids rec) :when (contains? live id)]
           (jtms/add-premise tms id (p/premise-strength rec id))
@@ -318,8 +328,19 @@
                 :let [d (p/get-justification rec id)] :when d]
           (check-abandoned!)
           (if (and (stored? (:consequence d)) (every? stored? (jtms/rests-on d)))
-            (jtms/add-justification tms d)
+            (do (doseq [h (cons (:consequence d) (jtms/rests-on d)) :when (integer? h)]
+                  (jtms/ensure-node tms h 0))
+                (jtms/add-justification tms d))
             (vswap! skipped conj id))
+          (progress/tick! r)))
+      ;; the records no premise and no kept justification made a node for: the inert ones
+      ;; stay without one, and the rest are the unsupported records `note-unsupported!`
+      ;; reports
+      (with-open [r (progress/start ::network-nodes "recover: add the remaining nodes"
+                                    (cap/count-sentexes rec))]
+        (doseq [id live]
+          (when-not (or (jtms/known-datum? tms id) (inert-marked? kb id))
+            (jtms/ensure-node tms id 0))
           (progress/tick! r))))
     ;; read by `vaelii.impl.record-edit/sweep!`, which deletes them when its caller asks
     (swap! (:unrecovered kb) assoc :unrooted @skipped)
@@ -410,10 +431,10 @@
     ;; report or re-derive what a change moved stay out of it: a restore changes nothing
     ;; (`settle/*rebuilding?*`).
     (binding [settle/*rebuilding?* true]
-      ;; `rebuild-tms` made a node for every stored sentex and nothing has cleared the
-      ;; touched set since, so this settle's region is the whole store and its retroactive
-      ;; sweeps add no candidate (`discovery/*whole-store-region?*`).  The re-fire's settle
-      ;; below is not bound: its region is only what the re-fire moved.
+      ;; `rebuild-tms` made a node for every stored sentex but an inert one and nothing
+      ;; has cleared the touched set since, so this settle's region is the whole store and
+      ;; its retroactive sweeps add no candidate (`discovery/*whole-store-region?*`).  The
+      ;; re-fire's settle below is not bound: its region is only what the re-fire moved.
       (step! :settle)
       (binding [discovery/*whole-store-region?* true]
         (settle/settle kb))
@@ -445,12 +466,6 @@
 
 ;; ---- the records no premise and no justification support ----------------------
 ;; docs/storage.md, "A record no premise and no justification supports".
-
-(defn inert-marked?
-  "Does the record at handle `h` carry the `:inert` provenance mark `assert-inert`
-  writes?"
-  [kb h]
-  (true? (:inert (p/get-provenance (:records kb) h))))
 
 (defn unsupported-handle?
   "Is the record at handle `h` stored, held by the network as a node that is no premise

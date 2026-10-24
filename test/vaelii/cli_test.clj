@@ -363,6 +363,18 @@
             (is (not (.exists (io/file dir "reasoning.prev"))) "the old image is deleted once compared")))
         (finally (rm-rf! (io/file dir)))))))
 
+(deftest the-first-verify-of-a-freshly-built-store-reads-the-labels-the-build-wrote
+  ;; an inert record, as the upper ontology's `set/inert` lines store, is in the store
+  ;; the build imaged
+  (tu/with-snapshot-platform
+    (let [dir (snapshot-store!)]
+      (try
+        (let [kb (v/open-kb {:backend :disk-snapshot :dir dir})]
+          (v/assert-inert kb '(dog Spot) 'CxUniverse)
+          (v/close! kb))
+        (is (= :same (:labels (:verify (cli/upgrade! dir {:verify true})))))
+        (finally (rm-rf! (io/file dir)))))))
+
 (deftest upgrade-under-trust-keeps-an-image-of-other-source-and-rebuilds-a-moved-one
   (tu/with-snapshot-platform
     (let [dir      (snapshot-store!)

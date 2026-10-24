@@ -8,7 +8,9 @@
   KB over the same databases, so teardown is a clear rather than JTMS retraction.
   The fixture still guards net-neutrality: it clears at both ends and asserts the
   store is empty on the way out."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.starter :as starter]
             [vaelii.impl.chain :as chain]
@@ -23,7 +25,10 @@
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]
-            [vaelii.world :as world]))
+            [vaelii.world :as world])
+  (:import [java.io File]
+           [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
 
 (use-fixtures :each
   (fn [f]
@@ -866,6 +871,20 @@
         (is (nil? (v/handle-of kb2 (list dog Rex) 'CxUniverse)) "with its postings")
         (is (some? (p/get-sentex (:records kb2) inky)))
         (is (= {:n 0 :handles []} (v/unsupported kb2)))))))
+
+(tu/deftest-kb a-recovered-kb-exports-its-inert-sentexes
+  (tu/with-terms [dog Fido Inky]
+    (v/assert kb (list dog Fido) 'CxUniverse)
+    (v/assert-inert kb (list dog Inky) 'CxUniverse)
+    (let [kb2 (restart)
+          dir (.toFile (Files/createTempDirectory "vaelii-recovered-text" (make-array FileAttribute 0)))]
+      (try
+        (v/recover kb2)
+        (.delete dir)
+        (v/export-text! kb2 (.getPath dir))
+        (is (str/includes? (slurp (io/file dir "CxUniverse.txt"))
+                           (pr-str (list 'set/inert (list dog Inky)))))
+        (finally (doseq [^File f (reverse (file-seq dir))] (.delete f)))))))
 
 (tu/deftest-kb mark-inert-marks-an-earlier-builds-inert-record
   ;; an inert record with its `:inert` mark taken off is the record an earlier build wrote

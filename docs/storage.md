@@ -784,9 +784,11 @@ KB opened over an empty store registers the close-time write at open, since it b
 belief assert by assert and never recovers. A KB holding a stored sentex that is no network
 node and carries no `:inert` provenance mark (a loader filled it and skipped the recover)
 writes none, and recovers at its next open. An `assert-inert` record has no node and carries
-the mark, so a KB holding one writes an image, and the install holds no node for the record
-where a recover adds an OUT one; belief is the same
-(`reasoning_image_test/an-inert-sentex-is-imaged-and-reopens-stored-and-not-believed`).
+the mark, so a KB holding one writes an image. A recover makes no node for a record carrying
+the mark either, so the image a build writes and the image a recover writes hold one node set
+(`reasoning_image_test/an-inert-sentex-is-imaged-and-reopens-stored-and-not-believed`), and
+`upgrade --verify` of a freshly built store reads `:labels :same`
+(`cli_test/the-first-verify-of-a-freshly-built-store-reads-the-labels-the-build-wrote`).
 
 **Rebuilding behind an image.** `open-kb` with `:recover? :background` installs an image
 whose manifest differs from the KB's only in its source digest, which is the image an

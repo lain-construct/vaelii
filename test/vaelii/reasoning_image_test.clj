@@ -470,8 +470,7 @@
 
 (deftest an-inert-sentex-is-imaged-and-reopens-stored-and-not-believed
   (tu/with-snapshot-platform
-    ;; `assert-inert` mints no node and a recover gives every record one, so the installed
-    ;; network and the recovered one differ by the inert node; belief is the same
+    ;; neither `assert-inert` nor a recover makes a node for the inert record
     (let [dir (tmpdir)]
       (try
         (let [kb (open dir)]
@@ -484,6 +483,7 @@
           (try
             (is (installed? a))
             (is (= (belief b) (belief a)))
+            (is (= (set (keys (:nodes (network b)))) (set (keys (:nodes (network a))))))
             (is (false? (get (belief a) ['(dog Spot) 'CxUniverse])))
             (finally (v/close! a) (v/close! b) (rm-rf! ref))))
         (finally (rm-rf! dir))))))
