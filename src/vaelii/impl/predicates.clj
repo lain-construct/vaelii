@@ -1915,7 +1915,7 @@
                 (str "vaelii.impl.predall/type-specified-violations — kb-integrity's"
                      " :type-specified-violations pass reads the declaration and returns the"
                      " instances of ?indep no member of ?classifier is believed to hold;"
-                     " stamps no rule"))]
+                     " generates no rule"))]
      ['PredAllExistsFn
       (enforced (collection :notes (str "a function constant, never a sentence functor; its"
                                         " unreifiable_function mark keeps a ground"
