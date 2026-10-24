@@ -932,7 +932,7 @@
   ;; The mark retracted, or defeated by a known-true denial, leaves what a KB never told
   ;; it holds: the use spelled as written and no constant.  The denial retracted revives
   ;; the mark, and the KB reads as one told the declaration first.
-  ;; Pins bare-KB behaviour; `a-reifiable-declaration-retracted-on-a-core-kb-reads-as-one-never-made` is its core.txt/retraction twin.
+  ;; Tests what a bare KB does; `a-reifiable-declaration-retracted-on-a-core-kb-reads-as-one-never-made` is its core.txt/retraction twin.
   (let [decl     (assert-op '(reifiable_function SkillFn))
         h        (atom nil)
         never    (run-ops [(assert-op '(genlResult SkillFn capability)) (assert-op skill-use)]
@@ -955,15 +955,15 @@
 
 ;; ---- retraction twins of the SkillFn denial cases, on a KB that loads core.txt --------
 ;;
-;; core.txt puts `reifiable_function` (and `unreifiable_function`) on the forced-monotonic
-;; roster — `forced_monotonic_predicate`'s own comment in resources/kb/upper/core.txt says a
-;; denial of a roster predicate is never believed there.  The two deftests naming this
-;; comment deny `(reifiable_function SkillFn)` on a bare `tu/fresh` KB, where the roster
-;; declaration is absent and the denial does its ordinary work.  These are their twins: the
-;; same questions asked on a KB that loads core.txt, where the roster's documented way off a
-;; mark is retraction, not denial — "asserting or retracting it recomputes belief over what
-;; ?predicate reaches, so a KB that retracted it believes what a KB that never held it
-;; believes."
+;; core.txt puts `reifiable_function` (and `unreifiable_function`) in the forced-monotonic
+;; set — `forced_monotonic_predicate`'s own comment in resources/kb/upper/core.txt says a
+;; denial of a predicate in that set is never believed there.  The two deftests naming this
+;; comment deny `(reifiable_function SkillFn)` on a bare `tu/fresh` KB, where the
+;; declaration putting it in that set is absent and the denial does its ordinary work.
+;; These are their twins: the same questions asked on a KB that loads core.txt, where the
+;; documented way to take a mark off is retraction, not denial — "asserting or retracting
+;; it recomputes belief over what ?predicate reaches, so a KB that retracted it believes
+;; what a KB that never held it believes."
 
 (defn- run-ops-on
   "`run-ops`, against a KB `build` makes instead of always `tu/fresh`."
@@ -997,14 +997,15 @@
   names a `happening` kind there, so the fixture's result type is `happening` instead."
   [kb]
   {:rows     (sort-by pr-str (map :sentence (v/sentexes-with-functor kb 'hasCapability)))
-   :minted   (count (v/sentexes-matching kb '(termOfUnit ?k (SkillFn Rex)) 'CxUniverse))
+   :minted   (count (v/sentexes-matching kb '(natFormula ?k (SkillFn Rex)) 'CxUniverse))
    :compound (v/ask? kb skill-use 'CxUniverse)
    :genl     (v/ask? kb '(genl (SkillFn Rex) happening) 'CxUniverse)})
 
 (deftest ^:red a-reifiable-declaration-retracted-on-a-core-kb-reads-as-one-never-made
   ;; The core.txt/retraction twin of `a-reifiable-declaration-leaving-reads-as-one-never-made`'s
   ;; "denied" and "denied, then the denial retracted" legs: on a KB that loads core.txt a
-  ;; denial of the roster mark is inert, so the same question is put to retraction instead.
+  ;; denial of a mark in the forced-monotonic set is inert, so the same question is put to
+  ;; retraction instead.
   ;; Red until #225: a retraction that is the last write leaves the minted constant in place on a KB that loads the upper KB.
   (let [decl     (assert-op '(reifiable_function SkillFn))
         h        (atom nil)
@@ -1028,7 +1029,7 @@
   ;; The declaration and the use in CxUniverse, a known-true denial in CxSkillD below it:
   ;; CxUniverse reads what a KB told the declaration reads, and CxSkillD what a KB never
   ;; told it reads, the mint and the result type included.
-  ;; Pins bare-KB behaviour; `a-reifiable-declaration-retracted-is-read-the-same-by-every-reader-on-a-core-kb` is its core.txt/retraction twin.
+  ;; Tests what a bare KB does; `a-reifiable-declaration-retracted-is-read-the-same-by-every-reader-on-a-core-kb` is its core.txt/retraction twin.
   (let [reading (fn [kb]
                   (into {} (for [r '[CxUniverse CxSkillD]]
                              [r {:minted   (count (v/sentexes-matching kb '(natFormula ?k (SkillFn Rex)) r))
@@ -1051,7 +1052,7 @@
   ;; The core.txt/retraction twin of `a-reifiable-declaration-denied-below-the-use-is-read-per-reader`.
   ;; A context-scoped denial cannot ask the same question on a KB that loads core.txt — the
   ;; denial is never believed at all there, so CxSkillD would just inherit CxUniverse's
-  ;; declaration unopposed — so this asks what retraction, the roster's actual way off,
+  ;; declaration unopposed — so this asks what retraction, the forced-monotonic set's way off,
   ;; reads instead: taking the mark off reaches every reader alike, not CxSkillD only.
   ;; Red until #225: a retraction that is the last write leaves the minted constant in place on a KB that loads the upper KB.
   ;; `capability` was retired upstream (v0.24); `hasCapability`'s own arg 2 constraint
@@ -1061,7 +1062,7 @@
         decl    (assert-op '(reifiable_function SkillFn))
         reading (fn [kb]
                   (into {} (for [r '[CxUniverse CxSkillD]]
-                             [r {:minted   (count (v/sentexes-matching kb '(termOfUnit ?k (SkillFn Rex)) r))
+                             [r {:minted   (count (v/sentexes-matching kb '(natFormula ?k (SkillFn Rex)) r))
                                  :compound (v/ask? kb skill-use r)
                                  :genl     (v/ask? kb '(genl (SkillFn Rex) happening) r)}])))
         result  (one-outcome-under-on!

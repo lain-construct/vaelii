@@ -1484,10 +1484,10 @@
   (is (true? (v/genl? kb 'reifiable_function 'function 'CxUniverse)))
   (is (true? (v/genl? kb 'unreifiable_function 'function 'CxUniverse))))
 
-;; Whether an application is minted is definitional of a function, so both marks are on
-;; the forced-monotonic roster: a mark keeps the strength it was written at, and a denial
+;; Whether an application is minted is definitional of a function, so both marks are in
+;; the forced-monotonic set: a mark keeps the strength it was written at, and a denial
 ;; of one is held OUT rather than defeating it.
-(tu/deftest-kb both-reification-marks-are-on-the-forced-monotonic-roster
+(tu/deftest-kb both-reification-marks-are-in-the-forced-monotonic-set
   (doseq [mark '[reifiable_function unreifiable_function]]
     (testing (str mark)
       (is (some? (v/handle-of kb (list 'forced_monotonic_predicate mark) 'CxUniverse))
