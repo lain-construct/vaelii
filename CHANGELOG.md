@@ -13,13 +13,6 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
-### Fix: answers
-
-- **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a
-  `(reifiable_function Quote)` declaration. `(different (Quote Bar) (Quote Baz))` holds for
-  quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc
-  preamble stores them. [nat.md](docs/nat.md#read-path)
-  *Migration:* none.
 ### Breaking: renamed identifiers
 
 - **`largerThan` is `typeLargerThan`.** The relation compares two kinds, as a
@@ -137,6 +130,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
 ### Fix: answers
+
+- **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a
+  `(reifiable_function Quote)` declaration. `(different (Quote Bar) (Quote Baz))` holds for
+  quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc
+  preamble stores them. [nat.md](docs/nat.md#read-path)
+  *Migration:* none.
 
 - **`knows` follows from `relativeOf` by a default rule, not a `genl` edge.** Two
   relatives need not have met. A stated `(not (knows ?x ?y))` now overrides the default,
