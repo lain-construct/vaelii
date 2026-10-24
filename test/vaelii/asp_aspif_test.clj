@@ -267,21 +267,27 @@
           (is (#{:optimum :sat} (:status (solve cover :label))))
           (is (= :unsat (:status (solve (pigeonhole 6) :sat)))))))))
 
-;; Each program with the modes it is solved in: `:sat` takes the first model, which
-;; depends on the search, so it runs only on a program with no objective, as `solve`
-;; runs it.
+;; Each program with the modes it is solved in.  The enumerations answer the same on
+;; any solver version.  `:label` and `:sat` return one model the search reaches first,
+;; so they run only on a program with one model or one optimum.
+(def ^:private enumerations [:all-optima :classify-true :classify-supportable])
+
 (def ^:private agreement-programs
-  {"a fact"              [[(aspif/fact 1) (aspif/show 1 "a")] :sat]
-   "an unsatisfiable"    [[(aspif/fact 1) (aspif/constraint [1])] :sat]
-   "two free choices"    [[(aspif/choice 1) (aspif/choice 2) (aspif/show 1 "a") (aspif/show 2 "b")]]
+  {"a fact"              [[(aspif/fact 1) (aspif/show 1 "a")] [:label :sat]]
+   "an unsatisfiable"    [[(aspif/fact 1) (aspif/constraint [1])] [:label :sat]]
+   "two free choices"    [[(aspif/choice 1) (aspif/choice 2) (aspif/show 1 "a") (aspif/show 2 "b")]
+                          []]
    "a two-level minimize" [[(aspif/choice 1) (aspif/choice 2)
                             (aspif/constraint [1 2]) (aspif/constraint [-1 -2])
                             (aspif/minimize 5 [[1 1]]) (aspif/minimize 1 [[2 1]])
-                            (aspif/show 1 "a") (aspif/show 2 "b")]]
+                            (aspif/show 1 "a") (aspif/show 2 "b")]
+                           [:label]]
    "a weight constraint" [[(aspif/choice 1) (aspif/choice 2) (aspif/choice 3)
                            (aspif/weight-constraint 2 [[1 1] [2 1] [3 1]])
+                           (aspif/weight-constraint 3 [[-1 1] [-2 1] [-3 1]])
                            (aspif/minimize 1 [[1 1] [2 1]])
-                           (aspif/show 1 "a") (aspif/show 2 "b") (aspif/show 3 "c")]]})
+                           (aspif/show 1 "a") (aspif/show 2 "b") (aspif/show 3 "c")]
+                          [:label]]})
 
 (deftest every-backend-answers-every-mode-alike
   ;; The facade routes by program size and availability, and VAELII_CLASP_BIN may name
@@ -292,8 +298,8 @@
                            (assoc :atoms (set (:atoms r))
                                   :witnesses (some->> (:witnesses r) (map set) set))))
         bs     (backends)]
-    (doseq [[nm [stmts & extra]] agreement-programs
-            mode (into [:label :all-optima :classify-true :classify-supportable] extra)]
+    (doseq [[nm [stmts modes]] agreement-programs
+            mode (into enumerations modes)]
       (let [answers (into {} (for [[b solve] bs] [b (answer (solve stmts mode))]))]
         (is (>= 1 (count (distinct (vals answers))))
             (str nm " under " mode ": " (pr-str answers)))))))
