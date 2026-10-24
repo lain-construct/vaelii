@@ -208,7 +208,8 @@
     :note      one line: what it holds, and what retires an entry
     :read      (fn [kb]) -> {:entries n :hits h :misses m}, any key absent where
                there is no number, and any further count the row reports.  **O(1)** —
-               this runs on a page that polls.
+               this runs on a page that polls.  A `:limit` it answers is the bound in
+               `kb` and replaces the descriptor's in the row.
                A nil `:entries` says the cache cannot be counted from here.
     :clear     (fn [kb]) -> entries dropped, or absent when nothing drops it by hand.
                **Scoped to `kb`.**  A clear that reached past its argument would make
@@ -433,8 +434,10 @@
                               :misses     misses
                               :hit-rate   (hit-rate hits misses)
                               :clearable? (some? clear)
-                              :limit      (try (bound (:limit d))
-                                               (catch Throwable _ nil)))
+                              :limit      (if (contains? r :limit)
+                                            (:limit r)
+                                            (try (bound (:limit d))
+                                                 (catch Throwable _ nil))))
                        (cond-> (and counts (nil? (:counters d))) (assoc :counters :kb))
                        (cond-> error (assoc :error error))))))
          (sort-by (juxt #(- (long (or (:entries %) -1))) #(name (:cache %))))

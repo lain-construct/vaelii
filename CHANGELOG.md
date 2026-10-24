@@ -75,6 +75,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [storage.md](docs/storage.md)
   *Migration:* none.
 
+### Fix: performance
+
+- **The taxonomy's closure cache is bounded by the taxonomy's size**, at 256 terms per
+  `genl` and `genlCx` node, at least 65,536 and at most one term per 256 bytes of heap. Its
+  bound was at least 50 million terms, so a small KB never evicted the closures an edge
+  change retired: loading the starter ontology into a memory KB held 31.6 MB, and now
+  holds 20.5 MB. The `:taxonomy-closures` row of `caches` reports the KB's own bound.
+  [taxonomy.md](docs/taxonomy.md)
+  *Migration:* none.
+
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 
 | Area | Change |

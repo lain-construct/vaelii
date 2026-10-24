@@ -457,13 +457,23 @@ probes. A raw taxonomy,
 which holds no index store, reads the contexts of its recorded supporters instead.
 
 **Every closure, global or scoped, is held in one weighted LRU** (`:closure-lru`), weighed
-by the terms it holds and bounded at `closure-memo-limit` through the cache profile, so the
-memory guard shrinks it under a filling heap and the least recently used closures go
-first — the upper types every walk passes stay. A closure is keyed with its relation's
-`:gen`, so an edge change retires it by never asking for it again. It is bounded by
-weight because a large import can hold millions of types with supertype chains of hundreds
-to thousands, and a memo holding every closure a whole-corpus clash pass walks grows with
-the corpus rather than with the closures a walk reuses.
+by the terms it holds and bounded through the cache profile, so the memory guard shrinks it
+under a filling heap and the least recently used closures go first — the upper types every
+walk passes stay. A closure is keyed with its relation's `:gen`, so an edge change retires
+it by never asking for it again. It is bounded by weight because a large import can hold
+millions of types with supertype chains of hundreds to thousands, and a memo holding every
+closure a whole-corpus clash pass walks grows with the corpus rather than with the
+closures a walk reuses.
+
+**The bound follows the taxonomy's size** (`closure-bound`): 256 terms per `genl` and
+`genlCx` node, at least 65,536 and at most `closure-memo-limit`, one term per 256 bytes of
+the maximum heap. The taxonomy atom's watch records the node count, and each put reads
+it, so the bound grows with a load and shrinks after a retraction without a pass over the
+cache. A retired closure is never read again and sits at the cold end, so the puts past
+the bound evict it first. Loading the starter ontology bumps `genl`'s `:gen` 910 times,
+and its closures at the current generations weigh 85 terms per node; under this bound its
+cache ends at 84k terms (4.3 MB), where a bound fixed at the heap size held 279k terms
+(14.9 MB).
 
 **An up-closure is built from its parents' closures** (`reach-by-parents`): `C ∪ ⋃
 closure(p)` for the parents `p` outside the type's component `C`, bottom-up from the

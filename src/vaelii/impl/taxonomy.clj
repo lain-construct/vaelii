@@ -292,26 +292,54 @@
    :class {} :members {}})
 
 (def closure-memo-limit
-  "How many terms, summed over the closures it holds, one taxonomy's closure cache keeps
-  before it evicts the least recently used — the shipped default the cache profile scales
-  and the memory guard shrinks.  One term per 256 bytes of the JVM's maximum heap, and
-  never fewer than 50,000,000.  A closure is a persistent set: about 24 bytes a term held
-  alone, and about 1 byte a term built on its parent's set (`reach-by-parents`), so the
-  bound holds under a tenth of the heap.  It is a bound rather than the vocabulary
-  because a large import can hold millions of types with closures of hundreds to
-  thousands, and an unbounded memo of every type's supertypes grows with that product."
-  (max 50000000 (quot (.maxMemory (Runtime/getRuntime)) 256)))
+  "The most terms, summed over the closures it holds, a taxonomy's closure cache keeps in
+  any KB: one term per 256 bytes of the JVM's maximum heap.  A closure is a persistent
+  set: about 24 bytes a term held alone, and about 1 byte a term built on its parent's
+  set (`reach-by-parents`), so the bound holds under a tenth of the heap.  It is a bound
+  rather than the vocabulary because a large import can hold millions of types with
+  closures of hundreds to thousands, and an unbounded memo of every type's supertypes
+  grows with that product.  `closure-bound` scales it down to one taxonomy's size."
+  (quot (.maxMemory (Runtime/getRuntime)) 256))
+
+(def ^:private closure-terms-per-node
+  "Closure terms a taxonomy's cache holds per node of its `genl` and `genlCx` relations.
+  See docs/taxonomy.md for the starter's measurement."
+  256)
+
+(def ^:private closure-terms-floor
+  "The fewest closure terms a taxonomy's cache holds, however few nodes it has."
+  65536)
+
+(defn- relation-nodes
+  "How many nodes taxonomy state `t`'s `genl` and `genlCx` relations hold."
+  ^long [t]
+  (+ (count (get-in t [:genl :nodes])) (count (get-in t [:genlCx :nodes]))))
+
+(defn- closure-bound
+  "The weight a closure cache over `nodes` relation nodes holds before it evicts the
+  least recently used: `closure-terms-per-node` a node, at least `closure-terms-floor`
+  and at most `closure-memo-limit`, through the cache profile."
+  [^long nodes]
+  (caches/limit-of :taxonomy-closures
+                   (min closure-memo-limit
+                        (max closure-terms-floor (* closure-terms-per-node nodes)))))
 
 (defn- closure-lru
-  "A taxonomy's empty closure cache: weighted by the terms each closure holds (a closure
-  needs set by its contexts, a flag by one), bounded through the cache profile."
-  []
-  (assoc (caches/weighted-lru (caches/limit-thunk :taxonomy-closures closure-memo-limit)
-                              (fn [v] (inc (if (coll? v) (count v) 0))))
-         ;; the up-closures `closure-of` built from their parents' (`reach-by-parents`), and
-         ;; those that fell back to a walk: a parent evicted mid-build, or a cycle `:scc`
-         ;; has not recorded
-         :walks (java.util.concurrent.atomic.AtomicLongArray. 2)))
+  "A taxonomy's empty closure cache over taxonomy state `t`: weighted by the terms each
+  closure holds (a closure needs set by its contexts, a flag by one), and bounded by
+  `closure-bound` over the node count in `:nodes`, which `create-taxonomy`'s watch
+  keeps current.  A put past the bound evicts from the cold end, where the closures an
+  edge change retired sit."
+  ([] (closure-lru nil))
+  ([t]
+   (let [nodes (java.util.concurrent.atomic.AtomicLong. (relation-nodes t))]
+     (assoc (caches/weighted-lru #(closure-bound (.get nodes))
+                                 (fn [v] (inc (if (coll? v) (count v) 0))))
+            :nodes nodes
+            ;; the up-closures `closure-of` built from their parents' (`reach-by-parents`),
+            ;; and those that fell back to a walk: a parent evicted mid-build, or a cycle
+            ;; `:scc` has not recorded
+            :walks (java.util.concurrent.atomic.AtomicLongArray. 2)))))
 
 (defn- private-index
   "An empty in-memory index store, holding the supporter families of a raw taxonomy."
@@ -455,8 +483,11 @@
           :rewrite-order (atom nil)})
     ;; the value a write replaces is also the open write record's value for this atom,
     ;; the first time a write since the record opened replaces one (`before-copy`)
-    (add-watch ::change (fn [_ r old _]
+    (add-watch ::change (fn [_ r old new]
                           (observe/note-change)
+                          (when-let [^java.util.concurrent.atomic.AtomicLong n
+                                     (:nodes (:closure-lru new))]
+                            (.set n (relation-nodes new)))
                           (when observe/*write-record* (observe/record-of r (constantly old)))))))
 
 (defn install-supporter-visibility!
@@ -499,7 +530,7 @@
   index store and callbacks."
   [tax]
   (let [t (or (observe/recorded tax) @tax)]
-    (atom (assoc t :closure-memo (atom {}) :closure-lru (closure-lru) :rewrite-order (atom nil)))))
+    (atom (assoc t :closure-memo (atom {}) :closure-lru (closure-lru t) :rewrite-order (atom nil)))))
 
 (defn detached-copy
   "The current taxonomy state in a fresh atom, for a what-if probe: mutate the copy,
@@ -524,7 +555,7 @@
   [tax]
   (let [t @tax]
     (atom (assoc t :index (mount/fork-families (:index t))
-                 :closure-memo (atom {}) :closure-lru (closure-lru) :rewrite-order (atom nil)))))
+                 :closure-memo (atom {}) :closure-lru (closure-lru t) :rewrite-order (atom nil)))))
 
 ;; ---- on-demand closures, memoized per generation ------------------------
 ;;
@@ -6911,16 +6942,19 @@
   :note     (str "The reflexive-transitive reach sets the taxonomy has walked, up and "
                  "down, global and scoped to what one context sees, weighed by the terms "
                  "each holds. Retired by a genl or genlCx edge changing, which moves the "
-                 "generation they are keyed on; past the bound, and under memory "
-                 "pressure, the least recently used go first.")
+                 "generation they are keyed on; past the bound, which follows the "
+                 "taxonomy's node count, and under memory pressure, the least recently "
+                 "used go first.")
   :read     (fn [kb] (let [lru (some-> (reasoning/taxonomy kb) deref :closure-lru)
                            ^java.util.concurrent.atomic.AtomicLongArray w (:walks lru)]
                        (cond-> {:entries (some-> lru caches/lru-weight)}
+                         lru (assoc :limit ((:limit lru)))
                          w (assoc :builds (.get w 0) :fallbacks (.get w 1)))))
   :clear    (fn [kb] (or (some-> (reasoning/taxonomy kb) deref :closure-lru caches/lru-clear!)
                          0))
   :trim     (fn [kb target]
-              (or (some-> (reasoning/taxonomy kb) deref :closure-lru (caches/lru-trim! target))
+              (or (when-let [lru (some-> (reasoning/taxonomy kb) deref :closure-lru)]
+                    (caches/lru-trim! lru (min (long target) (long ((:limit lru))))))
                   0))})
 
 ;; ---- derived state (docs/caches.md, "The derived-state register") ----------------

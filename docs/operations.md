@@ -1176,7 +1176,7 @@ inputs to the colour decision and not knobs of this project's.
 | `VAELII_SURVEY_STORE` | `bench/vaelii/bench/survey.clj:20+` | a directory holding a record log | as above | A second name for the same directory, read when the row above is unset. |
 | `VAELII_PYRAMID_CORPUS` | `bench/vaelii/bench/pyramid.clj:20+` | a directory holding `vaelii.txt` | none — a run without it is refused, naming itself | The join.1k corpus the pyramid benchmark reads. It is a field-harness artifact and is not in this repo, so a default could only name whoever wrote one. |
 | `VAELII_RECOVER_CORPUS` | `bench/vaelii/bench/recoverphase.clj:570+` | a directory holding a `:disk` store of sentexes | none — a store-reading run without it is refused, naming itself | The corpus the recover benchmark's store-reading modes read when the command line names no path. A dev-box `:disk` store, not in this repo, so a default could only name whoever wrote one. |
-| `vaelii.closure.limit` | `bench/vaelii/bench/recoverphase.clj:90+` | a whole number of closure terms | unset (the cache profile's `closure-memo-limit`) | The bound the recover benchmark sets on the taxonomy's closure cache while it recovers (`caches/set-limit :taxonomy-closures`), so the cache the phase runs under is a knob rather than the shipped default. |
+| `vaelii.closure.limit` | `bench/vaelii/bench/recoverphase.clj:90+` | a whole number of closure terms | unset (the taxonomy's own bound, `closure-bound`) | The bound the recover benchmark sets on the taxonomy's closure cache while it recovers (`caches/set-limit :taxonomy-closures`), so the cache the phase runs under is a knob rather than the shipped default. |
 
 ## Not here
 

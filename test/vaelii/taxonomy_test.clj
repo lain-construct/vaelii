@@ -487,6 +487,19 @@
                        "\n  incremental: " (pr-str (incremental t :genl))
                        "\n  oracle:      " (pr-str (oracle t :genl)))))))))))
 
+(deftest the-closure-cache-bound-follows-the-node-count
+  (let [t      (tax/create-taxonomy)
+        bound  #((:limit (:closure-lru @t)))
+        per    @#'tax/closure-terms-per-node
+        floor  (caches/limit-of :taxonomy-closures @#'tax/closure-terms-floor)
+        n      (inc (quot @#'tax/closure-terms-floor per))
+        node   #(symbol (str "n_" %))]
+    (is (= floor (bound)))
+    (dotimes [i n] (tax/add-genl t (node i) (node (inc i)) i))
+    (is (= (caches/limit-of :taxonomy-closures (* per (inc n))) (bound)))
+    (dotimes [i n] (tax/del-genl! t (node i) (node (inc i)) i))
+    (is (= floor (bound)))))
+
 (deftest an-up-closure-built-from-its-parents-agrees-under-any-bound
   ;; `reach-by-parents` builds an up-closure from the closures of its parents, which the
   ;; LRU holds: under a roomy bound every ancestor is found built, under a tight one a
