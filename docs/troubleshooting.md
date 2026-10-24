@@ -610,7 +610,7 @@ so one vocabulary reads both.
 | `:short-transfer` | a file copy stalled before the byte count it was told to move | [storage.md](storage.md) |
 | `:shutdown-abort` | the process began to shut down while this write ran, and the shutdown asked it to stop past its bound; the write stopped after a rule firing or at a settle pass and was rolled back as a refusal is | [storage.md](storage.md#a-shutdown-under-a-running-write) |
 | `:solver-failed` | the ASP backend ran and produced no usable answer | [asp.md](asp.md) |
-| `:solver-unavailable` | the ASP backend is not on this machine — no `clasp` binary, no `libclingo` | [asp.md](asp.md) |
+| `:solver-unavailable` | the ASP backend did not run: no `clasp` on `PATH` or at `VAELII_CLASP_BIN`, no `libclingo`, or a clasp process killed past its deadline | [asp.md](asp.md#getting-a-solver) |
 | `:stacked-batch` | a bulk load's in-memory index state moved under it, so installing the batch would discard what moved | [storage.md](storage.md) |
 | `:stacked-fork` | a fork's base is itself a fork, and stacks are refused rather than half-supported | [overlay.md](overlay.md) |
 | `:stale-index-layout` | a durable index was written under another key layout, and a fork mounts its base read-only | [indexing.md](indexing.md) |
