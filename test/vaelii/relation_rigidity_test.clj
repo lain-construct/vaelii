@@ -190,7 +190,7 @@
 ;; ---- a function takes its corresponding predicate's rigidity kind -----------------
 
 (tu/deftest-kb a-function-takes-the-rigidity-kind-of-its-corresponding-predicate
-  ;; One generator over rigidity_kind stamps, per kind K, a forward rule concluding
+  ;; One generator over rigidity_kind generates, per kind K, a forward rule concluding
   ;; (K F) from (functionCorrespondingPredicate F P) and (K P).
   (testing "a kind stated of the predicate"
     (tu/with-terms [HiveQueenFn hiveQueenOf]
