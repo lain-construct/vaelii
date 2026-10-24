@@ -87,6 +87,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   quality` answer as before, computed by the same code over the whole KB.
   [integrity.md](docs/integrity.md), [quality.md](docs/quality.md).
 
+- **`(acknowledgedFinding category subject "reason")` records that a `kb-integrity`
+  finding was looked at, and why it stays.** The sweep moves an acknowledged finding to a
+  review-only bucket instead of dropping it, carrying the reason as `:acknowledged`: a
+  rule pair `(Quote (and R1 R2))` from `:rule-clash` to `:rule-clash-review`, and a
+  suggested declaration from `:rule-macro` to the new review-only `:rule-macro-review`.
+  `declined_rule_macro` is now sugar: a `core.txt` forward rule concludes
+  `(acknowledgedFinding :rule-macro D "Acknowledged via declined_rule_macro; no reason
+  supplied.")` from it, and the sweep reads only the acknowledgment.
+  [integrity.md](docs/integrity.md#acknowledged-findings)
+  *Migration:* none; a declined suggestion is still absent from `:rule-macro`, and is
+  listed under `:rule-macro-review` when `:categories` names it.
+
 ### Additive: daemon
 
 - **`VAELII_INTEGRITY_MAX_WORK` and `VAELII_INTEGRITY_MAX_RESULTS` set the daemon's
