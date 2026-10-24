@@ -204,3 +204,10 @@
            (into [] (remove #(and (= rule (:rule %)) (= sentence (:sentence %))
                                   (= context (:context %))))
                  v))))
+
+(defn withdraw-rule!
+  "Remove every entry rule `rule` filed, when its firings are dropped to be made again
+  (`chain/reconcile-reified!`): a firing that still drops files its entry again."
+  [kb rule]
+  (when-let [v (reasoning/violations kb)]
+    (swap! v (fn [es] (into [] (remove #(= rule (:rule %))) es)))))

@@ -60,6 +60,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.nat-read :as nat-read]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.predicates :as pr]
             [vaelii.impl.progress :as progress]
@@ -4563,6 +4564,27 @@
     (update (migrate-matching kb (first lhs))
             :violations into (confluence-violations kb sentex handle lhs rhs))))
 
+(defn- equality-wff-problems
+  "`wff/equality-problems` for the `rewriteOf` / `sameAs` / `equals` sentence `s`.  Under
+  `checks/*entry-mints?*`, the check replaces a ground application of a
+  `reifiable_function` in a `sameAs` or `equals` argument with `nat/minted`, the symbol
+  standing for the constant the entry point mints, since the firing or `check` asking has
+  not minted it yet (docs/nat.md, Derivation path).  The mark is read KB-wide, as
+  `nat-read/reifiable-function?` reads it for the mint.  A `rewriteOf` payload is a
+  verbatim expression and is checked as written."
+  [tax [f & args :as s] context]
+  (let [minted? (fn [a] (and (sequential? a) (seq a) (symbol? (first a))
+                             (not (nat-read/reified-nat-symbol? (first a)))
+                             (not (contains? nat-read/*withheld* (first a)))
+                             (tax/has-prop? tax :reifiable (first a))
+                             (sx/ground-term? a)))]
+    (wff/equality-problems
+     tax
+     (if (and checks/*entry-mints?* tax (not (contains? res/nat-quoting-predicates f)))
+       (apply list f (map #(if (minted? %) 'nat/minted %) args))
+       s)
+     context)))
+
 (defn integrate-equality-sentex
   "The three equality relations' add arm on every entry point, asserted or derived.
   Returns the migration result `{:new :superseded :violations}`, which the derivation
@@ -6614,7 +6636,7 @@
                          (tax/add-rewrite-rule tax id lhs rhs ctx))
                        (sequential? b) nil
                        :else (tax/add-equality tax a b id (kb/preferred-term s)))))
-   :wff          wff/equality-problems})
+   :wff          equality-wff-problems})
 
 (defn check-entries
   "Refuse an ill-formed table at namespace load, so add/remove symmetry is a

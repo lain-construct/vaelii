@@ -988,16 +988,19 @@
   (withdrawal-collects-the-constant kb :derived)
   (withdrawal-collects-the-constant kb :asserted))
 
-(tu/deftest-kb a-firing-mints-no-constant
-  ;; the rule reads the application through the correspondence, so with no value stored
-  ;; for it the rule concludes nothing and no constant is minted
+(tu/deftest-kb a-firing-mints-the-application-its-consequent-names
+  ;; the consequent stays as written, so the firing mints `(FruitFn AppleTree)` with no
+  ;; value stored for it, and the correspondence projects the new constant
   (tu/with-terms [FruitFn AppleTree Orchard fruit fruitOf bears grownIn tagged picked]
     (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (orchard-rules! kb FruitFn fruitOf bears grownIn tagged picked)
     (v/assert kb (list bears AppleTree Orchard) 'CxUniverse)
-    (is (nil? (nat-read/dedup-constant kb (list FruitFn AppleTree))))
-    (is (empty? (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse)))))
+    (let [k (nat-read/dedup-constant kb (list FruitFn AppleTree))]
+      (is (nat-read/reified-nat-symbol? k))
+      (is (= [(list grownIn k Orchard)]
+             (mapv :sentence (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse))))
+      (is (v/ask? kb (list fruitOf AppleTree k) 'CxUniverse)))))
 
 (tu/deftest-kb a-generated-rule-names-the-constant-in-its-antecedent
   ;; a generator's generated rule is a derived conclusion too, and a ground application in
@@ -1062,7 +1065,9 @@
 
 (tu/deftest-kb an-open-application-reads-through-the-corresponding-predicate-in-every-order
   ;; the four pieces in all 24 orders: the reifiable mark, the correspondence, the rules
-  ;; and the fact the mint names.  Every engine reads the respelled rules alike.
+  ;; and the fact the mint names.  Every engine reads the respelled rules alike.  The
+  ;; backward rule's consequent stays as written, so no goal over the application or its
+  ;; constant reaches it, and an open goal binds the application as written.
   (doseq [order (orders [:mark :corr :rules :fact])]
     (tu/with-terms [FruitFn AppleTree Orchard Pace bears grownIn tagged ripe sweet fruitOf favoriteFood]
       (let [steps {:mark  [(list 'reifiable_function FruitFn)]
@@ -1086,16 +1091,46 @@
                      (answers kb engine (list favoriteFood Pace (list FruitFn '?tree)) ['?tree])
                      (answers kb engine [(list 'equals '?food (list FruitFn '?tree)) (list favoriteFood Pace '?food)]
                               ['?food '?tree])])
-            want  [#{{'?o Orchard}} #{{'?o Orchard}} #{{'?f k '?o Orchard}}
-                   #{{'?f k '?o Orchard}} #{{'?t AppleTree}} #{{'?t AppleTree '?o Orchard}}
+            want  [#{} #{} #{{'?f (list FruitFn AppleTree) '?o Orchard}}
+                   #{} #{{'?t AppleTree}} #{}
                    #{{'?tree AppleTree}} #{{'?food k '?tree AppleTree}}]]
         (is (nat-read/reified-nat-symbol? k) (str order))
         (is (= want (row :dfs)) (str order " dfs"))
         (is (= want (row :inference)) (str order " node engine"))
         (is (v/ask? kb (list sweet AppleTree) 'CxUniverse) (str order " forward"))
-        (is (= [[false true] [false true] [false true]]
+        (is (= [[true false] [false true] [false true]]
                (mapv #(vector (names? kb % FruitFn) (names? kb % fruitOf)) (:rules hs)))
-            (str order " each rule is stored respelled"))))))
+            (str order " antecedents are stored respelled, the consequent as written"))))))
+
+(tu/deftest-kb a-forward-equals-over-unminted-applications-mints-both-in-every-order
+  ;; the firing mints both applications before it stores the equality, as `assert` of
+  ;; the same sentence does, so the equals check reads each as the constant it becomes
+  (doseq [corr? [false true]
+          order (orders (cond-> [:mark :rule :fact] corr? (conj :corr)))]
+    (tu/with-terms [PairFn Ann Bob Cal Dee linkedQuad pairOf CxA]
+      (let [mono  {:strength :monotonic}
+            steps {:mark [(list 'reifiable_function PairFn) 'CxUniverse]
+                   :corr [(list 'functionCorrespondingPredicate PairFn pairOf) 'CxUniverse]
+                   :rule [(list 'set/forwardOnlyRule
+                                (list 'implies (list linkedQuad '?a '?b '?c '?d)
+                                      (list 'equals (list PairFn '?a '?b) (list PairFn '?c '?d))))
+                          CxA]
+                   :fact [(list linkedQuad Ann Bob Cal Dee) CxA]}]
+        (doseq [s [(list 'binary_function PairFn) (list 'arity linkedQuad 4)
+                   (list 'forced_monotonic_predicate linkedQuad) (list 'genlCx CxA 'CxUniverse)]]
+          (v/assert kb s 'CxUniverse mono))
+        (doseq [step order] (let [[s cx] (steps step)] (v/assert kb s cx mono)))
+        (let [k1 (nat-read/dedup-constant kb (list PairFn Ann Bob))
+              k2 (nat-read/dedup-constant kb (list PairFn Cal Dee))
+              at (str (vec order))]
+          (is (and (nat-read/reified-nat-symbol? k1) (nat-read/reified-nat-symbol? k2) (not= k1 k2)) at)
+          (is (= [(sort-by str [k1 k2])]
+                 (mapv #(sort-by str (rest (:sentence %))) (v/sentexes-matching kb '(equals ?x ?y) CxA)))
+              at)
+          (is (= (if corr? [true true] [false false])
+                 [(v/ask? kb (list pairOf Ann Bob k1) 'CxUniverse) (v/ask? kb (list pairOf Cal Dee k2) 'CxUniverse)])
+              at)
+          (is (not-any? #(= :not-well-formed (:violation %)) (v/violations kb)) at))))))
 
 (tu/deftest-kb both-spellings-of-a-respelled-rule-are-one-handle
   (tu/with-terms [FruitFn tagged ripe fruitOf]

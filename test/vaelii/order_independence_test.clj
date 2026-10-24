@@ -902,12 +902,12 @@
            (update result :maps (partial sort-by #(str (nth % 2)))))))
   (tu/clear-kb! (tu/test-kb)))
 
-(deftest a-late-reifiable-declaration-re-spells-a-stored-rule-and-withdraws-an-application-firing
+(deftest a-late-reifiable-declaration-re-spells-a-stored-rule-and-re-fires-an-application-head
   ;; A rule whose antecedent names `(SkillFn Rex)` matches the use only when both are
-  ;; spelled alike.  A rule concluding `(SkillFn ?x)` that fired before the declaration is
-  ;; held once `SkillFn` is reifiable with no correspondence, and respelled through
-  ;; `skillOf` once it has one; either way the firing it made as written is withdrawn, so
-  ;; the KB holds what the declaration arriving first leaves (docs/nat.md).
+  ;; spelled alike.  A rule concluding `(SkillFn ?x)` that fired before the declaration
+  ;; fires again once `SkillFn` is reifiable, with or without a correspondence, and its
+  ;; firing mints the constant, so the KB holds what the declaration arriving first leaves
+  ;; (docs/nat.md).
   (let [rule   (fn [antes conseq] #(v/assert-rule % antes conseq 'CxUniverse {:direction :forward}))
         joined (one-outcome! "a stored rule"
                              [(rule '[(likes ?x (SkillFn Rex))] '(fan ?x))
@@ -917,13 +917,15 @@
         fire   [(rule '[(dog ?x)] '(hasCapability ?x (SkillFn ?x)))
                 (assert-op '(dog Rex))
                 (assert-op '(reifiable_function SkillFn))]
-        none   {:rows () :minted 0 :compound false}
-        held   (one-outcome! "a held rule's firing" fire #(dissoc (skill-reading %) :genl))
-        spelt  (one-outcome! "a respelled rule's firing"
+        minted {:rows     [(list 'hasCapability 'Rex (nat/constant-for nat-read/nat-namespace '(SkillFn Rex)))]
+                :minted   1
+                :compound true}
+        bare   (one-outcome! "a firing with no correspondence" fire #(dissoc (skill-reading %) :genl))
+        spelt  (one-outcome! "a firing with a correspondence"
                              (conj fire (assert-op '(functionCorrespondingPredicate SkillFn skillOf)))
                              #(dissoc (skill-reading %) :genl))]
     (is (true? joined))
-    (is (= [none none] [held spelt])))
+    (is (= [minted minted] [bare spelt])))
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest a-reifiable-declaration-leaving-reads-as-one-never-made

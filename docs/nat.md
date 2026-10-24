@@ -150,12 +150,11 @@ a later hash or encoding change is `nat/b…`, and old constants keep their name
 The forward chainer stores a rule's conclusion itself rather than through `assert`, and it
 reifies the same way. `chain/place-conclusion` replaces every ground reifiable NAT in a
 fired conclusion with its constant before it stores anything (`reify-conclusion`). A stored
-rule holds no open application of a reifiable function ([A rule or a goal that names an
-open application](#a-rule-or-a-goal-that-names-an-open-application)), so a ground
-application reaches a conclusion through a generator's generated rule, whose application
-the generator's firing binds. The generated rule goes through this pass, so a ground
-application in its antecedent is spelled with the constant the facts it matches are stored
-under.
+rule's consequent keeps its applications as written ([A rule or a goal that names an
+open application](#a-rule-or-a-goal-that-names-an-open-application)), so a firing's
+bindings make each one ground and this pass mints it, with or without a correspondence.
+A generator's generated rule goes through this pass too, so a ground application in its
+antecedent is spelled with the constant the facts it matches are stored under.
 
 - An application that already has a term resolves to it — a `rewriteOf` target, the
   value its corresponding predicate names, or the minted constant — through
@@ -164,7 +163,11 @@ under.
   run over the conclusion under `checks/*entry-mints?*`, which reads the application as
   the constant a mint would give it, the reading `check` uses (below). A conclusion those
   checks drop is dropped with nothing minted, so no constant is left behind whose one use
-  was never stored. An admitted conclusion is minted by `mint-nat!`, and the placement
+  was never stored. The `equals` and `sameAs` check reads the application as a symbol
+  under the same binding (`special/equality-wff-problems`), so
+  `(implies (linkedQuad ?a ?b ?c ?d) (equals (PairFn ?a ?b) (PairFn ?c ?d)))` mints both
+  applications and stores the equality between the two constants, as `assert` of the
+  ground sentence does. An admitted conclusion is minted by `mint-nat!`, and the placement
   then runs its checks again over the reified sentence; that second pass draws the
   argument-type entailments on the constant.
 - The mint writes what `assert`'s mint writes: the `natFormula` map, the materialized
@@ -196,11 +199,20 @@ it, and a derived use keeps it after the asserted one goes. A re-derivation afte
 collection mints the same name, so derive-then-assert, assert-then-derive and a derivation
 retracted and restated all store the same sentences.
 
+**A recursive consequent mints to the chain's depth bound.** `(implies (num ?x) (num
+(SuccFn ?x)))` from `(num Zero)` mints `(SuccFn Zero)`, then the application of `SuccFn` to
+that constant, and so on: each conclusion is one level deeper than the fact it rests on,
+and the write stops at `:max-depth` ([inference.md](inference.md), 64 by default), having
+minted 64 constants. No bound specific to minting applies.
+
 **A backward proof mints nothing.** `prove` and `query` store no conclusion. A backward
-rule reads an application through its function's corresponding predicate, as a forward
-rule does: `(implies (bears ?t ?o) (grownIn (FruitFn ?t) ?o))` answers `(grownIn K ?o)`
-from the `(fruitOf AppleTree K)` the mint of `K` stored, and answers nothing for an
-application no constant and no value names.
+rule's consequent stays as written, as a forward rule's does, while a goal is respelled
+through the correspondence, so the rule answers no goal over the application or its
+constant: `(implies (bears ?t ?o) (grownIn (FruitFn ?t) ?o))`, read backward, answers
+nothing for `(grownIn K ?o)` or `(grownIn (FruitFn AppleTree) ?o)`, and answers
+`(grownIn ?f ?o)` with `?f (FruitFn AppleTree)`, the application as written. Read forward,
+the same rule stores `(grownIn K Orchard)`, which both goals find
+(`nat_test/an-open-application-reads-through-the-corresponding-predicate-in-every-order`).
 
 ## Typing an application that is never minted
 
@@ -430,22 +442,22 @@ function's application is a raw compound the reify pass never visits.
 
 ### A rule or a goal that names an open application
 
-The engine does not pattern-match a function application. `res/kb-sentex`, the
-constructor every store and lookup builds a sentex through, respells a rule whose
-antecedents or consequent hold an open application `(F a…)` of a `reifiable_function`
+The engine does not pattern-match a function application in an antecedent or a goal.
+`res/kb-sentex`, the constructor every store and lookup builds a sentex through, respells a
+rule whose antecedents hold an open application `(F a…)` of a `reifiable_function`
 (`res/respell-applications`). The application becomes a variable `?v`, and the literal
 the correspondence makes equivalent to it, `(P a… ?v)` with `?v` at the declared position,
 joins the antecedents. Inner applications are respelled first, and one application
-written twice is one variable:
+written twice is one variable. The consequent stays as written, for every rule kind,
+except that an application an antecedent names takes that antecedent's variable:
 
 ```clojure
-(implies (tagged (FruitFn ?t)) (ripe ?t))
+(implies (tagged (FruitFn ?t)) (ripe (FruitFn ?t)))
 ;; is stored as
-(implies (and (fruitOf ?t ?fruit) (tagged ?fruit)) (ripe ?t))
+(implies (and (fruitOf ?t ?fruit) (tagged ?fruit)) (ripe ?fruit))
 
 (implies (bears ?t ?o) (grownIn (FruitFn ?t) ?o))
-;; is stored as
-(implies (and (bears ?t ?o) (fruitOf ?t ?fruit)) (grownIn ?fruit ?o))
+;; is stored as written
 ```
 
 An `equals` literal one of whose sides is an open application is the corresponding
@@ -456,9 +468,11 @@ The variable is named for the function, its `Fn` suffix dropped and its first le
 lowercased, with a hash of the application appended where the rule uses the name already.
 Canonicalization renames it with the rule's other variables, so the two spellings store
 one handle, and `why` and the browser show the predicate form. The DFS prover, the node
-engine and rete read the stored rule, so none of them reads an application. A forward rule
-concluding about an application fires on the value its predicate names, a stated fact or
-the projection a mint writes, and mints nothing.
+engine and rete read the stored rule, so none of them matches an application. A forward
+rule concluding about an application mints it at each firing
+([Derivation path](#derivation-path)); with a correspondence, the mint's projection states
+the value through the corresponding predicate. A backward rule concluding about an
+application answers no goal over it (Derivation path).
 
 A function with several believed correspondences gives the rule one spelling per
 correspondence, and a rule applying several such functions one per combination
@@ -469,18 +483,25 @@ it reads (`chain/sync-rule-respellings!`), so the rule answers through the union
 correspondences and a declaration leaving takes its spelling with it. A read picks no
 correspondence, so the union is order independent.
 
-A rule applying a function with no believed correspondence is stored as written and held
-in the `:out` forced set (`nat/held-application?`, read by `checks/forced-out?`): it
-fires nothing, and its application is never matched as written. A rule holding a
-variable-functor application, `(tagged (?fn ?t))`, is held the same way
-([What reification does not cover](#what-reification-does-not-cover)), except where the
-compound sits in a sentence position (`res/formula-position?`). An application inside an `unknown`,
-`thereExists`, `forall`, `exists`, `ist` or aggregate condition is not respelled, so a rule
-holding one is held too. A quoting function's argument and a quoting predicate's payload
-are mentions, neither respelled nor held. A generator's consequent rule is not read: the
-rule it generates is respelled or held when it is stored. `kb-integrity` reports each
-function a held rule applies with no correspondence
+A rule whose antecedents apply a function with no believed correspondence is stored as
+written and held in the `:out` forced set (`nat/held-application?`, read by
+`checks/forced-out?`): it fires nothing, and its application is never matched as written.
+A rule whose antecedents hold a variable-functor application, `(tagged (?fn ?t))`, is held
+the same way ([What reification does not cover](#what-reification-does-not-cover)), except
+where the compound sits in a sentence position (`res/formula-position?`). An application
+inside an `unknown`, `thereExists`, `forall`, `exists`, `ist` or aggregate antecedent is not
+respelled, so a rule holding one is held too. A quoting function's argument and a quoting
+predicate's payload are mentions, neither respelled nor held. A generator's consequent
+rule is not read: the rule it generates is respelled or held when it is stored.
+`kb-integrity` reports each function a held rule applies with no correspondence
 ([integrity.md](integrity.md#what-an-uncorresponded-function-finding-means)).
+
+The hold does not read a consequent. A variable-functor application in a consequent fires,
+and the firing mints the application its bindings make. An application in a consequent's
+sentence position, `(believes Pace (grownIn (FruitFn ?t) ?o))`, is stored as written in
+the conclusion, as `assert` stores it. An `unknown` consequent fires, and each conclusion
+is dropped as `:not-well-formed` and filed in `violations` under the rule's handle, with
+or without an application in it.
 
 The rule follows the correspondence in both directions:
 
@@ -499,10 +520,13 @@ index of each predicate a declaration of the function names (`nat/corresponded-r
 A declaration arriving runs the move from `nat-maintenance/reconcile-assert`, and one
 leaving runs it from `collect-orphans!`, so both arrival orders store the same rule.
 A move that changes a rule's antecedents or its hold drops the firings the rule made in
-the spelling it left, and a rule left believed fires again
-(`order_independence_test/a-late-reifiable-declaration-re-spells-a-stored-rule-and-withdraws-an-application-firing`).
-A rule that concluded `(SkillFn ?x)` before `SkillFn` was reifiable therefore keeps no
-conclusion, and no constant, that the declaration arriving first would not have made.
+the spelling it left, with the drops it filed in `violations`, and a rule left believed
+fires again. A rule whose consequent names an open application is dropped and fired again
+at every move, so its conclusions are minted under the marks and correspondences believed
+after the move
+(`order_independence_test/a-late-reifiable-declaration-re-spells-a-stored-rule-and-re-fires-an-application-head`).
+A rule that concluded `(hasCapability ?x (SkillFn ?x))` before `SkillFn` was reifiable
+therefore stores the conclusion and the constant the declaration arriving first makes.
 
 The sentence positions a variable-functor rule's hold reads move the rule the same way. An
 `arg`, `argN` or `quotedArg` declaration typed `formula` or under it, and a `genl` edge
@@ -699,8 +723,9 @@ application of `F`, and every use of a constant whose expression holds one, at a
 nesting. A constant's own bookkeeping is not a use and does not move. A quoting
 predicate's payload is a mention and does not move either. Each row is re-spelled by
 expanding its constants and reifying again (`nat/respelled`), which is the write path's
-own walk. A rule's antecedent and consequent move the same way, and a rule holding an open
-application of `F` is respelled through `F`'s correspondence or held
+own walk. A rule's antecedents move the same way: a rule whose antecedents hold an open
+application of `F` is respelled through `F`'s correspondence or held, and a rule whose
+consequent holds one fires again
 ([A rule or a goal that names an open application](#a-rule-or-a-goal-that-names-an-open-application)).
 
 - **A row moves in place** when no row holds its new spelling, keeping its handle,
@@ -797,9 +822,9 @@ comes first (`nat/reconcile-nats!`).
   NAT findable, so a NAT that cannot be reified is reachable only through the coarser
   keys ([indexing.md](indexing.md)).
 - **An existential rule head is not skolemized here** ([skolem.md](skolem.md)).
-- **A rule's open application is read only through a correspondence.** With no believed
-  `functionCorrespondingPredicate`, a rule applying the function is held inert and a goal
-  applying it answers nothing
+- **A rule's open application in an antecedent is read only through a correspondence.**
+  With no believed `functionCorrespondingPredicate`, a rule whose antecedents apply the
+  function is held inert and a goal applying it answers nothing
   ([A rule or a goal that names an open application](#a-rule-or-a-goal-that-names-an-open-application)).
   An application inside an `unknown`, `thereExists`, `forall`, `exists`, `ist` or
   aggregate condition is held with one too.
@@ -807,8 +832,12 @@ comes first (`nat/reconcile-nats!`).
   declaration derived by a rule, or hidden from a reader by an `except`, moves no rule,
   and the respell reads the reifiable mark unscoped, so a reader that does not believe the
   mark reads the rule respelled.
-- **No rule reads a variable-functor application.** A rule holding `(?fn a…)` outside a
-  sentence position is held inert and fires nothing; only a goal expands one.
+- **No rule reads a variable-functor application in an antecedent.** A rule whose
+  antecedents hold `(?fn a…)` outside a sentence position is held inert and fires nothing;
+  only a goal expands one.
+- **A backward rule's consequent does not meet a respelled goal.** A goal over an
+  application, or over the constant minted for it, does not reach a backward rule whose
+  consequent names that application.
 - **A sentence position moves a rule only when its declaration or `genl` edge is stored
   or torn down.** A declaration a rule derives re-decides no rule as it arrives, and one
   hidden from a reader by an `except` re-decides none.

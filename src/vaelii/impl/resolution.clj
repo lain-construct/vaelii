@@ -1336,7 +1336,8 @@
   "Literal `l` with its applications replaced (`respell-term`), under a `not` too, as a
   vector of literals, or nil when it cannot be: an application with no reading, or a
   construct holding a reifiable one.  `(equals x (F a…))`, either way round, is the
-  reading's own literals with `x` the value.  A rule `l` is returned as it is
+  reading's own literals with `x` the value, and `x` is the application's value in
+  `state`.  A rule `l` is returned as it is
   (`rule-form?`)."
   [walk readings state l]
   (cond
@@ -1358,7 +1359,9 @@
               args  (doall (map #(respell-term app readings state %) (rest a)))
               x'    (respell-term app readings state x)]
           (when (and x' (every? some? args))
-            (take-reading! readings state (apply list (first a) args) args x')))
+            (let [t' (apply list (first a) args)]
+              (vswap! state update :vars #(cond-> % (not (contains? % t')) (assoc t' x')))
+              (take-reading! readings state t' args x'))))
         :else (let [args (doall (map #(respell-term %1 readings state %2) a?s as))]
                 (when (every? some? args) [(apply list pr args)]))))))
 
@@ -1385,20 +1388,36 @@
   (into [] (comp (map #(vec (sort (remove nil? %)))) (distinct))
         (reduce (fn [acc hs] (for [a acc h hs] (conj a h))) [[]] decls)))
 
+(defn- substitute-bound
+  "`form` with each application the antecedents' respell gave a value (`state`'s
+  `:vars`) replaced by it, innermost first; every other application left as written.  A
+  quoting function's arguments and a quoting predicate's payload are mentions and are
+  left alone."
+  [state form]
+  (if (and (seq? form) (seq form)
+           (not (sx/quoting-functor? (first form)))
+           (not (contains? nat-quoting-predicates (first form))))
+    (let [f' (apply list (first form) (map #(substitute-bound state %) (rest form)))]
+      (get-in @state [:vars f'] f'))
+    form))
+
 (defn- respell-rule
-  "The `implies` form `r` with every open application respelled under `state`'s choice,
-  the literals stating the values added to its antecedents; `r` itself when nothing
-  changed, nil when one cannot be respelled."
+  "The `implies` form `r` with every open application in its antecedents respelled under
+  `state`'s choice, the literals stating the values added to its antecedents; `r` itself
+  when nothing changed, nil when one cannot be respelled.  The consequent stays as
+  written, except that an application the antecedents give a value takes it
+  (`substitute-bound`): a firing mints the rest (docs/nat.md, The corresponding
+  predicate).  A generator's consequent rule is left whole (`rule-form?`)."
   [walk readings state r]
   (let [antes0 (vec (sx/rule-antecedents r))
         conseq (sx/rule-consequent r)
-        antes  (mapv #(respell-literal walk readings state %) antes0)
-        c      (respell-literal walk readings state conseq)]
-    (when (and (every? some? antes) (= 1 (count c)))
-      (let [antes' (into (into [] cat antes) (:hoisted @state))]
-        (if (and (= antes' antes0) (= (first c) conseq))
+        antes  (mapv #(respell-literal walk readings state %) antes0)]
+    (when (every? some? antes)
+      (let [antes' (into (into [] cat antes) (:hoisted @state))
+            c      (if (rule-form? conseq) conseq (substitute-bound state conseq))]
+        (if (and (= antes' antes0) (= c conseq))
           r
-          (sx/rule-sentence antes' (first c)))))))
+          (sx/rule-sentence antes' c))))))
 
 (defn- map-inner-rule
   "`form` with `f` applied to the `implies` form its rule wrappers enclose, the wrappers
@@ -1471,14 +1490,15 @@
   false)
 
 (defn rule-respellings
-  "Every spelling of rule `sentence` its open applications of a `reifiable_function` read
-  through the believed correspondences, as `[[spelling handle-sets] …]`: one per
-  combination of each application's correspondences, `handle-sets` the sets of
-  declarations it reads.  The first takes each function's content-least correspondence
-  and is the one `kb-sentex` stores; `chain/sync-rule-respellings!` stores the rest.  Nil
-  when `sentence` is no rule, holds no open application, or names a function with no
-  believed correspondence or a variable-functor application (docs/nat.md, The
-  corresponding predicate).  The mark and the declarations are read unscoped: the stored
+  "Every spelling of rule `sentence` its antecedents' open applications of a
+  `reifiable_function` read through the believed correspondences, as `[[spelling
+  handle-sets] …]`: one per combination of each application's correspondences,
+  `handle-sets` the sets of declarations it reads (`respell-rule`; the consequent stays
+  as written).  The first takes each function's content-least correspondence and is the
+  one `kb-sentex` stores; `chain/sync-rule-respellings!` stores the rest.  Nil when
+  `sentence` is no rule, its antecedents hold no open application, or they name a
+  function with no believed correspondence or a variable-functor application
+  (docs/nat.md, The corresponding predicate).  The mark and the declarations are read unscoped: the stored
   rule is one row every reader shares."
   [kb sentence]
   (when (and (not *as-written*) (seq? sentence)
@@ -1487,7 +1507,7 @@
       (map-inner-rule #(vreset! inner %) sentence)
       (when-let [r @inner]
         (let [walk (respell-walk kb)]
-          (when (seq (applications-in (:fixed? walk) r))
+          (when (some #(seq (applications-in (:fixed? walk) %)) (sx/rule-antecedents r))
             (let [decls (delay (correspondence-declarations kb))]
               (some->> (readings-of (sx/form-variables r)
                                     #(respell-rule walk (fn [f m] (rule-readings @decls f m)) % r))

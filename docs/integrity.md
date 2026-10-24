@@ -578,9 +578,9 @@ Reading each edge and each node's two arity reads spend one work unit, and
 
 ## What an uncorresponded-function finding means
 
-A rule reads an application `(F a…)` of a `reifiable_function` through `F`'s
-corresponding predicate, and a rule naming a function the KB believes no
-`functionCorrespondingPredicate` for is held inert ([nat.md](nat.md#the-corresponding-predicate)).
+A rule reads an application `(F a…)` of a `reifiable_function` in its antecedents through
+`F`'s corresponding predicate, and a rule whose antecedents name a function the KB believes
+no `functionCorrespondingPredicate` for is held inert ([nat.md](nat.md#the-corresponding-predicate)).
 Nothing on the write path refuses the rule, so the sweep reports each such function with
 the held rules that name it:
 

@@ -797,14 +797,15 @@
          (boolean (seq (res/open-applications #(tax/has-prop? tax :reifiable %) form))))))
 
 (defn held-application?
-  "Does stored rule `sx` hold an open application `res/respell-applications` left as
-  written, so the rule is held in the `:out` forced set: one of a `reifiable_function`
-  (the mark read unscoped), or a variable-functor application outside a sentence position
-  (`res/holds-variable-application?`)?  A rule consequent is not read (`res/rule-form?`)."
+  "Does stored rule `sx` hold an open application in an antecedent that
+  `res/respell-applications` left as written, so the rule is held in the `:out` forced
+  set: one of a `reifiable_function` (the mark read unscoped), or a variable-functor
+  application outside a sentence position (`res/holds-variable-application?`)?  The
+  consequent is not read: a firing mints its applications (docs/nat.md, Derivation
+  path)."
   [kb sx]
   (and (some? (:antecedent sx))
-       (let [ls (cond-> (vec (:antecedent sx))
-                  (not (res/rule-form? (:consequent sx))) (conj (:consequent sx)))]
+       (let [ls (:antecedent sx)]
          (boolean (or (some #(names-open-application? kb %) ls)
                       (some #(res/holds-variable-application? kb %) ls))))))
 

@@ -5003,6 +5003,8 @@
   `:out` membership moved, a correspondence respelled it, restored it or held it: the
   firings it made under the spelling it left are dropped, the rows they swept are added to
   `moved`, and a rule that ends believed is returned too, so the agenda fires it again.
+  A rule whose consequent names an open application is dropped and fired again the same
+  way whenever it is reconciled.
   With `redecide?`, the `:out` membership may have moved before the call (a settle's
   argument-hold refresh, `reconcile-formula-positions!`), so a rule that ends held keeps
   no firing and one that ends believed is returned whether or not this call moved it.
@@ -5020,19 +5022,25 @@
                     (reconcile-written-rule! kb memo moved witness pre (p/get-sentex recs h))
                     (reconcile-row-spelling! kb memo moved witness pre h))
          sx    (some->> at (p/get-sentex recs))
-         drop! #(doseq [jid (into (sorted-set)
-                                  (filter (fn [jid] (= at (:informant (jtms/justification tms jid)))))
-                                  (jtms/dependents tms at))
-                        :when (jtms/justification tms jid)]
-                  (let [r (jtms/drop-justification! tms jid)]
-                    ;; a swept conclusion's constants are orphan candidates, as a moved row's are
-                    (vswap! moved into (keep (fn [d] (p/get-sentex recs d))) (:removed-sentexes r))
-                    (p/delete-justification! recs jid)
-                    (apply-removals! kb r)))]
+         drop! (fn []
+                 ;; the drops it filed go with its firings; a firing made again files its own
+                 (violations/withdraw-rule! kb at)
+                 (doseq [jid (into (sorted-set)
+                                   (filter (fn [jid] (= at (:informant (jtms/justification tms jid)))))
+                                   (jtms/dependents tms at))
+                         :when (jtms/justification tms jid)]
+                   (let [r (jtms/drop-justification! tms jid)]
+                     ;; a swept conclusion's constants are orphan candidates, as a moved row's are
+                     (vswap! moved into (keep (fn [d] (p/get-sentex recs d))) (:removed-sentexes r))
+                     (p/delete-justification! recs jid)
+                     (apply-removals! kb r))))]
      (if (some? (:antecedent sx))
        (do (checks/force-sentex! kb sx)
            (cond
-             (not (and (= antes (:antecedent sx)) (= held (out? at))))
+             ;; a consequent naming an open application fires again: its firings minted
+             ;; under the marks and correspondences that held when they were placed
+             (or (not (and (= antes (:antecedent sx)) (= held (out? at))))
+                 (nat/names-open-application? kb (:consequent sx)))
              (do (drop!) (cond-> (vec new) (not (out? at)) (conj at)))
              (if redecide? (out? at) (nat/held-application? kb sx)) (do (drop!) new)
              (not redecide?) new

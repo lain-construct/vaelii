@@ -1728,6 +1728,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/integrity.clj", "uncorresponded-units"),
     ("src/vaelii/impl/resolution.clj", "raw-match-with"),
     ("src/vaelii/impl/special.clj", "meta-target"),
+    ("src/vaelii/impl/special.clj", "equality-wff-problems"),
     ("src/vaelii/impl/special.clj", "deduce-lifts"),
     # A candidate superset a later step narrows: a candidate filter in front of a scoped read, a
     # trigger or seed whose re-join reads the rule's own context, a nogood candidate row

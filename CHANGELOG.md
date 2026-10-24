@@ -13,6 +13,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Breaking: inference
+
+- **A rule's consequent is stored as written, and only its antecedents are read through
+  `functionCorrespondingPredicate`.** A forward firing mints a constant for each
+  application of a `reifiable_function` its consequent names, with or without a
+  correspondence, and a recursive consequent such as `(num (SuccFn ?x))` mints up to the
+  chain's `:max-depth` per write. A consequent application whose arguments an antecedent
+  names takes that antecedent's variable. A backward rule whose consequent names an
+  application answers no goal over it: `prove` of `(grownIn (FruitFn AppleTree) ?o)`
+  through `(implies (bears ?t ?o) (grownIn (FruitFn ?t) ?o))` answers nothing.
+  [nat.md](docs/nat.md#a-rule-or-a-goal-that-names-an-open-application)
+  *Migration:* state such a rule forward (`set/forwardRule`): its firing mints the
+  application and stores the conclusion over the constant, which the goal reads.
+  *Breaks:* `assert` of a rule whose consequent names an application, `prove`, `query`
+
 ### Additive: ASP
 
 - **`VAELII_CLASP_BIN` (or `-Dvaelii.clasp.bin`) names the executable the subprocess
@@ -31,6 +46,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none.
 
 ### Fix: answers
+
+- **A forward rule concluding `equals` or `sameAs` over applications of a
+  `reifiable_function` that have no constant yet mints them and stores the equality**, as
+  `assert` of the ground sentence does. The firing dropped it as `:not-well-formed`, and
+  `check` of the ground sentence reported the same problem `assert` does not raise.
+  [nat.md](docs/nat.md#derivation-path)
+  *Migration:* none.
 
 - **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a
   `(reifiable_function Quote)` declaration. `(different (Quote Bar) (Quote Baz))` holds for
