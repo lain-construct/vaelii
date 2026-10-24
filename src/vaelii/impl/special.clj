@@ -313,6 +313,17 @@
   `:instance` kind), each with the length of its sentence and the index its type sits at."
   '{arg [4 3] argAndRest [4 3]})
 
+(defn- instance-type-declared?
+  "Is any `functor` declaration of the `instance-type-shapes` stored?  `arg` by its O(1)
+  count, the read this trigger has always paid; `argAndRest` by its
+  `:declares-arg-and-rest-isa` mark, a `:props` lookup its own arms keep as it arrives
+  and leaves (`prop-entry`), so a KB declaring no tail pays no second count per fact —
+  the presence check `checks/covering-args-problem` already reads."
+  [kb functor]
+  (if (= 'argAndRest functor)
+    (boolean (seq (tax/props (reasoning/taxonomy kb) :declares-arg-and-rest-isa)))
+    (pos? (reads/stored-count-with-functor (:index kb) functor))))
+
 (defn- declared-instance-type
   "The type `sentence` declares when it is one of the `instance-type-shapes`, else nil."
   [sentence]
@@ -333,7 +344,7 @@
   exactly the channel the descension opened."
   [kb pred]
   (let [idx (:index kb)
-        fs  (filter #(pos? (reads/stored-count-with-functor idx %)) (keys instance-type-shapes))]
+        fs  (filter #(instance-type-declared? kb %) (keys instance-type-shapes))]
     (when (seq fs)
       (into #{}
             (comp (mapcat (fn [q] (mapcat #(reads/as-stored-with-args idx % {1 q}) fs)))
@@ -346,7 +357,7 @@
   which `ArgTypeProver` reads as it reads `arg`, and which an `args` declaration's forward
   rule stores), arrived or left: queue `:all` every rule whose exception mentions a
   supertype of a type those declare of `pred`'s arguments, which `ArgTypeProver` infers
-  from the fact.  A KB declaring neither pays a cardinality read per functor.  The `genls` fan is unscoped, for
+  from the fact.  A KB declaring neither pays one cardinality read (`instance-type-declared?`).  The `genls` fan is unscoped, for
   `recheck-declaration`'s reason.  See docs/exceptions.md, \"Five channels\"."
   [kb pred sen]
   (let [idx   (:index kb)
