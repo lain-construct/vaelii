@@ -308,7 +308,10 @@ Xb))` and `(genl (FooFn Xa Xb) ?y)` answer nothing. A positive equation goal
 (`res/equation?`) reads a never-minted application as written
 (`nat-read/reify-existing`), and the equality closure answers it by identity and congruence: `(equals (FooFn Xa Xb) (FooFn
 Xa Xb))` holds, and `(equals (FooFn Xa Xb) (FooFn Xc Xd))` holds only in a context that sees
-`(equals Xa Xc)` and `(equals Xb Xd)`.
+`(equals Xa Xc)` and `(equals Xb Xd)`. A never-minted application of a quoting function
+stays as written in every goal, because a mention names its own syntax: under
+`(reifiable_function Quote)`, `(different (Quote Bar) (Quote Baz))` holds for two
+quotations stored only as a `modal_predicate`'s proposition.
 
 It is wired at every read entry, and the enumeration is the whole of the guarantee:
 `sentexes-matching`, `ask`, `prove`, `query`, the anytime `ask-within` /

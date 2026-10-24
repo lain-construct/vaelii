@@ -672,3 +672,19 @@
       (is (= #{'(mentions Obj (Quote Muffet)) '(mentions Obj (Quote Fluffet))}
              (into #{} (map :sentence) (v/sentexes-matching kb '(mentions Obj ?q) 'CxUniverse)))
           "both spellings are still stored as written"))))
+
+(deftest a-never-minted-quotation-stays-as-written-under-a-reifiable-function-declaration
+  ;; `(reifiable_function Quote)` makes `Quote` reifiable, and a quotation stored only
+  ;; as a `modal_predicate`'s proposition is never minted.  The read keeps the goal's
+  ;; `(Quote X)` as written, so the definitional `different` answers for it.
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (v/assert kb '(modal_predicate believes) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(reifiable_function Quote) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(result Quote cycl_expression) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(believes Obj (Quote Muffet)) 'CxUniverse)
+    (v/assert kb '(believes Obj (Quote Fluffet)) 'CxUniverse)
+    (testing "before the merge"
+      (is (v/ask? kb '(different (Quote Muffet) (Quote Fluffet)) 'CxUniverse)))
+    (v/assert kb '(sameAs Muffet Fluffet) 'CxUniverse)
+    (testing "after the merge"
+      (is (v/ask? kb '(different (Quote Muffet) (Quote Fluffet)) 'CxUniverse)))))

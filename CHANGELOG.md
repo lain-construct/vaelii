@@ -11,6 +11,16 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Fix: answers
+
+- **A goal keeps a never-minted `Quote` or `Quasiquote` application as written** under a
+  `(reifiable_function Quote)` declaration. `(different (Quote Bar) (Quote Baz))` holds for
+  quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc
+  preamble stores them. [nat.md](docs/nat.md#read-path)
+  *Migration:* none.
+
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 
 | Area | Change |

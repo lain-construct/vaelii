@@ -267,9 +267,12 @@
     (or (existing-term kb E ns context) no-match)))
 
 (defn- read-leaf
-  "`reify-in`'s leaf for a read in `context`: the existing term, or `no-match`."
+  "`reify-in`'s leaf for a read in `context`: the existing term, or `no-match`.  A
+  never-minted quoting application stays as written: a mention names its own syntax."
   [context]
-  (fn [kb form] (reify-nat-for-read kb form nat-namespace context)))
+  (fn [kb form]
+    (let [k (reify-nat-for-read kb form nat-namespace context)]
+      (if (and (= no-match k) (sx/quoting-functor? (first form))) form k))))
 
 (defn reify-existing
   "Reify every reifiable ground NAT subterm of `sentence` that has an existing term for a
@@ -286,8 +289,8 @@
 (defn maybe-reify-for-read
   "Reify every reifiable ground NAT subterm of a query `sentence` to its existing term for
   a reader in `context` (CxUniverse when nil), never minting; a never-minted NAT resolves
-  to `no-match`.  An application of a function `context` does not believe reifiable stays
-  as written (`withheld-at`)."
+  to `no-match`, except a quoting application, which stays as written.  An application
+  of a function `context` does not believe reifiable stays as written (`withheld-at`)."
   [kb sentence context]
   (if (any-reifiable-functions? kb)
     (binding [*withheld* (withheld-at kb context)]
