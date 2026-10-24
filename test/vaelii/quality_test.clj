@@ -907,6 +907,33 @@
             (str "(" floor-functor " ?p ?n) above " bound " beside exactly " exact
                  (if reachable? " can both hold" " admits no ?p")))))))
 
+(tu/deftest-kb a-floor-class-disjoint-from-the-exact-class-is-no-clash-in-waiting
+  ;; A floor class such as core.txt's at_least_binary is disjoint from the exact class one
+  ;; below it, `(disjoint at_least_binary unary)`.  `(arity ?p 1)` claims ?p is `unary`, the
+  ;; relation-wide exact class of that length, so beside `(floorish ?p)` under a stated
+  ;; `(disjoint floorish unary)` no ?p meets both.  The disjointness is the KB's: a floor
+  ;; nothing separates from `unary` pairs as before, and a length the floor admits stays a
+  ;; candidate.
+  (let [U       'CxUniverse
+        pair-of (fn [kb lo-body hi-body]
+                  (tu/with-terms [lowish highish]
+                    (v/assert kb (list 'genl lowish 'thing) U)
+                    (v/assert kb (list 'genl highish 'thing) U)
+                    (v/assert kb (list 'disjoint lowish highish) U)
+                    (let [before (:pair-count (clashes kb))]
+                      (v/assert-rule kb lo-body (list lowish '?p) U {:direction :forward})
+                      (v/assert-rule kb hi-body (list highish '?p) U {:direction :forward})
+                      (- (:pair-count (clashes kb)) before))))]
+    (tu/with-terms [floorish]
+      (v/assert kb (list 'genl floorish 'thing) U)
+      (testing "a floor nothing separates from unary leaves the pair a candidate"
+        (is (= 1 (pair-of kb ['(arity ?p 1)] [(list floorish '?p)]))))
+      (v/assert kb (list 'disjoint floorish 'unary) U)
+      (testing "a floor disjoint from unary admits no ?p of exactly one place"
+        (is (zero? (pair-of kb ['(arity ?p 1)] [(list floorish '?p)]))))
+      (testing "a length the floor admits leaves the pair a candidate"
+        (is (= 1 (pair-of kb ['(arity ?p 2)] [(list floorish '?p)])))))))
+
 (tu/deftest-kb a-functional-slot-filled-two-incompatible-ways-is-no-clash-in-waiting
   ;; `(functionalInArg P n)` says one filler at position n for each tuple of the others,
   ;; so two antecedents filling that slot for one tuple with two numbers, or with a number
