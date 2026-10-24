@@ -1139,6 +1139,18 @@
                  :when (and (integer? s) (pos? s))]
              [s true (get b '?type) m]))))
 
+(defn- quoted-declared?
+  "Is any `quotedArg` or `quotedArgAndRest` declaration stored — the presence check the
+  mention arms stand behind.  `quotedArg` by the O(1) count `kind-stored?` reads, and
+  `quotedArgAndRest` by its `:declares-quoted-arg-and-rest` mark (`covering-declared?`), a
+  `:props` lookup the declaration's own arms keep as it arrives and leaves: a second
+  count read here would cost every assert of every KB one predicate-extent read for a
+  form the KB does not use.  Global, as both presence checks are; the scoped `decls`
+  read decides whose tuples a declaration binds and whether the context sees it."
+  [kb decls]
+  (or (kind-stored? decls 'quotedArg)
+      (covering-declared? kb [:declares-quoted-arg-and-rest])))
+
 (defn- args-quoted-problem
   "First `(quotedArg pred n type)` or `(quotedArgAndRest pred n type)` violation for a
   sentence, or nil.  The tail form reads every position from `n` to the last, as
@@ -1171,7 +1183,7 @@
         as   (vec (nm/args sentence))
         tax  (reasoning/taxonomy kb)]
     (when (and (symbol? pred)
-               (or (kind-stored? decls 'quotedArg) (kind-stored? decls 'quotedArgAndRest)))
+               (quoted-declared? kb decls))
       (first
        (for [[start tail? t d] (quoted-declarations decls)
              n     (if tail? (suffix-positions as start) [start])
@@ -1217,12 +1229,12 @@
 
 (defn quoted-positions
   "A test of the positions of `pred` a `quotedArg` or `quotedArgAndRest` declaration
-  visible from `context` types (`mentioned-position`), behind the O(1) presence check:
-  false of every position where neither is stored."
+  visible from `context` types (`mentioned-position`), behind `quoted-declared?`: false
+  of every position where neither is stored."
   [kb pred context]
   (let [decls (declaration-reader kb pred context)]
     (if (and (symbol? pred) (not (sx/variable? pred))
-             (or (kind-stored? decls 'quotedArg) (kind-stored? decls 'quotedArgAndRest)))
+             (quoted-declared? kb decls))
       (mentioned-position decls)
       (constantly false))))
 
