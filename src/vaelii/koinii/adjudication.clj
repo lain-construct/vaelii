@@ -325,6 +325,15 @@
   (v/sentexes-matching kb (list (ballot-predicates stance) '?a (v/sentex-handle claim-handle))
                        '?ctx))
 
+(defn- proven-voter?
+  "Does `ballot` prove its voter: an attestation naming the voter (`identity/attested-by`),
+  or a `:principal` the daemon recorded from the voter's token-table grant
+  (docs/operations.md, the token table)?"
+  [kb ballot]
+  (let [voter (second (:sentence ballot))]
+    (or (= voter (id/attested-by kb (:id ballot)))
+        (= voter (:principal (v/provenance kb (:id ballot)))))))
+
 (defn tally
   "Count the ballots cast on the claim at `claim-handle`: `{:for n :against n}`, each a
   count of DISTINCT voters (`ballots`).
@@ -360,14 +369,15 @@
   Idempotent: re-running on an unchanged count re-rules the same side (a belief no-op
   returning the standing handle) and withdraws nothing, so a driver may poll it.
 
-  **Requires the `:proof-tier` identity policy, and an attestation on every ballot.**
+  **Requires the `:proof-tier` identity policy, and a proven voter on every ballot.**
   A majority ruling defeats the losing side, and a count by claimed voter name is
   spoofable, so this refuses (`:koinii/identity-unverified`) under any other policy, and
-  refuses when any ballot on the claim — spoiled ones included — carries no attestation
-  naming its voter (`identity/attested-by`), naming those ballots in `:unattested`.  Only
-  `cast-ballot` under a minted `:proof-tier` principal attests one; a ballot from
-  `channel/vote` or from the wire carries none (docs/koinii.md, *Identity and the write
-  boundary*).  `tally` is unrestricted."
+  refuses when any ballot on the claim — spoiled ones included — proves no voter
+  (`proven-voter?`), naming those ballots in `:unattested`.  `cast-ballot` under a
+  minted `:proof-tier` principal attests one, and a daemon holding a token table records
+  the `:principal` of a wire ballot; a ballot from `channel/vote` in process, or over a
+  daemon with no table, proves none (docs/koinii.md, *Identity and the write boundary*).
+  `tally` is unrestricted."
   [kb id claim-handle channel]
   (when-not (= :proof-tier id/*policy*)
     (throw (ex-info (str "koinii: majority resolution requires the :proof-tier identity "
@@ -377,15 +387,16 @@
                      :resolution :majority :dispute id})))
   (let [unattested (into #{}
                          (comp (mapcat #(ballots kb claim-handle %))
-                               (remove #(= (second (:sentence %)) (id/attested-by kb (:id %))))
+                               (remove #(proven-voter? kb %))
                                (map :id))
                          [:for :against])]
     (when (seq unattested)
       (throw (ex-info (str "koinii: majority resolution refused — " (count unattested)
-                           " ballot(s) on the claim carry no attestation naming their"
-                           " voter, so the count includes names nobody proved.  Cast"
-                           " ballots with cast-ballot under a :proof-tier principal, and"
-                           " retract the ones in :unattested")
+                           " ballot(s) on the claim carry no attestation and no"
+                           " daemon-recorded principal naming their voter, so the count"
+                           " includes names nobody proved.  Cast ballots with cast-ballot"
+                           " under a :proof-tier principal, or over a daemon holding a"
+                           " token table, and retract the ones in :unattested")
                       {:type :koinii/identity-unverified :policy :proof-tier
                        :resolution :majority :dispute id :unattested unattested}))))
   (let [{yes :for no :against :as counts} (tally kb claim-handle)

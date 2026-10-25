@@ -70,6 +70,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: koinii
 
+- **`adjudication/resolve-by-majority` counts a wire ballot whose daemon-recorded
+  `:principal` is its voter**, as it counts an attested one. A daemon holding a token
+  table records the principal; a ballot with neither stays refused.
+  [koinii.md](docs/koinii.md#identity-and-the-write-boundary)
+  *Migration:* none.
+
 - **koinii's surface is frozen in `test/golden/koinii-surface.edn`**, apart from the
   engine's goldens: the public vars of `vaelii.koinii.*` with their arglists, the refusal
   `:type`s its modules raise, and the arity of each term CxRegistry, CxSpeechActs and

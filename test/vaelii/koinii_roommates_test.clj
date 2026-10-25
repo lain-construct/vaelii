@@ -296,3 +296,55 @@
                             "Ciel's endorsement of the dog"))))))))
           (finally (ch/unsubscribe sub))))
       (finally (.stop server)))))
+
+;; ── over the wire, under the daemon's token table ─────────────────────────
+;;
+;; Each roommate holds a token whose grant writes only their own context; the operator
+;; holds the admin token and runs the joins.  The boundary holds against a plain client
+;; that bypasses `channel`, and the ballots each roommate casts over their own connection
+;; carry the principal the daemon recorded, so the majority count rules.
+
+(def ^:private roommate-table
+  {"tok-ava"  {:principal 'AgentAva  :writes #{'CxAva}}
+   "tok-ben"  {:principal 'AgentBen  :writes #{'CxBen}}
+   "tok-ciel" {:principal 'AgentCiel :writes #{'CxCiel}}
+   "tok-op"   {:principal 'AgentOperator :admin? true}})
+
+(defn- refusal
+  "The `:type` a daemon call refused with, or nil when it answered."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(tu/deftest-kb a-token-table-holds-each-roommate-to-their-own-context-and-proves-their-ballots
+  (let [^Server server (serve/start kb {:port 0 :token-table roommate-table})
+        conn #(vc/client "localhost" (serve/port server) {:token %})]
+    (try
+      (let [op     (ch/wire (conn "tok-op"))
+            seat   (fn [agent tok]
+                     (assoc (ch/join op 'CxApartment agent) :medium (ch/wire (conn tok))))
+            ava    (seat 'AgentAva "tok-ava")
+            ben    (seat 'AgentBen "tok-ben")
+            ciel   (seat 'AgentCiel "tok-ciel")
+            ava-c  (:conn (:medium ava))
+            ph     (ch/assert ava proposal)
+            ben-no (ch/dispute ben ph)]
+        (testing "a roommate's claim lands in their own context, recorded as theirs"
+          (is (= {:creator 'AgentAva :principal 'AgentAva}
+                 (select-keys (v/provenance kb ph) [:creator :principal]))))
+        (testing "a plain client holding Ava's token cannot write as anyone else"
+          (is (= :forbidden-context (refusal #(vc/assert ava-c (list 'allergicTo 'AgentBen 'DogDander) 'CxBen))))
+          (is (= :forbidden-context (refusal #(vc/retract! ava-c ben-no))))
+          (is (= :forbidden-context (refusal #(vc/assert ava-c (list 'registered_agent 'AgentAva) 'CxRegistry))))
+          (is (= :creator-mismatch (refusal #(vc/assert ava-c (list 'memberOf 'AgentAva 'Apartment) 'CxAva {:creator 'AgentBen}))))
+          (is (v/in? kb ben-no) "Ben's claim stands"))
+        (testing "the admin token writes CxRegistry"
+          (is (nil? (refusal #(vc/assert (conn "tok-op") (list 'registered_agent 'AgentAva) 'CxRegistry)))))
+        (testing "ballots cast over each roommate's own connection carry the recorded principal,
+                  so the count rules"
+          (ch/vote ava :for ph)
+          (ch/vote ben :against ph)
+          (ch/vote ciel :for ph)
+          (let [r (adj/resolve-by-majority kb (dispute-id kb) ph 'CxApartment)]
+            (is (= {:for 2 :against 1 :outcome :for} (select-keys r [:for :against :outcome])))
+            (is (not (d/disputed? kb proposal 'CxApartment))))))
+      (finally (.stop server)))))

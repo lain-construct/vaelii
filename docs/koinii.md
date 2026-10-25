@@ -170,17 +170,31 @@ The auth **strength** is conditional on policy (decision D4):
   it back, and the MAC fails on any other sentex, including the same sentence re-asserted
   under a new handle.
 
-**Proof-tier is in-process only.** `authenticate`, `ingest` and the attestation run in the
-process that holds the KB and the key, and nothing on the wire calls them. The daemon's wire
-contract carries no principal, so every agent on a `wire` channel is `:cooperative`. A `wire`
-write, and any `vaelii.client` call, reaches the daemon with the `:creator` and the context
-the caller sent, `CxRegistry` included, and a `retract!` from any connection removes any
-agent's claim. The refusals `channel` raises (`:koinii/registry-forbidden`,
+**Proof-tier attestation is in-process only.** `authenticate`, `ingest` and the
+attestation run in the process that holds the KB and the key, and nothing on the wire calls
+them. The refusals `channel` raises (`:koinii/registry-forbidden`,
 `:koinii/creator-mismatch`, `:koinii/speaker-mismatch`) are thrown in the caller's process
-before anything is sent, so a client that does not go through `channel` meets none of them;
-the daemon's one bearer token is the whole of its access control. That is the cooperative
-gap on the wire. A ballot is the one case the resolver can check: a wire ballot carries no
-attestation, so `resolve-by-majority` refuses a count that includes one.
+before anything is sent, so a client that does not go through `channel` meets none of them.
+
+**On the wire the daemon's token table is the write boundary**
+([operations.md](operations.md#the-token-table)). The deployment gives each agent a token
+whose grant names the agent id as `:principal` and the agent's own context as `:writes`,
+built with `identity/context-for` — `{"<token>" {:principal AgentAtlas :writes
+#{CxAtlas}}}` — and gives the operator an `:admin? true` token. The daemon then refuses a
+write into any other context, `CxRegistry` included (`:forbidden-context`), a `retract!` or
+`edit!` of another agent's claim, and a `:creator` other than the agent's
+(`:creator-mismatch`), whichever client sent it. `join` writes the placement edges into
+`CxUniverse`, so the operator runs each `join` over the admin token, and the agent's process
+uses the handle `join` returns — `{:medium :agent :context :channel}` — with a `wire`
+medium over its own connection. With no table, the daemon's one bearer token is the whole
+of its access control: a `wire` write reaches the daemon with the `:creator` and the
+context the caller sent, and a `retract!` from any connection removes any agent's claim.
+
+**A wire ballot proves its voter by the recorded `:principal`.** Under the table the daemon
+records the presenting token's principal in each write's provenance, and no request may
+name that key, with or without a table. `resolve-by-majority` counts a ballot whose recorded
+`:principal` is its voter as it counts an attested one. A wire ballot cast through a daemon
+with no table proves no voter, and the resolver refuses a count that includes one.
 
 **The key** is `identity/*attest-key*`: a byte array or a string of at least 32 bytes, or
 nil (the default) for 32 random bytes drawn once per process. A deployment sets it at start
@@ -333,10 +347,12 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   which is exactly the trust-weighting the identity design forbids, so `resolve-by-majority`
   refuses there (`:koinii/identity-unverified`). Counting stays open for transparency; only
   the ruling requires the proof-tier policy. Under `:proof-tier` it also refuses when any
-  ballot on the claim, a spoiling one included, carries no attestation naming its voter,
-  and names those ballots in `:unattested`. `adjudication/cast-ballot` casts the attested ballot through
-  `identity/ingest`; `channel/vote` and the wire cast unattested ones. One unattested ballot
-  therefore blocks the ruling until it is retracted.
+  ballot on the claim, a spoiling one included, carries neither an attestation nor a
+  daemon-recorded `:principal` naming its voter, and names those ballots in `:unattested`. `adjudication/cast-ballot` casts the attested ballot through
+  `identity/ingest`, and a daemon holding a token table records the `:principal` that
+  stands in for an attestation; `channel/vote` in process, and over a daemon with no table,
+  casts ballots that prove no voter. One such ballot therefore blocks the ruling until it is
+  retracted.
 
 **Trust-resolve** — automatic resolution by source trust — is deliberately out of scope for
 this layer; it is engine-side reputation work, and reaching for it here would resolve
