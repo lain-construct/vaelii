@@ -235,6 +235,27 @@
             (let [worlds (set (map (fn [l] (set (map #(nth % 2) (:true l)))) (:labelings r)))]
               (is (= #{#{'red} #{'blue}} worlds)))))))))
 
+(deftest grounding-reads-a-transitive-closure-from-a-bound-end-and-reports-an-open-one
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [ancestorOf heir lineage A B C]
+      (doseq [s [(list 'transitive ancestorOf) (list ancestorOf A B) (list ancestorOf B C)]]
+        (v/assert kb s 'CxUniverse))
+      (testing "one bound end: the closure answers, so A two edges up is a choice"
+        (let [rule (v/assert kb (list 'set/assumptionRule
+                                      (list 'implies (list ancestorOf '?x C) (list heir '?x)))
+                             'CxUniverse)
+              r    (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan") :one) 'CxUniverse)]
+          (is (= #{(list heir A) (list heir B)} (set (:choices r))))
+          (is (= [] (:unenumerated r)))
+          (v/retract! kb rule)))
+      (testing "both ends open: the stored edges answer, and the result names the predicate"
+        (v/assert kb (list 'set/assumptionRule
+                           (list 'implies (list ancestorOf '?x '?y) (list lineage '?y '?x)))
+                  'CxUniverse)
+        (let [r (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan") :one) 'CxUniverse)]
+          (is (= #{(list lineage B A) (list lineage C B)} (set (:choices r))))
+          (is (= [ancestorOf] (:unenumerated r))))))))
+
 (deftest a-constraint-body-reaches-a-prover
   ;; `(forbidden ?x)` has no stored fact and no rule; only the registered prover answers it
   (when asp?

@@ -388,7 +388,13 @@ therefore fetches one record per solve rule in that ancestor set and none of its
    partition, `(lessThan ?x 10)` — is a legal antecedent, not something the caller must
    pre-project into stored candidate facts. (The leaf costs a prover-answered conjunct by
    the prover's own `est-bindings`, so an open relation plans last rather than enumerating
-   first.) A rule's `exceptWhen` guard is honored per binding, evaluated in `Base` —
+   first.) A `transitive` predicate's literal answers from the closure once the join has
+   bound one end, as at `query`: `(ancestorOf ?x Cal)` grounds every `?x` above `Cal`.
+   With both ends still open when the join reaches it, the literal answers from the
+   stored edges alone ([taxonomy.md](taxonomy.md#predicate-metadata)), and the result's
+   `:unenumerated` names the predicate (`:unenumerated-in-guards` the subset read inside
+   an `exceptWhen` guard). A conjunct that binds one end, such as `(and (person ?y)
+   (ancestorOf ?x ?y))`, makes the join read the closure. A rule's `exceptWhen` guard is honored per binding, evaluated in `Base` —
    grounding is a fourth consumer of a rule's firing beside the three chainers, and a
    choice the exception holds of is not offered. That is how a candidate menu is
    filtered declaratively ("any cell may take any value, except one already ruled

@@ -606,7 +606,8 @@
   Returns `{:program p :head->id {sentence id} :derived->id {sentence id}}`, or nil with no
   choice head.  The ids are program-local, numbered over the heads sorted by
   `nm/print-key`, then the derived atoms in the same order; `edge/translate` orders the
-  encoding by them.  Throws `:choice-head-not-positive` for a negated head."
+  encoding by them.  Eager, so `provers/with-unenumerated` around it sees every join.
+  Throws `:choice-head-not-positive` for a negated head."
   [kb base]
   (let [heads (nm/sort-by-content-key nm/print-key compare (ground-heads kb base))]
     ;; a negated head would read back from `(not head)` with its polarity flipped
@@ -637,9 +638,9 @@
                                  (distinct))
                            insts)
             content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) atom->id)
-            ngoods   (concat (nogoods kb base head->id)
-                             (constraint-nogoods kb base atom->id dpreds))
-            cards    (cardinality-constraints kb base atom->id)
+            ngoods   (into [] cat [(nogoods kb base head->id)
+                                   (constraint-nogoods kb base atom->id dpreds)])
+            cards    (vec (cardinality-constraints kb base atom->id))
             program  (solve/program (set (vals head->id)) ngoods content cards derivs)]
         {:program program :head->id head->id :derived->id (apply dissoc atom->id heads)}))))
 
@@ -678,8 +679,10 @@
   with no backend leaves the previous run standing.
 
   Returns `{:base :into :choices [..] :derived [..] :labelings [{:context :true [..]
-  :false [..]}] :count n :ground-ms :translate-ms :solve-ms}`, `:context` nil under
-  `:one` / `:sat`, `:best-effort? true` when a stopped solve held a model.  `:count 0`
+  :false [..]}] :count n :unenumerated [..] :unenumerated-in-guards [..] :ground-ms
+  :translate-ms :solve-ms}`, `:context` nil under `:one` / `:sat`, `:best-effort? true`
+  when a stopped solve held a model.  `:unenumerated` names each transitive predicate the
+  grounding read with both arguments open (`provers/*unenumerated*`).  `:count 0`
   carries a `:reason`: `:no-choices`, `:no-backend`, or `:unsatisfiable` under `:one` /
   `:sat`.  See docs/solving.md, \"`(do/label Base Into [mode])`\"."
   ([kb base into-cx] (label kb base into-cx :all))
@@ -687,7 +690,7 @@
    (let [single? (contains? #{:one :sat} mode)
          _       (when-not single? (refuse-blocked-run! kb base into-cx))
          t0      (System/nanoTime)
-         built   (build kb base)
+         [built unenumerated] (provers/with-unenumerated #(build kb base))
          t1      (System/nanoTime)]
      (if-let [{:keys [program head->id derived->id]} built]
        (let [atom->id (merge head->id derived->id)
@@ -702,7 +705,8 @@
                (one-optimum program (= mode :one))     ; :sat ⇒ keep-belief off (plain SAT)
                (let [ta (System/nanoTime), o (edge/enumerate-optima program)]
                  {:optima o :solve-ms (/ (- (System/nanoTime) ta) 1e6)}))
-             timing   {:ground-ms (/ (- t1 t0) 1e6) :translate-ms translate-ms :solve-ms solve-ms}
+             timing   (merge unenumerated
+                             {:ground-ms (/ (- t1 t0) 1e6) :translate-ms translate-ms :solve-ms solve-ms})
              labeling (fn [chosen] {:true  (into [] (map id->head) chosen)
                                     :false (into [] (map id->head) (remove (set chosen) all-ids))})]
          (cond
@@ -743,8 +747,9 @@
                              optima))}
                       timing)))))
        (do (when-not single? (clear-run! kb base into-cx))
-           {:base base :into into-cx :count 0 :choices []
-            :reason :no-choices :labelings []})))))
+           (merge {:base base :into into-cx :count 0 :choices []
+                   :reason :no-choices :labelings []}
+                  unenumerated))))))
 
 ;; ---- do/classify: gather brave/cautious over the labelings ---------------
 

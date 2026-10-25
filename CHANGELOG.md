@@ -41,6 +41,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: ASP
 
+- **`do/label`'s result carries `:unenumerated` and `:unenumerated-in-guards`**, naming
+  each `transitive` predicate the grounding read with both arguments open, where the
+  stored edges answer and the closure does not.
+  [solving.md](docs/solving.md#dolabel-base-into-mode)
+  *Migration:* none.
+
 - **`VAELII_CLASP_BIN` (or `-Dvaelii.clasp.bin`) names the executable the subprocess
   backend runs**, and the `clingo` executable serves in clasp's place: a machine with
   `clingo` alone, or `pip install clingo` behind a wrapper script, gets the edge solver

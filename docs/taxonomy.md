@@ -1599,7 +1599,7 @@ forced-monotonic and is weighed as a member of an inherited nogood.
   So `(P ?x ?y)` and a loop over `(P a ?y)` give different answers, and that is the one
   place a marker's arms disagree. It is the trade the quadratic buys. A report read says
   when a search took it: `query-status`, `search-tree`, `compare-tacticians`, `ask-within`,
-  `prove-within` and `explain-levels` name `P` in `:unenumerated`, and a status they report
+  `prove-within`, `explain-levels` and `do/label` name `P` in `:unenumerated`, and a status they report
   is `:incomplete` ([anytime.md](anytime.md#where-the-collector-lives)).
 
   #### What one hop costs, and where
