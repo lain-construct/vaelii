@@ -92,6 +92,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: vocabulary and reasoning
 
+- **`time.txt` ships `IntervalBeforeFn` and `IntervalAfterFn`, the time before and the
+  time after a moment, with their corresponding predicates `intervalBeforeOf` and
+  `intervalAfterOf`.** `(IntervalBeforeFn W)` is every moment before W and
+  `(IntervalAfterFn W)` is W and every moment after it: every interval includes its start
+  and excludes its end, so the two meet at W and W belongs to the after side alone. Each
+  is an `unreifiable_function` from a `time_point` to a `time_interval`, and a
+  `set/backwardRule` gives its one bound, `(endOf (IntervalBeforeFn W) W)` and
+  `(startOf (IntervalAfterFn W) W)`, when `(time_point W)` is believed. An `(InstantFn …)`
+  term answers no `time_point` query, so for one the bound is stated.
+  [time.md](docs/time.md#naming-an-interval-the-calendar-constructors).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 - **`time.txt` ships `CxTimeFn`, the context of a monad at a time, with the monad
   vocabulary of issue #181: `monad_context`, `genlMonad`, `CxMonadOfFn`/`cxMonadOf` and
   `CxTimeOfFn`/`cxTimeOf`.** `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of
