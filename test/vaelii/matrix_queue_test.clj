@@ -101,6 +101,14 @@
         (slots dir "printf 'live\\n' >|\"$(matrix_state_dir)/lock\"")
         (slots dir "lock_break_stale \"$(matrix_state_dir)/lock\" stale")
         (is (= "live" (lock)) "a lock taken since the read stays")
+        (slots dir "rm \"$(matrix_state_dir)/lock\" && : >\"$(matrix_state_dir)/lock\"")
+        (slots dir "lock_break_stale \"$(matrix_state_dir)/lock\" ''")
+        (is (true? (.exists (io/file dir ".git/vaelii-matrix/lock")))
+            "an empty lock under a minute old is a take in progress, and stays")
+        (slots dir "touch -t 202001010000 \"$(matrix_state_dir)/lock\"")
+        (slots dir "lock_break_stale \"$(matrix_state_dir)/lock\" ''")
+        (is (false? (.exists (io/file dir ".git/vaelii-matrix/lock")))
+            "an empty lock a minute old is a taker killed before its write, and is broken")
         (is (= "" (slots dir "ls \"$(matrix_state_dir)\" | grep -F .stale. || true"))
             "no renamed copy is left behind")))))
 
@@ -128,6 +136,33 @@
         (is (= "" (slots dir {"GATE_MAX_CONCURRENT" "0" "GATE_NO_WAIT" "1"}
                          "gate_slot_take lein gate && printf %s \"$GATE_SLOT\""))
             "a cap of 0 takes no slot")))))
+
+(deftest the-locks-take-and-restore-without-hard-links
+  (with-repo
+    (fn [^File dir]
+      ;; Android refuses link(2); this `ln` refuses every call the same way
+      (let [stub (io/file dir "nolink/ln")
+            env' {"PATH" (str (tu/posix-path (.getParentFile stub)) ":" (get env "PATH"))}]
+        (io/make-parents stub)
+        (spit stub (str "#!" @bash-path "\nexit 1\n"))
+        (.setExecutable stub true)
+        (slots dir env' "printf 'live\\n' >|\"$(matrix_state_dir)/lock\"")
+        (slots dir env' "lock_break_stale \"$(matrix_state_dir)/lock\" stale")
+        (is (= "live" (slots dir "cat \"$(matrix_state_dir)/lock\""))
+            "a lock taken since the read goes back")
+        (is (= "" (slots dir env' (str "matrix_lock_take abc /r"
+                                       " && [[ \"$(cut -d' ' -f2 \"$(matrix_state_dir)/lock\")\" == abc ]]"
+                                       " || printf refused")))
+            "the matrix lock breaks a dead holder's line and is taken")
+        ;; the take runs beside a watchdog, so a take that never succeeds fails in 20s
+        ;; rather than waiting forever on the dead holder it keeps breaking
+        (is (= "gate-lock"
+               (slots dir (assoc env' "GATE_MAX_CONCURRENT" "1")
+                      (str "printf '9999999 abc 0 user:c lein gate\\n' >|\"$(matrix_state_dir)/gate-lock\""
+                           " && { gate_slot_take lein gate && basename \"$GATE_SLOT\"; } & p=$!"
+                           "; { sleep 20; kill $p; } 2>/dev/null & w=$!"
+                           "; wait $p; kill $w 2>/dev/null; true")))
+            "a dead holder's slot is broken and taken")))))
 
 (deftest the-configurations-a-yield-stopped-are-listed-until-a-run-takes-them
   (with-repo

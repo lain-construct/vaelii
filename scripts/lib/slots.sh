@@ -135,15 +135,26 @@ matrix_state_dir() {
   printf '%s/vaelii-matrix\n' "$d"
 }
 
+# lock_create <lock file> <line> creates the lock file holding <line>, or returns 1 when the
+# file exists.  noclobber opens it O_CREAT|O_EXCL, so of two takers only one creates it.
+# Every take and restore goes through here rather than `ln`, which Android refuses: a
+# lock file is created before its line is written, so an empty one is a take in progress.
+lock_create() {
+  ( set -o noclobber; printf '%s\n' "$2" >"$1" ) 2>/dev/null
+}
+
 # lock_break_stale <lock file> <line> removes the lock file when it still holds <line>, the
-# stale lock read before.  The rename to a name of this shell's own is atomic, so of two
-# waiters breaking one stale lock only one moves it.  A file that no longer holds <line>
-# is a lock taken since the read, and goes back with `ln`, which refuses to overwrite a
-# lock taken in between.
+# stale lock read before.  An empty <line> is a take in progress, and is left alone until
+# the file is a minute old, which outlasts any taker not killed between create and write.
+# The rename to a name of this shell's own is atomic, so of two waiters breaking one stale
+# lock only one moves it.  A file that no longer holds <line> is a lock taken since the
+# read, and goes back through `lock_create`, which refuses to overwrite a lock taken in
+# between.
 lock_break_stale() {
   local held="$1.stale.$$"
+  [[ -z "$2" && -n "$(find "$1" -maxdepth 0 -mmin -1 2>/dev/null)" ]] && return 0
   mv "$1" "$held" 2>/dev/null || return 0
-  [[ "$(cat "$held" 2>/dev/null)" == "$2" ]] || ln "$held" "$1" 2>/dev/null
+  [[ "$(cat "$held" 2>/dev/null)" == "$2" ]] || lock_create "$1" "$(cat "$held")"
   rm -f "$held"
 }
 
@@ -162,13 +173,12 @@ matrix_lock_holder() {
 }
 
 # matrix_lock_take <revision> <run dir> takes the lock for this shell, or returns 1 while
-# another matrix holds it.  noclobber makes the create atomic.
+# another matrix holds it.
 matrix_lock_take() {
   local dir
   dir=$(matrix_state_dir) || return 0
   matrix_lock_holder >/dev/null
-  ( set -o noclobber; printf '%s %s %s %s\n' "$$" "$1" "$(date '+%s')" "$2" >"$dir/lock" ) \
-    2>/dev/null || return 1
+  lock_create "$dir/lock" "$$ $1 $(date '+%s') $2" || return 1
   rm -f "$dir/jobs"
 }
 
@@ -348,30 +358,25 @@ lock_describe() {
 # of `<name>.1` … `<name>.<slots>`. It sets LOCK_FILE to the file taken and LOCK_WAITED to
 # the seconds it waited. While every slot is held it waits, naming the holders once a
 # minute, or returns 75 when the variable named <no-wait variable> is non-empty. Each
-# attempt writes the line to a file of this shell's own and hard-links it into place: `ln`
-# refuses an existing target, so the take is atomic and no reader sees a lock file without
-# its line.
+# attempt is one `lock_create` per slot.
 lock_take() {
   local name="$1" n="$2" re="$3" nowait="$4" noun="$5"; shift 5
-  local dir own f i held state waited=0 files=()
+  local dir line f i held state waited=0 files=()
   LOCK_FILE=''; LOCK_WAITED=0
   dir=$(matrix_state_dir) || return 0
   if (( n == 1 )); then files=("$dir/$name"); state="the $noun is held"; else
     for ((i = 1; i <= n; i++)); do files+=("$dir/$name.$i"); done
     state="all $n ${noun}s are held"
   fi
-  own="$dir/$name.take.$$"
   while :; do
-    printf '%s %s %s %s %s\n' "$$" "$(git rev-parse --short HEAD 2>/dev/null)" \
-      "$(date '+%s')" "$(matrix_requester)" "$*" >|"$own"
+    line="$$ $(git rev-parse --short HEAD 2>/dev/null) $(date '+%s') $(matrix_requester) $*"
     for f in "${files[@]}"; do
       lock_holder "$f" "$re" >/dev/null
-      if ln "$own" "$f" 2>/dev/null; then
-        rm -f "$own"; LOCK_FILE=$f; LOCK_WAITED=$waited
+      if lock_create "$f" "$line"; then
+        LOCK_FILE=$f; LOCK_WAITED=$waited
         return 0
       fi
     done
-    rm -f "$own"
     held=$(for f in "${files[@]}"; do lock_holder "$f" "$re"; done)
     if [[ -n "$held" ]]; then
       if [[ -n "${!nowait:-}" ]]; then
