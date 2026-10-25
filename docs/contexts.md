@@ -155,10 +155,9 @@ Data hangs below CxWell.
     types position 1 `temporal` and position 2 `information`, so a tangible paper copy
     and an intangible event, e.g. a bird's chirp, are both accepted; not functional in
     position 2, so one carrier holds more than one piece of information.
-    `(encodes ?info1 ?info2)` relates one piece of information to another that reading
-    it under its code gives, e.g. a ciphertext to its plaintext. `subInformationOf`
-    specializes the upper ontology's `intangiblePartOf`, `tangiblePartOf`'s twin for things
-    without mass, for a chapter in a book or a frame in a video.
+    `subInformationOf` specializes the upper ontology's `intangiblePartOf`,
+    `tangiblePartOf`'s twin for things without mass, for a chapter in a book or a frame
+    in a video.
     `(agentClaims ?agent (sentexHandle H))` says that `?agent` presents sentex H as
     true; no rule concludes it from `carries`. `(dataContent ?info ?string)` is
     functional over the exact symbol sequence `?info` holds, and

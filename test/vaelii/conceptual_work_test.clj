@@ -3,9 +3,9 @@
 (ns vaelii.conceptual-work-test
   "The content, carrier and claim vocabulary of CxTra: `conceptual_work` below
   `information`, `carries` from a temporal carrier to the information it holds,
-  `encodes` from one piece of information to another, `intangiblePartOf` and its spec
-  `subInformationOf`, `agentClaims` from an agent to a sentex handle, and `dataContent` /
-  `propositionalContent`, stated directly and never derived. `carries` admits both a
+  `intangiblePartOf` and its spec `subInformationOf`, `agentClaims` from an agent to a
+  sentex handle, and `dataContent` / `propositionalContent`, stated directly and never
+  derived. `carries` admits both a
   tangible and an intangible carrier; nothing concludes `agentClaims` from `carries`, and
   nothing derives either content relation from an information's author, encoding or
   context. The red tests below each name the link a future derivation would need and show
@@ -48,7 +48,7 @@
     (is (= 1 (count (v/sentexes-matching kb (list 'comment k '?c) CPT)))
         (str k " carries one comment in the theory"))
     (is (holds-genl k 'thing CPT) (str k " reaches thing from the theory")))
-  (doseq [p '[carries encodes subInformationOf agentClaims dataContent propositionalContent]]
+  (doseq [p '[carries subInformationOf agentClaims dataContent propositionalContent]]
     (is (holds-ask (list 'binary_predicate p) CPT) (str p " is binary in the theory"))
     (is (= 1 (count (v/sentexes-matching kb (list 'comment p '?c) CPT)))
         (str p " carries one comment in the theory")))
@@ -61,9 +61,6 @@
   (testing "carries types a temporal carrier against the information it holds"
     (is (holds-ask '(arg carries 1 temporal) CPT))
     (is (holds-ask '(arg carries 2 information) CPT)))
-  (testing "encodes relates one piece of information to another, never a carrier to its content"
-    (is (holds-ask '(arg encodes 1 information) CPT))
-    (is (holds-ask '(arg encodes 2 information) CPT)))
   (testing "intangiblePartOf specializes partOf and subInformationOf specializes it again"
     (is (holds-genl 'intangiblePartOf 'partOf CPT))
     (is (holds-genl 'subInformationOf 'intangiblePartOf CPT))
@@ -119,23 +116,6 @@
       (is (not (holds-ask (list 'instantNotAfter (list 'EndFn Article) (list 'EndFn Burning)) CxDesk))))
     (testing "the carrier still carries the work"
       (is (holds-ask (list 'carries PaperCopy Article) CxDesk)))))
-
-;; ---- encodes: information to information, never a carrier to its content -------------
-
-(tu/deftest-kb encodes-relates-information-to-information-not-a-carrier-to-its-content
-  (tu/with-terms [CxDesk Ciphertext Plaintext Disk]
-    (desk! CxDesk)
-    (tu/with-entailing
-      (v/assert kb (list 'conceptual_work Plaintext) CxDesk)
-      (v/assert kb (list 'conceptual_work Ciphertext) CxDesk)
-      (v/assert kb (list 'encodes Ciphertext Plaintext) CxDesk)
-      (v/assert kb (list 'tangible Disk) CxDesk)
-      (v/assert kb (list 'carries Disk Ciphertext) CxDesk))
-    (testing "the ciphertext encodes the plaintext"
-      (is (holds-ask (list 'encodes Ciphertext Plaintext) CxDesk)))
-    (testing "the disk carries the ciphertext, and nothing concludes it carries the plaintext"
-      (is (holds-ask (list 'carries Disk Ciphertext) CxDesk))
-      (is (not (holds-ask (list 'carries Disk Plaintext) CxDesk))))))
 
 ;; ---- intangiblePartOf and subInformationOf -------------------------------------------
 
