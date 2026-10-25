@@ -346,3 +346,56 @@
         ["a dated interval starting at w does not start strictly-after-w, though its start shares the coordinate w"
          (list 'starts dated-starting-at-w strictly-after-w) :false
          "needs strictly-after-w's open-start marker to see w is excluded, not merely unknown"]]))))
+
+;; ---- open-ended stretches: a status still current, and the same status capped ---
+;;
+;; prStatus's own prose for a status still current reads "Draft from Oct 1 until Now" and
+;; "Open from Oct 3 until Now": a stretch with a stated start and no stated end at all,
+;; exactly what `transition!` above writes for whichever status is current — no
+;; `IntervalBeforeFn`, no watermark, no closed/open bound marker, just an ordinary
+;; `startOf` with nothing said about where the stretch ends.  Once a later transition
+;; caps it, the same stretch reads "Draft from Oct 1 until Oct 3": the ordinary half-open
+;; `[Oct 1, Oct 3)` the rest of this namespace already uses.
+;;
+;; Every row below is red for the prior reason `interval-quartet!`'s comment documents,
+;; not the closed/open-bound question that comment goes on to: `:allen`/`:point`,
+;; registered, do not turn a stored `startOf`/`endOf` pair into a derivable Allen relation
+;; for a non-calendar individual at all, so a relation between two named stretches
+;; answers `:unknown` today whatever it asks — including every row here, where both ends
+;; in question (the open stretches' missing end, the capped stretches' ordinary stated
+;; one) are each exactly the half-open shape the quartet's `strictly-before-w`/`after-w`
+;; members already use without needing any marker at all.
+(defn- open-ended-stretches!
+  "Stands up `draft-open` and `open-open` in `kb`, each with only a stated `startOf` and no
+  `endOf` — the \"until Now\" shape for whichever status is current — `draft-capped`, the
+  same Draft narrowed to end where Open began, and `wider`, an ordinary dated interval
+  from 30 September to 4 October to compare `draft-capped` against for containment."
+  [kb {:keys [draft-open open-open draft-capped wider]}]
+  (doseq [i [draft-open open-open draft-capped wider]]
+    (v/assert kb (list 'time_interval i) U))
+  (v/assert kb (list 'startOf draft-open (at 1)) U)
+  (v/assert kb (list 'startOf open-open (at 3)) U)
+  (v/assert kb (list 'startOf draft-capped (at 1)) U)
+  (v/assert kb (list 'endOf draft-capped (at 3)) U)
+  (v/assert kb (list 'startOf wider (list 'InstantFn 2026 9 30 0 0 0)) U)
+  (v/assert kb (list 'endOf wider (at 4)) U))
+
+(tu/deftest-kb ^:red open-ended-stretches-overlap-until-a-later-transition-caps-them
+  ;; See the comment above open-ended-stretches! for the one reason every row here is red.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [DraftOpen OpenOpen DraftCapped Wider]
+    (open-ended-stretches! kb {:draft-open DraftOpen :open-open OpenOpen
+                               :draft-capped DraftCapped :wider Wider})
+    (run-allen-table!
+     kb U
+     [["uncapped Draft and uncapped Open overlap: neither stretch has a stated end, so they are not temporally disjoint"
+       (list 'temporallyDisjoint DraftOpen OpenOpen) :false]
+
+      ["capped Draft meets Open: Draft's stated end is exactly Open's stated start"
+       (list 'meets DraftCapped OpenOpen) :true]
+
+      ["capped Draft and Open are temporally disjoint: meets is one of the relations the complement counts"
+       (list 'temporallyDisjoint DraftCapped OpenOpen) :true]
+
+      ["capped Draft sits properly inside the wider 30 September-4 October stretch"
+       (list 'during DraftCapped Wider) :true]])))
