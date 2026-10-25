@@ -191,3 +191,158 @@
         (is (= #{(slice CxGitHub MergedStretch)} (true-in kb (status Merged))))
         (is (true? (v/ask? kb (list 'instantNotBefore (list 'EndFn MergedStretch) (at 11)) U)))
         (is (empty? (v/ask kb (list 'endOf MergedStretch '?i) U)))))))
+
+;; ---- the interval quartet: Allen relations that need w's closed bound -----------
+;;
+;; Iris proposed four readings of "before/after a moment w" for the watermark style
+;; above: `IntervalStrictlyBeforeFn`/`IntervalBeforeFn` and their after-facing mirrors
+;; `IntervalStrictlyAfterFn`/`IntervalAfterFn` (2026-10-24). None of the four is in the
+;; shipped KB. `time.txt`'s `startOf`/`endOf` are half-open — [start, end) — so
+;; `IntervalStrictlyBeforeFn w` (no start, excludes w) and `IntervalAfterFn w` (no end,
+;; includes w) are statable today with the ordinary convention: an ordinary `endOf` or
+;; `startOf` fact at `w` says exactly what each means. `IntervalBeforeFn w` (no start,
+;; INCLUDES w) and `IntervalStrictlyAfterFn w` (no end, EXCLUDES w) are not: an ordinary
+;; `endOf`/`startOf` fact at `w` would say the half-open opposite of what each means, so
+;; the only thing today's vocabulary can truthfully say of either is an `includesInstant`
+;; membership fact — option 🇦 of the two the PR weighed for them. No bound, so no Allen
+;; relation reading `startOf`/`endOf` can place either one against anything. A closed/open
+;; bound marker (an `endOfInclusive`-style predicate nobody has written, option 🇨) would
+;; let the same queries succeed by handing the algebra the missing endpoint.
+;;
+;; `interval-quartet!` below states exactly what today's vocabulary can truthfully state —
+;; the 🇦 shape, for `before-w` and `strictly-after-w` — and every `is` in the red group
+;; names the 🇨 answer: the one a closed/open marker would make true, that membership alone
+;; cannot derive.
+;;
+;; A prior gap, found by running this group: the shipped `:allen`/`:point` reasoners do
+;; not, today, turn an ORDINARY stored `startOf`/`endOf` pair into a derivable Allen
+;; relation for a non-calendar individual at all — `registering-allen-makes-an-entailed-
+;; relation-derivable` (public_api_test.clj) composes `before` from two *stated* `before`
+;; facts, never from endpoints, and `a-calendar-term-stops-a-calculus-running-alone`
+;; (calendar_test.clj) gets its endpoint-to-relation derivation from the `:calendar`
+;; channel reading calendar-constructor fields structurally, a channel `IntervalBeforeFn`
+;; and friends do not have. So `strictly-before-w-meets-after-w` below — which needs
+;; nothing but the quartet's two ordinary, already-statable bounds — is red for this
+;; reason alone, before the closed/open-marker question ever comes up; every row in the
+;; red group after it is red for this reason too, and the rows that single out
+;; `before-w`/`strictly-after-w` would need the marker *as well*, once this one is fixed.
+(defn- interval-quartet!
+  "Stands up the quartet of `w`-relative intervals in `kb`, plus two ordinary dated
+  intervals to compare them against. `strictly-before-w` gets an ordinary `endOf` at `w`
+  (excludes it); `after-w` gets an ordinary `startOf` at `w` (includes it) — both
+  statable with today's half-open vocabulary alone. `before-w` gets only the
+  `includesInstant` membership fact at `w`, all today's vocabulary can truthfully say of
+  a closed bound; `strictly-after-w` gets nothing stated at all, for the mirror reason.
+  `dated-ending-at-w` is the ordinary interval `[2000-01-01, w)`; `dated-starting-at-w` is
+  `[w, 2027-01-01)`."
+  [kb {:keys [w strictly-before-w before-w after-w strictly-after-w
+              dated-ending-at-w dated-starting-at-w]}]
+  (doseq [i [strictly-before-w before-w after-w strictly-after-w
+             dated-ending-at-w dated-starting-at-w]]
+    (v/assert kb (list 'time_interval i) U))
+  (v/assert kb (list 'endOf strictly-before-w w) U)
+  (v/assert kb (list 'startOf after-w w) U)
+  (v/assert kb (list 'includesInstant before-w w) U)
+  (v/assert kb (list 'startOf dated-ending-at-w (list 'InstantFn 2000 1 1 0 0 0)) U)
+  (v/assert kb (list 'endOf dated-ending-at-w w) U)
+  (v/assert kb (list 'startOf dated-starting-at-w w) U)
+  (v/assert kb (list 'endOf dated-starting-at-w (list 'InstantFn 2027 1 1 0 0 0)) U))
+
+(defn- quartet-at
+  "The quartet's four `IntervalBeforeFn`-family terms at the instant `w`, keyed the way
+  `interval-quartet!` wants, plus `w` and the caller's two dated-interval individuals."
+  [w dated-ending-at-w dated-starting-at-w]
+  {:w w
+   :strictly-before-w (list 'IntervalStrictlyBeforeFn w)
+   :before-w          (list 'IntervalBeforeFn w)
+   :after-w           (list 'IntervalAfterFn w)
+   :strictly-after-w  (list 'IntervalStrictlyAfterFn w)
+   :dated-ending-at-w dated-ending-at-w
+   :dated-starting-at-w dated-starting-at-w})
+
+(defn- run-allen-table!
+  "Runs `table` — each row `[desc goal expected reason]` — as one `is` per row inside a
+  `testing` named `desc`, read against `kb` at `ctx`. `reason` is not asserted: it is here
+  so a failing row's red reason reads next to the row that fails."
+  [kb ctx table]
+  (doseq [[desc goal expected _reason] table]
+    (testing desc
+      (is (= expected (verdict kb goal ctx))))))
+
+(tu/deftest-kb ^:red strictly-before-w-meets-after-w
+  ;; Meant as the control: this needs only the quartet's two ordinary-bound members, not
+  ;; the closed/open marker the red group below depends on — `meets` reads only
+  ;; `(endOf strictly-before-w)` and `(startOf after-w)`, both statable today with the
+  ;; ordinary half-open convention, no marker involved. It is red anyway, confirmed by
+  ;; running it: `:allen`/`:point`, registered, do not derive a relation from a stored
+  ;; `startOf`/`endOf` pair on a non-calendar individual today (see the comment above) —
+  ;; only compose one from other *stated* relations, or read one off a calendar term's
+  ;; fields. So this is red for that prior reason, and would still need fixing even
+  ;; though it names no closed/open bound at all.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [DatedEndingAtW DatedStartingAtW]
+    (let [w (at 6)
+          {:keys [strictly-before-w after-w] :as terms}
+          (quartet-at w DatedEndingAtW DatedStartingAtW)]
+      (interval-quartet! kb terms)
+      (is (= :true (verdict kb (list 'meets strictly-before-w after-w) U))))))
+
+(tu/deftest-kb ^:red interval-quartet-allen-relations-need-ws-closed-bound-marker
+  ;; Every row names the 🇨 answer — the one before-w's closed bound or strictly-after-w's
+  ;; open bound would settle — which today's vocabulary cannot state (interval-quartet!'s
+  ;; docstring says why). Confirmed red today, like the control above, and for the same
+  ;; prior reason first: `:allen`/`:point` do not yet turn a stored endpoint pair into an
+  ;; Allen relation for a non-calendar individual at all, so every row is unknown before
+  ;; the closed/open-marker question is even reached.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [DatedEndingAtW DatedStartingAtW]
+    (let [w (at 6)
+          {:keys [strictly-before-w before-w after-w strictly-after-w
+                  dated-ending-at-w dated-starting-at-w] :as terms}
+          (quartet-at w DatedEndingAtW DatedStartingAtW)]
+      (interval-quartet! kb terms)
+      (run-allen-table!
+       kb U
+       [["before-w meets strictly-after-w: the two halves still partition the line at w"
+         (list 'meets before-w strictly-after-w) :true
+         "needs before-w's closed marker and strictly-after-w's open marker; today neither has a stated bound for :allen to place"]
+
+        ["before-w does not meet after-w: they overlap at exactly the instant w"
+         (list 'meets before-w after-w) :false
+         "before-w's bound is membership-only; :allen has no endOf to refute meets with"]
+
+        ["before-w is not temporally disjoint from after-w: their shared time is exactly w"
+         (list 'temporallyDisjoint before-w after-w) :false
+         "same dependency as the row above, at the derived predicate"]
+
+        ["adding Strict to the after side empties the intersection: before-w and strictly-after-w share no time"
+         (list 'temporallyDisjoint before-w strictly-after-w) :true
+         "needs both markers; neither bound is stated today"]
+
+        ["adding Strict to the before side empties the intersection: strictly-before-w and after-w share no time"
+         (list 'temporallyDisjoint strictly-before-w after-w) :true
+         "strictly-before-w and after-w have only ordinary bounds stated, so this is the same 🇦-vocabulary question as the control test's meets, asked of the derived predicate instead — not folded into the control because meets and temporallyDisjoint are different relations"]
+
+        ["adding Strict to both sides empties the intersection: a gap of exactly w"
+         (list 'temporallyDisjoint strictly-before-w strictly-after-w) :true
+         "strictly-before-w's bound is ordinary and stated; strictly-after-w's open-start bound is not statable without the marker"]
+
+        ["w does not belong to strictly-after-w, even though its coordinate is w"
+         (list 'includesInstant strictly-after-w w) :false
+         "nothing today states w is excluded; strictly-after-w's open-start marker is what would let includesInstant answer false instead of unknown"]
+
+        ["a dated interval ending at w nests properly inside before-w (during-style)"
+         (list 'during dated-ending-at-w before-w) :true
+         "before-w's end is membership-only; during needs a comparable endOf to place against"]
+
+        ["strictly-before-w is a proper subinterval of before-w, though they share no stated start (both unbounded below)"
+         (list 'properSubintervalOf strictly-before-w before-w) :true
+         "before-w's end is membership-only, so the during comparison inside properSubintervalOf has nothing to place against; neither side states a start at all"]
+
+        ["a dated interval starting at w starts after-w: they share the ordinary stated start at w"
+         (list 'starts dated-starting-at-w after-w) :true
+         "needs after-w declared as having no end, not merely no endOf fact stated; :allen cannot entail a-end < b-end against a wholly unconstrained b-end"]
+
+        ["a dated interval starting at w does not start strictly-after-w, though its start shares the coordinate w"
+         (list 'starts dated-starting-at-w strictly-after-w) :false
+         "needs strictly-after-w's open-start marker to see w is excluded, not merely unknown"]]))))
