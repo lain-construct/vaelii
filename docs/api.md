@@ -1224,6 +1224,9 @@ the goal: nothing is stored, so there is no handle, no support and no defeat to 
 `{:nearest n}` runs a bounded backward search and reports the rules that came closest, each
 with the antecedents the KB *can* satisfy, the ones it cannot, and the bindings the goal
 forced on the rule.  `:missing` is the line to read — it is the fact nobody has asserted.
+The satisfied antecedents are satisfied **together**: each is joined onto the ones before it
+in the rule's canonical order, so two antecedents that hold only under different values of a
+variable the goal leaves open put one of them under `:missing`.
 
 It is **off by default** and that is deliberate: `why-not` is inexpensive enough to call in a
 loop over a conflict list, and a backward search per call is not.  The bounds are

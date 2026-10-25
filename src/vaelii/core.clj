@@ -7325,13 +7325,14 @@
 
 (defn- antecedent-status
   "A rule's antecedents, under the bindings the goal forces on its consequent, split into
-  the ones the KB can satisfy and the ones it cannot.
+  a set the KB satisfies **jointly** and the rest.
 
-  Each is asked **on its own**, through the prover registry (`ask`, so no rule expands and
-  this cannot recurse into the search that produced the node).  That is a relaxation and is
-  meant as one: the question a reader has is *which antecedent have I not said*, and a
-  satisfied set that does not necessarily join is a better answer to it than silence.  The
-  join is what `query` is for, and `:bindings` is what to run it with.
+  The antecedents are taken in the rule's canonical order, and each is joined onto the
+  ones satisfied before it with `query` and no depth, so no rule expands and this cannot
+  recurse into the search that produced the node.  One that joins goes to `:satisfied`,
+  one that does not to `:missing`.  So the satisfied set holds under one binding of the
+  variables the goal leaves open, and `:missing` is empty only when the whole body joins.
+  The set is maximal, not maximum: adding any missing antecedent breaks the join.
 
   An antecedent the registry **refuses** — a shape it will not take a goal in — counts as
   missing rather than throwing: this is the entry point a reader reaches for when something has
@@ -7342,14 +7343,16 @@
   wrote should not have to translate it first (`readable-sentence` does the same for the
   rule's sentence)."
   [kb antecedents b0 context varmap]
-  (reduce (fn [acc a]
-            (let [g    (sx/canon (res/substitute a b0))
-                  ok   (try (boolean (seq (ask kb g context)))
-                            (catch clojure.lang.ExceptionInfo _ false))
-                  show (cond-> g varmap (sx/originalize varmap))]
-              (update acc (if ok :satisfied :missing) conj show)))
-          {:satisfied [] :missing []}
-          antecedents))
+  (-> (reduce (fn [acc a]
+                (let [g    (sx/canon (res/substitute a b0))
+                      ok   (try (boolean (seq (query kb (conj (:joined acc) g) context)))
+                                (catch clojure.lang.ExceptionInfo _ false))
+                      show (cond-> g varmap (sx/originalize varmap))]
+                  (cond-> (update acc (if ok :satisfied :missing) conj show)
+                    ok (update :joined conj g))))
+              {:satisfied [] :missing [] :joined []}
+              antecedents)
+      (dissoc :joined)))
 
 (defn- nearest-misses
   "The `n` rules that came closest to concluding `sentence` in `context`, read off a bounded
@@ -7482,7 +7485,8 @@
   The fourth arity `(why-not kb sentence context {:nearest n})` runs a **bounded backward
   search** and reports, under `:nearest`, the n rules that came closest — each as
   `{:rule :rule-sentence :satisfied :missing :bindings}`, ranked by how many antecedents
-  are satisfied and tied on content.  `:missing` is the list to read: it is the antecedent
+  are satisfied and tied on content.  `:satisfied` holds under one binding of the variables
+  the goal leaves open, so `:missing` is empty only when the whole body joins.  `:missing` is the list to read: it is the antecedent
   the KB has not been told.
 
   It costs a search, which is why it is **off by default**: `why-not` is called in a loop

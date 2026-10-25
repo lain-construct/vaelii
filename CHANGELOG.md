@@ -111,6 +111,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
 
+### Fix: introspection
+
+- **`why-not`'s `{:nearest n}` reports as satisfied only antecedents that hold under one
+  binding.** With `(livesIn ?a ?t)`, `(coastal_town ?t)` and `(ferryTo Dover ?t)` as a
+  rule's body, each holding for a different `?t`, `why-not` of the conclusion listed all
+  three under `:satisfied` and `:missing []`; one of them is now under `:missing`.
+  [api.md](docs/api.md#three-reads-for-a-reader-rather-than-a-program)
+  *Migration:* none.
+
 ### Fix: storage
 
 - **A recover makes no network node for an `assert-inert` record**, as `assert-inert`
