@@ -12,19 +12,24 @@
 
     (ist (CxTimeFn <monad> (IntervalBeforeFn W)) (closed_extent_predicate prStatus))
 
-  — up to and including W, along the PR's monad, the status record is complete, so a
-  status not recorded there is false there rather than unknown.
+  — everywhere strictly before W, along the PR's monad, the status record is complete, so
+  a status not recorded there is false there rather than unknown.
 
-  `IntervalBeforeFn` is not in the shipped KB: time.txt has no function naming the time
-  before a moment.  It is used here only inside `^:red` tests, as Iris's ruling spells it.
-  `prStatus` and the request bookkeeping are the test's own domain terms, temporaries in
-  the way temporal_capability_test.clj's `StateFn` is.  `CxTimeFn` is declared here as
-  that namespace declares it.
+  Every interval is [start, end), the convention time.txt's `startOf`/`endOf` already
+  have (Iris, 2026-10-24).  `(IntervalBeforeFn W)` is (…, W) and `(IntervalAfterFn W)` is
+  [W, …): the pair meets at W, and W belongs to the after side alone.  The watermark W
+  therefore says that every transition before W is in: W itself is outside
+  (IntervalBeforeFn W), so the status \"as of W\" is read at the last second before W, and
+  at W a status not recorded is unknown.  A query at the exact instant of a transition
+  reads the new status, since the new status's stretch starts there and the old one's
+  ends there; endpoint contact between two stretches is Allen `meets`, never a clash.
 
-  W itself is inside (IntervalBeforeFn W): the non-strict form includes its boundary, and
-  IntervalStrictlyBeforeFn is the form that excludes it (Iris, 2026-10-24).  Completeness
-  through W is therefore inclusive, unlike a status's own [start, end) stretch, and the
-  status \"as of W\" is read at W."
+  Neither `IntervalBeforeFn` nor `IntervalAfterFn` is in the shipped KB: time.txt has no
+  function naming the time before or after a moment.  Both are used here as Iris's ruling
+  spells them, with the ordinary bound each one's meaning fixes stated where a test needs
+  it.  `prStatus`, `credentialValid` and the request bookkeeping are the test's own domain
+  terms, temporaries in the way temporal_capability_test.clj's `StateFn` is.  `CxTimeFn`
+  is declared here as that namespace declares it."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -111,8 +116,13 @@
   ;; October, Open on 3 October and Merged on 5 October, then a watermark at midnight
   ;; starting 6 October.  Read in level 1, with no projection:
   ;;
-  ;; - as of the watermark, the status is Merged, and Draft and Open are false there, by
-  ;;   the closed extent the watermark grants and not by any stored negation;
+  ;; - as of the watermark, at 23:59:59 on 5 October, the last second before it, the
+  ;;   status is Merged, and Draft and Open are false there, by the closed extent the
+  ;;   watermark grants and not by any stored negation;
+  ;; - at the watermark's own instant, midnight starting 6 October, the closed extent
+  ;;   does not reach: the watermark covers the time strictly before it, so Open is
+  ;;   unknown there, and so is Merged, whose end is known only to be no earlier than
+  ;;   the watermark;
   ;; - Merged's supported region is its stretch: it starts on 5 October, that start is
   ;;   inside it, no end is answered (none was guessed), and the end is known to be no
   ;;   earlier than the watermark;
@@ -138,25 +148,29 @@
                     :answersRequest answersRequest :pushWatermark pushWatermark}
           status   (fn [s] (list prStatus PR219 s))
           w1       (at 6)
-          as-of-w1 (slice CxGitHub w1)
+          as-of-w1 (slice CxGitHub (at 5 23 59 59))
+          at-w1    (slice CxGitHub w1)
           later    (slice CxGitHub (at 10 12 0 0))]
       (transition! kb env Draft DraftStretch (at 1) nil)
       (transition! kb env Open OpenStretch (at 3) DraftStretch)
       (transition! kb env Merged MergedStretch (at 5) OpenStretch)
       (watermark! kb env FirstPush w1 MergedStretch nil)
-      (mint! kb as-of-w1 later)
+      (mint! kb as-of-w1 at-w1 later)
 
       (testing "control: the stretches are ordered, and Merged's end is not before the watermark"
         (is (true? (v/ask? kb (list 'instantBefore (at 1) (at 3)) U)))
         (is (true? (v/ask? kb (list 'instantNotBefore (list 'EndFn MergedStretch) w1) U))))
 
-      (testing "as of the watermark the status is Merged, and only Merged"
+      (testing "as of the watermark, the last second before it, the status is Merged, and only Merged"
         (is (= [{'?s Merged}] (v/ask kb (list prStatus PR219 '?s) as-of-w1)))
         (is (= :true (verdict kb (status Merged) as-of-w1))))
       (testing "and Draft and Open are false there, by the watermark's closed extent"
         (is (true? (v/ask? kb (list 'not (status Draft)) as-of-w1)))
         (is (true? (v/ask? kb (list 'not (status Open)) as-of-w1)))
         (is (= :false (verdict kb (status Open) as-of-w1))))
+      (testing "at the watermark's own instant the closed extent does not reach: (IntervalBeforeFn W) excludes W"
+        (is (= :unknown (verdict kb (status Open) at-w1)))
+        (is (= :unknown (verdict kb (status Merged) at-w1))))
 
       (testing "Merged's supported region is its stretch along CxGitHub"
         (is (= #{(slice CxGitHub MergedStretch)} (true-in kb (status Merged)))))
@@ -192,72 +206,50 @@
         (is (true? (v/ask? kb (list 'instantNotBefore (list 'EndFn MergedStretch) (at 11)) U)))
         (is (empty? (v/ask kb (list 'endOf MergedStretch '?i) U)))))))
 
-;; ---- the interval quartet: Allen relations that need w's closed bound -----------
+;; ---- the interval pair: before and after a moment w, meeting at w ---------------
 ;;
-;; Iris proposed four readings of "before/after a moment w" for the watermark style
-;; above: `IntervalStrictlyBeforeFn`/`IntervalBeforeFn` and their after-facing mirrors
-;; `IntervalStrictlyAfterFn`/`IntervalAfterFn` (2026-10-24). None of the four is in the
-;; shipped KB. `time.txt`'s `startOf`/`endOf` are half-open — [start, end) — so
-;; `IntervalStrictlyBeforeFn w` (no start, excludes w) and `IntervalAfterFn w` (no end,
-;; includes w) are statable today with the ordinary convention: an ordinary `endOf` or
-;; `startOf` fact at `w` says exactly what each means. `IntervalBeforeFn w` (no start,
-;; INCLUDES w) and `IntervalStrictlyAfterFn w` (no end, EXCLUDES w) are not: an ordinary
-;; `endOf`/`startOf` fact at `w` would say the half-open opposite of what each means, so
-;; the only thing today's vocabulary can truthfully say of either is an `includesInstant`
-;; membership fact — option 🇦 of the two the PR weighed for them. No bound, so no Allen
-;; relation reading `startOf`/`endOf` can place either one against anything. A closed/open
-;; bound marker (an `endOfInclusive`-style predicate nobody has written, option 🇨) would
-;; let the same queries succeed by handing the algebra the missing endpoint.
+;; `(IntervalBeforeFn w)` is (…, w) and `(IntervalAfterFn w)` is [w, …) (Iris,
+;; 2026-10-24).  Every interval is [start, end), the convention time.txt's `startOf` and
+;; `endOf` already have, so each member of the pair is stated with one ordinary bound: an
+;; `endOf` at w for the before side and a `startOf` at w for the after side.  The two
+;; meet at w, share no time, and w belongs to the after side alone.
 ;;
-;; `interval-quartet!` below states exactly what today's vocabulary can truthfully state —
-;; the 🇦 shape, for `before-w` and `strictly-after-w` — and every `is` in the red group
-;; names the 🇨 answer: the one a closed/open marker would make true, that membership alone
-;; cannot derive.
-;;
-;; A prior gap, found by running this group: the shipped `:allen`/`:point` reasoners do
-;; not, today, turn an ORDINARY stored `startOf`/`endOf` pair into a derivable Allen
-;; relation for a non-calendar individual at all — `registering-allen-makes-an-entailed-
-;; relation-derivable` (public_api_test.clj) composes `before` from two *stated* `before`
-;; facts, never from endpoints, and `a-calendar-term-stops-a-calculus-running-alone`
-;; (calendar_test.clj) gets its endpoint-to-relation derivation from the `:calendar`
-;; channel reading calendar-constructor fields structurally, a channel `IntervalBeforeFn`
-;; and friends do not have. So `strictly-before-w-meets-after-w` below — which needs
-;; nothing but the quartet's two ordinary, already-statable bounds — is red for this
-;; reason alone, before the closed/open-marker question ever comes up; every row in the
-;; red group after it is red for this reason too, and the rows that single out
-;; `before-w`/`strictly-after-w` would need the marker *as well*, once this one is fixed.
-(defn- interval-quartet!
-  "Stands up the quartet of `w`-relative intervals in `kb`, plus two ordinary dated
-  intervals to compare them against. `strictly-before-w` gets an ordinary `endOf` at `w`
-  (excludes it); `after-w` gets an ordinary `startOf` at `w` (includes it) — both
-  statable with today's half-open vocabulary alone. `before-w` gets only the
-  `includesInstant` membership fact at `w`, all today's vocabulary can truthfully say of
-  a closed bound; `strictly-after-w` gets nothing stated at all, for the mirror reason.
+;; Every row here is red for one reason: the shipped `:allen`/`:point` reasoners do not,
+;; today, read a stored `startOf`/`endOf` fact of a non-calendar individual at all.  The
+;; instant network's nodes for such a thing are its `(StartFn x)` and `(EndFn x)` terms,
+;; and no stored `startOf`/`endOf` fact constrains either one, so `includesInstant`
+;; finds both sides open and answers `:unknown`, and no Allen relation is derived.
+;; `registering-allen-makes-an-entailed-relation-derivable` (public_api_test.clj)
+;; composes `before` from two stated `before` facts, never from endpoints, and
+;; `a-calendar-term-stops-a-calculus-running-alone` (calendar_test.clj) gets its
+;; endpoint-to-relation derivation from the `:calendar` channel reading
+;; calendar-constructor fields structurally, a channel `IntervalBeforeFn` and
+;; `IntervalAfterFn` do not have.  So a relation between two named intervals answers
+;; `:unknown` today whatever it asks.
+(defn- interval-pair!
+  "Stands up the pair of `w`-relative intervals in `kb`, plus two ordinary dated
+  intervals to compare them against.  `before-w` gets an ordinary `endOf` at `w`, which
+  `w` is outside; `after-w` gets an ordinary `startOf` at `w`, which `w` is inside.
   `dated-ending-at-w` is the ordinary interval `[2000-01-01, w)`; `dated-starting-at-w` is
   `[w, 2027-01-01)`."
-  [kb {:keys [w strictly-before-w before-w after-w strictly-after-w
-              dated-ending-at-w dated-starting-at-w]}]
-  (doseq [i [strictly-before-w before-w after-w strictly-after-w
-             dated-ending-at-w dated-starting-at-w]]
+  [kb {:keys [w before-w after-w dated-ending-at-w dated-starting-at-w]}]
+  (doseq [i [before-w after-w dated-ending-at-w dated-starting-at-w]]
     (v/assert kb (list 'time_interval i) U))
-  (v/assert kb (list 'endOf strictly-before-w w) U)
+  (v/assert kb (list 'endOf before-w w) U)
   (v/assert kb (list 'startOf after-w w) U)
-  (v/assert kb (list 'includesInstant before-w w) U)
   (v/assert kb (list 'startOf dated-ending-at-w (list 'InstantFn 2000 1 1 0 0 0)) U)
   (v/assert kb (list 'endOf dated-ending-at-w w) U)
   (v/assert kb (list 'startOf dated-starting-at-w w) U)
   (v/assert kb (list 'endOf dated-starting-at-w (list 'InstantFn 2027 1 1 0 0 0)) U))
 
-(defn- quartet-at
-  "The quartet's four `IntervalBeforeFn`-family terms at the instant `w`, keyed the way
-  `interval-quartet!` wants, plus `w` and the caller's two dated-interval individuals."
+(defn- pair-at
+  "The pair's `IntervalBeforeFn`/`IntervalAfterFn` terms at the instant `w`, keyed the way
+  `interval-pair!` wants, plus `w` and the caller's two dated-interval individuals."
   [w dated-ending-at-w dated-starting-at-w]
   {:w w
-   :strictly-before-w (list 'IntervalStrictlyBeforeFn w)
-   :before-w          (list 'IntervalBeforeFn w)
-   :after-w           (list 'IntervalAfterFn w)
-   :strictly-after-w  (list 'IntervalStrictlyAfterFn w)
-   :dated-ending-at-w dated-ending-at-w
+   :before-w            (list 'IntervalBeforeFn w)
+   :after-w             (list 'IntervalAfterFn w)
+   :dated-ending-at-w   dated-ending-at-w
    :dated-starting-at-w dated-starting-at-w})
 
 (defn- run-allen-table!
@@ -269,102 +261,281 @@
     (testing desc
       (is (= expected (verdict kb goal ctx))))))
 
-(tu/deftest-kb ^:red strictly-before-w-meets-after-w
-  ;; Meant as the control: this needs only the quartet's two ordinary-bound members, not
-  ;; the closed/open marker the red group below depends on — `meets` reads only
-  ;; `(endOf strictly-before-w)` and `(startOf after-w)`, both statable today with the
-  ;; ordinary half-open convention, no marker involved. It is red anyway, confirmed by
-  ;; running it: `:allen`/`:point`, registered, do not derive a relation from a stored
-  ;; `startOf`/`endOf` pair on a non-calendar individual today (see the comment above) —
-  ;; only compose one from other *stated* relations, or read one off a calendar term's
-  ;; fields. So this is red for that prior reason, and would still need fixing even
-  ;; though it names no closed/open bound at all.
+(tu/deftest-kb ^:red w-belongs-to-the-after-side-of-the-pair-alone
+  ;; w equals before-w's end, so before-w excludes w, and w equals after-w's start, which
+  ;; comes before after-w's end, so after-w includes w.  Every row is red for the reason
+  ;; the comment above interval-pair! gives: the stored bounds never reach the instant
+  ;; network, so each row reads :unknown.
   (v/add-reasoner kb :allen :point :calendar :includes-instant)
   (tu/with-terms [DatedEndingAtW DatedStartingAtW]
     (let [w (at 6)
-          {:keys [strictly-before-w after-w] :as terms}
-          (quartet-at w DatedEndingAtW DatedStartingAtW)]
-      (interval-quartet! kb terms)
-      (is (= :true (verdict kb (list 'meets strictly-before-w after-w) U))))))
-
-(tu/deftest-kb ^:red interval-quartet-allen-relations-need-ws-closed-bound-marker
-  ;; Every row names the 🇨 answer — the one before-w's closed bound or strictly-after-w's
-  ;; open bound would settle — which today's vocabulary cannot state (interval-quartet!'s
-  ;; docstring says why). Confirmed red today, like the control above, and for the same
-  ;; prior reason first: `:allen`/`:point` do not yet turn a stored endpoint pair into an
-  ;; Allen relation for a non-calendar individual at all, so every row is unknown before
-  ;; the closed/open-marker question is even reached.
-  (v/add-reasoner kb :allen :point :calendar :includes-instant)
-  (tu/with-terms [DatedEndingAtW DatedStartingAtW]
-    (let [w (at 6)
-          {:keys [strictly-before-w before-w after-w strictly-after-w
-                  dated-ending-at-w dated-starting-at-w] :as terms}
-          (quartet-at w DatedEndingAtW DatedStartingAtW)]
-      (interval-quartet! kb terms)
+          {:keys [before-w after-w] :as terms} (pair-at w DatedEndingAtW DatedStartingAtW)]
+      (interval-pair! kb terms)
       (run-allen-table!
        kb U
-       [["before-w meets strictly-after-w: the two halves still partition the line at w"
-         (list 'meets before-w strictly-after-w) :true
-         "needs before-w's closed marker and strictly-after-w's open marker; today neither has a stated bound for :allen to place"]
+       [["w is not in before-w: before-w ends at w, and an interval excludes its end"
+         (list 'includesInstant before-w w) :false]
 
-        ["before-w does not meet after-w: they overlap at exactly the instant w"
-         (list 'meets before-w after-w) :false
-         "before-w's bound is membership-only; :allen has no endOf to refute meets with"]
+        ["w is in after-w: after-w starts at w, and an interval includes its start"
+         (list 'includesInstant after-w w) :true]
 
-        ["before-w is not temporally disjoint from after-w: their shared time is exactly w"
-         (list 'temporallyDisjoint before-w after-w) :false
-         "same dependency as the row above, at the derived predicate"]
+        ["the last second before w is in before-w"
+         (list 'includesInstant before-w (at 5 23 59 59)) :true]
 
-        ["adding Strict to the after side empties the intersection: before-w and strictly-after-w share no time"
-         (list 'temporallyDisjoint before-w strictly-after-w) :true
-         "needs both markers; neither bound is stated today"]
+        ["the last second before w is not in after-w"
+         (list 'includesInstant after-w (at 5 23 59 59)) :false]]))))
 
-        ["adding Strict to the before side empties the intersection: strictly-before-w and after-w share no time"
-         (list 'temporallyDisjoint strictly-before-w after-w) :true
-         "strictly-before-w and after-w have only ordinary bounds stated, so this is the same 🇦-vocabulary question as the control test's meets, asked of the derived predicate instead — not folded into the control because meets and temporallyDisjoint are different relations"]
+(tu/deftest-kb ^:red interval-pair-allen-relations-at-w
+  ;; Every row is red for the one reason the comment above interval-pair! gives: no
+  ;; shipped reasoner derives an Allen relation from a stored endpoint pair on a
+  ;; non-calendar individual, so each row reads :unknown.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [DatedEndingAtW DatedStartingAtW]
+    (let [w (at 6)
+          {:keys [before-w after-w dated-ending-at-w dated-starting-at-w] :as terms}
+          (pair-at w DatedEndingAtW DatedStartingAtW)]
+      (interval-pair! kb terms)
+      (run-allen-table!
+       kb U
+       [["before-w meets after-w: before-w's end and after-w's start are both w"
+         (list 'meets before-w after-w) :true
+         "an Allen relation off two stored bounds; no shipped reasoner derives one"]
 
-        ["adding Strict to both sides empties the intersection: a gap of exactly w"
-         (list 'temporallyDisjoint strictly-before-w strictly-after-w) :true
-         "strictly-before-w's bound is ordinary and stated; strictly-after-w's open-start bound is not statable without the marker"]
+        ["before-w and after-w are temporally disjoint: meeting at w, they share no time"
+         (list 'temporallyDisjoint before-w after-w) :true
+         "the derived predicate over the same meets"]
 
-        ["w does not belong to strictly-after-w, even though its coordinate is w"
-         (list 'includesInstant strictly-after-w w) :false
-         "nothing today states w is excluded; strictly-after-w's open-start marker is what would let includesInstant answer false instead of unknown"]
+        ["a dated interval ending at w finishes before-w: the two share the end w, and the dated one starts later"
+         (list 'finishes dated-ending-at-w before-w) :true
+         "needs before-w declared as having no start, not merely no startOf fact stated, and an Allen relation off stored bounds"]
 
-        ["a dated interval ending at w nests properly inside before-w (during-style)"
-         (list 'during dated-ending-at-w before-w) :true
-         "before-w's end is membership-only; during needs a comparable endOf to place against"]
+        ["a dated interval ending at w meets after-w"
+         (list 'meets dated-ending-at-w after-w) :true
+         "an Allen relation off two stored bounds; no shipped reasoner derives one"]
 
-        ["strictly-before-w is a proper subinterval of before-w, though they share no stated start (both unbounded below)"
-         (list 'properSubintervalOf strictly-before-w before-w) :true
-         "before-w's end is membership-only, so the during comparison inside properSubintervalOf has nothing to place against; neither side states a start at all"]
+        ["before-w meets a dated interval starting at w"
+         (list 'meets before-w dated-starting-at-w) :true
+         "an Allen relation off two stored bounds; no shipped reasoner derives one"]
 
-        ["a dated interval starting at w starts after-w: they share the ordinary stated start at w"
+        ["a dated interval starting at w starts after-w: the two share the start w"
          (list 'starts dated-starting-at-w after-w) :true
-         "needs after-w declared as having no end, not merely no endOf fact stated; :allen cannot entail a-end < b-end against a wholly unconstrained b-end"]
+         "needs after-w declared as having no end, not merely no endOf fact stated; :allen cannot entail a-end < b-end against a wholly unconstrained b-end"]]))))
 
-        ["a dated interval starting at w does not start strictly-after-w, though its start shares the coordinate w"
-         (list 'starts dated-starting-at-w strictly-after-w) :false
-         "needs strictly-after-w's open-start marker to see w is excluded, not merely unknown"]]))))
+;; ---- the exact instant of a transition -------------------------------------------
+;;
+;; A status's stretch is [start, end), so a transition at the instant T ends the old
+;; status's stretch at T and starts the new one's there: at T the new status holds and
+;; the old one does not.  A pull request queried at its exact merge timestamp reads
+;; Merged.  The interval rows read `includesInstant` against the stretches' stored
+;; `startOf`/`endOf` facts, which never reach the instant network (the comment above
+;; `interval-pair!` gives the mechanism), so each interval row reads :unknown today.  The
+;; status rows read a slice keyed by an instant, which no shipped reasoner orders under
+;; the stretch holding the instant, so each status row reads :unknown today as well.
+(defn- merge-at-t!
+  "Pushes Draft from 1 October, Open from 3 October and Merged from T, midnight starting
+  5 October, along `CxGitHub`, then a watermark at midnight starting 6 October; answers
+  the env `transition!` and `watermark!` read."
+  [kb {:keys [prStatus CxGitHub PR219 Draft Open Merged
+              DraftStretch OpenStretch MergedStretch Push]}]
+  (let [env {:prStatus prStatus :monad CxGitHub :pr PR219
+             :answersRequest (tu/tmp-pred "answersRequest")
+             :pushWatermark (tu/tmp-pred "pushWatermark")}]
+    (declare-cxtimefn! kb)
+    (v/assert kb (list 'genlCx CxGitHub 'CxWell) U)
+    (transition! kb env Draft DraftStretch (at 1) nil)
+    (transition! kb env Open OpenStretch (at 3) DraftStretch)
+    (transition! kb env Merged MergedStretch (at 5) OpenStretch)
+    (watermark! kb env Push (at 6) MergedStretch nil)
+    env))
+
+(tu/deftest-kb ^:red the-instant-of-a-transition-belongs-to-the-new-stretch
+  ;; T is Open's end, which Open's stretch excludes, and Merged's start, which Merged's
+  ;; stretch includes.  Every row is red because the stretches' stored bounds never reach
+  ;; the instant network, so each row reads :unknown.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [prStatus CxGitHub PR219 Draft Open Merged
+                  DraftStretch OpenStretch MergedStretch Push]
+    (merge-at-t! kb {:prStatus prStatus :CxGitHub CxGitHub :PR219 PR219 :Draft Draft
+                     :Open Open :Merged Merged :DraftStretch DraftStretch
+                     :OpenStretch OpenStretch :MergedStretch MergedStretch :Push Push})
+    (run-allen-table!
+     kb U
+     [["T is in Merged's stretch: the stretch starts at T"
+       (list 'includesInstant MergedStretch (at 5)) :true]
+
+      ["T is not in Open's stretch: the stretch ends at T"
+       (list 'includesInstant OpenStretch (at 5)) :false]
+
+      ["the last second before T is in Open's stretch"
+       (list 'includesInstant OpenStretch (at 4 23 59 59)) :true]
+
+      ["the last second before T is not in Merged's stretch"
+       (list 'includesInstant MergedStretch (at 4 23 59 59)) :false]])))
+
+(tu/deftest-kb ^:red a-query-at-the-exact-merge-instant-reads-merged
+  ;; Every row is red for the one reason the comment above merge-at-t! gives: the slice
+  ;; at an instant is not ordered under the stretch holding it, so it sees neither
+  ;; status nor the watermark's closed extent, and each verdict is :unknown.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [prStatus CxGitHub PR219 Draft Open Merged
+                  DraftStretch OpenStretch MergedStretch Push]
+    (merge-at-t! kb {:prStatus prStatus :CxGitHub CxGitHub :PR219 PR219 :Draft Draft
+                     :Open Open :Merged Merged :DraftStretch DraftStretch
+                     :OpenStretch OpenStretch :MergedStretch MergedStretch :Push Push})
+    (let [status   (fn [s] (list prStatus PR219 s))
+          at-t     (slice CxGitHub (at 5))
+          before-t (slice CxGitHub (at 4 23 59 59))]
+      (mint! kb at-t before-t)
+      (testing "at T, the merge instant, Merged holds"
+        (is (= :true (verdict kb (status Merged) at-t))))
+      (testing "and Open does not, by the watermark's closed extent"
+        (is (= :false (verdict kb (status Open) at-t))))
+      (testing "the last second before T, Open holds"
+        (is (= :true (verdict kb (status Open) before-t))))
+      (testing "and Merged does not"
+        (is (= :false (verdict kb (status Merged) before-t)))))))
+
+;; ---- a validity window [nbf, exp) --------------------------------------------------
+;;
+;; A credential valid from nbf until exp holds over the stretch [nbf, exp): valid at nbf,
+;; dead at exp.  The interval rows read `includesInstant` against the window's stored
+;; `startOf`/`endOf` facts, which never reach the instant network, so each interval row
+;; reads :unknown today.  The validity rows read a slice keyed by an instant, which no
+;; shipped reasoner orders under the window holding it, so each validity row reads
+;; :unknown today as well.
+(def ^:private nbf (at 7 9 0 0))
+(def ^:private exp (at 7 10 0 0))
+
+(defn- validity-window!
+  "States `window` as the interval [nbf, exp) and `(credentialValid token)` true over it
+  along `issuer`, with the issuer's record of `credentialValid` complete before midnight
+  starting 8 October."
+  [kb {:keys [credentialValid issuer token window]}]
+  (declare-cxtimefn! kb)
+  (v/assert kb (list 'genlCx issuer 'CxWell) U)
+  (v/assert kb (list 'time_interval window) U)
+  (v/assert kb (list 'startOf window nbf) U)
+  (v/assert kb (list 'endOf window exp) U)
+  (v/assert kb (list credentialValid token) (slice issuer window))
+  (v/assert kb (list 'ist (slice issuer (list 'IntervalBeforeFn (at 8)))
+                     (list 'closed_extent_predicate credentialValid))
+            U))
+
+(tu/deftest-kb ^:red a-validity-window-includes-nbf-and-excludes-exp
+  ;; nbf is the window's start, which the window includes, and exp its end, which the
+  ;; window excludes.  Every row is red because the window's stored bounds never reach
+  ;; the instant network, so each row reads :unknown.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [credentialValid CxIssuer Token Window]
+    (validity-window! kb {:credentialValid credentialValid :issuer CxIssuer
+                          :token Token :window Window})
+    (run-allen-table!
+     kb U
+     [["nbf is in the window: the window starts at nbf"
+       (list 'includesInstant Window nbf) :true]
+
+      ["exp is not in the window: the window ends at exp"
+       (list 'includesInstant Window exp) :false]
+
+      ["the last second before exp is in the window"
+       (list 'includesInstant Window (at 7 9 59 59)) :true]])))
+
+(tu/deftest-kb ^:red a-credential-is-valid-at-nbf-and-dead-at-exp
+  ;; Every row is red for the one reason the comment above validity-window! gives: the
+  ;; slice at an instant is not ordered under the window holding it, so each verdict is
+  ;; :unknown.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [credentialValid CxIssuer Token Window]
+    (validity-window! kb {:credentialValid credentialValid :issuer CxIssuer
+                          :token Token :window Window})
+    (let [valid       (list credentialValid Token)
+          at-nbf      (slice CxIssuer nbf)
+          at-exp      (slice CxIssuer exp)
+          before-nbf  (slice CxIssuer (at 7 8 59 59))
+          before-exp  (slice CxIssuer (at 7 9 59 59))]
+      (mint! kb at-nbf at-exp before-nbf before-exp)
+      (testing "at nbf the credential is valid"
+        (is (= :true (verdict kb valid at-nbf))))
+      (testing "at exp the credential is not valid, by the issuer's closed extent"
+        (is (= :false (verdict kb valid at-exp))))
+      (testing "the last second before nbf the credential is not valid"
+        (is (= :false (verdict kb valid before-nbf))))
+      (testing "the last second before exp the credential is valid"
+        (is (= :true (verdict kb valid before-exp)))))))
+
+;; ---- adjacent statuses: endpoint contact is meets, never a clash -----------------
+;;
+;; `(functional prStatus)` gives a pull request at most one status.  A functional clash
+;; is placed at the contexts below both members' contexts, and under [start, end) no
+;; instant lies in both Draft's stretch [1 October, 3 October) and Open's stretch [3
+;; October, …): the two stretches meet, so no context reads both statuses and no clash
+;; is reported.  Two stretches that share a second of time do clash, at that second.
+(defn- functional-statuses!
+  "Declares `CxTimeFn`, `CxGitHub` and `(functional prStatus)`, and states Draft over
+  `draft-stretch` [1 October, `draft-end`) and Open over `open-stretch` [3 October, …)."
+  [kb {:keys [prStatus CxGitHub PR219 Draft Open draft-stretch open-stretch]} draft-end]
+  (declare-cxtimefn! kb)
+  (v/assert kb (list 'genlCx CxGitHub 'CxWell) U)
+  (v/assert kb (list 'functional prStatus) U)
+  (doseq [i [draft-stretch open-stretch]] (v/assert kb (list 'time_interval i) U))
+  (v/assert kb (list 'startOf draft-stretch (at 1)) U)
+  (v/assert kb (list 'endOf draft-stretch draft-end) U)
+  (v/assert kb (list 'startOf open-stretch (at 3)) U)
+  (v/assert kb (list prStatus PR219 Draft) (slice CxGitHub draft-stretch))
+  (v/assert kb (list prStatus PR219 Open) (slice CxGitHub open-stretch)))
+
+(tu/deftest-kb adjacent-statuses-meet-without-a-functional-clash
+  ;; Draft's stretch ends at 3 October, where Open's starts: no context sees both
+  ;; statuses, so neither the KB-wide reading nor the slice at the shared endpoint
+  ;; reports a contradiction or a conflict.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [prStatus CxGitHub PR219 Draft Open DraftStretch OpenStretch]
+    (functional-statuses! kb {:prStatus prStatus :CxGitHub CxGitHub :PR219 PR219
+                              :Draft Draft :Open Open
+                              :draft-stretch DraftStretch :open-stretch OpenStretch}
+                          (at 3))
+    (let [at-endpoint (slice CxGitHub (at 3))]
+      (mint! kb at-endpoint)
+      (testing "no contradiction or conflict KB-wide"
+        (is (empty? (v/contradictions kb)))
+        (is (empty? (v/conflicts kb))))
+      (testing "and none at the shared endpoint"
+        (is (empty? (v/contradictions kb at-endpoint)))))))
+
+(tu/deftest-kb ^:red overlapping-statuses-clash-at-a-second-inside-both
+  ;; The control for the meets case above: Draft's stretch runs to 4 October, a day
+  ;; past Open's start, so noon on 3 October lies in both stretches and the slice there
+  ;; reads both statuses.  Red because the slice at an instant is not ordered under the
+  ;; stretches holding it, so no context below both members is known and no clash is
+  ;; placed: the contradictions read is empty.
+  (v/add-reasoner kb :allen :point :calendar :includes-instant)
+  (tu/with-terms [prStatus CxGitHub PR219 Draft Open DraftStretch OpenStretch]
+    (functional-statuses! kb {:prStatus prStatus :CxGitHub CxGitHub :PR219 PR219
+                              :Draft Draft :Open Open
+                              :draft-stretch DraftStretch :open-stretch OpenStretch}
+                          (at 4))
+    (let [inside-both (slice CxGitHub (at 3 12 0 0))]
+      (mint! kb inside-both)
+      (testing "the slice at noon on 3 October reports one functional clash"
+        (is (= [:functional] (mapv :kind (v/contradictions kb inside-both))))))))
 
 ;; ---- open-ended stretches: a status still current, and the same status capped ---
 ;;
 ;; prStatus's own prose for a status still current reads "Draft from Oct 1 until Now" and
 ;; "Open from Oct 3 until Now": a stretch with a stated start and no stated end at all,
 ;; exactly what `transition!` above writes for whichever status is current — no
-;; `IntervalBeforeFn`, no watermark, no closed/open bound marker, just an ordinary
-;; `startOf` with nothing said about where the stretch ends.  Once a later transition
-;; caps it, the same stretch reads "Draft from Oct 1 until Oct 3": the ordinary half-open
-;; `[Oct 1, Oct 3)` the rest of this namespace already uses.
+;; `IntervalBeforeFn`, no watermark, just an ordinary `startOf` with nothing said about
+;; where the stretch ends.  Once a later transition caps it, the same stretch reads
+;; "Draft from Oct 1 until Oct 3": the ordinary half-open `[Oct 1, Oct 3)` the rest of
+;; this namespace uses.
 ;;
-;; Every row below is red for the prior reason `interval-quartet!`'s comment documents,
-;; not the closed/open-bound question that comment goes on to: `:allen`/`:point`,
-;; registered, do not turn a stored `startOf`/`endOf` pair into a derivable Allen relation
-;; for a non-calendar individual at all, so a relation between two named stretches
-;; answers `:unknown` today whatever it asks — including every row here, where both ends
-;; in question (the open stretches' missing end, the capped stretches' ordinary stated
-;; one) are each exactly the half-open shape the quartet's `strictly-before-w`/`after-w`
-;; members already use without needing any marker at all.
+;; Every row below is red for the reason the comment above `interval-pair!` gives:
+;; `:allen`/`:point`, registered, do not turn a stored `startOf`/`endOf` pair into a
+;; derivable Allen relation for a non-calendar individual at all, so a relation between
+;; two named stretches answers `:unknown` today whatever it asks — including every row
+;; here, where both ends in question (the open stretches' missing end, the capped
+;; stretches' ordinary stated one) are each the half-open shape the pair's `before-w` and
+;; `after-w` use.
 (defn- open-ended-stretches!
   "Stands up `draft-open` and `open-open` in `kb`, each with only a stated `startOf` and no
   `endOf` — the \"until Now\" shape for whichever status is current — `draft-capped`, the
