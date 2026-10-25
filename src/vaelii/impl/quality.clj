@@ -989,17 +989,40 @@
              (when (not= (res/substitute x1 s) (res/substitute y1 s))
                [:asymmetric s]))))))))
 
+(declare literal-arity-claim)
+
+(def ^:private relation-wide-arity-classes
+  "Each length's relation-wide class in `tax/exact-arity-classes`, the one the predicate
+  and function classes of that length specialize."
+  (into {} (keep (fn [c] (when-let [n (get tax/exact-arity-classes c)] [n c])))
+        '[unary binary ternary quaternary quinary]))
+
 (defn- separated-antecedents?
   "Do two of these literals claim one term is of two types a declaration separates?  The
   one thing the joint-satisfiability test reads a declaration for, and it reads the same
-  one the consequent side does."
+  one the consequent side does.
+
+  `(arity ?p n)` claims ?p is of the relation-wide exact class of that length
+  (`relation-wide-arity-classes`), so a floor class the KB separates from it — core.txt's
+  `(disjoint at_least_binary unary)` — rules out `(at_least_binary ?p)` beside
+  `(arity ?p 1)`.  The separation is the KB's declaration, read as for any two types."
   [kb lits context]
   (let [tax     (reasoning/taxonomy kb)
         by-term (reduce (fn [m l]
                           (let [f (nm/functor l)]
-                            (if (and (= 1 (nm/arity l)) (symbol? f) (not (sx/variable? f)))
+                            (cond
+                              (or (not (symbol? f)) (sx/variable? f)) m
+
+                              (= 1 (nm/arity l))
                               (update m (second l) (fnil conj #{}) f)
-                              m)))
+
+                              (= 'arity f)
+                              (if-let [c (some-> (literal-arity-claim tax l context)
+                                                 relation-wide-arity-classes)]
+                                (update m (second l) (fnil conj #{}) c)
+                                m)
+
+                              :else m)))
                         {} lits)]
     (boolean (some (fn [[_ ts]]
                      (let [ts (vec ts)]
@@ -1157,12 +1180,6 @@
   (for [{:keys [from to type]} (checks/instance-type-declarations kb pred context)
         n (range from (inc (min (or to arity) arity)))]
     [n type]))
-
-(def ^:private relation-wide-arity-classes
-  "Each length's relation-wide class in `tax/exact-arity-classes`, the one the predicate
-  and function classes of that length specialize."
-  (into {} (keep (fn [c] (when-let [n (get tax/exact-arity-classes c)] [n c])))
-        '[unary binary ternary quaternary quinary]))
 
 (defn- genl-arity-class
   "The relation-wide exact-arity class `(genl a P)` demands of `a`, or nil: a spec of `P`
