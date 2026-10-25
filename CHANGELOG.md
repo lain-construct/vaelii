@@ -28,6 +28,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   application and stores the conclusion over the constant, which the goal reads.
   *Breaks:* `assert` of a rule whose consequent names an application, `prove`, `query`
 
+### Breaking: daemon
+
+- **A wire write naming the provenance `:principal` is refused**, 403
+  `:creator-mismatch`, at `:assert`, `:try-assert`, `:assert-rule`, `:assert-many`,
+  `:edit`, `:edit-with-consequences` (in opts or their `:provenance`) and
+  `:add-provenance`, on the daemon and the browser's `POST /op`, with or without a token
+  table. The daemon records that key from a token-table grant.
+  [operations.md](docs/operations.md#the-token-table)
+  *Migration:* a client storing its own `:principal` provenance field renames it.
+  *Breaks:* `:principal`, `:add-provenance`
+
 ### Additive: ASP
 
 - **`VAELII_CLASP_BIN` (or `-Dvaelii.clasp.bin`) names the executable the subprocess
@@ -43,6 +54,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   map.** `sentexes-naming` answers every stored sentex nesting `(sentexHandle h)`, with
   `{:believed? true}` to filter, and the daemon serves it.
   [web.md](docs/web.md), [api.md](docs/api.md)
+  *Migration:* none.
+
+### Additive: daemon
+
+- **`VAELII_TOKEN_TABLE` names a per-principal token table**, an EDN file mapping each
+  bearer token to `{:principal :writes :admin?}`; `serve/start` and `serve/app` take it as
+  `:token-table`. Set, it replaces `VAELII_API_TOKEN`, and a write op lands only in the
+  contexts the presenting token's grant names (403 `:forbidden-context`), recorded under
+  the grant's principal as `:creator` and provenance `:principal` (403
+  `:creator-mismatch` for another). Reads stay open to every token. A table that does not
+  check stops the daemon at start (`:bad-token-table`, exit 2). Unset, the daemon
+  authenticates as before. [operations.md](docs/operations.md#the-token-table)
   *Migration:* none.
 
 ### Additive: koinii

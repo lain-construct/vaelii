@@ -227,6 +227,49 @@
         "the wrapped handler ran for the two good tokens and the open route, and for
          nothing else — a refusal is answered before the handler, not after it")))
 
+;; ---- the token table -----------------------------------------------------
+
+(defn- table-file
+  "A temporary EDN file holding `content`, deleted when the JVM exits."
+  [content]
+  (let [f (java.io.File/createTempFile "token-table" ".edn")]
+    (.deleteOnExit f)
+    (spit f content)
+    (str f)))
+
+(deftest a-token-table-that-does-not-check-is-refused-naming-no-token
+  (doseq [[why content] [["text that does not read as EDN" "{\"s3cret-a\" {:principal"]
+                         ["a table naming no token" "{}"]
+                         ["a vector" "[]"]
+                         ["a blank token" "{\"  \" {:principal AgentA :writes #{CxA}}}"]
+                         ["a misspelt key" "{\"s3cret-a\" {:principal AgentA :write #{CxA}}}"]
+                         ["a string principal" "{\"s3cret-a\" {:principal \"AgentA\"}}"]
+                         ["a vector of contexts" "{\"s3cret-a\" {:principal AgentA :writes [CxA]}}"]
+                         ["an :admin? that is not a boolean" "{\"s3cret-a\" {:principal AgentA :admin? 1}}"]]]
+    (let [e (try (guard/read-token-table (table-file content)) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :bad-token-table (:type (ex-data e))) why)
+      (is (not (re-find #"s3cret" (str (ex-message e)))) why)))
+  (is (= :bad-token-table
+         (:type (ex-data (try (guard/read-token-table "/no/such/dir/table.edn") nil
+                              (catch clojure.lang.ExceptionInfo e e)))))
+      "a path naming no file"))
+
+(deftest a-presented-token-resolves-to-its-own-grant
+  (let [table (guard/read-token-table
+               (table-file (pr-str {"tok-a" {:principal 'AgentA :writes #{'CxA}}
+                                    "tok-z" {:principal 'AgentZ :admin? true}})))
+        seen  (atom [])
+        h     (guard/wrap-token-table (fn [req] (swap! seen conj (::guard/grant req)) :served)
+                                      table #{"/health"} (fn [_] :refused))
+        get*  (fn [uri tok] (h {:uri uri :headers (if tok {"authorization" (str "Bearer " tok)} {})}))]
+    (is (= [:served :served :refused :refused :served]
+           [(get* "/op" "tok-a") (get* "/op" "tok-z") (get* "/op" "tok-c") (get* "/op" nil)
+            (get* "/health" nil)]))
+    (is (= [{:principal 'AgentA :writes #{'CxA}} {:principal 'AgentZ :admin? true} nil]
+           @seen)
+        "each served request carries its token's grant, and an open route carries none")))
+
 ;; ---- the request-body ceiling --------------------------------------------
 ;;
 ;; The browser authenticates nobody and the daemon need not, so the caller who can reach

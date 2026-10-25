@@ -90,6 +90,11 @@ it claims to, not about the absence of a login on a tool that never offered one.
   refusal with one body, so nothing about it is an oracle. It is one token for the
   process: there are no users, no roles and no sessions, and TLS is a reverse proxy's
   job — the wire is plaintext.
+- **A per-principal token table replaces it** when `VAELII_TOKEN_TABLE` names one: each
+  token's grant names a principal and the contexts its writes may land in, a write
+  outside them is 403, and the daemon records the principal in the write's provenance. A
+  table that does not read whole stops the daemon at start. Reads stay open to every
+  token in the table ([operations.md](../docs/operations.md#the-token-table)).
 - **On a loopback bind the token is optional**, and without one every local account can
   drive the write route. The daemon logs which posture it started in on every start.
 - **`GET /health` answers without the token**, and it is the only route that does, so a

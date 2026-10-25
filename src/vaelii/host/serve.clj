@@ -47,6 +47,11 @@
   refuses to start otherwise); on the loopback default it is optional, and a daemon
   without one is drivable by every process on the machine.
 
+  **A per-principal token table replaces the shared token** when `VAELII_TOKEN_TABLE`
+  names one (`guard/token-table`): each token carries a grant naming a principal and the
+  contexts it writes, and a write op lands only there, recorded under that principal
+  (`bound-write`).  Reads stay open to every token in the table.
+
   `vaelii.host.guard` covers what a token does not, and matters most on the open
   loopback daemon: `POST /op` requires `Content-Type: application/edn`, refuses a
   cross-origin `Origin`, and answers only to a `Host` naming the interface it was
@@ -62,8 +67,10 @@
             [vaelii.host.guard :as guard]
             [vaelii.host.starter :as starter]
             [vaelii.host.subscribe :as sub]
+            [vaelii.impl.assert-entry :as entry]
             [vaelii.impl.caches :as caches]
-            [vaelii.impl.config :as config])
+            [vaelii.impl.config :as config]
+            [vaelii.impl.sentex :as sx])
   (:import [java.util.concurrent ExecutionException]
            [org.eclipse.jetty.server Server ServerConnector]
            [org.eclipse.jetty.util.component LifeCycle$Listener]))
@@ -749,6 +756,188 @@
     ;; contexts and frees one with `:abduce-discard`, as with a subscription
     :too-many-kept})
 
+;; ---- the write boundary: what a token-table grant may write ---------------
+
+(def write-ops
+  "The ops that store, remove or annotate a sentex a request names, which a token-table
+  grant bounds (`bound-write`).  The other ops read, store nothing (`:check`,
+  `:check-edit`, `:preview`), or store what the request does not name: `:forward-chain`
+  what the rules derive, `:abduce` its hypotheses in a scratch context
+  (docs/operations.md, \"The token table\")."
+  #{:assert :try-assert :assert-rule :assert-many :retract :edit :edit-with-consequences
+    :add-provenance})
+
+(defn- forbidden-context!
+  "Throw `:forbidden-context` (403): `principal` may not write `context`."
+  [op principal context why]
+  (throw (ex-info (str "op " (pr-str op) ": " principal " may not write "
+                       (pr-str context) " — " why)
+                  {:type :forbidden-context :op op :principal principal :context context
+                   ::status 403})))
+
+(defn- check-claims!
+  "Refuse `m` — a write's opts, its `:provenance` map or an `:add-provenance` map — when it
+  names an identity `grant` does not hold (`:creator-mismatch`, 403): a `:principal`
+  other than the grant's, and for a grant without `:admin?` a `:creator` other than its
+  principal.  An admin grant names the creator of a write it makes for an agent.  Under
+  no grant a named `:principal` is refused: the daemon records that key from a grant and
+  never from a request."
+  [op {:keys [principal admin?] :as grant} m]
+  (doseq [k (if (and grant (not admin?)) [:creator :principal] [:principal])
+          :when (and (map? m) (contains? m k) (not= principal (get m k)))]
+    (throw (ex-info (str "op " (pr-str op) " names " k " " (pr-str (get m k))
+                         (if grant
+                           (str ", and the token it presents is " principal "'s")
+                           (str ", which this server records from a token-table grant"
+                                " and never from a request")))
+                    {:type :creator-mismatch :op op :key k :claimed (get m k)
+                     :principal principal ::status 403}))))
+
+(defn- with-identity
+  "`opts` — a write's option map, nil included — after `check-claims!` of it and of its
+  `:provenance`, with the provenance `:principal` set to the grant's principal and
+  `:creator` to it unless an admin grant named one.  Under no grant, `opts` as it came."
+  [op {:keys [principal] :as grant} opts]
+  (when-not (or (nil? opts) (map? opts))
+    (throw (ex-info (str "op " (pr-str op) " takes an option map, got " (pr-str opts))
+                    {:type :bad-args :op op})))
+  (check-claims! op grant opts)
+  (check-claims! op grant (:provenance opts))
+  (if grant
+    (-> opts
+        (update :creator #(or % principal))
+        (assoc :provenance (assoc (:provenance opts) :principal principal)))
+    opts))
+
+(defn- placement
+  "The context `sentence` is stored in when asserted into `context`, as `assert` reads it:
+  a `(set/monotonic …)` wrapper is looked through, and an `(ist Ctx S)` names its own
+  context, which wins.  `::imperative` for a `do/` form, which stores nothing of its own
+  and writes wherever its action does."
+  [sentence context]
+  (loop [s sentence, c context]
+    (let [s (try (first (sx/peel-strength s nil))
+                 (catch clojure.lang.ExceptionInfo _ s))]
+      (cond
+        (sx/do-form? s)              ::imperative
+        (entry/ist-parts s)          (let [[c' s'] (entry/ist-parts s)] (recur s' c'))
+        :else                        c))))
+
+(defn- check-context!
+  "Throw unless `grant` may store a sentence in context `c`, as `placement` answers it."
+  [op {:keys [principal writes admin?]} c]
+  (cond
+    admin? nil
+    (= ::imperative c)
+    (forbidden-context! op principal nil
+                        (str "the sentence is a do/ imperative, which writes where its"
+                             " action does, and only an admin grant runs one"))
+    (not (contains? writes c))
+    (forbidden-context! op principal c "the token's grant does not name it")))
+
+(defn- check-placement!
+  "Throw unless `grant` may store `sentence` asserted into `context`."
+  [op grant sentence context]
+  (check-context! op grant (placement sentence context)))
+
+(defn- check-removal!
+  "Throw unless `grant` may remove or annotate the sentex at `handle`.  A handle naming no
+  stored sentex is nothing to remove, and for `:add-provenance` (`absent-ok?` false) it is
+  refused: provenance written ahead of a sentex would be read as that sentex's own."
+  [kb op {:keys [principal writes admin?]} handle absent-ok?]
+  (let [sx (v/sentex kb handle)]
+    (cond
+      admin? nil
+      (nil? sx) (when-not absent-ok?
+                  (forbidden-context! op principal nil
+                                      (str "handle " (pr-str handle) " names no stored sentex")))
+      (not (contains? writes (:context sx)))
+      (forbidden-context! op principal (:context sx)
+                          (str "handle " (pr-str handle) " is stored there, and the token's"
+                               " grant does not name it")))))
+
+(defn- bounded-batch
+  "An `edit` batch held to `grant`: every `:add` entry's placement checked and its opts
+  given the principal (`with-identity`), every `:remove` handle's stored context
+  checked.  A batch or an entry of the wrong shape is passed on as it came, for the op
+  to refuse whole before it applies any of it."
+  [kb op grant batch]
+  (if-not (map? batch)
+    batch
+    (do (when (and grant (sequential? (:remove batch)))
+          (doseq [h (:remove batch) :when (some? h)]
+            (check-removal! kb op grant h true)))
+        (cond-> batch
+          (sequential? (:add batch))
+          (update :add (fn [adds]
+                         (mapv (fn [entry]
+                                 (if (and (sequential? entry) (<= 2 (count entry) 3))
+                                   (let [[s c o] entry
+                                         o' (with-identity op grant o)]
+                                     (if grant
+                                       (do (check-placement! op grant s c) [s c o'])
+                                       entry))
+                                   entry))
+                               adds)))))))
+
+(defn- bound-write
+  "`args` for write op `op`, held to `grant` — a token-table grant, or nil when the request
+  presented none.  Under a grant every sentence's context, and every removed or annotated
+  handle's stored context, must be one the grant writes (`:forbidden-context`), and the
+  write records the provenance `:principal` and, unless an admin grant names another,
+  the `:creator` as the grant's principal (`with-identity`; `:creator-mismatch` for a
+  request naming an identity the grant does not hold).  Under no grant only a named
+  `:principal` is refused.  Called inside the monitor, so a handle's stored context is
+  read in the state the op runs on.  An `args` vector no arity of the op takes is passed
+  on as it came, for the op's own `:bad-args`."
+  [kb grant op args]
+  (let [n   (count args)
+        ctx (fn [i] (if (> n i) (nth args i) 'CxUniverse))
+        put (fn [s c] (when grant (check-placement! op grant s c)))]
+    (case op
+      (:assert :try-assert)
+      (if (<= 1 n 3)
+        (do (put (nth args 0) (ctx 1))
+            (if (or grant (= n 3))
+              [(nth args 0) (ctx 1) (with-identity op grant (get args 2))]
+              args))
+        args)
+
+      :assert-rule
+      (if (<= 2 n 4)
+        (do (when grant (check-context! op grant (ctx 2)))
+            (if (or grant (= n 4))
+              [(nth args 0) (nth args 1) (ctx 2) (with-identity op grant (get args 3))]
+              args))
+        args)
+
+      :assert-many
+      (if (<= 2 n 3)
+        (do (when (sequential? (nth args 0))
+              (doseq [s (nth args 0)] (put s (nth args 1))))
+            (if (or grant (= n 3))
+              [(nth args 0) (nth args 1) (with-identity op grant (get args 2))]
+              args))
+        args)
+
+      :retract
+      (do (when (and grant (= 1 n) (some? (nth args 0)))
+            (check-removal! kb op grant (nth args 0) true))
+          args)
+
+      :add-provenance
+      (if (= 2 n)
+        (do (when (and grant (some? (nth args 0)))
+              (check-removal! kb op grant (nth args 0) false))
+            (check-claims! op grant (nth args 1))
+            args)
+        args)
+
+      (:edit :edit-with-consequences)
+      (if (<= 1 n 2)
+        (assoc args 0 (bounded-batch kb op grant (nth args 0)))
+        args))))
+
 (defn- off-worker
   "Run `thunk` on a `future` thread and wait for its value on this one, rethrowing what
   it threw.  An HTTP worker thread is the server's: Jetty interrupts it when the server
@@ -781,6 +970,11 @@
   monitor), then the daemon's own change-feed ops (`feed-ops`, which take the handler's
   subscription registry and decide about the monitor themselves — a long poll parks, and
   a parked poll holding it would block every writer).
+
+  A write op (`write-ops`) is held to the grant the request's token carries
+  (`guard/wrap-token-table` puts it on the request), inside the monitor, by
+  `bound-write`.  A request with no grant, the browser's included, writes as before,
+  except that it may not name the provenance `:principal`.
 
   `admit` is nil, or a fn of no arguments the op runs behind: called **inside** the
   monitor, before an engine op and before `:watch` registers, it answers nil to let the
@@ -837,6 +1031,7 @@
                _ (when-not (or (nil? args) (sequential? args))
                    (throw (ex-info (str "op :args must be a sequence, got " (pr-str args))
                                    {:type :bad-args :op op})))
+               grant (::guard/grant req)
                h (get (:ops host) op)
                f (when-not h (ops op))
                g (when-not (or h f) (feed-ops op))
@@ -860,7 +1055,9 @@
              (let [result (try (off-worker
                                 #(locking monitor
                                    (admit! admit)
-                                   (wire-safe (f kb (vec args)))))
+                                   (wire-safe
+                                    (f kb (cond->> (vec args)
+                                            (write-ops op) (bound-write kb grant op))))))
                                (catch clojure.lang.ArityException t
                                  (if (entry-arity-error? f t)
                                    (throw (ex-info (str "wrong number of arguments for op "
@@ -910,7 +1107,7 @@
          (edn-reply 500 {:ok false :error (.getMessage t)
                          :type (:type (ex-data t) :internal-error)}))))))
 
-;; ---- authentication: one shared bearer token -----------------------------
+;; ---- authentication: one shared bearer token, or the token table ---------
 
 (def ^:private open-routes
   "The routes that answer before the token is checked, and `GET /health` is the whole
@@ -920,19 +1117,25 @@
   authenticated daemon looks like an oversight to delete: this one is a decision."
   #{"/health"})
 
+(defn- unauthorized
+  "The daemon's 401: EDN carrying a non-nil `:type` like every other refusal the daemon can
+  answer, plus the `WWW-Authenticate` challenge a 401 is defined to carry."
+  [_]
+  {:status 401
+   :headers {"content-type" "application/edn"
+             "www-authenticate" "Bearer"}
+   :body (pr-str {:ok false :type :unauthorized
+                  :error "this daemon requires Authorization: Bearer <token>"})})
+
 (defn- wrap-bearer-auth
-  "`guard/wrap-bearer` with the daemon's own 401: EDN carrying a non-nil `:type` like
-  every other refusal the daemon can answer, plus the `WWW-Authenticate` challenge a 401
-  is defined to carry.  The comparison and the header read are the browser's too, and
-  live in `vaelii.host.guard` for that reason."
-  [handler token]
-  (guard/wrap-bearer
-   handler token open-routes
-   (fn [_] {:status 401
-            :headers {"content-type" "application/edn"
-                      "www-authenticate" "Bearer"}
-            :body (pr-str {:ok false :type :unauthorized
-                           :error "this daemon requires Authorization: Bearer <token>"})})))
+  "`handler` behind the token table when `table` is set (`guard/wrap-token-table`, each
+  request carrying its token's grant to `handle-op`), else behind the shared `token`
+  (`guard/wrap-bearer`).  A table set leaves the shared token unread.  The comparison and
+  the header read are the browser's too, and live in `vaelii.host.guard` for that reason."
+  [handler token table]
+  (if table
+    (guard/wrap-token-table handler table open-routes unauthorized)
+    (guard/wrap-bearer handler token open-routes unauthorized)))
 
 (def http-threads
   "How many worker threads the daemon's HTTP server runs.
@@ -982,9 +1185,25 @@
   (sub/release-parked registry)
   (locking monitor nil))
 
+(defn- opts-table
+  "The token table `opts` names under `:token-table` — a map (`guard/check-token-table`) or
+  the path of an EDN file (`guard/read-token-table`) — or, when `opts` names neither
+  `:token-table` nor `:token`, `VAELII_TOKEN_TABLE`'s.  A caller naming `:token` alone has
+  chosen the shared token, so the variable is not read.  An explicit nil is no table."
+  [opts]
+  (cond
+    (contains? opts :token-table)
+    (let [t (:token-table opts)]
+      (cond (nil? t) nil
+            (map? t) (guard/check-token-table t ":token-table")
+            :else    (guard/read-token-table t)))
+    (contains? opts :token) nil
+    :else (guard/token-table)))
+
 (defn- handler
   [kb {:keys [host] :or {host loopback} :as opts} {:keys [monitor registry open?]}]
   (let [token   (if (contains? opts :token) (:token opts) (guard/api-token))
+        table   (opts-table opts)
         allowed (guard/allowed-hosts host)
         admit   (fn [] (when-not @open?
                          {:ok false :status 503 :type :stopping
@@ -1014,7 +1233,7 @@
                :headers {"content-type" "application/edn"}
                :body (pr-str {:ok false :type :bad-host
                               :error "unrecognized Host header"})}))
-     token)))
+     token table)))
 
 (defn app
   "The ring handler for a KB — pure `request -> response`, so it is tested without a
@@ -1027,7 +1246,15 @@
   `:token` is the shared bearer token every request must present.  Omitted, it is
   `VAELII_API_TOKEN` (`guard/api-token`), so a daemon and a client on one host agree
   without either being configured; an explicit nil serves **open**, which is what a
-  test of the other refusals needs — a handler that 401s first exercises none of them."
+  test of the other refusals needs — a handler that 401s first exercises none of them.
+
+  `:token-table` is the per-principal token table, a map or the path of an EDN file
+  (`guard/check-token-table`).  Omitted with `:token` omitted too, it is
+  `VAELII_TOKEN_TABLE`'s (`guard/token-table`); omitted beside a `:token`, or an explicit
+  nil, it is none.  Set, it replaces `:token`: a request
+  presents a token the table holds, and a write op lands only in the contexts that token's
+  grant names (`bound-write`).  A table that does not check is refused
+  (`:bad-token-table`)."
   ([kb] (app kb {}))
   ([kb opts] (handler kb opts (daemon-state))))
 
@@ -1037,22 +1264,27 @@
   an ephemeral port; read the actual one with `port`.
 
   `:host` defaults to loopback; pass an address (`\"0.0.0.0\"`) to bind publicly, and
-  read the note on `loopback` before doing so.  `:token` is `app`'s, forwarded only
-  when the key is there, so an omitted one still reads `VAELII_API_TOKEN` and an
-  explicit nil serves open on loopback.  An address with no token is refused
-  (`guard/require-token!`) before anything binds, as `-main` refuses it.
+  read the note on `loopback` before doing so.  `:token` and `:token-table` are `app`'s,
+  each forwarded only when the key is there, so an omitted one still reads its variable
+  and an explicit nil `:token` serves open on loopback.  An address with neither a token
+  nor a table is refused (`guard/require-token!`), and so is a table that does not check
+  (`:bad-token-table`), both before anything binds, as `-main` refuses them.
 
   `.stop` on the server first runs `stop-ops`: an op that has not entered the monitor
   answers 503 `:stopping`, and the stop returns after the op inside it finishes."
   ^Server [kb {:keys [port host] :or {port 4200 host loopback} :as opts}]
-  (guard/require-token! "daemon" host (if (contains? opts :token) (:token opts) (guard/api-token)))
-  (let [state  (daemon-state)
-        server (jetty/run-jetty (handler kb (assoc (select-keys opts [:token]) :host host) state)
-                                {:port port :host host :join? false :max-threads http-threads})]
-    (.addEventListener ^Server server
-                       (reify LifeCycle$Listener
-                         (lifeCycleStopping [_ _] (stop-ops state))))
-    server))
+  (let [table (opts-table opts)]
+    (when-not table
+      (guard/require-token! "daemon" host (if (contains? opts :token) (:token opts) (guard/api-token))))
+    (let [state  (daemon-state)
+          h      (handler kb (assoc (select-keys opts [:token]) :host host :token-table table)
+                          state)
+          server (jetty/run-jetty h
+                                  {:port port :host host :join? false :max-threads http-threads})]
+      (.addEventListener ^Server server
+                         (reify LifeCycle$Listener
+                           (lifeCycleStopping [_ _] (stop-ops state))))
+      server)))
 
 (defn port
   "The actual TCP port a started `Server` is listening on — the ephemeral one when it
@@ -1122,13 +1354,15 @@
   guard/public-bind?)
 
 (defn- auth-posture
-  "Which posture a daemon binding `host` with `token` runs in — and the refusal when
-  neither is available.
+  "Which posture a daemon binding `host` with `token` and the token `table` runs in — and
+  the refusal when neither credential is available.
 
-    :required  a token is set, and every request presents it
-    :open      loopback with no token: every process on this machine drives the writes
+    :per-principal  a token table is set: every request presents one of its tokens, and a
+                    write lands only in that token's grant
+    :required       a token is set, and every request presents it
+    :open           loopback with neither: every process on this machine drives the writes
 
-  **A bind that names an address with no token is refused** (`guard/require-token!`,
+  **A bind that names an address with no token and no table is refused** (`guard/require-token!`,
   `:unauthorized`), which is the one place the daemon fails closed, and the browser is
   held to the same rule by the same fn.  It is the flag that publishes `POST /op` — the
   KB's only writer — and the same flag drops the `Host` allowlist, so the exposed
@@ -1137,9 +1371,11 @@
   required credential would only teach an operator to export a constant.  The `Host`
   allowlist is not held to it either — see `host-posture` for why that one warns
   instead of refusing."
-  [host token]
-  (guard/require-token! "daemon" host token)
-  (if (str/blank? token) :open :required))
+  [host token table]
+  (if table
+    :per-principal
+    (do (guard/require-token! "daemon" host token)
+        (if (str/blank? token) :open :required))))
 
 (defn- host-posture
   "Which `Host`-allowlist policy a daemon binding `host` runs under — the question
@@ -1163,7 +1399,16 @@
   incident, and an absent log line is indistinguishable from a daemon that never
   started."
   [host posture hosts]
-  (if (= :required posture)
+  (case posture
+    :per-principal
+    (do (trove/log! {:level :info :id ::per-principal
+                     :msg (str "every request must carry a token VAELII_TOKEN_TABLE holds, and"
+                               " a write lands only in the contexts its grant names")})
+        (when (guard/api-token)
+          (trove/log! {:level :warn :id ::token-unread
+                       :msg (str "VAELII_API_TOKEN is set and unread: under VAELII_TOKEN_TABLE"
+                                 " only the table's tokens authenticate")})))
+    :required
     (trove/log! {:level :info :id ::authenticated
                  :msg "every request must carry Authorization: Bearer <VAELII_API_TOKEN>"})
     (trove/log! {:level :warn :id ::no-token
@@ -1246,10 +1491,11 @@
         ;; before the KB is opened, which takes the directory's single-writer lock: a
         ;; daemon that is going to refuse to serve must not first take a lock off the
         ;; process that could have
-        posture (try (auth-posture host token)
-                     (catch clojure.lang.ExceptionInfo e
-                       (binding [*out* *err*] (println (ex-message e)))
-                       (System/exit 2)))
+        [table posture] (try (let [table (guard/token-table)]
+                               [table (auth-posture host token table)])
+                             (catch clojure.lang.ExceptionInfo e
+                               (binding [*out* *err*] (println (ex-message e)))
+                               (System/exit 2)))
         hosts (host-posture host)
         starter? (boolean (some #{"--starter"} args))
         kb    (cond-> (if dir
@@ -1267,5 +1513,5 @@
     ;; `:max-threads` here as in `start`: `http-threads` is one half of the pair
     ;; `subscribe/max-parked` is checked against, and a daemon run from the command line
     ;; has to hold the same relationship as one a test starts
-    (jetty/run-jetty (app kb {:host host :token token})
+    (jetty/run-jetty (app kb {:host host :token token :token-table table})
                      {:port port :host host :join? true :max-threads http-threads})))

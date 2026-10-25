@@ -103,7 +103,17 @@
            ;; uninformative: same body for a missing, wrong or malformed credential
            ["no bearer token, to a daemon holding one" 401 :unauthorized
             (post-raw (authed-app kb) edn-headers
-                      (op-body :assert [(list dog Rex) CxWireProbe]))]]
+                      (op-body :assert [(list dog Rex) CxWireProbe]))]
+           ;; the token table's two: a write outside the grant's contexts, and a write
+           ;; naming an identity the token does not hold
+           ["a write outside the token's grant" 403 :forbidden-context
+            (post-raw (serve/app kb {:token-table {"tok" {:principal 'AgentA :writes #{}}}})
+                      (assoc edn-headers "authorization" "Bearer tok")
+                      (op-body :assert [(list dog Rex) CxWireProbe]))]
+           ["a write naming the provenance :principal" 403 :creator-mismatch
+            (post-raw handler edn-headers
+                      (op-body :assert [(list dog Rex) CxWireProbe
+                                        {:provenance {:principal 'AgentA}}]))]]
           ;; the engine's own refusal rides the wire under the engine's `:type`, and a
           ;; request-refusal is the *caller's* fault, so it is a 400 like the daemon's
           ;; own — answered 500 it counts as a backend fault at every reverse proxy

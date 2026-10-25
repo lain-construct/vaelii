@@ -473,6 +473,90 @@
     (is (str/includes? (:error reply) "GET /ops") "the request it could not route")
     (is (str/includes? (:error reply) "POST /op") "and the route the caller wanted")))
 
+;; ---- the token table: a write lands only where its grant says --------------
+
+(defn- as
+  "POST /op as the holder of `tok`, with the headers a real client sends."
+  [handler tok op & args]
+  (post-op* handler {"content-type" "application/edn" "authorization" (str "Bearer " tok)}
+            op args))
+
+(defn- status-type [r] [(:status r) (:type r)])
+
+(tu/deftest-kb a-table-grant-bounds-every-write-op-and-no-read
+  (tu/with-terms [dog animal Rex Fido CxA CxB]
+    (let [h       (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}
+                                               "tok-b" {:principal 'AgentB :writes #{CxB}}}})
+          b-claim (:result (as h "tok-b" :assert (list dog Fido) CxB))
+          a-claim (:result (as h "tok-a" :assert (list dog Rex) CxA))]
+      (testing "a token outside the table is answered 401, as a wrong shared token is"
+        (is (= [401 :unauthorized] (status-type (as h "tok-c" :query? (list dog Fido) CxB)))))
+      (testing "a write into the grant's own context lands under its principal"
+        (is (= {:creator 'AgentA :principal 'AgentA}
+               (select-keys (v/provenance kb a-claim) [:creator :principal]))))
+      (testing "every write op placing into, removing from or annotating another context
+                is refused 403 :forbidden-context"
+        (doseq [[why r] [["assert" (as h "tok-a" :assert (list dog Rex) CxB)]
+                         ["try-assert" (as h "tok-a" :try-assert (list dog Rex) CxB)]
+                         ["the default context" (as h "tok-a" :assert (list dog Rex))]
+                         ["an ist naming the other context" (as h "tok-a" :assert (list 'ist CxB (list dog Rex)) CxA)]
+                         ["an ist under set/monotonic" (as h "tok-a" :assert (list 'set/monotonic (list 'ist CxB (list dog Rex))) CxA)]
+                         ["assert-rule" (as h "tok-a" :assert-rule [(list dog '?x)] (list animal '?x) CxB)]
+                         ["assert-many with one ist sentence" (as h "tok-a" :assert-many [(list animal Rex) (list 'ist CxB (list animal Rex))] CxA)]
+                         ["retract" (as h "tok-a" :retract b-claim)]
+                         ["an edit removing" (as h "tok-a" :edit {:remove [b-claim]})]
+                         ["an edit adding" (as h "tok-a" :edit {:add [[(list animal Rex) CxA] [(list dog Rex) CxB]]})]
+                         ["edit-with-consequences" (as h "tok-a" :edit-with-consequences {:add [[(list dog Rex) CxB]]})]
+                         ["add-provenance" (as h "tok-a" :add-provenance b-claim {:note 1})]
+                         ["add-provenance ahead of a sentex" (as h "tok-a" :add-provenance 999999 {:note 1})]
+                         ["a do/ imperative" (as h "tok-a" :assert (list 'do/labeling CxA) CxA)]]]
+          (is (= [403 :forbidden-context] (status-type r)) why))
+        (is (v/in? kb b-claim) "the other principal's claim stands")
+        (is (nil? (v/handle-of kb (list animal Rex) CxA)) "a refused batch applied nothing")
+        (is (nil? (v/handle-of kb (list dog Rex) CxB)))
+        (is (nil? (:note (v/provenance kb b-claim)))))
+      (testing "a write naming an identity its grant does not hold is refused 403 :creator-mismatch"
+        (doseq [[why r] [["a :creator" (as h "tok-a" :assert (list animal Rex) CxA {:creator 'AgentB})]
+                         ["a provenance :creator" (as h "tok-a" :assert (list animal Rex) CxA {:provenance {:creator 'AgentB}})]
+                         ["a provenance :principal" (as h "tok-a" :assert (list animal Rex) CxA {:provenance {:principal 'AgentB}})]
+                         ["an edit entry's :creator" (as h "tok-a" :edit {:add [[(list animal Rex) CxA {:creator 'AgentB}]]})]
+                         ["an add-provenance :principal" (as h "tok-a" :add-provenance a-claim {:principal 'AgentB})]]]
+          (is (= [403 :creator-mismatch] (status-type r)) why))
+        (is (nil? (v/handle-of kb (list animal Rex) CxA))))
+      (testing "naming the grant's own principal is redundant and allowed"
+        (is (:ok (as h "tok-a" :assert-many [(list animal Rex)] CxA {:creator 'AgentA})))
+        (is (:ok (as h "tok-a" :edit {:add [[(list animal Fido) CxA]] :remove [a-claim]})))
+        (is (= 'AgentA (:principal (v/provenance kb (v/handle-of kb (list animal Fido) CxA))))))
+      (testing "reads stay open: one principal reads the other's context"
+        (is (true? (:result (as h "tok-a" :query? (list dog Fido) CxB))))))))
+
+(tu/deftest-kb an-admin-grant-writes-every-context-and-may-name-the-creator
+  (tu/with-terms [dog Rex CxA]
+    (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}
+                                         "tok-z" {:principal 'AgentZ :admin? true}}})]
+      (is (= [403 :forbidden-context]
+             (status-type (as h "tok-a" :assert (list dog Rex) 'CxRegistry))))
+      (let [r (as h "tok-z" :assert (list dog Rex) 'CxRegistry {:creator 'AgentA})]
+        (is (:ok r))
+        (is (= {:creator 'AgentA :principal 'AgentZ}
+               (select-keys (v/provenance kb (:result r)) [:creator :principal]))
+            "the admin names the creator, and the principal is still its own")
+        (is (= [403 :creator-mismatch]
+               (status-type (as h "tok-z" :add-provenance (:result r) {:principal 'AgentA}))))
+        (is (:ok (as h "tok-z" :retract (:result r))))))))
+
+(tu/deftest-kb with-no-table-a-request-may-not-name-the-principal
+  (tu/with-terms [dog Rex CxA]
+    (let [h (open-app kb)
+          r (post-op h :assert [(list dog Rex) CxA {:creator 'Anyone}])]
+      (is (= 'Anyone (:creator (v/provenance kb (:result r))))
+          "the creator is the request's to name, as it was")
+      (is (= [403 :creator-mismatch]
+             (status-type (post-op h :assert [(list dog Rex) CxA {:provenance {:principal 'AgentA}}]))))
+      (is (= [403 :creator-mismatch]
+             (status-type (post-op h :add-provenance [(:result r) {:principal 'AgentA}]))))
+      (is (nil? (:principal (v/provenance kb (:result r))))))))
+
 (clojure.test/deftest the-token-comparison-is-one-named-constant-time-fn
   ;; Asserted structurally rather than by timing: a wall-clock assertion over a
   ;; nanosecond difference is flaky by construction on a machine running anything else,
@@ -503,15 +587,18 @@
   (let [posture #'serve/auth-posture]
     (testing "loopback with no token starts, open — however the interface is spelled"
       (doseq [h ["127.0.0.1" "localhost" "[::1]" "::1" "0:0:0:0:0:0:0:1"]]
-        (is (= :open (posture h nil)) h))
-      (is (= :open (posture "127.0.0.1" "")) "a blank token is an unset one")
-      (is (= :open (posture "127.0.0.1" "   "))))
+        (is (= :open (posture h nil nil)) h))
+      (is (= :open (posture "127.0.0.1" "" nil)) "a blank token is an unset one")
+      (is (= :open (posture "127.0.0.1" "   " nil))))
     (testing "a token puts either bind in the authenticated posture"
-      (is (= :required (posture "127.0.0.1" "s3cret")))
-      (is (= :required (posture "0.0.0.0" "s3cret"))))
+      (is (= :required (posture "127.0.0.1" "s3cret" nil)))
+      (is (= :required (posture "0.0.0.0" "s3cret" nil))))
+    (testing "a token table puts either bind in the per-principal posture, token or not"
+      (is (= :per-principal (posture "0.0.0.0" nil {"t" {:principal 'AgentA}})))
+      (is (= :per-principal (posture "127.0.0.1" "s3cret" {"t" {:principal 'AgentA}}))))
     (testing "and an address with no token is refused, typed"
       (doseq [h ["0.0.0.0" "10.0.0.4" "::" "example.internal"]]
-        (let [e (is (thrown? clojure.lang.ExceptionInfo (posture h nil)) h)]
+        (let [e (is (thrown? clojure.lang.ExceptionInfo (posture h nil nil)) h)]
           (is (= :unauthorized (:type (ex-data e))) h)
           (is (= h (:host (ex-data e))) h)
           (is (re-find #"VAELII_API_TOKEN" (ex-message e)) h))))))
@@ -523,6 +610,13 @@
                (catch clojure.lang.ExceptionInfo e e))]
     (when (instance? Server r) (.stop ^Server r))
     (is (= :unauthorized (:type (ex-data r))))))
+
+(deftest start-refuses-a-token-table-that-does-not-check-before-binding
+  (let [f (doto (File/createTempFile "token-table" ".edn") (.deleteOnExit) (spit "{\"tok\" {:principal"))
+        r (try (serve/start nil {:port 0 :token-table (str f)})
+               (catch clojure.lang.ExceptionInfo e e))]
+    (when (instance? Server r) (.stop ^Server r))
+    (is (= :bad-token-table (:type (ex-data r))))))
 
 (clojure.test/deftest the-daemon-says-which-posture-it-started-in
   ;; A test of the log *line*, not of the absence of one: an operator reading a machine
@@ -538,6 +632,12 @@
                  @logged)]
     (testing "loopback with no token starts, and warns naming the flag"
       (is (= [[:warn ::serve/no-token]] (run! "127.0.0.1" :open :allowlisted))))
+    (testing "a token table is said out loud, and a shared token beside it is named unread"
+      (with-redefs [guard/api-token (constantly nil)]
+        (is (= [[:info ::serve/per-principal]] (run! "127.0.0.1" :per-principal :allowlisted))))
+      (with-redefs [guard/api-token (constantly "s3cret")]
+        (is (= [[:info ::serve/per-principal] [:warn ::serve/token-unread]]
+               (run! "127.0.0.1" :per-principal :allowlisted)))))
     (testing "a token is said out loud too — both postures are on the record"
       (is (= [[:info ::serve/authenticated]] (run! "127.0.0.1" :required :allowlisted))))
     (testing "a public bind adds the line about what a token still does not cover"

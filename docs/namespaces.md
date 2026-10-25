@@ -222,7 +222,7 @@ src/vaelii/host/
   seed.clj          the shipped ontology's classpath side: read-sentences / load-context / layer-files / layer-contexts (discovery of kb/*.txt); the format itself, reader and writer both, is io/text.clj
   core_context.clj  the upper layer: loads every kb/upper/ file into CxUniverse, core.txt first; the vocabulary documented via comment sentexes, read back with comment-of
   lines.clj         the browser editor's line format: a stored sentex as the sentence its author would type back in, a rule's `set/*` wrappers spelled off its record ([web.md](web.md))
-  guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides), the Origin/Referer same-origin check on writes and the EDN content-type preflight it leans on, the daemon's bearer token (VAELII_API_TOKEN) read in one place for both ends, and the request-body ceiling (VAELII_MAX_BODY_BYTES, 16 MiB) both servers share
+  guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides), the Origin/Referer same-origin check on writes and the EDN content-type preflight it leans on, the daemon's bearer token (VAELII_API_TOKEN) read in one place for both ends, the per-principal token table (VAELII_TOKEN_TABLE) and its grant lookup, and the request-body ceiling (VAELII_MAX_BODY_BYTES, 16 MiB) both servers share
   io/generate.clj   synthesize a KB from numbers (types/individuals/rules, a fwd/backward mix, a seed): deterministic, stratified, Zipf-skewed — the form a measurement needs
 ```
 

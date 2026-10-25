@@ -433,6 +433,11 @@ rather than opening the store beside it — `lein run -m vaelii.web --attach HOS
 allowlist, so without the refusal the exposed configuration would be the one with the
 fewest checks. Export a token, or drop the flag and take the loopback default.
 
+A token table that does not check (`:bad-token-table`) exits 2 the same way, before the KB
+is opened: a missing file, text that is not EDN, a table naming no token, or a grant with a
+misspelt key. The daemon does not fall back to `VAELII_API_TOKEN` when
+`VAELII_TOKEN_TABLE` is set.
+
 The refusal lands before the KB is opened, so a daemon that is not going to serve does
 not first take the directory's single-writer lock off the process that could have. On
 the loopback default a missing token is not an error: the daemon starts and says which
@@ -459,7 +464,9 @@ either being configured; a client elsewhere needs the value exported in its own
 environment or passed as `:token`. An attached browser is a client too, and one started
 without the token shows the daemon's own refusal on every page rather than an empty KB.
 `GET /health` answers unauthenticated by design, so a probe that succeeds while `POST
-/op` refuses is the daemon working, not a half-configured one. [operations.md](operations.md).
+/op` refuses is the daemon working, not a half-configured one. Under `VAELII_TOKEN_TABLE`
+only the table's tokens authenticate, and `VAELII_API_TOKEN` in the daemon's environment
+is unread. [operations.md](operations.md).
 
 ## The log does not say enough
 
@@ -527,6 +534,7 @@ so one vocabulary reads both.
 | `:bad-reply` | the daemon's reply does not read as EDN, or is not a map | [operations.md](operations.md) |
 | `:bad-snapshot` | an index snapshot file's magic number is not this engine's — the index rebuilds from the records, which are untouched | [storage.md](storage.md) |
 | `:bad-table-entry` | a table and the arms that answer to it do not agree, refused at namespace load: a declaration with a partial cache triple or no arm at all, arms that disagree with what `vaelii.impl.predicates` declares about the functor, a mark family whose spellings disagree about what they sweep, a sweep naming a reach `settle` has no arm for, a switch reader with no row, a backend axis nothing opens, a quality reading nothing renders. `:mismatch` says which. Unlike the other discriminants here, this vocabulary is read by whoever is looking at a failed build rather than branched on by a caller, so the message is the remedy and the words are frozen in `type_contract_test` rather than listed in this row | [predicates.md](predicates.md) |
+| `:bad-token-table` | the token table `VAELII_TOKEN_TABLE` (or `start`'s `:token-table`) names is not a readable file, does not read as EDN, or holds a grant outside `{:principal <symbol> :writes #{<context> …} :admin? <boolean>}`; the daemon does not start, and the message names no token — see [The daemon exits 2 without serving](#the-daemon-exits-2-without-serving) | [operations.md](operations.md#the-token-table) |
 | `:base-is-overlay` | a fork's own half and its base name one store, so the fork would write its own base | [overlay.md](overlay.md) |
 | `:backup-failed` | a browser backup's `cp` or `pg_dump` exited non-zero; the message carries its output, and the partial backup directory was deleted | [web.md](web.md#backing-up-a-store-kept-in-postgres) |
 | `:belief-built` | `edit-records!` was called on a KB with belief, or one answering from an installed image; it skips the checks, the sweep and the settle belief owes, so it runs on a store opened `{:recover? false}` | [storage.md](storage.md#editing-the-records-of-a-kb-without-belief) |
@@ -536,6 +544,7 @@ so one vocabulary reads both.
 | `:compaction-failed` | a record or index log compaction failed after its commit point — the store refuses writes until it is reopened | [storage.md](storage.md) |
 | `:complement` | `try-assert`'s `:violation`: a read from the context answers the sentence's complement (`(not S)` for `S`, `S` for `(not S)`) `:monotonic` through `:monotonic` `genl` edges, and the sentence is not a forced-monotonic positive | [api.md](api.md#refusing-a-clash) |
 | `:cover` | a coverage claim refuted: a term holds the whole and every named part is explicitly denied of it — see [`assert` refused it](#assert-refused-it) | [taxonomy.md](taxonomy.md) |
+| `:creator-mismatch` | a write names a `:creator`, or a provenance `:principal`, other than the principal of the token-table grant it presents; a daemon with no table refuses any request naming `:principal`, which it records from a grant alone. `:key` says which | [operations.md](operations.md#the-token-table) |
 | `:cross-origin` | the daemon refused a request whose `Origin` names another site | [operations.md](operations.md) |
 | `:daemon-error` | the daemon refused and its reply carried no `:type` of its own — the client's fallback | [operations.md](operations.md) |
 | `:damaged-dictionary` | a tokenized frame cites a token id the dictionary has no entry for | [storage.md](storage.md) |
@@ -550,6 +559,7 @@ so one vocabulary reads both.
 | `:error` | a check reached something it could not classify, and reports the throwable's own message | [api.md](api.md) |
 | `:exception-not-closed` | an `exceptWhen` reads a variable no antecedent binds, or the anonymous wildcard `_`, which binds nothing | [exceptions.md](exceptions.md) |
 | `:export-busy` | an export is already running, and one runs at a time | [catalog.md](catalog.md) |
+| `:forbidden-context` | a write op under a token-table grant places a sentence in, or removes or annotates a sentex stored in, a context the grant's `:writes` does not name; `:context` names it, and a `do/` imperative is refused to every grant but an admin one | [operations.md](operations.md#the-token-table) |
 | `:fork-base-overlap` | a durable fork that has written anything was remounted over a base that has grown or been rebuilt in another order since, so its records and removals would hide the base's sentences; `:handles` names the handles at issue | [overlay.md](overlay.md) |
 | `:frozen-base` | a write reached the overlay's base, which is mounted read-only | [overlay.md](overlay.md) |
 | `:functional` | a second value for a predicate declared `functional`, or for the position a `functionalInArg` declaration names — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
@@ -627,7 +637,7 @@ so one vocabulary reads both.
 | `:too-many-waiters` | the daemon already has its maximum of long polls parked | [feed.md](feed.md) |
 | `:torn-snapshot` | a durable index part reloaded at a size its own metadata contradicts | [storage.md](storage.md) |
 | `:truncated-dump` | a dump stream ended early, or holds a chunk length this framing does not write | [storage.md](storage.md) |
-| `:unauthorized` | the token presented is not the one the daemon holds — see [Every call to the daemon is refused](#every-call-to-the-daemon-is-refused) | [operations.md](operations.md) |
+| `:unauthorized` | the token presented is not the one the daemon holds, nor one its token table holds — see [Every call to the daemon is refused](#every-call-to-the-daemon-is-refused) | [operations.md](operations.md) |
 | `:unbound-deferred` | a computed antecedent reached the join with an input no earlier antecedent bound | [generators.md](generators.md) |
 | `:uncleared-forcing` | a retraction named a forced-monotonic declaration whose predicate has no unforced semantics yet (`:predicate`, `:missing`); its declaration stays, and `genlCx` is always forced | [nmtms.md](nmtms.md#the-forced-monotonic-set) |
 | `:unforkable-index` | a `:columnar` index cannot be forked, since its trie is not written over a KV backend; a taxonomy probe over an index keeping no family backend refuses too | [overlay.md](overlay.md) |

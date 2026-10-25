@@ -262,6 +262,10 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   proxy's job, and this is the check below it. The wrapper sits outside the `Host`
   allowlist and the origin check, so an anonymous caller is answered before the daemon
   forms any other opinion about the request.
+- **A token table gives each caller its own token and write boundary.** With
+  `VAELII_TOKEN_TABLE` set, the shared token is unread, every token the table holds
+  authenticates, and a write op lands only in the contexts its grant names
+  ([The token table](#the-token-table)).
 - **`GET /health` answers without the token**, and it is the only route that does. A
   daemon only its token-holder can probe is one no container orchestrator, load balancer
   or shell script can watch, and `{:ok true}` tells a caller nothing it did not learn by
@@ -622,6 +626,60 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   already on it ([feed.md](feed.md)). The token rule is the browser's:
   a loopback bind asks for none, and `--listen` with an address requires it on every
   route, `GET /health` included ([web.md](web.md)).
+
+### The token table
+
+`VAELII_TOKEN_TABLE` names an EDN file mapping each bearer token to a **grant**:
+
+```clojure
+{"<Ava's token>"  {:principal AgentAva :writes #{CxAva}}
+ "<Ben's token>"  {:principal AgentBen :writes #{CxBen}}
+ "<operator's>"   {:principal AgentOperator :admin? true}}
+```
+
+`serve/start` and `serve/app` take the same table as `:token-table`, a map or a path. Set,
+it replaces the shared token: a request presents a token the table holds or is answered
+**401** `:unauthorized`, exactly as a wrong shared token is, and `VAELII_API_TOKEN` in the
+daemon's environment is unread. Each caller presents its own token as `:token` (or its own
+`VAELII_API_TOKEN`), so the client needs no change. A table that is not a readable file,
+does not read as EDN, names no token, or holds a grant with a key outside the three is
+refused at start (`:bad-token-table`, exit **2**), before the KB is opened. A table also
+satisfies the rule that `--listen` with an address requires a credential.
+
+**Reads stay open.** Every token in the table reads every context, as the shared token does.
+
+**Eight write ops are bounded by the grant**, inside the write monitor and before the op
+runs (`serve/write-ops`, `bound-write`):
+
+- `:assert`, `:try-assert`, `:assert-rule` and `:assert-many` store each sentence only in a
+  context `:writes` names. The context is the one `assert` stores in: an `(ist Ctx S)`
+  names its own, through a `(set/monotonic …)` wrapper, and an omitted context is
+  `CxUniverse`. A `do/` imperative runs only under an admin grant.
+- `:edit` and `:edit-with-consequences` hold every `:add` entry to the same check and
+  every `:remove` handle to the next one; one entry out of bounds refuses the batch, and
+  nothing in it is applied.
+- `:retract` removes, and `:add-provenance` annotates, a sentex only when its stored
+  context is in `:writes`. `:add-provenance` on a handle naming no stored sentex is
+  refused too, since provenance written there first would read as the sentex's own.
+
+A write outside the grant is **403** `:forbidden-context`, carrying `:principal` and
+`:context`. `:admin? true` grants every context.
+
+**The daemon records the identity.** Every stored write under a grant gets
+`:principal` in its provenance, the grant's principal, and `:creator`, the same principal
+unless an admin grant names another (the operator placing an agent's context writes it
+as that agent). A request naming a `:creator` other than its principal, in its opts or in
+their `:provenance`, or naming any `:principal` but its own, is **403** `:creator-mismatch`.
+A daemon with **no** table refuses every request naming the provenance `:principal`, since
+it records that key from a grant and never from a request, and the browser's `POST /op`
+holds the same rule. So a `:principal` in provenance names the token that wrote the
+sentex, and koinii's majority count reads it for that
+([koinii.md](koinii.md#identity-and-the-write-boundary)). The provenance merge records the
+principal of the last stored write of a sentence, a re-assert included.
+
+The other ops are not bounded by the grant: `:forward-chain` stores what the rules
+derive, `:abduce` with `{:keep? true}` stores its hypotheses in a scratch context below
+the asking one, and `:abduce-discard` and `:clear-caches` take any token in the table.
 
 ## Client — `vaelii.client`
 
@@ -1019,6 +1077,7 @@ the read still found one of them. Set a new floor by rounding the first mention 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `VAELII_API_TOKEN` | `src/vaelii/host/guard.clj:140+` | any string; blank or whitespace-only is unset | unset | The one shared bearer token: with it set every daemon request carries `Authorization: Bearer …` or is answered 401, and a client and an attached browser present it from their own environment. |
+| `VAELII_TOKEN_TABLE` | `src/vaelii/host/guard.clj:240+` | the path of an EDN file mapping each token to `{:principal <symbol> :writes #{<context> …} :admin? <boolean>}`; blank or whitespace-only is unset | unset | The per-principal token table: set, it replaces `VAELII_API_TOKEN`, and a write op lands only in the contexts the presenting token's grant names ([The token table](#the-token-table)). A file that does not check stops the daemon at start. |
 | `VAELII_ALLOWED_HOSTS` | `src/vaelii/host/guard.clj:40+` | comma-separated host **names**; a port on an entry is read as the name alone, and a value naming nothing is unset | unset | The `Host` headers a server answers, overriding the list the bind address implies. Entries are compared in the form a `Host` header is, so `kb.example.com:8080` and `kb.example.com` are one entry. |
 | `VAELII_MAX_BODY_BYTES` | `src/vaelii/host/guard.clj:160+` | a positive whole number of bytes; blank is unset | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
 | `VAELII_MAX_QUERY_MS` | `src/vaelii/impl/config.clj:330+` | a whole number of milliseconds, 0 or more | `30000` | The wall clock a served read may name. A request may name less and is refused (`:over-ceiling`, 400) for naming more; a read naming none is given this, the four backward-search entry points included. `0` lifts the ceiling. |

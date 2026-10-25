@@ -22,7 +22,8 @@
   once the page is loaded — satisfies it.  `host-allowed?` is the check that does not
   fold, because the `Host` header must then name the interface the server was actually
   started on."
-  (:require [clojure.string :as str]))
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]))
 
 (def loopback-hosts
   "The `Host` values that name this machine.  Both bracketed and bare IPv6 spellings,
@@ -188,6 +189,72 @@
   (let [v (System/getenv "VAELII_API_TOKEN")]
     (when-not (str/blank? v) v)))
 
+;; ---- the per-principal token table ---------------------------------------
+
+(def ^:private grant-keys #{:principal :writes :admin?})
+
+(defn- bad-table!
+  "Throw `:bad-token-table` for the table at `source`.  `what` never quotes a token: the
+  table's keys are secrets, so an entry is named by its principal or its position."
+  [source what]
+  (throw (ex-info (str "the token table " (pr-str (str source)) " " what
+                       " — the daemon does not start on a table it cannot read whole")
+                  {:type :bad-token-table :source (str source)})))
+
+(defn check-token-table
+  "`table` — a map from a bearer token to its grant `{:principal <symbol> :writes #{<context>
+  …} :admin? <boolean>}` — returned as it is, or `:bad-token-table` naming `source`.
+
+  A table naming no token, a token that is not a non-blank string, a grant with a key
+  outside the three, a `:principal` that is not a symbol, a `:writes` that is not a set
+  and an `:admin?` that is not a boolean are each refused.  `:writes` holds context
+  names; `:admin? true` grants every context, and `:writes` may then be empty."
+  [table source]
+  (when-not (and (map? table) (seq table))
+    (bad-table! source "is not a map naming at least one token"))
+  (when-not (every? #(and (string? %) (not (str/blank? %))) (keys table))
+    (bad-table! source "holds a key that is not a non-blank string"))
+  ;; The grants are sorted by token, each a string after the check above, so `grant i`
+  ;; names one grant in any map order.  The message prints the index and never the token.
+  (doseq [[i [_ grant]] (map-indexed vector (sort-by key table))
+          :let [who (if (symbol? (:principal grant))
+                      (str "the grant for " (:principal grant))
+                      (str "grant " i))]]
+    (when-not (map? grant)
+      (bad-table! source (str "holds " who ", which is not a map")))
+    (when-let [extra (seq (remove grant-keys (keys grant)))]
+      (bad-table! source (str "holds " who " with keys outside " (pr-str (sort grant-keys))
+                              ": " (pr-str (vec extra)))))
+    (when-not (symbol? (:principal grant))
+      (bad-table! source (str "holds " who ", whose :principal is not a symbol")))
+    (when-not (set? (:writes grant #{}))
+      (bad-table! source (str "holds " who ", whose :writes is not a set of contexts")))
+    (when-not (boolean? (:admin? grant false))
+      (bad-table! source (str "holds " who ", whose :admin? is not true or false"))))
+  table)
+
+(defn read-token-table
+  "The token table in the EDN file at `path`, checked (`check-token-table`).  A file that
+  does not exist, does not read as EDN, or holds no valid table is refused
+  (`:bad-token-table`)."
+  [path]
+  (let [f (java.io.File. (str path))]
+    (when-not (.isFile f)
+      (bad-table! path "names no readable file"))
+    (check-token-table (try (edn/read-string (slurp f))
+                            (catch Exception _ (bad-table! path "does not read as EDN")))
+                       path)))
+
+(defn token-table
+  "The per-principal token table `VAELII_TOKEN_TABLE` names, or nil when the variable is
+  unset or blank.  Set, the file is read and checked here (`read-token-table`) and every
+  failure refuses (`:bad-token-table`): a daemon given a table it cannot read does not fall
+  back to the shared token."
+  []
+  (let [v (System/getenv "VAELII_TOKEN_TABLE")]
+    (when-not (str/blank? v)
+      (read-token-table (str/trim v)))))
+
 ;; ---- what a bind requires ------------------------------------------------
 
 (defn public-bind?
@@ -273,6 +340,27 @@
               (when-let [presented (presented-bearer-token req)]
                 (bearer-matches? token presented)))
         (handler req)
+        (refusal req)))))
+
+(defn table-grant
+  "The grant `table` holds for the token `req` presents, or nil.  Every token is compared
+  (`bearer-matches?`), so the time the lookup takes does not depend on which entry matched."
+  [table req]
+  (when-let [presented (presented-bearer-token req)]
+    (reduce (fn [hit [token grant]] (if (bearer-matches? token presented) grant hit))
+            nil table)))
+
+(defn wrap-token-table
+  "Wrap `handler` so every request presents a token `table` holds, answering `refusal`
+  (a fn of the request) when it does not, and handing the request on with the token's
+  grant under `::grant`.  `open` is `wrap-bearer`'s, and the refusal is as uninformative
+  as `wrap-bearer`'s: an unknown token and a missing header take one branch."
+  [handler table open refusal]
+  (fn [req]
+    (if (contains? open (:uri req))
+      (handler req)
+      (if-let [grant (table-grant table req)]
+        (handler (assoc req ::grant grant))
         (refusal req)))))
 
 ;; ---- the request-body ceiling -------------------------------------------

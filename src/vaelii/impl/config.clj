@@ -59,6 +59,8 @@
   list, neither of which has a domain to hold them to, and the ceiling
   `VAELII_MAX_BODY_BYTES` refuses at `guard/max-body-bytes` for the reason
   `assertive-arg-types?` refuses at load — it is the root value of a var.
+  `VAELII_TOKEN_TABLE`, the daemon's alone, is read there too: it names a file, which
+  `guard/read-token-table` reads and refuses at the daemon's start (`:bad-token-table`).
   `VAELII_SANDBOX_KEY`, the key the browser tags its sandbox cookies with, is a secret
   read at `vaelii.browser.sandbox`, with no domain either."
   (:require [clojure.string :as str]))

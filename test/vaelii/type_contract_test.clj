@@ -381,13 +381,13 @@
     :arg-position :arg-type :arg-variable :argument-family-ceiling :arity :asymmetric :bad-algebra :bad-arg
     :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-pattern :bad-registrant :bad-reply
-    :bad-snapshot :bad-table-entry :backup-failed :base-is-overlay :belief-built :body-too-large
+    :bad-snapshot :bad-table-entry :bad-token-table :backup-failed :base-is-overlay :belief-built :body-too-large
     :budget-exhausted
     :choice-head-not-positive
-    :compaction-failed :complement :cover :cross-origin :daemon-error :damaged-dictionary
+    :compaction-failed :complement :cover :creator-mismatch :cross-origin :daemon-error :damaged-dictionary
     :damaged-frame :definitional-clash :derived-only :disallowed-class
     :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
-    :exception-not-closed :export-busy :fork-base-overlap :frozen-base :functional
+    :exception-not-closed :export-busy :forbidden-context :fork-base-overlap :frozen-base :functional
     :handle-ceiling
     :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy
     :labeling-inconsistent :labeling-run-blocked :length-against-shape
