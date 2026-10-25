@@ -395,59 +395,59 @@
       (testing "and Merged does not"
         (is (= :false (verdict kb (status Merged) before-t)))))))
 
-;; ---- a validity window [nbf, exp) --------------------------------------------------
+;; ---- a validity interval [nbf, exp) --------------------------------------------------
 ;;
 ;; A credential valid from nbf until exp holds over the stretch [nbf, exp): valid at nbf,
-;; dead at exp.  The interval rows read `includesInstant` against the window's stored
+;; dead at exp.  The interval rows read `includesInstant` against the interval's stored
 ;; `startOf`/`endOf` facts, which never reach the instant network, so each interval row
 ;; reads :unknown today.  The validity rows read a slice keyed by an instant, which no
-;; shipped reasoner orders under the window holding it, so each validity row reads
+;; shipped reasoner orders under the interval holding it, so each validity row reads
 ;; :unknown today as well.
 (def ^:private nbf (at 7 9 0 0))
 (def ^:private exp (at 7 10 0 0))
 
-(defn- validity-window!
-  "States `window` as the interval [nbf, exp) and `(credentialValid token)` true over it
+(defn- validity-interval!
+  "States `interval` as [nbf, exp) and `(credentialValid token)` true over it
   along `issuer`, with the issuer's record of `credentialValid` complete before midnight
   starting 8 October."
-  [kb {:keys [credentialValid issuer token window]}]
+  [kb {:keys [credentialValid issuer token interval]}]
   (declare-cxtimefn! kb)
   (v/assert kb (list 'genlCx issuer 'CxWell) U)
-  (v/assert kb (list 'time_interval window) U)
-  (v/assert kb (list 'startOf window nbf) U)
-  (v/assert kb (list 'endOf window exp) U)
-  (v/assert kb (list credentialValid token) (slice issuer window))
+  (v/assert kb (list 'time_interval interval) U)
+  (v/assert kb (list 'startOf interval nbf) U)
+  (v/assert kb (list 'endOf interval exp) U)
+  (v/assert kb (list credentialValid token) (slice issuer interval))
   (v/assert kb (list 'ist (slice issuer (list 'IntervalBeforeFn (at 8)))
                      (list 'closed_extent_predicate credentialValid))
             U))
 
-(tu/deftest-kb ^:red a-validity-window-includes-nbf-and-excludes-exp
-  ;; nbf is the window's start, which the window includes, and exp its end, which the
-  ;; window excludes.  Every row is red because the window's stored bounds never reach
+(tu/deftest-kb ^:red a-validity-interval-includes-nbf-and-excludes-exp
+  ;; nbf is the interval's start, which the interval includes, and exp its end, which the
+  ;; interval excludes.  Every row is red because the interval's stored bounds never reach
   ;; the instant network, so each row reads :unknown.
   (v/add-reasoner kb :allen :point :calendar :includes-instant)
-  (tu/with-terms [credentialValid CxIssuer Token Window]
-    (validity-window! kb {:credentialValid credentialValid :issuer CxIssuer
-                          :token Token :window Window})
+  (tu/with-terms [credentialValid CxIssuer Token Validity]
+    (validity-interval! kb {:credentialValid credentialValid :issuer CxIssuer
+                            :token Token :interval Validity})
     (run-allen-table!
      kb U
-     [["nbf is in the window: the window starts at nbf"
-       (list 'includesInstant Window nbf) :true]
+     [["nbf is in the interval: the interval starts at nbf"
+       (list 'includesInstant Validity nbf) :true]
 
-      ["exp is not in the window: the window ends at exp"
-       (list 'includesInstant Window exp) :false]
+      ["exp is not in the interval: the interval ends at exp"
+       (list 'includesInstant Validity exp) :false]
 
-      ["the last second before exp is in the window"
-       (list 'includesInstant Window (at 7 9 59 59)) :true]])))
+      ["the last second before exp is in the interval"
+       (list 'includesInstant Validity (at 7 9 59 59)) :true]])))
 
 (tu/deftest-kb ^:red a-credential-is-valid-at-nbf-and-dead-at-exp
-  ;; Every row is red for the one reason the comment above validity-window! gives: the
-  ;; slice at an instant is not ordered under the window holding it, so each verdict is
+  ;; Every row is red for the one reason the comment above validity-interval! gives: the
+  ;; slice at an instant is not ordered under the interval holding it, so each verdict is
   ;; :unknown.
   (v/add-reasoner kb :allen :point :calendar :includes-instant)
-  (tu/with-terms [credentialValid CxIssuer Token Window]
-    (validity-window! kb {:credentialValid credentialValid :issuer CxIssuer
-                          :token Token :window Window})
+  (tu/with-terms [credentialValid CxIssuer Token Validity]
+    (validity-interval! kb {:credentialValid credentialValid :issuer CxIssuer
+                            :token Token :interval Validity})
     (let [valid       (list credentialValid Token)
           at-nbf      (slice CxIssuer nbf)
           at-exp      (slice CxIssuer exp)
