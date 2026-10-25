@@ -163,6 +163,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: vocabulary and reasoning
 
+- **`time.txt` ships `CxTimeFn`, the context of a monad at a time, with the monad
+  vocabulary of issue #181: `monad_context`, `genlMonad`, `CxMonadOfFn`/`cxMonadOf` and
+  `CxTimeOfFn`/`cxTimeOf`.** `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of
+  `CxStory`. The KB now believes `(result CxTimeFn context)` and `(contextArgSubrelation
+  CxTimeFn 2 subintervalOf)`, which a KB had to assert itself before reading a
+  time-sliced context through its application. `CxTimeFn`'s first argument is a
+  `monad_context`, a context with no temporal part (`(genl monad_context context)`), and
+  its second a `time`. `CxMonadOfFn` and `CxTimeOfFn` name a context's monad and time.
+  `genlMonad` is a binary relation between two `monad_context`s that orders monads alone,
+  as `subintervalOf` orders times. No rule or prover reads `genlMonad`, `cxMonadOf` or
+  `cxTimeOf` yet. [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 - **`time.txt` ships `DatetimeRangeFn`, a range between two reduced-precision ISO
   strings, with its corresponding predicate `datetimeRangeOf`.** `(DatetimeRangeFn
   "2000-01" "2000-06")` is January through June 2000: it begins when `(DatetimeFn

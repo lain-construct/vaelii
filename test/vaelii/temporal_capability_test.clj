@@ -17,12 +17,11 @@
   The vocabulary is the shipped one: `time.txt` for the interval, instant and calendar
   predicates, `core.txt` for `result`, `contextArgSubrelation` and `genlCx`, and the
   `CxChange` middle theory for the event calculus, and `CxNow` and `CxRealWorldNow` for
-  the present.  Nothing here declares a temporal predicate of its own.  `CxTimeFn` is
-  the exception, and the first test says why: the shipped KB names it only in comments
-  and docs, so a test that wants a time-sliced context declares it, the way
-  docs/context-nat.md does.  The red tests also name what issue #181 asks the KB to ship
-  and it does not yet: `genlMonad`, `monad_context`, `CxTimeOfFn`/`cxTimeOf` and
-  `CxMonadOfFn`/`cxMonadOf`."
+  the present.  Nothing here declares a temporal predicate of its own.  `time.txt` also
+  declares `CxTimeFn` and the monad vocabulary issue #181 asks for: `genlMonad`,
+  `monad_context`, `CxTimeOfFn`/`cxTimeOf` and `CxMonadOfFn`/`cxMonadOf`.  The tests
+  written before it did still restate the `CxTimeFn` declarations (`declare-cxtimefn!`),
+  which changes nothing the KB already believes."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.nat-read :as nat-read]
@@ -100,9 +99,9 @@
 ;; Context slicing — a fact asserted into a time-keyed context
 ;; =========================================================================
 
-(tu/deftest-kb ^:red cxtimefn-is-declared-in-the-shipped-kb
-  ;; The shipped upper layer and CxChange name `CxTimeFn` only in comments today, so every
-  ;; other test here declares it itself (declare-cxtimefn!).
+(tu/deftest-kb cxtimefn-is-declared-in-the-shipped-kb
+  ;; time.txt declares `CxTimeFn`.  The other tests here restate the declarations
+  ;; (declare-cxtimefn!), which changes nothing the KB already believes.
   (testing "the KB believes CxTimeFn's applications are contexts, ordered by subintervalOf on the time"
     (is (true? (v/ask? kb '(result CxTimeFn context) U)))
     (is (true? (v/ask? kb '(contextArgSubrelation CxTimeFn 2 subintervalOf) U)))))
@@ -766,7 +765,7 @@
 ;; time-side test sits beside that test, and a time-dimension twin of a test here sits
 ;; beside it.
 
-(tu/deftest-kb ^:red the-monad-vocabulary-is-declared-in-the-shipped-kb
+(tu/deftest-kb the-monad-vocabulary-is-declared-in-the-shipped-kb
   ;; Twin of cxtimefn-is-declared-in-the-shipped-kb.  Issue #181 asks for each of these.
   (testing "genlMonad, a binary relation ordering monads alone"
     (is (true? (v/query? kb '(arity genlMonad 2) U {:max-depth 3}))))

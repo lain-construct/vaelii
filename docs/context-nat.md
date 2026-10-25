@@ -142,6 +142,10 @@ argument is `R`-**below** the other's is the spec, and `genlCx` the more general
 (assert kb '(contextArgSubrelation CxTimeFn 2 subintervalOf) 'CxUniverse)  ; arg 2 = the datetime
 ```
 
+The upper layer's `time.txt` states all three, so a KB that loads it reads `CxTimeFn`
+contexts with no declaration of its own ([time.md](time.md#a-context-at-a-time-cxtimefn-and-the-monad)).
+A function of the user's own takes the same declarations, stated by the user.
+
 `vaelii.impl.context-nat` reads the declarations and the context NATs of `F` from the
 store, groups the contexts into **siblings** (same expression but for argument `pos`), and
 for each sibling pair whose `pos` arguments stand in `R` **materializes** the `genlCx` edge.

@@ -324,6 +324,23 @@ for a range wherever the calendar clock answers for a `DatetimeFn` term. Nothing
 a range's strings as fields, so the interval relations and the context ordering do not see
 it the way they see a calendar term.
 
+## A context at a time: `CxTimeFn` and the monad
+
+A context has two parts: its **monad**, the world, story or theory it is a context of,
+and its **time**. `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of `CxStory`.
+`time.txt` declares it as [context-nat.md](context-nat.md) describes: `(result CxTimeFn
+context)`, so an application written in a sentex's context slot reifies to a `cx/`
+constant, and `(contextArgSubrelation CxTimeFn 2 subintervalOf)`, so the application at
+the narrower time is a subcontext of the one at the wider time with the same monad.
+
+A `monad_context` is a context with no temporal part, such as `CxStory` taken over all of
+its time; it is the type of `CxTimeFn`'s first argument, and the second is a `time`.
+`CxMonadOfFn` and `CxTimeOfFn` take a context apart, with `cxMonadOf` and `cxTimeOf` as
+their corresponding predicates: the monad of `(CxTimeFn CxStory (YearFn 2000))` is
+`CxStory` and its time is `(YearFn 2000)`. `genlMonad` orders monads alone, as
+`subintervalOf` orders times alone. These are declarations: no rule or prover reads
+`genlMonad`, `cxMonadOf` or `cxTimeOf` yet, so a stated `genlMonad` orders no contexts.
+
 ## Change over time: events, fluents, and inertia
 
 `CxChange` is a simple event calculus, shipped as a **middle theory**: rules over vocabulary
