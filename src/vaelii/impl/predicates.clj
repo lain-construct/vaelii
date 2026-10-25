@@ -1770,6 +1770,23 @@
                           " rule concludes (acknowledgedFinding :rule-macro ...) from it.")}
              (str "sugar the engine does not read: core.txt's forward rule concludes"
                   " acknowledgedFinding from it, and the integrity sweep reads that"))]
+     ;; A rule-clash acknowledgment's subject: the two quoted rules of the pair, read as a
+     ;; bag so either order names the same pair.
+     ['RulePairFn
+      (enforced {:shape {:args [:term :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a function term over two quoted rules, read by the rule-clash"
+                             " pass of the integrity sweep as an unordered pair.")}
+                (str "integrity/rule-clash-findings — the subject of an acknowledgedFinding"
+                     " :rule-clash names its pair as (RulePairFn (Quote R1) (Quote R2))"))]
+     ;; RulePairFn's corresponding predicate, which the ontology gate requires of every
+     ;; shipped function.
+     ['rulePairOf
+      (inert {:shape {:args [:term :term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes "the predicate form of RulePairFn; no code path reads it."}
+             (str "the corresponding predicate of RulePairFn, stated so the ontology gate"
+                  " finds one; nothing infers from it"))]
 
      ;; The three worked-example annotations quote their example sentence, (Quote S), and
      ;; name no sentex, so they carry no target_following_predicate mark and nothing tears
