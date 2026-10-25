@@ -55,6 +55,18 @@
      (assert (zero? exit) err)
      (str/trim out))))
 
+(def ^:private bash-path
+  "The absolute path of `tu/bash`, for a stub's `#!`: Termux has no `/usr/bin/env`."
+  (delay (:out (shell/sh tu/bash "-c" "printf %s \"$BASH\""))))
+
+(defn- live-holder
+  "A shell fragment that starts a process whose command line names `script` as `$h`, and
+  kills it on exit.  `exec -a` cannot rename `sleep`: a multi-call coreutils (Termux,
+  busybox) dispatches on argv[0]."
+  [^File dir script]
+  (spit (io/file dir script) "trap 'kill $! 2>/dev/null; exit' TERM\nsleep 300 &\nwait\n")
+  (str "{ \"$BASH\" " script " & h=$!; trap 'kill $h' EXIT; }"))
+
 (deftest a-queue-take-merges-the-requests-and-empties-the-queue
   (with-repo
     (fn [dir]
@@ -100,7 +112,7 @@
       (let [take-slot (fn [slot-2]
                         (run dir {"GATE_NO_WAIT" "1"} tu/bash "-c"
                              (str ". " (tu/posix-path checkout) "/scripts/lib/slots.sh"
-                                  " && { (exec -a gate.sh sleep 300) & h=$!; trap 'kill $h' EXIT; }"
+                                  " && " (live-holder dir "gate.sh")
                                   " && d=$(matrix_state_dir)"
                                   " && printf '%s\\n' \"$h abc 0 user:a lein gate\" >|\"$d/gate-lock.1\""
                                   " && printf '%s\\n' \"" slot-2 "\" >|\"$d/gate-lock.2\""
@@ -186,10 +198,10 @@
           (is (not (.exists (io/file dir ".git/vaelii-matrix/lock"))) "no lock was taken"))))))
 
 (def ^:private fake-lein
-  "A `lein` whose first call exits `$FAKE_FIRST` at once, whose second and third sleep
-  until killed, and whose later calls pass.  `mkdir` numbers the calls atomically."
-  (str "#!/usr/bin/env bash\n"
-       "k=1; until mkdir \"$FAKE/s$k\" 2>/dev/null; do k=$((k + 1)); done\n"
+  "The body of a `lein`, below its `#!`: its first call exits `$FAKE_FIRST` at once, its
+  second and third sleep until killed, and later calls pass.  `mkdir` numbers the calls
+  atomically."
+  (str "k=1; until mkdir \"$FAKE/s$k\" 2>/dev/null; do k=$((k + 1)); done\n"
        "(( k == 1 )) && exit \"${FAKE_FIRST:-0}\"\n"
        "(( k <= 3 )) && exec sleep 300\n"
        "exit 0\n"))
@@ -208,7 +220,7 @@
         lein (io/file fake "bin/lein")
         base (git! dir "rev-parse" "HEAD~1")]
     (io/make-parents lein)
-    (spit lein fake-lein)
+    (spit lein (str "#!" @bash-path "\n" fake-lein))
     (.setExecutable lein true)
     (slots dir (str "matrix_queue_add " base " :default session:waiting"))
     (run dir {"FAKE" (tu/posix-path fake) "FAKE_FIRST" (str first-exit) "MATRIX_JOBS" "3"
