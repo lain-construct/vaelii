@@ -479,3 +479,116 @@
                      U))
     (is (= 1 (count (handles kb (list covering '?w '?a '?b '?c))))
         "three permutations bulk-loaded are one row")))
+
+;; ---- Quote opacity and nested commutative canonicalization --------------
+;;
+;; A quoted term is opaque, so no inference or canonicalization reaches inside one: a
+;; commutative licence for something quoted has to be stated outside the quote, on a
+;; function term holding the quoted parts.  That is how an acknowledgedFinding
+;; :rule-clash subject names a pair of rules, `(RulePairFn (Quote r1) (Quote r2))` with
+;; RulePairFn commutative (`vaelii.impl.integrity/acknowledged-pair`, docs/integrity.md).
+;;
+;; One table, read by two tests.  Each row is one commutative application, in both
+;; orders, held as an argument of a fact.  Unquoted, the mark licenses folding the two
+;; facts onto one stored sentex; quoted, the two orders are two spellings and stay two
+;; assertions.
+;;
+;; Every unquoted row is red on two engine defects.  `normalize-literal` sorts only a
+;; literal's own top-level arguments, never a commutative application nested inside
+;; another literal's argument, which is where every row puts its pair (vaelii#228).  And
+;; `(commutative RulePairFn)` is refused: `wff/prop-problems` reads `naming/individual?`,
+;; spelling only, so a capitalised function name is refused as a capitalised individual
+;; would be (vaelii#227).
+
+(defn- handle-count
+  "How many distinct handles asserting each of `forms` into `kb` gives."
+  [kb forms]
+  (count (into #{} (map #(v/assert kb % U)) forms)))
+
+(defn- mark-commutative-if-accepted!
+  "Assert `(commutative f)`, or nothing when the engine refuses the mark, so that a row
+  whose mark is refused still runs its quoted half."
+  [kb f]
+  (try (v/assert kb (list 'commutative f) U)
+       (catch clojure.lang.ExceptionInfo _ nil)))
+
+(defn- or-row
+  "`(p (or (q A) (r A)))` and `(p (or (r A) (q A)))`, with `(commutative or)`."
+  [kb]
+  (tu/with-terms [p q r A]
+    (v/assert kb (list 'commutative 'or) U)
+    {:pair  [(list 'or (list q A) (list r A)) (list 'or (list r A) (list q A))]
+     :embed #(list p %)}))
+
+(defn- and-row
+  "`(p (and (q A) (r A)))` and `(p (and (r A) (q A)))`, with `(commutative and)`."
+  [kb]
+  (tu/with-terms [p q r A]
+    (v/assert kb (list 'commutative 'and) U)
+    {:pair  [(list 'and (list q A) (list r A)) (list 'and (list r A) (list q A))]
+     :embed #(list p %)}))
+
+(defn- predicate-row
+  "`(p (bordersOn Canada Mexico))` and `(p (bordersOn Mexico Canada))`, with a fresh
+  binary predicate marked commutative."
+  [kb]
+  (tu/with-terms [p bordersOn Canada Mexico]
+    (v/assert kb (list 'binary_predicate bordersOn) U)
+    (v/assert kb (list 'commutative bordersOn) U)
+    {:pair  [(list bordersOn Canada Mexico) (list bordersOn Mexico Canada)]
+     :embed #(list p %)}))
+
+(defn- rule-pair-fn-row
+  "`(p (RulePairFn X Y))` and `(p (RulePairFn Y X))`, with `(commutative RulePairFn)`,
+  which the engine refuses (vaelii#227)."
+  [kb]
+  (tu/with-terms [p X Y]
+    (mark-commutative-if-accepted! kb 'RulePairFn)
+    {:pair  [(list 'RulePairFn X Y) (list 'RulePairFn Y X)]
+     :embed #(list p %)}))
+
+(defn- deep-row
+  "`(p (wrapOne (wrapTwo (h A B))))` and the same with `(h B A)`: a fresh commutative
+  relation three levels down."
+  [kb]
+  (tu/with-terms [p wrapOne wrapTwo h A B]
+    (v/assert kb (list 'commutative h) U)
+    {:pair  [(list h A B) (list h B A)]
+     :embed #(list p (list wrapOne (list wrapTwo %)))}))
+
+(def ^:private unordered-pair-rows
+  "`[name row-fn]` pairs.  `row-fn` takes `kb`, installs the mark its row needs, and
+  answers `{:pair [x y] :embed f}`: the two orders of one commutative application, and
+  `f`, which builds the fact holding one of them as an argument.  `pair-facts` builds a
+  row's two facts from that, unquoted or quoted."
+  [["(commutative or), nested one level" or-row]
+   ["(commutative and), nested one level" and-row]
+   ["a commutative binary predicate, nested one level" predicate-row]
+   ["RulePairFn, nested one level" rule-pair-fn-row]
+   ["a commutative relation, nested three levels" deep-row]])
+
+(defn- pair-facts
+  "The two facts of a row: `embed` over each order of `pair`, wrapped in `Quote` first
+  when `quoted?`."
+  [{:keys [pair embed]} quoted?]
+  (map #(embed (if quoted? (list 'Quote %) %)) pair))
+
+(tu/deftest-kb a-quoted-commutative-pair-stays-two-assertions
+  ;; A quoted term is syntax, and the two orders are two spellings, whatever the mark.
+  (doseq [[name row-fn] unordered-pair-rows]
+    (is (= 2 (handle-count kb (pair-facts (row-fn kb) true)))
+        (str name ", quoted: two assertions"))))
+
+(tu/deftest-kb ^:red an-unquoted-commutative-pair-folds-to-one-assertion
+  ;; The two orders are one proposition under the mark, so they are one sentex.  Red on
+  ;; vaelii#228 for every row, and on vaelii#227 as well for the RulePairFn row.
+  (doseq [[name row-fn] unordered-pair-rows]
+    (is (= 1 (handle-count kb (pair-facts (row-fn kb) false)))
+        (str name ", unquoted: one assertion"))))
+
+(tu/deftest-kb a-quoted-equals-stays-two-assertions
+  ;; `equals` is symmetric in what it means, and still a quoted (equals A B) and a quoted
+  ;; (equals B A) are two spellings, so they are two assertions.
+  (tu/with-terms [p A B]
+    (is (= 2 (handle-count kb [(list p (list 'Quote (list 'equals A B)))
+                               (list p (list 'Quote (list 'equals B A)))])))))
