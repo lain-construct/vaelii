@@ -37,10 +37,11 @@
 
   Additive, like the sibling koinii modules: only the public core API — including
   `sort-by-content` for the two content orders it reports (`contested-premises`,
-  `standing-rulings`) — plus koinii `dispute` and `identity`.  Nothing in core loads it."
+  `standing-rulings`) — plus koinii `dispute`, `identity` and `types`.  Nothing in core loads it."
   (:require [vaelii.core :as v]
             [vaelii.koinii.dispute :as d]
-            [vaelii.koinii.identity :as id]))
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.types :as koinii-types]))
 
 ;; ---- the policy extension points the dispute module left to the caller --------------
 
@@ -85,6 +86,7 @@
   is no longer `:open`, so a redelivery or a catch-up re-run does not re-push
   it.  Returns the disputes newly notified."
   [kb channel]
+  (koinii-types/needs-kb! `notify-disputes kb)
   (let [pending (d/pending-disputes kb channel)]
     (doseq [entry pending]
       (d/mark-notified kb (:dispute-id entry) (now))
@@ -134,6 +136,7 @@
   liveness with a fresh `contradictions` + `conflicts` scan — so asking it per entry would
   re-derive what the enumeration just settled, at a whole-KB scan apiece."
   [kb channel]
+  (koinii-types/needs-kb! `sweep-stale kb)
   (let [cutoff (- (now) *timeout-ms*)
         swept  (filterv (fn [e]
                           (and (not (d/stale? kb (:dispute-id e)))
@@ -149,6 +152,7 @@
   Returns `{:notified [...] :stale [...]}`.  A subscribe loop or a timer calls
   this; the two halves are also usable apart."
   [kb channel]
+  (koinii-types/needs-kb! `poll kb)
   {:notified (notify-disputes kb channel)
    :stale    (sweep-stale kb channel)})
 
@@ -167,6 +171,7 @@
   second monotonic ruling beside the first: two known-true claims on one clash, a
   `:conflict` no ruling can settle."
   [kb ruling-handle]
+  (koinii-types/needs-kb! `who-ruled kb)
   (let [p (v/provenance kb ruling-handle)]
     (when-let [dids (:adjudication p)]
       {:arbiter (:creator p) :dispute-ids (set dids) :at (:created p)})))
@@ -195,6 +200,7 @@
   two rulings to one key and drop the tie back onto the enumeration order this exists to
   keep out — and it reads numbers numerically, so a ruling of 9 precedes one of 10."
   [kb arbiter id]
+  (koinii-types/needs-kb! `standing-rulings kb)
   (let [k (d/dispute-key id)]
     (into [] (comp (map :id)
                    (filter #(contains? (:dispute-ids (who-ruled kb %)) k))
@@ -239,6 +245,7 @@
   as `:resolved` because there is no longer a clash to see.  Whether an arbiter may judge
   their own case is not a question this can answer by guessing, so it does not."
   [kb arbiter id upheld channel]
+  (koinii-types/needs-kb! `rule kb)
   (let [actx (id/context-for arbiter)
         k    (d/dispute-key id)
         held (set (keep #(v/sentex kb %) (if (sequential? k) k [k])))
@@ -310,6 +317,7 @@
   `channel/vote` writes the same sentence unattested.  An unknown stance is refused
   (`:koinii/no-such-stance`).  Returns the ballot's handle."
   [kb principal stance claim-handle]
+  (koinii-types/needs-kb! `cast-ballot kb)
   (let [pred (or (ballot-predicates stance)
                  (throw (ex-info (str "koinii: no such ballot stance " (pr-str stance)
                                       " — a vote is cast :for or :against")
@@ -325,6 +333,15 @@
   (v/sentexes-matching kb (list (ballot-predicates stance) '?a (v/sentex-handle claim-handle))
                        '?ctx))
 
+(defn- proven-voter?
+  "Does `ballot` prove its voter: an attestation naming the voter (`identity/attested-by`),
+  or a `:principal` the daemon recorded from the voter's token-table grant
+  (docs/operations.md, the token table)?"
+  [kb ballot]
+  (let [voter (second (:sentence ballot))]
+    (or (= voter (id/attested-by kb (:id ballot)))
+        (= voter (:principal (v/provenance kb (:id ballot)))))))
+
 (defn tally
   "Count the ballots cast on the claim at `claim-handle`: `{:for n :against n}`, each a
   count of DISTINCT voters (`ballots`).
@@ -334,6 +351,7 @@
   neither manufacture a tie nor swing a majority; their confusion abstains rather than
   double-voting."
   [kb claim-handle]
+  (koinii-types/needs-kb! `tally kb)
   (let [who (fn [stance] (into #{} (map (comp second :sentence)) (ballots kb claim-handle stance)))
         yes (who :for) no (who :against)]
     {:for (count (remove no yes)) :against (count (remove yes no))}))
@@ -360,15 +378,17 @@
   Idempotent: re-running on an unchanged count re-rules the same side (a belief no-op
   returning the standing handle) and withdraws nothing, so a driver may poll it.
 
-  **Requires the `:proof-tier` identity policy, and an attestation on every ballot.**
+  **Requires the `:proof-tier` identity policy, and a proven voter on every ballot.**
   A majority ruling defeats the losing side, and a count by claimed voter name is
   spoofable, so this refuses (`:koinii/identity-unverified`) under any other policy, and
-  refuses when any ballot on the claim — spoiled ones included — carries no attestation
-  naming its voter (`identity/attested-by`), naming those ballots in `:unattested`.  Only
-  `cast-ballot` under a minted `:proof-tier` principal attests one; a ballot from
-  `channel/vote` or from the wire carries none (docs/koinii.md, *Identity and the write
-  boundary*).  `tally` is unrestricted."
+  refuses when any ballot on the claim — spoiled ones included — proves no voter
+  (`proven-voter?`), naming those ballots in `:unattested`.  `cast-ballot` under a
+  minted `:proof-tier` principal attests one, and a daemon holding a token table records
+  the `:principal` of a wire ballot; a ballot from `channel/vote` in process, or over a
+  daemon with no table, proves none (docs/koinii.md, *Identity and the write boundary*).
+  `tally` is unrestricted."
   [kb id claim-handle channel]
+  (koinii-types/needs-kb! `resolve-by-majority kb)
   (when-not (= :proof-tier id/*policy*)
     (throw (ex-info (str "koinii: majority resolution requires the :proof-tier identity "
                          "policy; under " (pr-str id/*policy*) " the ballot count is "
@@ -377,15 +397,16 @@
                      :resolution :majority :dispute id})))
   (let [unattested (into #{}
                          (comp (mapcat #(ballots kb claim-handle %))
-                               (remove #(= (second (:sentence %)) (id/attested-by kb (:id %))))
+                               (remove #(proven-voter? kb %))
                                (map :id))
                          [:for :against])]
     (when (seq unattested)
       (throw (ex-info (str "koinii: majority resolution refused — " (count unattested)
-                           " ballot(s) on the claim carry no attestation naming their"
-                           " voter, so the count includes names nobody proved.  Cast"
-                           " ballots with cast-ballot under a :proof-tier principal, and"
-                           " retract the ones in :unattested")
+                           " ballot(s) on the claim carry no attestation and no"
+                           " daemon-recorded principal naming their voter, so the count"
+                           " includes names nobody proved.  Cast ballots with cast-ballot"
+                           " under a :proof-tier principal, or over a daemon holding a"
+                           " token table, and retract the ones in :unattested")
                       {:type :koinii/identity-unverified :policy :proof-tier
                        :resolution :majority :dispute id :unattested unattested}))))
   (let [{yes :for no :against :as counts} (tally kb claim-handle)
@@ -445,6 +466,7 @@
   required rather than decoration: a union over the ancestor set can hold one sentence asserted
   in two agents' contexts, and the sentence alone would not separate them."
   [kb S ctx]
+  (koinii-types/needs-kb! `contested-premises kb)
   ;; the ancestor set filter runs before `disputes-in`, which computes whole-KB contradictions:
   ;; a conclusion `ctx` cannot see costs one index probe rather than that.
   (let [visible (filterv #(v/sees? kb ctx (:context %)) (v/sentexes-matching kb S '?ctx))]
@@ -462,6 +484,7 @@
   answer `ask?` gives at `ctx` off a premise stored below it is the case a safety flag exists
   to catch, not the case it may miss."
   [kb S ctx]
+  (koinii-types/needs-kb! `rests-on-contested? kb)
   (boolean (seq (contested-premises kb S ctx))))
 
 ;; ---- quarantine: the OPTION, off by default ------------------------------
@@ -482,18 +505,21 @@
   from derivation.  Returns the mask's handle; `unquarantine!` retracts it and restores the
   claim (cascading its derivations back)."
   [kb channel target-handle]
+  (koinii-types/needs-kb! `quarantine kb)
   (v/assert kb (list 'except (v/sentex-handle target-handle)) channel {:strength :monotonic}))
 
 (defn unquarantine!
   "Undo a `quarantine`: retract the `except` mask at `handle`, so the claim and anything it
   fed count again in the channel.  Returns `retract!`'s counts."
   [kb handle]
+  (koinii-types/needs-kb! `unquarantine! kb)
   (v/retract! kb handle))
 
 (defn quarantined
   "The sentex handles `channel` is currently quarantining — the targets of its
   `(except (sentexHandle ?h))` masks.  'What has this channel screened out' as a plain read."
   [kb channel]
+  (koinii-types/needs-kb! `quarantined kb)
   (->> (v/sentexes-matching kb (list 'except '?h) channel)
        (keep (fn [s] (let [t (second (:sentence s))]
                        (when (v/sentex-handle? t) (second t)))))

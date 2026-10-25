@@ -109,8 +109,9 @@ The rest of koinii takes a KB, not a medium. `dispute`, `adjudication`, `belief`
 `identity`'s ingest and registry writes call `vaelii.core` on the KB they are handed, so they
 run in the process that holds it — the daemon's, in the `wire` shape. A remote agent moves
 through `channel` and catches up through `catchup`; the dispute reads, the notify and stale
-sweeps, a ruling, a majority count and a belief projection run beside the daemon. Handed a
-`vaelii.client` connection in place of a KB, they fail inside the engine rather than refuse.
+sweeps, a ruling, a majority count and a belief projection run beside the daemon. Each public
+fn of those modules that takes a KB first refuses a `vaelii.client` connection or a medium in
+its place with `:koinii/needs-kb`, naming the fn in `:fn` (`vaelii.koinii.types/needs-kb!`).
 
 ### When to stop
 
@@ -170,17 +171,31 @@ The auth **strength** is conditional on policy (decision D4):
   it back, and the MAC fails on any other sentex, including the same sentence re-asserted
   under a new handle.
 
-**Proof-tier is in-process only.** `authenticate`, `ingest` and the attestation run in the
-process that holds the KB and the key, and nothing on the wire calls them. The daemon's wire
-contract carries no principal, so every agent on a `wire` channel is `:cooperative`. A `wire`
-write, and any `vaelii.client` call, reaches the daemon with the `:creator` and the context
-the caller sent, `CxRegistry` included, and a `retract!` from any connection removes any
-agent's claim. The refusals `channel` raises (`:koinii/registry-forbidden`,
+**Proof-tier attestation is in-process only.** `authenticate`, `ingest` and the
+attestation run in the process that holds the KB and the key, and nothing on the wire calls
+them. The refusals `channel` raises (`:koinii/registry-forbidden`,
 `:koinii/creator-mismatch`, `:koinii/speaker-mismatch`) are thrown in the caller's process
-before anything is sent, so a client that does not go through `channel` meets none of them;
-the daemon's one bearer token is the whole of its access control. That is the cooperative
-gap on the wire. A ballot is the one case the resolver can check: a wire ballot carries no
-attestation, so `resolve-by-majority` refuses a count that includes one.
+before anything is sent, so a client that does not go through `channel` meets none of them.
+
+**On the wire the daemon's token table is the write boundary**
+([operations.md](operations.md#the-token-table)). The deployment gives each agent a token
+whose grant names the agent id as `:principal` and the agent's own context as `:writes`,
+built with `identity/context-for` — `{"<token>" {:principal AgentAtlas :writes
+#{CxAtlas}}}` — and gives the operator an `:admin? true` token. The daemon then refuses a
+write into any other context, `CxRegistry` included (`:forbidden-context`), a `retract!` or
+`edit!` of another agent's claim, and a `:creator` other than the agent's
+(`:creator-mismatch`), whichever client sent it. `join` writes the placement edges into
+`CxUniverse`, so the operator runs each `join` over the admin token, and the agent's process
+uses the handle `join` returns — `{:medium :agent :context :channel}` — with a `wire`
+medium over its own connection. With no table, the daemon's one bearer token is the whole
+of its access control: a `wire` write reaches the daemon with the `:creator` and the
+context the caller sent, and a `retract!` from any connection removes any agent's claim.
+
+**A wire ballot proves its voter by the recorded `:principal`.** Under the table the daemon
+records the presenting token's principal in each write's provenance, and no request may
+name that key, with or without a table. `resolve-by-majority` counts a ballot whose recorded
+`:principal` is its voter as it counts an attested one. A wire ballot cast through a daemon
+with no table proves no voter, and the resolver refuses a count that includes one.
 
 **The key** is `identity/*attest-key*`: a byte array or a string of at least 32 bytes, or
 nil (the default) for 32 random bytes drawn once per process. A deployment sets it at start
@@ -239,19 +254,104 @@ Two independent facts force the response shape, and together they are decision D
   object with its own creator. So two endorsers of one claim are two distinct `endorses`
   sentexes, the case a bare re-assert would collapse to one.
 
-```clojure
-(def h  (ch/assert atlas '(usesDatabase ProdCluster Postgres)))
-(ch/endorse boreas h)                    ; a distinct sentex, creator Boreas
-(ch/answer  atlas "Postgres 16" query-h) ; (answers Atlas "Postgres 16" (sentexHandle query-h))
-(ch/dispute cyra h)                       ; asserts ¬claim AND a disputes edge — the pair clashes
-```
-
 Idempotence falls out of sentence identity: re-asserting the same meta-sentex in the same
 context moves no belief, so an at-least-once feed is safe to act on — replay a reply and the
 KB is unchanged. The error acts (`notUnderstood`, `refuse`) name the received edge in the
 refusing agent's context and are deliberately *unmarked*: a parse failure is a fact about the
 exchange that should outlive whatever provoked it. Adjudication is a separate concern (below);
 this layer only *represents* the moves.
+
+### Lineage: ACL performatives and social commitments
+
+The eleven acts in `CxSpeechActs` correspond to the performatives of KQML (Finin et al.
+1994) and FIPA-ACL (FIPA 2002), and to the moves of an argumentation dialogue (Walton &
+Krabbe 1995). Both ACLs descend from speech-act theory (Searle 1969). Koinii reads each act
+as a public commitment in the sense of Singh (2000) and Fornara & Colombetti (2002). An
+act's sentex, its context and its `:creator` provenance are stored in the KB, and every
+agent that reads the channel can read all three. FIPA's SL semantics define a performative
+by the sender's beliefs and intentions, and no receiver can inspect that state.
+
+| Act | KQML / FIPA-ACL | Dialogue move | What the stored act records |
+|---|---|---|---|
+| `asserts` | KQML `tell`; FIPA `inform` | claim | The creator commits to the claim, which is stored in the creator's context. |
+| `queries` | KQML `ask-if`; FIPA `query-if`, `query-ref` | question | The creator opens a request for an answer and commits to no content. |
+| `answers` | KQML `reply`; FIPA `inform-if`, `inform-ref` | reply | The answerer commits to the answer content. |
+| `endorses` | FIPA `confirm` (nearest) | concession | The endorser takes on the target's claim under its own `:creator`. |
+| `disputes` | KQML `deny`; FIPA `disconfirm` | challenge | The disputer commits to the negation of the target, which `channel/dispute` asserts beside the edge. |
+| `justifies` | none; an `inform` that carries a reason | argument | The justifier offers a reason for the target. |
+| `votesFor` | none | none in Walton & Krabbe | A ballot for the target, which the majority policy counts. Neither ACL has a ballot act. |
+| `votesAgainst` | none | none in Walton & Krabbe | A ballot against the target, counted as `votesFor` is. |
+| `retracts` | KQML `untell`; FIPA-ACL has none | retraction | `retract!` removes the claim, and the creator's commitment goes with it. FIPA's `cancel` withdraws an intended action, not an `inform`. |
+| `notUnderstood` | KQML `error`; FIPA `not-understood` | none; a protocol move | No content commitment. |
+| `refuse` | KQML `sorry`; FIPA `refuse` | none; a protocol move | No content commitment. |
+
+Koinii stores the acts and computes no commitment state. No function reports whether a
+query has an answer, whether a commitment is discharged or violated, or which commitments an
+agent holds. `channel/open-queries` returns every query node, answered or not. The dispute
+reads (below) report a clash from belief, not from a commitment record. An act is a sentex
+in the KB, and koinii sends no KQML or FIPA-ACL message. The action dimension (request,
+propose, accept, commit-to-do) is not in the vocabulary, and `CxSpeechActs`'s header maps it
+to the A2A protocol.
+
+References: J. R. Searle, *Speech Acts: An Essay in the Philosophy of Language*, Cambridge
+University Press, 1969. T. Finin, R. Fritzson, D. McKay, R. McEntire, "KQML as an Agent
+Communication Language", CIKM 1994. FIPA, *FIPA Communicative Act Library Specification*,
+SC00037J, 2002. M. P. Singh, "A Social Semantics for Agent Communication Languages", in
+*Issues in Agent Communication*, LNCS 1916, Springer, 2000. N. Fornara, M. Colombetti,
+"Operational Specification of a Commitment-Based Agent Communication Language", AAMAS 2002.
+D. N. Walton, E. C. W. Krabbe, *Commitment in Dialogue: Basic Concepts of Interpersonal
+Reasoning*, SUNY Press, 1995.
+
+## A session, start to finish
+
+The block below runs in one process over the `local` medium, and the suite runs it
+(`doc_examples_test`). It opens a KB with the starter ontology, loads the speech acts, and
+joins Ava, Ben and an arbiter, Judge, to the channel `CxDeploy`.
+
+```clojure run
+(require '[vaelii.core :as v]
+         '[vaelii.starter :as starter]
+         '[vaelii.koinii.adjudication :as adj]
+         '[vaelii.koinii.channel :as ch]
+         '[vaelii.koinii.dispute :as d]
+         '[vaelii.koinii.speech-acts :as sa])
+
+(def kb (sa/load-speech-acts (starter/load-into (v/open-kb {:space 5}))))
+(def ava (ch/join (ch/local kb) 'CxDeploy 'AgentAva))
+(def ben (ch/join (ch/local kb) 'CxDeploy 'AgentBen))
+(ch/join (ch/local kb) 'CxDeploy 'AgentJudge)
+
+(def claim '(usesDatabase ProdCluster Postgres))
+(def h (ch/assert ava claim))
+(ch/endorse ben h)
+(map ch/speaker-of (ch/endorsements-of ava h))           ;=> (AgentBen)
+
+(def q (ch/pose-query ava "Which Postgres major version?"))
+(ch/answer ben "16" q)                 ; (answers AgentBen "16" (sentexHandle q)) in CxBen
+(map ch/answer-content (ch/answers-to ava q))            ;=> ("16")
+
+;; the dispute asserts (not claim) and a disputes edge in CxBen; the channel
+;; sees both sides of the clash, and Ava's own context sees one
+(ch/dispute ben h)
+(d/disputed? kb claim 'CxDeploy)                         ;=> true
+(d/disputed? kb claim 'CxAva)                            ;=> false
+
+;; Judge rules for Ava: a :monotonic assertion in CxJudge defeats Ben's rebuttal
+(def id (:dispute-id (first (d/disputes-in kb 'CxDeploy))))
+(def ruling (adj/rule kb 'AgentJudge id claim 'CxDeploy))
+(d/disputed? kb claim 'CxDeploy)                         ;=> false
+(let [r (adj/who-ruled kb ruling)]
+  [(:arbiter r) (= #{id} (:dispute-ids r))])             ;=> [AgentJudge true]
+
+;; retracting the ruling reopens the dispute
+(v/retract! kb ruling)
+(d/disputed? kb claim 'CxDeploy)                         ;=> true
+```
+
+Against a daemon, `ch/wire` over a `vaelii.client` connection takes the place of
+`ch/local`, and the `ch/` calls run unchanged. The `d/` and `adj/` calls take the KB itself
+and refuse a connection or a medium (`:koinii/needs-kb`), so they run in the daemon's
+process ([The deployment shape](#the-deployment-shape)).
 
 ## Disputes and adjudication
 
@@ -333,10 +433,12 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   which is exactly the trust-weighting the identity design forbids, so `resolve-by-majority`
   refuses there (`:koinii/identity-unverified`). Counting stays open for transparency; only
   the ruling requires the proof-tier policy. Under `:proof-tier` it also refuses when any
-  ballot on the claim, a spoiling one included, carries no attestation naming its voter,
-  and names those ballots in `:unattested`. `adjudication/cast-ballot` casts the attested ballot through
-  `identity/ingest`; `channel/vote` and the wire cast unattested ones. One unattested ballot
-  therefore blocks the ruling until it is retracted.
+  ballot on the claim, a spoiling one included, carries neither an attestation nor a
+  daemon-recorded `:principal` naming its voter, and names those ballots in `:unattested`. `adjudication/cast-ballot` casts the attested ballot through
+  `identity/ingest`, and a daemon holding a token table records the `:principal` that
+  stands in for an attestation; `channel/vote` in process, and over a daemon with no table,
+  casts ballots that prove no voter. One such ballot therefore blocks the ruling until it is
+  retracted.
 
 **Trust-resolve** — automatic resolution by source trust — is deliberately out of scope for
 this layer; it is engine-side reputation work, and reaching for it here would resolve

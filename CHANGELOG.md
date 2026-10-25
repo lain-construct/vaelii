@@ -70,12 +70,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: koinii
 
+- **`adjudication/resolve-by-majority` counts a wire ballot whose daemon-recorded
+  `:principal` is its voter**, as it counts an attested one. A daemon holding a token
+  table records the principal; a ballot with neither stays refused.
+  [koinii.md](docs/koinii.md#identity-and-the-write-boundary)
+  *Migration:* none.
+
 - **koinii's surface is frozen in `test/golden/koinii-surface.edn`**, apart from the
   engine's goldens: the public vars of `vaelii.koinii.*` with their arglists, the refusal
   `:type`s its modules raise, and the arity of each term CxRegistry, CxSpeechActs and
   CxDisputes declare. A koinii change that removes one, or changes an arglist or an arity,
   is a contract change, and its changelog entry names it (CONTRIBUTING §3.8).
   [koinii.md](docs/koinii.md)
+  *Migration:* none.
+
+- **koinii's `dispute`, `adjudication`, `belief`, `deref` and `identity` fns refuse a
+  `vaelii.client` connection or a medium in place of a KB** with `:koinii/needs-kb`, whose
+  `:fn` names the fn, where they threw an engine exception naming neither.
+  [koinii.md](docs/koinii.md#the-deployment-shape)
   *Migration:* none.
 
 ### Fix: answers
@@ -117,6 +129,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   holds 20.5 MB. The `:taxonomy-closures` row of `caches` reports the KB's own bound.
   [taxonomy.md](docs/taxonomy.md)
   *Migration:* none.
+
+### Internal
+
+- **koinii.md carries a whole koinii session that `doc_examples_test` runs**: two agents
+  and an arbiter join one channel, assert, endorse, ask and answer, dispute, rule, and
+  retract the ruling to reopen the dispute, each step checked by a `;=>` value.
+  [koinii.md](docs/koinii.md#a-session-start-to-finish)
+- **koinii.md maps each `CxSpeechActs` act to its KQML / FIPA-ACL performative and
+  dialogue move**, states the commitment the stored act records, and cites the sources.
+  [koinii.md](docs/koinii.md#lineage-acl-performatives-and-social-commitments)
 
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 

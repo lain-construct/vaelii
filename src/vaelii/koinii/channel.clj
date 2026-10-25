@@ -463,7 +463,8 @@
   one a resolution policy COUNTS rather than merely records:
   `adjudication/tally` counts these ballots.  This entry point authenticates nobody, so
   its ballot carries no attestation, and `adjudication/resolve-by-majority` refuses a
-  count that includes one; `adjudication/cast-ballot` casts the attested ballot in
+  count that includes one unless a daemon holding a token table recorded the ballot's
+  `:principal` as its voter; `adjudication/cast-ballot` casts the attested ballot in
   process.  A ballot is
   a response act like the rest — `target_following_predicate` in `CxSpeechActs` — so
   retracting the disputed claim withdraws the votes cast on it.  Idempotent by sentence
