@@ -151,6 +151,7 @@
    [:doc :method-builders :method-map :on :on-interface :sigs :var],
    Medium
    [:doc :method-builders :method-map :on :on-interface :sigs :var],
+   needs-kb! "[[f kb]]",
    read-position "[[store]]",
    write-position! "[[store position]]"}},
  :refusal-types
@@ -162,6 +163,7 @@
   :koinii/feed-error
   :koinii/identity-unverified
   :koinii/missing-seed
+  :koinii/needs-kb
   :koinii/no-cursor
   :koinii/no-such-handle
   :koinii/no-such-stance

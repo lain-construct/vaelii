@@ -109,8 +109,9 @@ The rest of koinii takes a KB, not a medium. `dispute`, `adjudication`, `belief`
 `identity`'s ingest and registry writes call `vaelii.core` on the KB they are handed, so they
 run in the process that holds it — the daemon's, in the `wire` shape. A remote agent moves
 through `channel` and catches up through `catchup`; the dispute reads, the notify and stale
-sweeps, a ruling, a majority count and a belief projection run beside the daemon. Handed a
-`vaelii.client` connection in place of a KB, they fail inside the engine rather than refuse.
+sweeps, a ruling, a majority count and a belief projection run beside the daemon. Each public
+fn of those modules that takes a KB first refuses a `vaelii.client` connection or a medium in
+its place with `:koinii/needs-kb`, naming the fn in `:fn` (`vaelii.koinii.types/needs-kb!`).
 
 ### When to stop
 

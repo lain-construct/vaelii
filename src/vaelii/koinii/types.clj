@@ -7,7 +7,9 @@
   a new interface and a running channel's medium and cursor store would stop answering it.
   It requires no vaelii namespace.  The records that implement them are defined with their
   methods inline: the media in `vaelii.koinii.channel`, the cursor store in
-  `vaelii.koinii.catchup`.")
+  `vaelii.koinii.catchup`.  `needs-kb!` is the check the KB-only modules run at their
+  public fns."
+  (:import [java.net.http HttpClient]))
 
 (defprotocol Medium
   "The transport a channel runs over — a daemon connection (`wire`, cross-process) or an
@@ -58,3 +60,21 @@
   (read-position [store] "The stored `{:token :cursor}`, or nil if none.")
   (write-position! [store position] "Persist `{:token :cursor}`; returns it."))
 
+(defn needs-kb!
+  "Return `kb`, or throw `:koinii/needs-kb` when `kb` is a `vaelii.client` connection or a
+  `Medium`.  Every public fn of `dispute`, `adjudication`, `belief`, `deref` and `identity`
+  that takes a KB first calls this with its own qualified name `f`, because those fns call
+  `vaelii.core` on the KB and fail inside the engine on anything else.  A connection is the
+  map `vaelii.client/client` returns, recognized by the `HttpClient` it holds under `:http`.
+  The ex-data names `:fn` and `:got` (`:connection` or `:medium`).  See docs/koinii.md,
+  *The deployment shape*."
+  [f kb]
+  (let [got (cond (instance? vaelii.koinii.types.Medium kb)      :medium
+                  (and (map? kb) (instance? HttpClient (:http kb))) :connection)]
+    (when got
+      (throw (ex-info (str "koinii: " f " takes a KB and was handed a "
+                           (if (= got :medium) "koinii medium" "vaelii.client connection")
+                           ".  Run the call in the process that holds the KB (the daemon's,"
+                           " for a wire connection) and pass it the KB.")
+                      {:type :koinii/needs-kb :fn f :got got})))
+    kb))

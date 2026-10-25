@@ -18,7 +18,11 @@
             [vaelii.core :as v]
             [vaelii.host.serve :as serve]
             [vaelii.impl.sentex :as sx]
+            [vaelii.koinii.adjudication]
+            [vaelii.koinii.belief]
             [vaelii.koinii.channel :as ch]
+            [vaelii.koinii.deref]
+            [vaelii.koinii.dispute :as d]
             [vaelii.koinii.identity :as id]
             [vaelii.koinii.speech-acts :as sa]
             [vaelii.koinii.types :as koinii-types]
@@ -386,6 +390,37 @@
           "and resuming from one it never issued")
       (is (= :koinii/no-wire-feed (:type (refusal #(koinii-types/-feed-close m nil))))
           "and closing one"))))
+
+;; ---- the KB-only modules refuse a connection and a medium -----------------
+
+(def ^:private kb-only-namespaces
+  '[vaelii.koinii.adjudication vaelii.koinii.belief vaelii.koinii.deref
+    vaelii.koinii.dispute vaelii.koinii.identity])
+
+(deftest a-kb-only-fn-refuses-a-connection
+  ;; The rows are every arity of every public fn in the KB-only modules whose first
+  ;; parameter is `kb`, read off `ns-publics`, so a fn added without the check is a row
+  ;; that fails.  The connection names a port no daemon listens on: the refusal comes
+  ;; before any engine or network call, and the other arguments are never read.
+  (let [conn    (vc/client "localhost" 1 {:token nil})
+        rows    (for [ns-sym  kb-only-namespaces
+                      [sym v] (sort-by key (ns-publics ns-sym))
+                      arglist (:arglists (meta v))
+                      :when   (= 'kb (first arglist))]
+                  [(symbol (name ns-sym) (name sym)) v (dec (count arglist))])
+        refusal (fn [f & args] (try (apply f args) nil
+                                    (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+    (is (< 50 (count rows)) "the five namespaces' entry points were read")
+    (is (= [] (into [] (keep (fn [[fq v n]]
+                               (let [data (apply refusal v conn (repeat n nil))]
+                                 (when-not (= {:type :koinii/needs-kb :fn fq :got :connection}
+                                              (select-keys data [:type :fn :got]))
+                                   [fq data]))))
+                    rows)))
+    (testing "a medium in place of the KB is refused with the same type"
+      (is (= {:type :koinii/needs-kb :fn `d/disputes-in :got :medium}
+             (select-keys (refusal d/disputes-in (ch/wire conn) 'CxDeploy)
+                          [:type :fn :got]))))))
 
 ;; ---- the two entry points that nil-punned: a bad handle, and a bad stance -------
 

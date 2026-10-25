@@ -84,6 +84,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [koinii.md](docs/koinii.md)
   *Migration:* none.
 
+- **koinii's `dispute`, `adjudication`, `belief`, `deref` and `identity` fns refuse a
+  `vaelii.client` connection or a medium in place of a KB** with `:koinii/needs-kb`, whose
+  `:fn` names the fn, where they threw an engine exception naming neither.
+  [koinii.md](docs/koinii.md#the-deployment-shape)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **A forward rule concluding `equals` or `sameAs` over applications of a

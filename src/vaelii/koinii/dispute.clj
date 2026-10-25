@@ -43,7 +43,8 @@
   `canonical-sentex`, `sentex-handle`) — nothing under `vaelii.impl`, and nothing in core
   loads it."
   (:require [vaelii.core :as v]
-            [vaelii.koinii.identity :as id]))
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.types :as koinii-types]))
 
 ;; ---- the dispute id: a stable name for one clash -------------------------
 
@@ -113,6 +114,7 @@
   it.  Conflicts are folded in by default (most callers want the harder monotonic clashes
   beside the rebuttals); a caller wanting only one class filters on `:dispute-class`."
   [kb ctx]
+  (koinii-types/needs-kb! `disputes-in kb)
   (->> (concat (map #(assoc % :dispute-class :contradiction) (v/contradictions kb))
                (map #(assoc % :dispute-class :conflict)      (v/conflicts kb)))
        (filter #(observed-by? kb ctx %))
@@ -137,9 +139,12 @@
     which is what a koinii dispute (an asserted `¬S`) needs.
 
   Arity tells the two apart: 2 args is `(kb ctx)`, 3+ is `(kb S ctx …)`."
-  ([kb ctx] (boolean (seq (disputes-in kb ctx))))
+  ([kb ctx]
+   (koinii-types/needs-kb! `disputed? kb)
+   (boolean (seq (disputes-in kb ctx))))
   ([kb S ctx] (disputed? kb S ctx nil))
   ([kb S ctx opts]
+   (koinii-types/needs-kb! `disputed? kb)
    (= :contradiction (:verdict (v/argue kb S ctx opts)))))
 
 ;; ---- the dispute lifecycle (koinii design D9) ----------------------------
@@ -181,11 +186,13 @@
 (defn notified?
   "Is there a stored `:notified` mark for dispute `id`?"
   [kb id]
+  (koinii-types/needs-kb! `notified? kb)
   (boolean (seq (marks-of kb 'disputeNotified id ['?at]))))
 
 (defn stale?
   "Is there a stored `:stale` mark for dispute `id`?"
   [kb id]
+  (koinii-types/needs-kb! `stale? kb)
   (boolean (seq (marks-of kb 'disputeStale id ['?at '?reason]))))
 
 (defn mark-notified
@@ -195,6 +202,7 @@
   retract (`reopen!`) un-notifies.  The mark is what stops the driver re-notifying a clash it
   has already announced.  Returns the mark's handle."
   [kb id at]
+  (koinii-types/needs-kb! `mark-notified kb)
   (ensure-state-context! kb)
   (v/assert kb (list 'disputeNotified (dispute-term id) at) state-context))
 
@@ -205,6 +213,7 @@
   up unmarked and `why` can explain the sweep.  Staleness does not resolve the clash — the
   dispute is still live — it only flags it.  Returns the mark's handle."
   [kb id at reason]
+  (koinii-types/needs-kb! `mark-stale kb)
   (ensure-state-context! kb)
   (v/assert kb (list 'disputeStale (dispute-term id) at reason) state-context))
 
@@ -214,6 +223,7 @@
   and the reason those states are stored rather than derived: retract the ruling and the
   dispute reopens.  Returns the number of marks retracted."
   [kb id]
+  (koinii-types/needs-kb! `reopen! kb)
   ;; the whole mark set is realized BEFORE the first retract.  `marks-of` is a live read
   ;; of the index and `concat` is lazy, so retracting while walking it would run the
   ;; second read against a store the first retracts have already moved — the stale marks
@@ -255,6 +265,7 @@
   (everything `disputes-in` hands back) reads the marks instead (`notified?` / `stale?`)
   and pays no scan at all."
   [kb id]
+  (koinii-types/needs-kb! `dispute-state kb)
   (if (contains? (live-ids kb) (dispute-key id))
     (mark-state kb id)
     :resolved))
@@ -265,4 +276,5 @@
   entry from `disputes-in` is live by construction, so this checks the marks, not liveness
   again."
   [kb ctx]
+  (koinii-types/needs-kb! `pending-disputes kb)
   (filterv #(= :open (mark-state kb (:dispute-id %))) (disputes-in kb ctx)))

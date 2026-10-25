@@ -83,10 +83,11 @@
 
   Additive, like the other koinii modules: only the public core API — the record walk
   is `handles` / `sentex`, and the canonicalization is `canonical-sentex`, so a seat
-  digests what the store itself would.  Nothing under `vaelii.impl`, and nothing in core
-  loads it."
+  digests what the store itself would.  Beside it, koinii `types`.  Nothing under
+  `vaelii.impl`, and nothing in core loads it."
   (:require [clojure.walk :as walk]
-            [vaelii.core :as v])
+            [vaelii.core :as v]
+            [vaelii.koinii.types :as koinii-types])
   (:import (java.io ByteArrayOutputStream DataOutputStream)
            (java.math BigDecimal BigInteger)
            (java.security MessageDigest)))
@@ -385,6 +386,7 @@
   holds the same assertion; a `(sentexHandle n)` inside it digests as the record `n` names
   (`identity-of`).  nil if the handle names no record."
   [kb handle]
+  (koinii-types/needs-kb! `locator-of kb)
   (locator-with kb (new-memo) handle))
 
 (defn locate
@@ -399,6 +401,7 @@
   because a record naming ITSELF digests that reference as a back-reference (`encode!`'s
   0x0E), which an unstored sentence has no frame to point at."
   [kb sentence context]
+  (koinii-types/needs-kb! `locate kb)
   (let [csx (v/canonical-sentex kb sentence context)
         h   (when (some v/sentex-handle? (tree-seq sequential? seq (v/sentence-of csx)))
               (v/handle-of kb sentence context))]
@@ -536,6 +539,7 @@
   seats meet only if they also derived to the same extent (same rules, same `*max-depth*`).
   For attribution-sensitive snapshot identity, see `state-root`."
   [kb]
+  (koinii-types/needs-kb! `commit-id kb)
   (let [memo (new-memo)]
     (merkle-root (map #(locator-with kb memo %) (believed-handles kb)))))
 
@@ -562,6 +566,7 @@
   seen two ways, so a leaf in one and not the other would make them roots of different
   trees."
   [kb]
+  (koinii-types/needs-kb! `state-root kb)
   (let [memo (new-memo)]
     (merkle-root (map #(record-locator kb memo %) (believed-handles kb)))))
 
@@ -576,6 +581,7 @@
   against the published root: a stored-but-defeated record is absent from the tree, so
   asking for its proof answers nil rather than a path that verifies against nothing."
   [kb locator]
+  (koinii-types/needs-kb! `inclusion-proof kb)
   (let [memo   (new-memo)
         leaves (sorted-leaves (map #(locator-with kb memo %) (believed-handles kb)))
         target (hex (leaf-hash locator))
@@ -634,6 +640,7 @@
   makes no byte-stability claim.  Every other `export!` option passes through."
   ([kb dir] (publish! kb dir {}))
   ([kb dir opts]
+   (koinii-types/needs-kb! `publish! kb)
    (when-let [c (:compression opts)]
      (when-not (= :none c)
        (throw (ex-info (str "koinii: publish! requires :compression :none — a published commit's"
@@ -648,7 +655,9 @@
   the property that makes this seat compute the same locators as the seat that published.
   Returns `import!`'s summary."
   ([kb dir] (pull! kb dir {}))
-  ([kb dir opts] (v/import! kb dir opts)))
+  ([kb dir opts]
+   (koinii-types/needs-kb! `pull! kb)
+   (v/import! kb dir opts)))
 
 ;; ---- the marker: the untrusted transport payload -------------------------
 
@@ -706,6 +715,7 @@
   resolve a reply.  The key is absent when the sentence names no stored record; a handle
   already on the chain of markers being built is left out (`marker-at`)."
   [kb handle]
+  (koinii-types/needs-kb! `marker kb)
   (marker-at kb handle []))
 
 ;; ---- dereference: resolve a marker against the seat's OWN KB --------------
@@ -877,6 +887,7 @@
   So the marker is never required: meaning, attribution and (via `why-marker`) proof
   all come from what this seat's KB actually holds."
   [kb marker]
+  (koinii-types/needs-kb! `dereference kb)
   (let [r (local-handle kb marker 0)
         h (:handle r)]
     (if-not h
@@ -910,6 +921,7 @@
   prove by content; the proof itself is the seat's own, drawn from its own justification
   graph.  Returns the `dereference` map, with `:why` added on success."
   [kb marker]
+  (koinii-types/needs-kb! `why-marker kb)
   (let [r (dereference kb marker)]
     (if (:resolved? r)
       (assoc r :why (v/why kb (:handle r)))
@@ -929,6 +941,7 @@
   `inclusion-proof` fold.  The index is that commit tree's leaf set read backwards, so a
   locator resolves here exactly when it has a leaf to prove."
   [kb]
+  (koinii-types/needs-kb! `locator-index kb)
   (let [memo (new-memo)]
     (persistent!
      (reduce (fn [m h] (assoc! m (locator-with kb memo h) h))
@@ -960,10 +973,12 @@
   write would resolve a locator to a record the seat has since retracted or stopped
   believing, which is the one answer this function must not give."
   ([kb locator]
+   (koinii-types/needs-kb! `resolve-by-locator kb)
    (if (locator-string? locator)
      (resolve-by-locator kb locator (locator-index kb))
      (malformed :locator locator)))
   ([kb locator index]
+   (koinii-types/needs-kb! `resolve-by-locator kb)
    (if-not (locator-string? locator)
      (malformed :locator locator)
      (if-let [h (get index locator)]

@@ -39,7 +39,8 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [vaelii.core :as v])
+            [vaelii.core :as v]
+            [vaelii.koinii.types :as koinii-types])
   (:import [java.io PushbackReader]
            [java.security MessageDigest SecureRandom]
            [javax.crypto Mac]
@@ -73,6 +74,7 @@
   rather than in dependency order.  The sentences that survive a round changing nothing are
   re-asserted without a catch, so a genuinely ill-formed one still throws.  Returns kb."
   [kb context]
+  (koinii-types/needs-kb! `load-seed-context kb)
   (let [attempt (fn [ss]
                   (reduce (fn [acc s]
                             (try (v/assert kb s context) acc
@@ -94,6 +96,7 @@
   CxUniverse)`).
   Returns kb."
   [kb]
+  (koinii-types/needs-kb! `load-registry kb)
   (load-seed-context kb 'CxRegistry))
 
 ;; ---- per-agent contexts: the identity substrate + write boundary ---------
@@ -166,6 +169,7 @@
   agent speaks the shipped vocabulary.  Both edges are monotonic topology.  Returns the
   agent context symbol."
   [kb deploy-ctx agent-id]
+  (koinii-types/needs-kb! `agent-context kb)
   (place-agent-context #(v/assert kb %1 %2 %3) deploy-ctx agent-id 'CxUniverse))
 
 ;; ---- the auth extension point: authenticate a principal (policy-conditional) --------
@@ -398,6 +402,7 @@
   holds the key, so a writer on the wire, or a caller of `v/add-provenance`, cannot make
   one that does."
   [kb handle]
+  (koinii-types/needs-kb! `attested-by kb)
   (let [sx (v/sentex kb handle)
         a  (:attestation (v/provenance kb handle))]
     (when (and sx (map? a) (mac= (:mac a) (attestation-mac (:creator a) sx)))
@@ -433,6 +438,7 @@
   `:proof-tier` the write is attested (`attested-by` reads it back), which is what makes
   a ballot count (`adjudication/resolve-by-majority`).  Returns the handle."
   [kb principal sentence]
+  (koinii-types/needs-kb! `ingest kb)
   (write kb principal (context-for (:id principal)) sentence))
 
 (defn ingest-into
@@ -442,6 +448,7 @@
   agent targeting `CxRegistry` is refused (`:koinii/registry-forbidden`).  Returns the
   handle."
   [kb principal target-ctx sentence]
+  (koinii-types/needs-kb! `ingest-into kb)
   (write kb principal target-ctx sentence))
 
 ;; ---- admin-only registry writes ------------------------------------------
@@ -453,6 +460,7 @@
   a hand-built `{:admin? true}` included, so a governed agent cannot self-register or
   self-promote.  Returns the agent id."
   [kb principal agent-id display-name trust]
+  (koinii-types/needs-kb! `register-agent kb)
   (ingest-into kb principal registry-context (list 'registered_agent agent-id))
   (ingest-into kb principal registry-context (list 'displayNameOf agent-id display-name))
   (ingest-into kb principal registry-context (list 'trustLevel agent-id trust))
@@ -495,6 +503,7 @@
   The row it retracts is read through `sole-registry-match`, whose docstring holds the
   reason: the overwrite must not rest on an unordered set having exactly one member."
   [kb principal agent-id new-value]
+  (koinii-types/needs-kb! `set-trust! kb)
   (check-write-boundary! principal registry-context)      ; admin check on the retract too
   (when-let [sx (sole-registry-match kb (list 'trustLevel agent-id '?v))]
     (v/retract! kb (:id sx)))
@@ -515,17 +524,20 @@
   "The stored trust number for `agent-id`, or nil — a plain context-scoped read of
   `CxRegistry`, ready for adjudication to weigh."
   [kb agent-id]
+  (koinii-types/needs-kb! `trust-of kb)
   (object-of kb 'trustLevel agent-id))
 
 (defn display-name-of
   "The stored display name for `agent-id`, or nil."
   [kb agent-id]
+  (koinii-types/needs-kb! `display-name-of kb)
   (object-of kb 'displayNameOf agent-id))
 
 (defn registered-agents
   "Every registered agent id — the extent of `(registered_agent ?a)` in `CxRegistry`.
   'Which agents exist' as a plain context-scoped read."
   [kb]
+  (koinii-types/needs-kb! `registered-agents kb)
   (->> (v/sentexes-matching kb (list 'registered_agent '?a) registry-context)
        (map (comp second :sentence))
        distinct))
@@ -537,4 +549,5 @@
   first-writer-wins provenance loses no co-source: 'how many sources back P' is this
   set, recovered from the per-agent contexts with no separate source index."
   [kb sentence]
+  (koinii-types/needs-kb! `co-attribution kb)
   (v/contexts-of kb sentence))

@@ -681,6 +681,7 @@ rather than adding to the engine's flat one ([koinii.md](koinii.md)).
 | `:koinii/foreign-context` | an agent aimed a write at a context that is not its own |
 | `:koinii/identity-unverified` | a `:proof-tier` or `:admin?` claim has no verify-fn bound or did not pass it, a principal claims `:authenticated?` with no grant, or a majority count read a ballot with no attestation |
 | `:koinii/missing-seed` | koinii's seed KB file for a context is not on the classpath |
+| `:koinii/needs-kb` | a `dispute`, `adjudication`, `belief`, `deref` or `identity` fn that takes a KB was handed a `vaelii.client` connection or a medium; run it in the process that holds the KB ([koinii.md](koinii.md#the-deployment-shape)) |
 | `:koinii/no-cursor` | a catch-up poll answered something that is not a resumable cursor |
 | `:koinii/no-such-handle` | a handle names no record on this medium |
 | `:koinii/no-such-stance` | a ballot stance other than `:for` or `:against` |

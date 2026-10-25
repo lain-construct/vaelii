@@ -29,9 +29,10 @@
     what it *itself* said.
 
   Additive, like the other koinii modules: only the public core API plus koinii
-  `identity` — nothing under `vaelii.impl`, and nothing in core loads it."
+  `identity` and `types` — nothing under `vaelii.impl`, and nothing in core loads it."
   (:require [vaelii.core :as v]
-            [vaelii.koinii.identity :as id]))
+            [vaelii.koinii.identity :as id]
+            [vaelii.koinii.types :as koinii-types]))
 
 ;; ---- projection: read what an agent holds, from its own context ----------
 
@@ -49,6 +50,7 @@
   agent's context to another's (that would merge belief sets), so it cannot tangle the
   lattice argumentation runs over.  Monotonic topology.  Returns the belief context."
   [kb agent]
+  (koinii-types/needs-kb! `believe-own kb)
   (v/assert kb (list 'genlCx (belief-context agent) (id/context-for agent)) 'CxUniverse
             {:strength :monotonic :creator agent})
   (belief-context agent))
@@ -64,6 +66,7 @@
   see the `believes` grant; it does not affect where the proposition is proved."
   ([kb agent proposition] (would-believe? kb agent proposition grant-ctx))
   ([kb agent proposition asker]
+   (koinii-types/needs-kb! `would-believe? kb)
    (v/ask? kb (list 'believes agent proposition) asker)))
 
 (defn project
@@ -73,6 +76,7 @@
   ProdCluster uses.  `asker` defaults to a grant-seeing context."
   ([kb agent goal] (project kb agent goal grant-ctx))
   ([kb agent goal asker]
+   (koinii-types/needs-kb! `project kb)
    (v/ask kb (list 'believes agent goal) asker)))
 
 ;; ---- convene: bring isolated beliefs into one arena to argue --------------
@@ -90,6 +94,7 @@
   own-statement-only: an `except` here would hide a side and suppress the very
   contradiction the arbiter convened.)  Monotonic, idempotent.  Returns `spec-ctx`."
   [kb spec-ctx agents]
+  (koinii-types/needs-kb! `convene kb)
   (doseq [a agents]
     (v/assert kb (list 'genlCx spec-ctx (belief-context a)) 'CxUniverse
               {:strength :monotonic}))
@@ -99,6 +104,7 @@
   "The agents whose belief contexts `spec-ctx` sees — the agent set `convene` gathered,
   read back off the visibility lattice."
   [kb spec-ctx]
+  (koinii-types/needs-kb! `convened-agents kb)
   (into #{} (keep v/agent-of-context) (v/context-up kb spec-ctx)))
 
 (defn disagreements
@@ -110,6 +116,7 @@
   the belief is stored in the belief context directly or seen through it from the agent's
   koinii context (`believe-own`)."
   [kb spec-ctx]
+  (koinii-types/needs-kb! `disagreements kb)
   (let [agents     (convened-agents kb spec-ctx)
         ctx->agent (into {} (mapcat (fn [a] [[(belief-context a) a] [(id/context-for a) a]]))
                          agents)]
@@ -140,6 +147,7 @@
   whose provenance creator is not `agent` is refused (`:koinii/not-own-statement`).
   Returns the except's handle."
   [kb agent target-handle]
+  (koinii-types/needs-kb! `disregard kb)
   (let [creator (:creator (v/provenance kb target-handle))]
     (when-not (= creator agent)
       (throw (ex-info (str "koinii: an agent may disregard only its own statement — "
@@ -154,6 +162,7 @@
   again.  `except` is belief-following, so retracting it restores visibility.  Returns
   `retract!`'s counts."
   [kb handle]
+  (koinii-types/needs-kb! `restore! kb)
   (v/retract! kb handle))
 
 (defn disregards
@@ -161,4 +170,5 @@
   facts in the agent's own context.  'What has this agent chosen to withdraw' as a plain
   read."
   [kb agent]
+  (koinii-types/needs-kb! `disregards kb)
   (v/sentexes-matching kb (list 'except '?h) (id/context-for agent)))
