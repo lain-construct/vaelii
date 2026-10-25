@@ -729,9 +729,16 @@
         (str "the arity table pairs with nothing: " (pr-str (mapv :sentences (about 'arity)))))
     (is (empty? (about 'unary_predicate))
         (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))
-    (doseq [floor '[at_least_binary at_least_ternary at_least_quaternary at_least_quinary]]
-      (is (empty? (about floor))
-          (str "nor does " floor ": " (pr-str (mapv :sentences (about floor))))))))
+    ;; A floor read as a guard in an antecedent constrains which relations a rule reaches,
+    ;; and a pair over that rule's conclusion belongs to the conclusion's reading (the
+    ;; time_indexed_relation rule's rigidity pairs, for one).  So the floors are checked
+    ;; where a rule concludes one.
+    (let [concludes (fn [f] (filter (fn [p] (some #(some #{f} (flatten (list (last %))))
+                                                  (:sentences p)))
+                                    pairs))]
+      (doseq [floor '[at_least_binary at_least_ternary at_least_quaternary at_least_quinary]]
+        (is (empty? (concludes floor))
+            (str "nor does " floor ": " (pr-str (mapv :sentences (concludes floor)))))))))
 
 (tu/deftest-kb a-predicate-is-at-most-one-of-the-three-arity-classifications
   ;; The declaration that empties the reading above.  A predicate takes one number of

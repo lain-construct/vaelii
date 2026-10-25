@@ -267,6 +267,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Fix** (shipped ontology content).
   *Migration:* a query for the unguarded rule by `handle-of` answers nil.
 
+- **The forward rule from `(temporalIndexArg ?relation ?position)` to
+  `(time_indexed_relation ?relation)` leaves a unary relation out.** A unary relation has
+  no other argument for the time to index, and a time-indexed relation is
+  `at_least_binary`. The rule requires `(at_least_binary ?relation)`, which an exact class
+  of two or more arguments and an `arityMin` greater than 1 both give, so `kb-quality` no
+  longer pairs the rule with the arity-1 and `empty` rules.
+
+  *Class:* **Fix** (shipped ontology content).
+  *Migration:* a query for the unguarded rule by `handle-of` answers nil.
+
 ### Fix: storage
 
 - **A recover makes no network node for an `assert-inert` record**, as `assert-inert`

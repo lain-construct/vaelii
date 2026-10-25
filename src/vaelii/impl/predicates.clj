@@ -1716,9 +1716,10 @@
       (enforced {:shape {:args [:relation :position]} :storage [:none] :checked false
                  :family nil :facets #{}
                  :notes (str "enforced by the generic chain, not by name: a core.txt forward rule"
-                             " concludes (time_indexed_relation ?relation) from each fact.")}
-                (str "a core.txt rule: a relation with a temporal index argument is a"
-                     " time_indexed_relation, and so time-invariant"))]
+                             " concludes (time_indexed_relation ?relation) from each fact of an"
+                             " at_least_binary relation.")}
+                (str "a core.txt rule: an at_least_binary relation with a temporal index"
+                     " argument is a time_indexed_relation, and so time-invariant"))]
      ['partitionedByType
       (enforced {:shape {:args [:type :type]} :storage [:none] :checked false
                  :family nil :facets #{}

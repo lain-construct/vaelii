@@ -1033,20 +1033,27 @@
 ;; A relation can carry the time a tuple holds at as one of its own arguments: salaryAt
 ;; relates a person, a salary and the moment it was paid.  A tuple of such a relation
 ;; states no implicit now, so nothing can lose it, and every time_indexed_relation is
-;; time-invariant.  temporalIndexArg names the position, and membership follows from it.
+;; time-invariant.  temporalIndexArg names the position, and membership follows from it
+;; for an at_least_binary relation: a unary relation has no other argument for the time
+;; to index.
 (comment temporalIndexArg "(temporalIndexArg ?relation ?position) means that argument ?position of ?relation names the time at which the rest of a tuple holds, e.g. (temporalIndexArg salaryAt 3) for (salaryAt Ann 50000 2024). A relation with such a position is a time_indexed_relation.")
 (binary_predicate temporalIndexArg)
 (set/monotonic (time_invariant_relation temporalIndexArg))
 (arg temporalIndexArg 1 relation)
 (arg temporalIndexArg 2 positive_integer)
-(comment time_indexed_relation "A relation one argument of which names the time at which the rest of a tuple holds, so a tuple carries its own time and states no implicit now. Nothing can lose such a tuple, so every time_indexed_relation is a time_invariant_relation. (temporalIndexArg ?relation ?position) concludes the membership.")
+(comment time_indexed_relation "A relation one argument of which names the time at which the rest of a tuple holds, so a tuple carries its own time and states no implicit now. Nothing can lose such a tuple, so every time_indexed_relation is a time_invariant_relation. (temporalIndexArg ?relation ?position) concludes the membership for an at_least_binary relation.")
 (unary_predicate time_indexed_relation)
 (set/monotonic (time_invariant_relation time_indexed_relation))
 (set/monotonic (genl time_indexed_relation time_invariant_relation))
 ;; One argument names the time and at least one other the rest of the tuple, so a
 ;; time-indexed relation takes two or more.
 (set/monotonic (genl time_indexed_relation at_least_binary))
-(set/forwardRule (implies (temporalIndexArg ?relation ?position) (time_indexed_relation ?relation)))
+(set/forwardRule
+ (implies
+  (and
+   (temporalIndexArg ?relation ?position)
+   (at_least_binary ?relation))
+  (time_indexed_relation ?relation)))
 ;; Some time-varying relations change one way only.  An organism that is dead stays
 ;; dead, and one that is not alive is never alive again.  Each is a kind of
 ;; time_varying_relation, so a relation no instance could lose is neither.
