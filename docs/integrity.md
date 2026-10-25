@@ -726,9 +726,9 @@ rules chain, no `exceptWhen` handles the clash, and no acknowledgment names the 
   Hiding it would tell an author there was nothing to see, where what there is to see is
   that the pair is handled — which is a thing the author wrote and may have written wrong.
 - **A pair an [acknowledgment](#acknowledged-findings) names**, marked with its reason as
-  `:acknowledged`. The subject quotes the pair as one conjunction of the two rule
-  sentences, `(Quote (and R1 R2))`, in either order and under any variable names, and the
-  record is read from the pair's `:context`. The shipped ontology acknowledges two pairs
+  `:acknowledged`. The subject names the pair as `(RulePairFn (Quote R1) (Quote R2))`, in
+  either order and under any variable names, and the record is read from the pair's
+  `:context`. The shipped ontology acknowledges two pairs
   in `abstract.txt`: the root denial `(properPartOf ?part ?whole) → (not (partOf ?whole
   ?part))` against the definitions `properCounterpart` generates for the tangible and the
   situation proper readings, both strict, which fire together only where the facts
@@ -966,11 +966,21 @@ stays visible with the reason beside it and no longer makes a default sweep `:ga
 | category | subject | review bucket | read from |
 |---|---|---|---|
 | `:rule-macro` | the suggested declaration, `(genl livesIn locatedIn)` | `:rule-macro-review` | the rule's context |
-| `:rule-clash` | the pair, `(Quote (and R1 R2))` | `:rule-clash-review` | the pair's `:context` |
+| `:rule-clash` | the pair, `(RulePairFn (Quote R1) (Quote R2))` | `:rule-clash-review` | the pair's `:context` |
+
+Each rule is quoted on its own. A quoted term is opaque, so no inference or
+canonicalization reaches inside either one, and what the pair needs inferred — that
+`(RulePairFn R1 R2)` and `(RulePairFn R2 R1)` name the same pair — belongs to
+`RulePairFn`, outside both quotes. No `commutative` mark states it in the shipped
+ontology: the engine refuses `(commutative RulePairFn)`, reading a capitalised function
+name as an individual (vaelii#227), and sorts no commutative application nested inside
+another literal's argument (vaelii#228). The reader below takes the two rules of a
+`RulePairFn` subject as a bag, so either order matches.
 
 ```clojure
 ;; (acknowledgedFinding :rule-clash
-;;   (Quote (and (implies (penguin ?x) (not (flies ?x))) (implies (bird ?x) (flies ?x))))
+;;   (RulePairFn (Quote (implies (penguin ?x) (not (flies ?x))))
+;;               (Quote (implies (bird ?x) (flies ?x))))
 ;;   "penguins are birds that do not fly")
 {:status :gap
  :candidate-count 0

@@ -90,8 +90,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **`(acknowledgedFinding category subject "reason")` records that a `kb-integrity`
   finding was looked at, and why it stays.** The sweep moves an acknowledged finding to a
   review-only bucket instead of dropping it, carrying the reason as `:acknowledged`: a
-  rule pair `(Quote (and R1 R2))` from `:rule-clash` to `:rule-clash-review`, and a
-  suggested declaration from `:rule-macro` to the new review-only `:rule-macro-review`.
+  rule pair `(RulePairFn (Quote R1) (Quote R2))` from `:rule-clash` to
+  `:rule-clash-review`, and a suggested declaration from `:rule-macro` to the new
+  review-only `:rule-macro-review`. Each rule is quoted on its own rather than the pair
+  as a whole, since a quoted term is opaque: `RulePairFn`, outside both quotes, holds the
+  pair (its corresponding predicate is `rulePairOf`), and the sweep reads its two
+  arguments in either order as one pair. `acknowledgedFinding`'s second argument is a
+  quoted `non_atomic_expression`, which admits a `RulePairFn` subject beside a
+  `:rule-macro` declaration.
   `declined_rule_macro` is now sugar: a `core.txt` forward rule concludes
   `(acknowledgedFinding :rule-macro D "Acknowledged via declined_rule_macro; no reason
   supplied.")` from it, and the sweep reads only the acknowledgment. `abstract.txt`
