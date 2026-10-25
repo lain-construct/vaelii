@@ -1779,14 +1779,14 @@
                              " pass of the integrity sweep as an unordered pair.")}
                 (str "integrity/rule-clash-findings — the subject of an acknowledgedFinding"
                      " :rule-clash names its pair as (RulePairFn (Quote R1) (Quote R2))"))]
-     ;; RulePairFn's corresponding predicate, which the ontology gate requires of every
-     ;; shipped function.
+     ;; RulePairFn's corresponding predicate: ontology_test requires every shipped function
+     ;; to declare one.
      ['rulePairOf
       (inert {:shape {:args [:term :term :term]} :storage [:none] :checked false
               :family nil :facets #{}
               :notes "the predicate form of RulePairFn; no code path reads it."}
-             (str "the corresponding predicate of RulePairFn, stated so the ontology gate"
-                  " finds one; nothing infers from it"))]
+             (str "the corresponding predicate of RulePairFn, which ontology_test requires of"
+                  " every shipped function; nothing infers from it"))]
 
      ;; The three worked-example annotations quote their example sentence, (Quote S), and
      ;; name no sentex, so they carry no target_following_predicate mark and nothing tears
