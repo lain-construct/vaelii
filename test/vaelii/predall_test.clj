@@ -1082,3 +1082,209 @@
     (v/assert kb (list hasPet Bob Rex) 'CxUniverse)
     (is (= {} (v/all-specified-violations kb 'CxUniverse))
         "and a requirement that holds is omitted, so a clean sweep is an empty map")))
+
+(defn- specified-note [functor pred member]
+  (if (= functor 'predAllSpecified)
+    (list pred member "A determinate fixture description.")
+    (list pred "A determinate fixture description." member)))
+
+(defn- specified-result [kb functor pred kind context]
+  (get (v/all-specified-violations kb context) [functor pred kind]
+       {:status :audited :violations #{}}))
+
+(defn- specified-contexts [kb functor pred kind parent child nested sibling]
+  (doseq [[sub super] [[parent 'CxUniverse] [child parent] [nested child] [sibling parent]]]
+    (v/assert kb (list 'genlCx sub super) 'CxUniverse))
+  (v/assert kb (list 'binary_predicate pred) 'CxUniverse)
+  (v/assert kb (list 'unary_predicate kind) 'CxUniverse)
+  (v/assert kb (list 'arg pred (if (= functor 'predAllSpecified) 2 1) 'string) 'CxUniverse))
+
+(defn- native-specified [kb functor pred kind]
+  ;; Registry answers carry binding maps, not defining-context records.
+  (let [census (list functor '?pred '?indep)]
+    (v/add-prover kb
+                  (v/prover {:applicable? (fn [_ goal _] (= census goal))
+                             :solve (fn [_ _ _] [{'?pred pred '?indep kind}])}))))
+
+(tu/deftest-kb native-specified-declarations-retain-contract-gaps
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind CxDefined CxChild]
+      (v/assert kb (list 'genlCx CxDefined 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxChild CxDefined) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate notes) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate item_kind) 'CxUniverse)
+      (native-specified kb functor notes item_kind)
+      (let [result (specified-result kb functor notes item_kind CxChild)]
+        (is (= :gap (:status result)))
+        (is (= :missing-slot-typing (:gap result)))
+        (is (= (if (= functor 'predAllSpecified) 2 1) (:position result)))))))
+
+(tu/deftest-kb native-only-specified-declarations-use-the-supplied-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (native-specified kb functor notes item_kind)
+      (v/assert kb (list item_kind Base) CxDefined)
+      (v/assert kb (specified-note functor notes Base) CxDefined)
+      (v/assert kb (list item_kind Child) CxChild)
+      (is (= {:status :audited :violations #{}}
+             (specified-result kb functor notes item_kind CxDefined)))
+      (doseq [context [CxChild CxNested]]
+        (is (= {:status :audited :violations #{Child}}
+               (specified-result kb functor notes item_kind context))))
+      (v/assert kb (specified-note functor notes Child) CxNested)
+      (is (= {:status :audited :violations #{}}
+             (specified-result kb functor notes item_kind CxNested)))
+      (is (= {:status :audited :violations #{Child}}
+             (specified-result kb functor notes item_kind CxChild))
+          "the native-only audit reads fillers in its supplied context"))))
+
+(tu/deftest-kb native-and-stored-specified-tuples-use-the-stored-defining-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (native-specified kb functor notes item_kind)
+      (v/assert kb (list functor notes item_kind) CxDefined)
+      (v/assert kb (list item_kind Base) CxDefined)
+      (v/assert kb (list item_kind Child) CxChild)
+      (v/assert kb (specified-note functor notes Base) CxChild)
+      (let [key [functor notes item_kind]
+            entries (filter #(= key (first %))
+                            (predall/specified-declaration-audits kb CxChild))]
+        (is (= 1 (count entries)) "one tuple has one source obligation, not a native duplicate")
+        (is (= {:status :audited :violations #{Base}} (second (first entries)))
+            "a duplicate native answer neither expands the stored population nor heals it")))))
+
+(tu/deftest-kb specified-populations-use-the-declarations-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)]
+        (v/assert kb declaration CxDefined)
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (specified-note functor notes Base) CxDefined)
+        (v/assert kb (list item_kind Child) CxChild)
+        (doseq [context [CxDefined CxChild CxNested CxSibling]]
+          (is (v/ask? kb declaration context) "the obligation is visible")
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind context))
+              "a descendant-only instance does not expand the ancestor obligation"))))))
+
+(tu/deftest-kb specified-fillers-use-the-declarations-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)]
+        (v/assert kb declaration CxDefined)
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (specified-note functor notes Base) CxChild)
+        (doseq [context [CxDefined CxChild CxNested CxSibling]]
+          (is (= {:status :audited :violations #{Base}}
+                 (specified-result kb functor notes item_kind context))
+              "a descendant-only filler does not satisfy an ancestor obligation"))
+        (let [filler (v/assert kb (specified-note functor notes Base) CxDefined)]
+          (v/assert kb (list 'except (list 'sentexHandle filler)) CxChild)
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxNested))
+              "a descendant except does not remove a filler from its defining context"))))))
+
+(tu/deftest-kb specified-declarations-retain-distinct-contexts-and-canonical-duplicates
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)
+            parent (v/assert kb declaration CxDefined)
+            child (v/assert kb declaration CxChild)]
+        (is (= child (v/assert kb declaration CxChild)) "a duplicate has the existing handle")
+        (is (not= parent child) "different defining contexts remain distinct")
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (list item_kind Child) CxChild)
+        (v/assert kb (specified-note functor notes Base) CxChild)
+        (doseq [context [CxChild CxNested]]
+          (is (= {:status :audited :violations #{Base Child}}
+                 (specified-result kb functor notes item_kind context))
+              "an ancestor failure and a local failure survive the shared public key"))
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxSibling)))
+        (v/retract! kb child)
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxChild)))
+        (v/retract! kb parent)
+        (is (not (v/ask? kb declaration CxChild)))
+        (is (= {:status :audited :violations #{}}
+               (specified-result kb functor notes item_kind CxChild)))))))
+
+(tu/deftest-kb specified-declaration-selection-filters-excepted-and-defeated-records
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)
+            handle (v/assert kb declaration CxDefined)]
+        (v/assert kb (list item_kind Base) CxDefined)
+        (let [except (v/assert kb (list 'except (list 'sentexHandle handle)) CxChild)]
+          (doseq [context [CxChild CxNested]]
+            (is (not (v/ask? kb declaration context)))
+            (is (= {:status :audited :violations #{}}
+                   (specified-result kb functor notes item_kind context))))
+          (is (= {:status :audited :violations #{Base}}
+                 (specified-result kb functor notes item_kind CxSibling)))
+          (v/retract! kb except))
+        (let [denial (v/assert kb (list 'not declaration) CxDefined {:strength :monotonic})]
+          (is (not (v/in? kb handle)) "the default declaration is defeated, not erased")
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxChild)))
+          (v/retract! kb denial))
+        (let [denial (v/assert kb (list 'not declaration) CxChild {:strength :monotonic})]
+          (is (not (v/ask? kb declaration CxChild)))
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxNested)))
+          (is (= {:status :audited :violations #{Base}}
+                 (specified-result kb functor notes item_kind CxSibling)))
+          (v/retract! kb denial))
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxChild)))))))
+
+(tu/deftest-kb specified-declarations-use-believed-derived-and-subpredicate-records
+  (doseq [functor '[predAllSpecified predSpecifiedAll]
+          mode [:derived :subpredicate]]
+    (tu/with-terms [notes item_kind needs_notes Request Base Child localAll
+                    CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)
+            source (if (= mode :derived)
+                     (do (v/assert kb (list 'unary_predicate needs_notes) 'CxUniverse)
+                         (v/assert kb (list 'set/forwardRule
+                                            (list 'implies (list needs_notes Request) declaration))
+                                   CxDefined)
+                         (v/assert kb (list needs_notes Request) CxDefined))
+                     (do (v/assert kb (list 'binary_predicate localAll) 'CxUniverse)
+                         (v/assert kb (list 'genl localAll functor) 'CxUniverse)
+                         (v/assert kb (list localAll notes item_kind) CxDefined)))]
+        (is (v/ask? kb declaration CxChild))
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (list item_kind Child) CxChild)
+        (let [filler (v/assert kb (specified-note functor notes Base) CxDefined)]
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxNested)))
+          (v/retract! kb filler))
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxChild))
+            "the audit retains non-premise and type-aware declarations")
+        (v/retract! kb source)
+        (is (not (v/ask? kb declaration CxChild)))
+        (is (= {:status :audited :violations #{}}
+               (specified-result kb functor notes item_kind CxChild)))))))
+
+(tu/deftest-kb an-ancestor-slot-contract-gap-is-not-healed-by-descendant-typing
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base CxDefined CxChild]
+      (doseq [form [(list 'binary_predicate notes) (list 'unary_predicate item_kind)
+                    (list 'genlCx CxDefined 'CxUniverse) (list 'genlCx CxChild CxDefined)]]
+        (v/assert kb form 'CxUniverse))
+      (v/assert kb (list functor notes item_kind) CxDefined)
+      (v/assert kb (list functor notes item_kind) CxChild)
+      (v/assert kb (list item_kind Base) CxDefined)
+      (let [slot (if (= functor 'predAllSpecified) 2 1)]
+        (v/assert kb (list 'arg notes slot 'string) CxChild)
+        (is (= {:status :gap :gap :missing-slot-typing :pred notes :position slot}
+               (specified-result kb functor notes item_kind CxChild)))))))

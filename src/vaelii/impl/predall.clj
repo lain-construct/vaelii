@@ -32,7 +32,8 @@
   is punted (Pace): a plain individual, a literal and an *Exists* placeholder alike are
   all treated as determinate here, which is what makes `predAllSpecified` the exact
   antagonist of `predAllExists`."
-  (:require [vaelii.impl.naming :as nm]
+  (:require [vaelii.impl.budget :as budget]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.quasiquote :as quasiquote]
@@ -251,13 +252,42 @@
   [xs]
   (sort-by #(apply list %) nm/compare-form (distinct xs)))
 
-(defn- declaration-args
-  "Read the stored binary `(functor pred indep)` declarations in `ctx` as
-  `[pred indep]` tuples, in content order."
+(defn- declaration-contexts
+  "Select declaration tuples through the registry, retaining their stored defining
+  contexts. A native-only answer has no source record and retains the supplied `ctx`."
   [kb functor ctx]
-  (content-ordered
-   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
-     [(get b '?pred) (get b '?indep)])))
+  (map (fn [[pred indep]]
+         (let [stored (content-ordered
+                       (for [[_ _ record] (budget/checked-seq
+                                           (res/matches-visible kb (list functor pred indep) ctx))]
+                         [pred indep (:context record)]))]
+           (if (seq stored) stored [[pred indep ctx]])))
+       (content-ordered
+        (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
+          [(get b '?pred) (get b '?indep)]))))
+
+(defn- merge-specified-results
+  "Combine source-context results without changing the public result shape. A missing
+  slot contract remains an explicit gap; audited violation sets combine by union."
+  [previous result]
+  (cond
+    (= :gap (:status previous)) previous
+    (= :gap (:status result)) result
+    :else (update previous :violations into (:violations result))))
+
+(defn- specified-context-audits
+  "Emit cumulative results after each defining context, so a bounded caller retains
+  completed findings when a later context exhausts the work or time limit."
+  [kb functor arg-pos declarations]
+  (let [[pred indep] (first declarations)
+        declaration [functor pred indep]]
+    (map (fn [result] [declaration result])
+         (rest (reductions
+                (fn [previous [_ _ defining-context]]
+                  (merge-specified-results
+                   previous (specified-violations kb pred indep defining-context arg-pos)))
+                {:status :audited :violations #{}}
+                declarations)))))
 
 (defn- exists-declarations
   "Read the stored *Exists* declarations `(functor pred a b)` in `ctx` as `[functor pred a
@@ -285,6 +315,11 @@
 (defn specified-declaration-audits
   "Every declaration audit as a lazy stream of `[declaration result]` entries.
 
+  A stored Specified declaration audits its population and fillers in its defining
+  context, not the querying descendant. Multiple defining contexts emit cumulative
+  results under the existing canonical declaration key. Native-only registry answers
+  retain the supplied context, since their binding maps carry no defining context.
+
   The open reads are only the unavoidable declaration censuses. Each expensive audit
   after that is focused on one declared predicate and independent collection. Keeping
   the units lazy lets the integrity sweep checkpoint and retain progress between them."
@@ -293,10 +328,8 @@
    (res/lazy-mapcat
     (fn [[functor arg-pos]]
       (res/lazy-mapcat
-       (fn [[pred indep]]
-         (list [[functor pred indep]
-                (specified-violations kb pred indep ctx arg-pos)]))
-       (declaration-args kb functor ctx)))
+       #(specified-context-audits kb functor arg-pos %)
+       (declaration-contexts kb functor ctx)))
     [['predAllSpecified :second] ['predSpecifiedAll :first]])
    (res/lazy-mapcat
     (fn [functor]
@@ -331,7 +364,12 @@
   violation set.  Declarations that hold are omitted; a gap never is, so a clean
   sweep is an empty map and a gap cannot pass as one.  This public aggregate and
   `kb-integrity` both fold the same focused per-declaration audit stream; only this
-  function returns its complete aggregate map."
+  function returns its complete aggregate map.
+
+  Each stored Specified declaration reads its population, slot contract and fillers in
+  its defining context. Visible definitions with one canonical key combine their
+  violation sets; a missing slot contract remains an explicit gap. Native-only registry
+  answers without a stored definition retain `ctx`, as do Exists audits."
   [kb ctx]
   (into {}
         (filter (fn [[_ r]] (or (= :gap (:status r)) (seq (:violations r)))))

@@ -247,12 +247,18 @@
    ;; order independence is structural; what makes it worth drawing is *what* it reads —
    ;; the believed extents, the equality partition that decides which name a filler
    ;; carries, the slot contract that decides which fillers count, and the
-   ;; `indeterminate_term` category that decides whether the filler counts at all. Bud is
-   ;; nobody's dog in this pool, so the reading is never empty and never silently vacuous.
+   ;; `indeterminate_term` category that decides whether the filler counts at all. Each
+   ;; declaration audits its own context: the ancestor has no dogs, while independent
+   ;; child declarations audit the child-local populations. Bud has no keeper in this
+   ;; pool, so the home reading remains nonempty rather than silently vacuous.
    [[:a-keeper-is-a-person
      #(v/assert % '(arg keeperOf 1 person) cx-base {:strength :monotonic})]]
    [[:every-dog-has-a-person
      #(v/assert % '(predSpecifiedAll keeperOf dog) cx-base {:strength :monotonic})]]
+   [[:every-home-dog-has-a-person
+     #(v/assert % '(predSpecifiedAll keeperOf dog) cx-home {:strength :monotonic})]]
+   [[:every-field-dog-has-a-person
+     #(v/assert % '(predSpecifiedAll keeperOf dog) cx-field {:strength :monotonic})]]
    [[:ann-is-a-person
      #(v/assert % '(person Ann) cx-base {:strength :monotonic})]
     [:kip-is-a-person
@@ -533,6 +539,8 @@
                         "and the exemption stops where the membership stops being visible")
                     ;; the audit reads all three: the extents, the elected spelling and
                     ;; the category
+                    (is (= {} (get-in r [:specified cx-base]))
+                        "the ancestor obligation is empty: the dogs belong to child contexts")
                     (is (= {'[predSpecifiedAll keeperOf dog]
                             {:status :audited :violations '#{Rex Bud}}}
                            (get-in r [:specified cx-home]))
