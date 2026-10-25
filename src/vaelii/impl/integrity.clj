@@ -41,7 +41,8 @@
         (do
           (progress/tick! r)
           (if (or (= :gap (:status result)) (seq (:violations result)))
-            (if (and remaining (>= (count findings) remaining))
+            (if (and remaining (not (contains? findings declaration))
+                     (>= (count findings) remaining))
               {:status :truncated :reason :max-results :findings findings}
               (do
                 (budget/record! :all-specified-violations [declaration result])

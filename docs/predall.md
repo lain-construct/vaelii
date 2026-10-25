@@ -153,6 +153,21 @@ cannot pass as one. Both read the KB and store nothing. `predSpecifiedAll` is th
 argument-swapped twin, audited by passing `:first` as the argument position; its filler
 contract derives from slot 1.
 
+The aggregate selects declarations through the prover registry in the querying context,
+then reads each stored Specified declaration's population, slot contract and fillers in
+the context storing that declaration. A descendant-only instance does not enlarge an
+ancestor obligation; a descendant-only filler does not satisfy that obligation. A
+declaration stated in the descendant creates a distinct local obligation. Multiple
+visible definitions with the same `[functor pred indep]` key combine their violation
+sets. A missing slot contract in any defining context remains an explicit gap. The direct `specified-violations` call
+still audits the caller-supplied context. Exists audits retain their querying context.
+
+A native prover can also supply a declaration tuple without a stored definition. Its
+binding map has no defining-context record, so that native-only obligation retains the
+previous behavior: population, contract and fillers are audited in the querying context.
+If the same tuple also has visible stored definitions, their defining contexts apply;
+the native answer does not add a duplicate obligation in the querying context.
+
 The membership arm rides the KB's own reading: with `(arg hasPet 2 pet)` visible,
 argument-type inference types a stored filler off that very declaration, so the
 instance-position bite is existence + determinacy (plus any actively refuted membership) —

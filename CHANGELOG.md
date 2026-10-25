@@ -139,6 +139,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
 
+### Breaking: integrity
+
+- **Specified obligations audit their defining contexts.** `all-specified-violations`
+  and `kb-integrity` read each visible `predAllSpecified` / `predSpecifiedAll`
+  declaration's population and fillers where the declaration is stored. Descendant-only
+  instances and fillers no longer alter an ancestor obligation. Multiple definitions
+  combine under the existing key without consuming extra result-cap entries.
+  Native-only registry declarations, which have no stored defining context, retain
+  their querying-context audit.
+  [predall.md](docs/predall.md)
+  *Migration:* declare a Specified requirement in each descendant context whose local
+  population must be audited. Direct `specified-violations`, Exists audits and
+  native-only registry declarations retain their existing context behavior.
+  *Breaks:* `all-specified-violations`, `kb-integrity`
+
 ### Fix: introspection
 
 - **`why-not`'s `{:nearest n}` reports as satisfied only antecedents that hold under one
