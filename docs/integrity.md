@@ -32,8 +32,8 @@
 
 (v/kb-integrity kb candidates 'CxUniverse
                 {:max-work 10000 :max-ms 1000 :max-results 100})
-;; => {:status :truncated :reason :max-work :candidate-count 500
-;;     :work 10000 :elapsed-ms 37.2 ...partial finding categories...}
+;; => {:status :truncated :reason :max-work :pass :definition-inconsistencies
+;;     :candidate-count 500 :work 10000 :elapsed-ms 37.2 ...partial finding categories...}
 ```
 
 The candidate argument must be a set, and every member must be ground. This is the cost
@@ -49,7 +49,9 @@ of an aggregate condition over a large KB extent. `:max-ms` is a cooperative wal
 checked at the same boundaries and inside the argument-preservation prover's claim walk
 ([anytime.md](anytime.md)). `:max-results` caps findings. A `nil` bound is no bound.
 Reaching any bound returns `:status :truncated` with a reason and never labels a partial
-sweep `:audited`. The daemon fills all three when the map is absent, clamps callers to
+sweep `:audited`. `:pass` names the category whose pass was running when the bound ran
+out, and `:work` the units spent up to that point; a pass that did not finish has no
+total to report. The daemon fills all three when the map is absent, clamps callers to
 its ceilings, and refuses an over-ceiling request by type before acquiring the
 operation's work.
 
@@ -88,6 +90,9 @@ in `:categories` to run its pass, so a review finding never makes a default swee
 categories) can spend the daemon's `:max-work` ceiling before a candidate pass starts; a
 caller names the candidate categories to reach them, or the operator raises or lifts
 the ceiling with `VAELII_INTEGRITY_MAX_WORK` ([operations.md](operations.md#operator)).
+The default sweep over the starter ontology and 85 candidate terms spends about 2.4
+million units, nearly all of them in the definition pass, against the default ceiling
+of 10000.
 
 An explicit `nil` options value means the same thing as omitting the options arity,
 in-process and through the generated daemon clients. The daemon still supplies its own

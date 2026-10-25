@@ -1175,17 +1175,19 @@
 
 (defn- run-passes
   "Run the `passes` that `categories` names (every one but the `review-categories` when
-  nil) in order, each with what is left of `max-results`: nil when every pass completed,
-  `:max-results` when one stopped at the cap."
-  [kb candidate-terms context max-results categories]
+  nil) in order, each with what is left of `max-results`, resetting volatile `at` to each
+  pass's category before it runs: nil when every pass completed, `:max-results` when one
+  stopped at the cap."
+  [kb candidate-terms context max-results categories at]
   (let [selected (filterv #(if (nil? categories)
                              (not (review-categories (first %)))
                              (categories (first %)))
                           passes)]
     (with-open [r (progress/start ::run-passes "integrity: run the passes" (count selected))]
-      (loop [[[_ audit] & more] selected
-             remaining          max-results]
+      (loop [[[category audit] & more] selected
+             remaining                 max-results]
         (when audit
+          (vreset! at category)
           (let [result (audit kb candidate-terms context remaining)]
             (progress/tick! r)
             (if (= :truncated (:status result))
@@ -1205,8 +1207,8 @@
   "Run the bounded integrity sweep in `context` over the finite set of ground
   `candidate-terms`.  Answers `{:status :audited :candidate-count n}` when no pass finds
   anything, `:status :gap` with the non-empty categories otherwise, and `:status
-  :truncated` with its `:reason`, `:work`, `:elapsed-ms` and the findings kept before a
-  bound in `options` (`integrity-opt-keys`) ran out.  `:categories`, a set of category
+  :truncated` with its `:reason`, the `:pass` it stopped in, `:work`, `:elapsed-ms` and
+  the findings kept before a bound in `options` (`integrity-opt-keys`) ran out.  `:categories`, a set of category
   keys, runs those passes alone; without it the sweep runs every pass but the
   `review-categories`.  Reads only: a diagnostic raised by
   evaluating a condition goes to a sink local to the call.  See docs/integrity.md."
@@ -1217,15 +1219,17 @@
    (check-args! candidate-terms (:categories options))
    (let [candidate-count (count candidate-terms)
          m               (budget/meter options)
+         at              (volatile! nil)
          reason          (binding [violations/*report-sink* (atom [])]
                            (budget/metered
                             m #(try (run-passes kb candidate-terms context
-                                                (:max-results options) (:categories options))
+                                                (:max-results options) (:categories options) at)
                                     (catch clojure.lang.ExceptionInfo e
                                       (or (budget/exhausted e) (throw e))))))
          found           (report-categories (budget/found m))]
      (cond
-       reason      (merge {:status :truncated :reason reason :candidate-count candidate-count}
+       reason      (merge {:status :truncated :reason reason :pass @at
+                           :candidate-count candidate-count}
                           (budget/snapshot m) found)
        (seq found) (merge {:status :gap :candidate-count candidate-count} found)
        :else       {:status :audited :candidate-count candidate-count}))))

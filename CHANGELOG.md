@@ -74,6 +74,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   authenticates as before. [operations.md](docs/operations.md#the-token-table)
   *Migration:* none.
 
+### Additive: introspection
+
+- **A truncated `kb-integrity` names the pass it stopped in**, as `:pass`, beside its
+  `:reason` and `:work`. [integrity.md](docs/integrity.md#the-call)
+  *Migration:* none.
+
 ### Additive: koinii
 
 - **`adjudication/resolve-by-majority` counts a wire ballot whose daemon-recorded

@@ -228,7 +228,18 @@
       (let [report (v/kb-integrity kb #{7} 'CxUniverse options)]
         (is (= :truncated (:status report)) (pr-str options))
         (is (= reason (:reason report)) (pr-str options))
+        (is (= :definition-inconsistencies (:pass report)) (pr-str options))
         (is (not= :audited (:status report)))))))
+
+(tu/deftest-kb a-truncated-sweep-names-the-pass-it-stopped-in
+  (tu/with-terms [widget gadget]
+    (v/assert kb (list 'genl widget gadget) 'CxUniverse)
+    ;; the definition pass runs first and spends nothing here, with no defnSufficient
+    (is (= [:truncated :max-work :implicit-genl]
+           ((juxt :status :reason :pass)
+            (v/kb-integrity kb #{widget} 'CxUniverse
+                            {:categories #{:definition-inconsistencies :implicit-genl}
+                             :max-work 1}))))))
 
 (tu/deftest-kb a-nil-bound-is-no-bound-and-a-bad-one-is-refused
   (is (= {:status :audited :candidate-count 0}

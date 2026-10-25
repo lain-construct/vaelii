@@ -5905,7 +5905,7 @@
   `:implicit-arity-class`, `:orthogonal-over-separation`, `:rule-macro`, `:undeclared-arity`,
   `:uncorresponded-function`, `:twin-genls`, `:derivable-stated-edge`,
   `:disjoint-could-be-partition` and `:missing-arg`, or `:status :truncated` with its
-  `:reason` and the findings kept when a bound runs out.  `options` takes `:max-work`,
+  `:reason`, the `:pass` it stopped in and the findings kept when a bound runs out.  `options` takes `:max-work`,
   `:max-ms` and `:max-results`, and `:categories`, a set of category keys to run.  The four
   review-only categories `:twin-genls`, `:derivable-stated-edge`,
   `:disjoint-could-be-partition` and `:missing-arg` run only when `:categories` names them.
