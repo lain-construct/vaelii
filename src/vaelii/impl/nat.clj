@@ -105,54 +105,37 @@
            (kb/sentexes-matching kb (list 'natFormula nat-sym '?e) nat-read/universal-context)))))
 
 (defn- result-targets
-  "The distinct arg2s of believed `(<pred> head ?t)` facts.  Without `context` the read
-  is global, as the mint reads; with it, through the declarations visible from `context`
-  (`res/matches-visible`), as a check reads (docs/nat.md, Typing an application that is
-  never minted)."
+  "The distinct arg2s of believed `(<pred> head ?t)` facts, read globally as the mint
+  reads.  With `context`, through the declarations visible from it
+  (`nat-read/visible-result-targets`), as a check reads (docs/nat.md, Typing an
+  application that is never minted)."
   ([kb pred head]
    (->> (kb/sentexes-matching kb (list pred head '?t) '?ctx)
         (keep #(nth (:sentence %) 2))
         distinct))
   ([kb pred head context]
-   (->> (res/matches-visible kb (list pred head '?t) context)
-        (keep #(get (nth % 1) '?t))
-        distinct)))
-
-(defn- result-arg-types
-  "The symbols application `E` holds at the positions a `(resultArg head n)` declares,
-  `head` being `E`'s function.  A position `E` lacks, or a non-symbol there, names no type.
-  One O(1) functor count on a KB declaring no `resultArg`."
-  [kb E context]
-  (when (pos? (reads/stored-count-with-functor (:index kb) 'resultArg))
-    (let [as (vec (rest E))
-          ns (if context
-               (result-targets kb 'resultArg (first E) context)
-               (result-targets kb 'resultArg (first E)))]
-      (distinct
-       (for [n     ns
-             :let  [t (when (and (integer? n) (<= 1 n (count as))) (nth as (dec n)))]
-             :when (and (symbol? t) (not (sx/variable? t)))]
-         t)))))
+   (nat-read/visible-result-targets kb pred head context)))
 
 (defn- result-arg-declared
   "The positions the `(resultArg f n)` declarations stored anywhere name, behind the
-  functor count `result-arg-types` reads."
+  functor count `nat-read/visible-result-types` reads."
   [kb f]
   (when (pos? (reads/stored-count-with-functor (:index kb) 'resultArg))
     (result-targets kb 'resultArg f)))
 
 (defn result-types
   "Types `T` with `(result head T)`: what an application of `head` is an instance of.
-  Globally, or with `context` through the declarations visible from it.  Given an
-  application `(head a…)` in place of `head`, adds the argument at each position a
-  `(resultArg head n)` declares."
+  Globally, or with `context` through the declarations visible from it
+  (`nat-read/visible-result-types`).  Given an application `(head a…)` in place of
+  `head`, adds the argument at each position a `(resultArg head n)` declares."
   ([kb head] (result-types kb head nil))
   ([kb head context]
-   (let [f  (if (sequential? head) (first head) head)
-         rs (if context (result-targets kb 'result f context) (result-targets kb 'result f))]
-     (if (sequential? head)
-       (distinct (concat rs (result-arg-types kb head context)))
-       rs))))
+   (if context
+     (nat-read/visible-result-types kb head context)
+     (let [rs (result-targets kb 'result (if (sequential? head) (first head) head))]
+       (if (sequential? head)
+         (distinct (concat rs (nat-read/result-arg-types head (result-arg-declared kb (first head)))))
+         rs)))))
 
 (defn genl-result-types
   "Types `T` with `(genlResult head T)`: what an application of `head` is a subtype of.
@@ -162,14 +145,9 @@
   ([kb head context]
    (result-targets kb 'genlResult (if (sequential? head) (first head) head) context)))
 
-(defn any-result-declarations?
-  "Does the KB declare any `result`, `genlResult` or `resultArg`?  Three O(1) functor
-  counts."
-  [kb]
-  (let [ix (:index kb)]
-    (or (pos? (reads/stored-count-with-functor ix 'result))
-        (pos? (reads/stored-count-with-functor ix 'genlResult))
-        (pos? (reads/stored-count-with-functor ix 'resultArg)))))
+(def any-result-declarations?
+  "`nat-read/any-result-declarations?`."
+  nat-read/any-result-declarations?)
 
 ;; ---- the corresponding predicate (docs/nat.md, The corresponding predicate) ---
 

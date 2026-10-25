@@ -2354,6 +2354,11 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `function` and R's length, cited to the `natFormula` statement, those statements and the
   `genl` path it read ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete
   (50): a stored membership answers beside it.
+- **ResultTypeProver** — `(T (F a…))` over a ground application, answered when a type
+  `F`'s `result` declares, or a `resultArg` position of the application names, reaches
+  `T` through the `genl` edges visible from the context
+  ([nat.md](nat.md#typing-an-application-that-is-never-minted)). Not complete (50): a
+  function that declares no result is open-world.
 - **ArgPositionProver** — `(argN term n formula)`, read off how `formula` is written:
   each position binds `term` to the element there and `n` to the position, 0 being the
   operator. A quoted `formula` answers the positions of the form it names: `(Quote

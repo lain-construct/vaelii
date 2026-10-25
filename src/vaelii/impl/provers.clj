@@ -1714,6 +1714,32 @@
   (solve-with-support [_ kb goal context]
     (if-let [sup (expression-kind-support kb goal context)] [[{} sup]] [])))
 
+;; ---- result types: what a function application is ------------------------------
+
+(defn- result-type-goal?
+  "Is `goal` `(k x)`, `k` a symbol and `x` a ground application of a named function, on
+  a KB that declares a result type?"
+  [kb goal]
+  (and (sequential? goal) (= 2 (count goal))
+       (let [[k x] goal]
+         (and (symbol? k) (not (sx/variable? k))
+              (seq? x) (symbol? (first x)) (not (sx/variable? (first x)))
+              (not (contains? formula-heads (first x)))
+              (ground? x)
+              (nat-read/any-result-declarations? kb)))))
+
+(defrecord ResultTypeProver []              ; (k (F a…)) read off F's declared result types
+  Prover
+  (applicable?  [_ kb goal _] (result-type-goal? kb goal))
+  (est-bindings [_ _ _ _] 1)
+  (cost         [_ _ _ _] :lookup)
+  ;; 50, not 100: a function that declares no result is open-world, so an empty answer
+  ;; is a contribution of none rather than a "no"
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb [k x] context]
+    (let [tax (reasoning/taxonomy kb)]
+      (if (some #(tax/genl? tax % k context) (nat-read/visible-result-types kb x context)) [{}] []))))
+
 ;; ---- argN: a position inside a written formula --------------------------------
 
 (defn- arg-position-goal?
@@ -3594,7 +3620,7 @@
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver) (->CommonGenlProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
-   (->EvaluableProver) (->ExpressionKindProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
+   (->EvaluableProver) (->ExpressionKindProver) (->ResultTypeProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->DisjointnessNegationProver)

@@ -80,6 +80,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   authenticates as before. [operations.md](docs/operations.md#the-token-table)
   *Migration:* none.
 
+### Additive: inference
+
+- **A goal answers the declared result type of a ground application that is never
+  minted.** `(time_point (InstantFn 2026 10 6 0 0 0))` holds by `(result InstantFn
+  time_point)`, from `ask`, `prove` and the inference engine, so a backward rule with a
+  `(time_point ?w)` antecedent fires for an `InstantFn` term. A forward rule's type
+  antecedent does not read it.
+  [nat.md](docs/nat.md#typing-an-application-that-is-never-minted)
+  *Migration:* none.
+
 ### Additive: introspection
 
 - **A truncated `kb-integrity` names the pass it stopped in**, as `:pass`, beside its

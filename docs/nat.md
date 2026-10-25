@@ -242,6 +242,15 @@ long as the answer does. Asserting a sentence that *contains* one is an ordinary
 and `(result InstantFn time_point)` in `time.txt` is what types it there — the same one
 declaration binding the computed term and the typed one.
 
+**A goal reads the same declaration.** `provers/ResultTypeProver` answers `(T (F a…))`,
+the application ground, when a result type of the application
+(`nat-read/visible-result-types`, so a `resultArg` position counts) reaches `T` through
+the `genl` edges visible from the asking context. `(time_point (InstantFn 2026 10 6 0 0
+0))` holds by `(result InstantFn time_point)`, so a backward rule with a `(time_point ?w)`
+antecedent fires for an `InstantFn` term
+(`nat_test/a-goal-reads-the-result-type-of-an-application-that-is-never-minted`). The
+answer is not complete (50): a function that declares no result is open-world.
+
 ```clojure
 (v/assert kb '(unreifiable_function QuantityFn) 'CxUniverse)
 (v/assert kb '(result QuantityFn measure) 'CxUniverse)
@@ -254,9 +263,9 @@ declaration binding the computed term and the typed one.
 Four things fix what that reading is and is not.
 
 - **It is a claim about the function, not about the application.** `(result
-  QuantityFn measure)` says every `(QuantityFn m u)` denotes a measure. Nothing computes
-  a type for one application, because there is nothing to compute: the term has no
-  membership and can acquire none.
+  QuantityFn measure)` says every `(QuantityFn m u)` denotes a measure. The term has no
+  stored membership and can acquire none, so the check and a goal both read the
+  function's declaration.
 - **Open-world, one level out from the symbol reading.** A function that declares no
   result exempts every application of it, exactly as an unclassified symbol exempts
   itself, and a declared result the asking context cannot place under `thing` is
@@ -846,6 +855,10 @@ comes first (`nat/reconcile-nats!`).
   stored as a compound term does not answer it.
 - **An `unreifiable_function`'s application is computed, not reified.** A rule matches it
   as written, and the respell does not read it.
+- **A forward rule's type antecedent reads no result type.** `ResultTypeProver` answers
+  any type, so it lists no functor for the forward join, and a forward rule with a
+  `(time_point ?w)` antecedent does not fire when `?w` binds to an `(InstantFn …)` term.
+  A backward rule and a goal read the declaration.
 - **A context that does not see `CxUniverse` reads no collision repair.** Its reads
   resolve an expression to the content-least constant it reads (A NAT resolves under the
   reader's merges), and the uses of the other constant do not answer there.

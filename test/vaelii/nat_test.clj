@@ -581,6 +581,38 @@
                                                  'CxUniverse)))
         "and one naming a type disjoint from it is held inert")))
 
+(tu/deftest-kb a-goal-reads-the-result-type-of-an-application-that-is-never-minted
+  (tu/with-terms [ClockFn SpanFn PickFn moment temporal other kind startsAt CxDecl]
+    (doseq [f [ClockFn SpanFn PickFn]] (v/assert kb (list 'unreifiable_function f) 'CxUniverse))
+    (v/assert kb (list 'genl temporal 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl moment temporal) 'CxUniverse)
+    (v/assert kb (list 'genl other 'thing) 'CxUniverse)
+    (v/assert kb (list 'result ClockFn moment) 'CxUniverse)
+    (v/assert kb (list 'resultArg PickFn 1) 'CxUniverse)
+    (v/assert kb (list 'result SpanFn other) CxDecl)
+    (let [t (list ClockFn 1)]
+      (doseq [ty [moment temporal]]
+        (testing (str "the declared result type and its genls answer, " ty)
+          (is (v/ask? kb (list ty t) 'CxUniverse))
+          (is (= 1 (count (v/prove kb [(list ty t)] 'CxUniverse))))
+          (is (seq (binding [v/*query-engine* :inference v/*query-options* {:max-depth 3}]
+                     (v/prove kb (list ty t) 'CxUniverse))))))
+      (is (not (v/ask? kb (list other t) 'CxUniverse)) "a type the result does not reach answers nothing")
+      (is (not (v/ask? kb (list moment (list ClockFn '?x)) 'CxUniverse)) "an open application answers nothing")
+      (is (v/ask? kb (list kind (list PickFn kind)) 'CxUniverse) "a resultArg position types the application")
+      (is (v/ask? kb (list other (list SpanFn t)) CxDecl) "the declaration's context reads it")
+      (is (not (v/ask? kb (list other (list SpanFn t)) 'CxUniverse)) "a context that does not see it reads nothing")
+      (testing "a backward rule's membership antecedent is discharged for the application"
+        (v/assert kb (list 'set/backwardRule
+                           (list 'implies (list moment '?m) (list startsAt (list SpanFn '?m) '?m)))
+                  'CxUniverse)
+        (let [g (list startsAt (list SpanFn t) '?w)]
+          (is (= [{'?w t}] (v/prove kb [g] 'CxUniverse)))
+          (is (= [{'?w t}] (distinct (binding [v/*query-engine* :inference v/*query-options* {:max-depth 3}]
+                                       (v/prove kb g 'CxUniverse))))))))
+    (testing "the shipped result of InstantFn answers time_point"
+      (is (v/ask? kb '(time_point (InstantFn 2026 10 6 0 0 0)) 'CxUniverse)))))
+
 (tu/deftest-kb a-result-arg-membership-entailed-off-the-map-is-bookkeeping
   (tu/with-terms [MemberFn kind studies Alice]
     (tu/with-entailing

@@ -115,6 +115,47 @@
   [ns k]
   (= (= context-namespace ns) (nm/context? k)))
 
+(defn any-result-declarations?
+  "Does the KB declare any `result`, `genlResult` or `resultArg`?  Three O(1) functor
+  counts."
+  [kb]
+  (let [ix (:index kb)]
+    (or (pos? (reads/stored-count-with-functor ix 'result))
+        (pos? (reads/stored-count-with-functor ix 'genlResult))
+        (pos? (reads/stored-count-with-functor ix 'resultArg)))))
+
+(defn visible-result-targets
+  "The distinct arg2s of the believed `(<pred> head ?t)` facts visible from `context`
+  (`res/matches-visible`), as a check and a goal read a declaration (docs/nat.md, Typing
+  an application that is never minted)."
+  [kb pred head context]
+  (->> (res/matches-visible kb (list pred head '?t) context)
+       (keep #(get (nth % 1) '?t))
+       distinct))
+
+(defn result-arg-types
+  "The symbols application `E` holds at the positions `ns` its function's `(resultArg F
+  n)` declarations name.  A position `E` lacks, or a non-symbol there, names no type."
+  [E ns]
+  (let [as (vec (rest E))]
+    (distinct
+     (for [n     ns
+           :let  [t (when (and (integer? n) (<= 1 n (count as))) (nth as (dec n)))]
+           :when (and (symbol? t) (not (sx/variable? t)))]
+       t))))
+
+(defn visible-result-types
+  "Types `T` with a `(result head T)` visible from `context`: what an application of
+  `head` is an instance of.  Given an application `(head a…)` in place of `head`, adds the
+  argument at each position a visible `(resultArg head n)` declares, behind one O(1)
+  functor count."
+  [kb head context]
+  (let [f  (if (sequential? head) (first head) head)
+        rs (visible-result-targets kb 'result f context)]
+    (if (and (sequential? head) (pos? (reads/stored-count-with-functor (:index kb) 'resultArg)))
+      (distinct (concat rs (result-arg-types head (visible-result-targets kb 'resultArg f context))))
+      rs)))
+
 (defn- reader-of
   "The context a NAT lookup reads from: `context`, or CxUniverse when nil."
   [context]
