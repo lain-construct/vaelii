@@ -979,8 +979,15 @@
           (let [r (post-op handler :kb-integrity [#{7}])]
             (is (= 400 (:status r)))
             (is (= :bad-args (:type r)))))
-        (with-redefs [serve/integrity-max-work 1000
-                      serve/integrity-max-results 20]
+        (testing "0 on either ceiling lifts it"
+          (with-redefs [config/integrity-max-work    (constantly 0)
+                        config/integrity-max-results (constantly 0)]
+            (let [r (post-op handler :kb-integrity
+                             [#{7} CxServe {:max-work 1000000 :max-results 1000000}])]
+              (is (:ok r))
+              (is (not= :truncated (get-in r [:result :status]))))))
+        (with-redefs [config/integrity-max-work    (constantly 1000)
+                      config/integrity-max-results (constantly 20)]
           (testing "a caller may lower but not raise either daemon-owned ceiling"
             (doseq [[option value] [[:max-work 1001] [:max-results 21]]]
               (let [r (post-op handler :kb-integrity

@@ -86,7 +86,8 @@ the four review-only ones: `:twin-genls`, `:derivable-stated-edge`,
 `:disjoint-could-be-partition` and `:missing-arg`. A caller names a review-only category
 in `:categories` to run its pass, so a review finding never makes a default sweep `:gap`. On a large KB the census passes (the specified and widening
 categories) can spend the daemon's `:max-work` ceiling before a candidate pass starts; a
-caller names the candidate categories to reach them.
+caller names the candidate categories to reach them, or the operator raises or lifts
+the ceiling with `VAELII_INTEGRITY_MAX_WORK` ([operations.md](operations.md#operator)).
 
 An explicit `nil` options value means the same thing as omitting the options arity,
 in-process and through the generated daemon clients. The daemon still supplies its own

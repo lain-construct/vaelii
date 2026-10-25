@@ -58,6 +58,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: daemon
 
+- **`VAELII_INTEGRITY_MAX_WORK` and `VAELII_INTEGRITY_MAX_RESULTS` set the daemon's
+  `:kb-integrity` ceilings**, 10000 work units and 1000 findings by default, and `0` lifts
+  either. A request may still name a smaller bound and is refused `:over-ceiling` for a
+  larger one. [operations.md](docs/operations.md#operator)
+  *Migration:* none.
+
 - **`VAELII_TOKEN_TABLE` names a per-principal token table**, an EDN file mapping each
   bearer token to `{:principal :writes :admin?}`; `serve/start` and `serve/app` take it as
   `:token-table`. Set, it replaces `VAELII_API_TOKEN`, and a write op lands only in the

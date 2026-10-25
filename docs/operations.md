@@ -339,8 +339,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   apply to fifteen ops — `:query`, `:query?`, `:query-status`, `:argue`, `:why`, `:why-not`,
   `:search-tree`, `:compare-tacticians`, `:ask`, `:ask?`, `:prove`, `:provable?`,
   `:ask-within`, `:prove-within`, `:kb-integrity`. `:kb-integrity` has two more dials,
-  `:max-work` (**10000**) and `:max-results` (**1000**), held the same way and filled with
-  the ceiling when a request omits them or sends no option map, so a served sweep always
+  `:max-work` and `:max-results`, held the same way under `VAELII_INTEGRITY_MAX_WORK`
+  (**10000**) and `VAELII_INTEGRITY_MAX_RESULTS` (**1000**), `0` lifting either, and filled
+  with the ceiling when a request omits them or sends no option map, so a served sweep always
   runs under all three ([integrity.md](integrity.md)). **No write's bound is held to a ceiling.** Eight
   writes name one: `:assert`, `:try-assert`, `:assert-many`, `:assert-rule` and `:forward-chain` read
   `:max-depth` and `:max-derivations`, and `:edit`, `:edit-with-consequences` and
@@ -1082,6 +1083,8 @@ the read still found one of them. Set a new floor by rounding the first mention 
 | `VAELII_MAX_BODY_BYTES` | `src/vaelii/host/guard.clj:160+` | a positive whole number of bytes; blank is unset | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
 | `VAELII_MAX_QUERY_MS` | `src/vaelii/impl/config.clj:330+` | a whole number of milliseconds, 0 or more | `30000` | The wall clock a served read may name. A request may name less and is refused (`:over-ceiling`, 400) for naming more; a read naming none is given this, the four backward-search entry points included. `0` lifts the ceiling. |
 | `VAELII_MAX_QUERY_DEPTH` | `src/vaelii/impl/config.clj:340+` | a whole number of rule expansions, 0 or more | `256` | The rule-expansion depth a served read may name, refused the same way. `0` lifts it. |
+| `VAELII_INTEGRITY_MAX_WORK` | `src/vaelii/impl/config.clj:440+` | a whole number of cooperative query units, 0 or more | `10000` | The `:max-work` a served `:kb-integrity` may name, refused the same way; a request naming none is given this. `0` lifts it. |
+| `VAELII_INTEGRITY_MAX_RESULTS` | `src/vaelii/impl/config.clj:450+` | a whole number of findings, 0 or more | `1000` | The `:max-results` a served `:kb-integrity` may name, held the same way as `VAELII_INTEGRITY_MAX_WORK`. `0` lifts it. |
 | `VAELII_REQUEST_PATHS` | `src/vaelii/impl/config.clj:430+` | the boolean vocabulary | `false` | Whether a served request may name a path for the server to read or write. Off, a wire `:kb-diff` side names a KB the server serves and a string naming none is refused (`:path-not-served`, 403), a wire `:export` is refused the same way, and the browser's `/kbs/load` and `/kbs/export` refuse a `dir` (`:path-not-served`) and write under the catalog's `write-root`; on, the string is read as a text KB on the server's host, `:export` writes the directory it names, and the two routes take a `dir`. |
 | `VAELII_SANDBOX_MAX` | `src/vaelii/impl/config.clj:440+` | a whole number ≥ 1 | `256` | How many browser sandboxes a KB holds. Opening one more resets the sandbox the eviction table ranks lowest ([web.md](web.md#how-many-sandboxes-a-kb-holds)). Read at each admission. |
 | `VAELII_SANDBOX_IDLE_MINUTES` | `src/vaelii/impl/config.clj:450+` | a whole number of minutes ≥ 1 | `1440` | How long a browser sandbox may go unused before an admission resets it ahead of every used one. |

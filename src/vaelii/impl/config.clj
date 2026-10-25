@@ -446,6 +446,20 @@
   []
   (prop-long "VAELII_MAX_QUERY_MS" 30000 0 nil))
 
+(defn integrity-max-work
+  "The most cooperative query units one daemon `:kb-integrity` request may spend
+  (`VAELII_INTEGRITY_MAX_WORK`, default 10000; 0 lifts it).  A request may name a
+  smaller `:max-work` and is refused for naming a larger one (`vaelii.host.serve`)."
+  []
+  (prop-long "VAELII_INTEGRITY_MAX_WORK" 10000 0 nil))
+
+(defn integrity-max-results
+  "The most findings one daemon `:kb-integrity` response may carry
+  (`VAELII_INTEGRITY_MAX_RESULTS`, default 1000; 0 lifts it), held the same way as
+  `integrity-max-work`."
+  []
+  (prop-long "VAELII_INTEGRITY_MAX_RESULTS" 1000 0 nil))
+
 (defn request-paths?
   "May a served request name a path for the server to read or write
   (`VAELII_REQUEST_PATHS`, default off)?  Off, a wire `:kb-diff` side names a KB the
@@ -570,6 +584,8 @@
    {:names ["VAELII_ASP_TIME_LIMIT"]                :reader #'asp-time-limit               :read-at :worker}
    {:names ["VAELII_MAX_QUERY_MS"]                  :reader #'max-query-ms                 :read-at :open}
    {:names ["VAELII_MAX_QUERY_DEPTH"]               :reader #'max-query-depth              :read-at :open}
+   {:names ["VAELII_INTEGRITY_MAX_WORK"]            :reader #'integrity-max-work           :read-at :open}
+   {:names ["VAELII_INTEGRITY_MAX_RESULTS"]         :reader #'integrity-max-results        :read-at :open}
    {:names ["VAELII_REQUEST_PATHS"]                 :reader #'request-paths?               :read-at :open}
    {:names ["VAELII_SANDBOX_MAX"]                   :reader #'sandbox-max                  :read-at :worker}
    {:names ["VAELII_SANDBOX_IDLE_MINUTES"]          :reader #'sandbox-idle-minutes         :read-at :worker}

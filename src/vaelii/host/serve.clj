@@ -166,14 +166,6 @@
    :prove-within       #{:max-depth :max-ms}
    :kb-integrity       #{:max-ms :max-work :max-results}})
 
-(def integrity-max-work
-  "The most cooperative query units one daemon integrity request may spend."
-  10000)
-
-(def integrity-max-results
-  "The most findings one daemon integrity response may carry."
-  1000)
-
 (def ^:private clock-fill
   "The ops whose ceiling has to reach a caller who sent **no option map at all**, and the
   arguments to fill in between what they sent and the map.
@@ -217,8 +209,8 @@
   (let [n (case k
             :max-ms    (config/max-query-ms)
             :max-depth (config/max-query-depth)
-            :max-work integrity-max-work
-            :max-results integrity-max-results)]
+            :max-work    (config/integrity-max-work)
+            :max-results (config/integrity-max-results))]
     (when (pos? n) n)))
 
 (defn- under-ceiling
