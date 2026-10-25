@@ -332,6 +332,23 @@
       (is (= #{['predAllSpecified likes person]}
              (set (keys (:all-specified-violations report))))))))
 
+(tu/deftest-kb source-context-updates-count-as-one-specified-result
+  (tu/with-terms [notes item_kind Base Child CxA CxB]
+    (doseq [form [(list 'binary_predicate notes) (list 'unary_predicate item_kind)
+                  (list 'arg notes 2 'thing) (list 'genlCx CxA 'CxUniverse)
+                  (list 'genlCx CxB CxA)]]
+      (v/assert kb form 'CxUniverse))
+    (v/assert kb (list 'predAllSpecified notes item_kind) CxA)
+    (v/assert kb (list 'predAllSpecified notes item_kind) CxB)
+    (v/assert kb (list item_kind Base) CxA)
+    (v/assert kb (list item_kind Child) CxB)
+    (let [report (v/kb-integrity kb #{} CxB
+                                 {:categories #{:all-specified-violations} :max-results 1})]
+      (is (= :gap (:status report)) "two sources of one declaration do not exceed one result")
+      (is (= {['predAllSpecified notes item_kind]
+              {:status :audited :violations #{Base Child}}}
+             (:all-specified-violations report))))))
+
 (tu/deftest-kb opaque-chunk-overrun-is-observed-before-another-pull
   (tu/with-terms [widget chunkAnswers required]
     (let [produced (atom 0)]
@@ -466,6 +483,35 @@
                      :pred first-pred :position 2}}
                    (:all-specified-violations report))
                 "the completed first declaration survives exhaustion in the second")))))))
+
+(tu/deftest-kb elapsed-source-context-audit-retains-the-completed-context
+  (tu/with-terms [notes item_kind Base Child CxA CxB]
+    (doseq [form [(list 'binary_predicate notes) (list 'unary_predicate item_kind)
+                  (list 'arg notes 2 'thing) (list 'genlCx CxA 'CxUniverse)
+                  (list 'genlCx CxB CxA)]]
+      (v/assert kb form 'CxUniverse))
+    (v/assert kb (list 'predAllSpecified notes item_kind) CxA)
+    (v/assert kb (list 'predAllSpecified notes item_kind) CxB)
+    (v/assert kb (list item_kind Base) CxA)
+    (v/assert kb (list item_kind Child) CxB)
+    (with-skewed-clock
+      (fn [skew]
+        (let [original @#'predall/specified-violations]
+          (with-redefs [predall/specified-violations
+                        (fn [kb pred indep context & args]
+                          (when (= CxB context)
+                            (swap! skew + 3600000000000)
+                            (budget/spend!))
+                          (apply original kb pred indep context args))]
+            (let [report (v/kb-integrity kb #{} CxB
+                                         {:categories #{:all-specified-violations}
+                                          :max-ms 60000})]
+              (is (= :truncated (:status report)))
+              (is (= :max-ms (:reason report)))
+              (is (= {['predAllSpecified notes item_kind]
+                      {:status :audited :violations #{Base}}}
+                     (:all-specified-violations report))
+                  "the first context's finding survives exhaustion in the next context"))))))))
 
 (tu/deftest-kb specified-gaps-compose-with-definition-findings
   (tu/with-terms [widget qualifies required likes person Alice]
