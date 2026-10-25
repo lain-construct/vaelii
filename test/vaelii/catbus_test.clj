@@ -76,3 +76,25 @@
       (v/assert kb (list tu_bus term) 'CxRealWorld {:strength bus-strength})
       (testing (str "cat " cat-strength ", bus " bus-strength " in CxRealWorld")
         (is (reported? kb (v/handle-of kb (list tu_bus term) 'CxRealWorld)))))))
+
+(tu/deftest-kb ^:red a-default-separation-yields-to-a-fiction-that-states-the-overlap
+  ;; Ruled 2026-10-24: a disjoint is defeasible unless it separates arg types or defining
+  ;; predicate types. CxUniverse states (disjoint animal vehicle) at the default strength,
+  ;; so a fiction that states the overlap monotonically defeats it there instead of
+  ;; holding an irreducible conflict. Today every disjoint is forced-monotonic, so the
+  ;; pair below is a conflict.
+  (v/assert kb '(genlCx CxTotoro CxWell) 'CxUniverse)
+  (v/assert kb '(context CxTotoro) 'CxUniverse)
+  (tu/with-terms [tu_bus Catbus3]
+    (v/assert kb (list 'genl tu_bus 'vehicle) 'CxUniverse)
+    (v/assert kb (list 'cat Catbus3) 'CxTotoro {:strength :monotonic})
+    (v/assert kb (list tu_bus Catbus3) 'CxTotoro {:strength :monotonic})
+    (let [cat-h (v/handle-of kb (list 'cat Catbus3) 'CxTotoro)
+          bus-h (v/handle-of kb (list tu_bus Catbus3) 'CxTotoro)]
+      (is (v/ask? kb (list 'cat Catbus3) 'CxTotoro))
+      (is (v/ask? kb (list tu_bus Catbus3) 'CxTotoro))
+      (is (not-any? #(or (contains? (:nogood %) cat-h) (contains? (:nogood %) bus-h))
+                    (v/conflicts kb))
+          "the default separation loses; nothing is left irreducible")
+      (is (v/ask? kb '(disjoint animal vehicle) 'CxWell)
+          "the defeat is CxTotoro's: CxWell, which holds no catbus, still believes it"))))
