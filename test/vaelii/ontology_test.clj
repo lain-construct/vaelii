@@ -657,22 +657,24 @@
   ;; `person`, disjoint from what the other rule states or concludes about the same term,
   ;; so `arg-type-conflicted?` drops every such pair as unreachable (vaelii#95).
   ;;
-  ;; Two pairs are left unexcepted on purpose.  A proper reading's definition concludes a
-  ;; proper tangible part or a proper sub-situation, so a part, and the root rule
-  ;; `(properPartOf x y) → (not (partOf y x))` denies one.  Both fire for one tuple only
+  ;; Three pairs are left unexcepted on purpose.  A proper reading's definition concludes a
+  ;; proper tangible part or a proper sub-situation, so a part, and `Forever`'s definition
+  ;; concludes that every time interval is a subinterval of it, so a part; the root rule
+  ;; `(properPartOf x y) → (not (partOf y x))` denies each.  Each fires for one tuple only
   ;; where the facts already contradict the root rule: a part whose whole is stated a proper
-  ;; part of it.  Both rules are strict definitions, so that clash is the one the facts owe,
-  ;; and an exception would hide it.
+  ;; part of it, or `Forever` stated a proper part of an interval.  All three rules are
+  ;; strict definitions, so that clash is the one the facts owe, and an exception would hide
+  ;; it.
   (let [pairs       (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds       (frequencies (map :kind pairs))
         root-denial '(implies (properPartOf ?part ?whole) (not (partOf ?whole ?part)))
         definition? #(some #{root-denial} (:sentences %))]
-    (is (= {:negation 6} kinds)
+    (is (= {:negation 7} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
     (is (every? :excepted (remove definition? (filter #(= :negation (:kind %)) pairs)))
         "negation clashes are excepted")
-    (is (= 2 (count (filter definition? pairs)))
-        "and the root denial meets the two proper readings' definitions, unexcepted")))
+    (is (= 3 (count (filter definition? pairs)))
+        "and the root denial meets the two proper readings' and Forever's definitions, unexcepted")))
 
 (tu/deftest-kb a-type-relation-predicate-relates-predicates
   ;; Every argument of a type_relation_predicate is a predicate: the kinds it relates are

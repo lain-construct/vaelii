@@ -198,6 +198,23 @@
 (arg finishes 1 temporal)
 (arg finishes 2 temporal)
 
+(comment Forever
+         "The time interval that contains every time: every time interval is a subinterval of Forever, and every instant falls within it. It is the time of every monad_context, which covers all of its world's, story's or theory's time.")
+(time_interval Forever)
+
+;; Every interval falls within Forever, and every instant lies inside it.
+(set/forwardRule
+ (implies (and (time_interval ?interval))
+          (subintervalOf ?interval Forever)))
+(set/forwardRule
+ (implies (and (time_point ?instant))
+          (includesInstant Forever ?instant)))
+
+;; A monad context covers all of its time.
+(set/forwardRule
+ (implies (and (monad_context ?monad))
+          (cxTimeOf ?monad Forever)))
+
 (comment genlMonad
          "(genlMonad ?monad1 ?monad2) means that the monad ?monad1 falls under the monad ?monad2: a world, story or theory that inherits from another, with time left out. It orders monads alone, as subintervalOf orders times alone. See docs/time.md.")
 (binary_predicate genlMonad)
