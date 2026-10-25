@@ -247,14 +247,16 @@
 ;; (core.txt) for the tangible and the situation proper readings below, as two rule
 ;; clashes.  Both are acknowledged rather than excepted, for the reason each record gives.
 (acknowledgedFinding :rule-clash
-  (Quote (and (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part)))
-              (implies (and (tangiblePartOf ?x ?y) (not (tangiblePartOf ?y ?x)))
-                       (properTangiblePartOf ?x ?y))))
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (tangiblePartOf ?x ?y) (not (tangiblePartOf ?y ?x)))
+                    (properTangiblePartOf ?x ?y))))
   "Left unexcepted on purpose. A proper reading's definition concludes a proper tangible part, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: a part whose whole is stated a proper part of it. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
 (acknowledgedFinding :rule-clash
-  (Quote (and (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part)))
-              (implies (and (subSituationOf ?x ?y) (not (subSituationOf ?y ?x)))
-                       (properSubSituationOf ?x ?y))))
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (subSituationOf ?x ?y) (not (subSituationOf ?y ?x)))
+                    (properSubSituationOf ?x ?y))))
   "Left unexcepted on purpose. A proper reading's definition concludes a proper sub-situation, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: a part whose whole is stated a proper part of it. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
 
 (comment tangiblePartOf

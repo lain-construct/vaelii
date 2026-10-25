@@ -2022,15 +2022,24 @@
     (try (sx/sentence-of (sx/sentex sentence))
          (catch Exception _ nil))))
 
+(def ^:private rule-pair-functor
+  "The function a `:rule-clash` acknowledgment's subject names the pair under:
+  `(RulePairFn (Quote r1) (Quote r2))`.  Each rule is quoted on its own, and a quoted term
+  is opaque, so the two orders' being one pair is a fact about `RulePairFn`, outside both
+  quotes.  No `commutative` mark carries it — the engine refuses `(commutative
+  RulePairFn)` (vaelii#227) and sorts no nested argument (vaelii#228) — so
+  `acknowledged-pair` reads the two rules as a bag, and either order matches."
+  'RulePairFn)
+
 (defn- acknowledged-pair
-  "The rule sentences of a `:rule-clash` acknowledgment's subject, `(Quote (and r1 r2))`,
-  as a bag of `rule-identity` values, or nil for a subject of any other shape."
+  "The rule sentences of a `:rule-clash` acknowledgment's subject,
+  `(RulePairFn (Quote r1) (Quote r2))`, as a bag of `rule-identity` values, or nil for a
+  subject of any other shape."
   [subject]
-  (when (sx/quote-form? subject)
-    (let [f (second subject)]
-      (when (and (sequential? f) (= sx/and-functor (first f)) (= 3 (count f)))
-        (let [ids (map rule-identity (rest f))]
-          (when (every? some? ids) (frequencies ids)))))))
+  (when (and (sequential? subject) (= rule-pair-functor (first subject)) (= 3 (count subject)))
+    (let [rs  (map (fn [q] (when (sx/quote-form? q) (second q))) (rest subject))
+          ids (map rule-identity rs)]
+      (when (every? some? ids) (frequencies ids)))))
 
 (defn- pair-acknowledgment
   "The reason of the first acknowledgment `acks-in` holds for the clash entry `e` — read

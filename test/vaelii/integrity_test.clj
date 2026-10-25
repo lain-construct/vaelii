@@ -1782,21 +1782,22 @@
       (is (not (contains? e :inert))))))
 
 (tu/deftest-kb an-acknowledged-rule-clash-is-review-only
-  ;; The subject quotes the pair as one conjunction of the two rule sentences, in either
-  ;; order and under any variable names: the pair is matched by the rules' canonical form.
+  ;; The subject names the pair as (RulePairFn (Quote R1) (Quote R2)), each rule quoted on
+  ;; its own, in either order and under any variable names: the pair is matched by the
+  ;; rules' canonical form.
   (tu/with-terms [bird_kind penguin_kind flies swims]
     (v/assert-rule kb [(list bird_kind '?x)] (list flies '?x) 'CxUniverse {:direction :forward})
     (v/assert-rule kb [(list penguin_kind '?x)] (list 'not (list flies '?x)) 'CxUniverse
                    {:direction :forward})
     (let [reason "penguins are birds that do not fly, and the clash is the facts' to settle"
-          pair   (list 'Quote (list 'and
-                                    (list 'implies (list penguin_kind '?p) (list 'not (list flies '?p)))
-                                    (list 'implies (list bird_kind '?b) (list flies '?b))))]
+          pair   (list 'RulePairFn
+                       (list 'Quote (list 'implies (list penguin_kind '?p) (list 'not (list flies '?p))))
+                       (list 'Quote (list 'implies (list bird_kind '?b) (list flies '?b))))]
       (is (= 1 (count (about [flies] (:rule-clash (clash-sweep kb #{:rule-clash}))))))
       (testing "an acknowledgment of another pair acknowledges nothing here"
-        (let [other (list 'Quote (list 'and
-                                       (list 'implies (list penguin_kind '?p) (list 'not (list swims '?p)))
-                                       (list 'implies (list bird_kind '?b) (list flies '?b))))
+        (let [other (list 'RulePairFn
+                          (list 'Quote (list 'implies (list penguin_kind '?p) (list 'not (list swims '?p))))
+                          (list 'Quote (list 'implies (list bird_kind '?b) (list flies '?b))))
               h     (v/assert kb (list 'acknowledgedFinding :rule-clash other reason) 'CxUniverse)]
           (is (= 1 (count (about [flies] (:rule-clash (clash-sweep kb #{:rule-clash}))))))
           (v/retract! kb h)))
