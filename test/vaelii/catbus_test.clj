@@ -43,6 +43,14 @@
           "the vehicle membership loses the monotonic clash — the real world never
            holds the overlap"))
 
+    (testing "the same Catbus2 is both a cat and a bus in CxTotoro"
+      (v/assert kb (list 'cat Catbus2) 'CxTotoro)
+      (v/assert kb (list tu_bus Catbus2) 'CxTotoro)
+      (is (v/ask? kb (list 'cat Catbus2) 'CxTotoro) "Catbus2 is a cat in the fiction")
+      (is (v/ask? kb (list tu_bus Catbus2) 'CxTotoro) "and a bus in the fiction")
+      (is (not (v/ask? kb (list tu_bus Catbus2) 'CxRealWorld))
+          "while CxRealWorld, a sibling of CxTotoro, still does not hold it as a bus"))
+
     (testing "in plain CxWell an ordinary animal is not a vehicle by default"
       (v/assert kb (list 'cat OrdinaryCat) 'CxWell)
       (is (not (v/ask? kb (list 'vehicle OrdinaryCat) 'CxWell)))
