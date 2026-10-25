@@ -2413,11 +2413,11 @@
 (positiveExampleComment acknowledgedFinding "(acknowledgedFinding :rule-clash (RulePairFn (Quote (implies (penguin_kind ?x) (not (flies ?x)))) (Quote (implies (bird_kind ?x) (flies ?x)))) \"penguins are birds that do not fly\")")
 (ternary_predicate acknowledgedFinding)
 (arg acknowledgedFinding 1 keyword)                    ;; the category, as the sweep keys it
-;; non_atomic_expression rather than formula: a :rule-macro subject is a bare declaration
+;; expression, the most general type: a :rule-macro subject is a bare declaration
 ;; (formula-shaped), a :rule-clash subject a RulePairFn application (non_atomic_term-
-;; shaped), and formula and non_atomic_term are declared disjoint (reflection.txt) — their
-;; nearest common genl is the one type that admits both without lying about either.
-(quotedArg acknowledgedFinding 2 non_atomic_expression) ;; the finding's content, taken as written
+;; shaped), and an atomic expression is admitted too, so a future category may name a
+;; finding by a single symbol.
+(quotedArg acknowledgedFinding 2 expression) ;; the finding's content, taken as written
 (arg acknowledgedFinding 3 string)                     ;; why the finding stays
 
 ;; RulePairFn: the unordered pair a :rule-clash acknowledgment's subject names two rules

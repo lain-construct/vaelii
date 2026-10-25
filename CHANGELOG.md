@@ -96,8 +96,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   as a whole, since a quoted term is opaque: `RulePairFn`, outside both quotes, holds the
   pair (its corresponding predicate is `rulePairOf`), and the sweep reads its two
   arguments in either order as one pair. `acknowledgedFinding`'s second argument is a
-  quoted `non_atomic_expression`, which admits a `RulePairFn` subject beside a
-  `:rule-macro` declaration.
+  quoted `expression`, which admits a `RulePairFn` subject beside a `:rule-macro`
+  declaration, and an atomic subject as well.
   `declined_rule_macro` is now sugar: a `core.txt` forward rule concludes
   `(acknowledgedFinding :rule-macro D "Acknowledged via declined_rule_macro; no reason
   supplied.")` from it, and the sweep reads only the acknowledgment. `abstract.txt`
