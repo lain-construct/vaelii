@@ -480,7 +480,6 @@
     (is (= 1 (count (handles kb (list covering '?w '?a '?b '?c))))
         "three permutations bulk-loaded are one row")))
 
-
 ;; ---- Quote opacity and nested commutative canonicalization --------------
 ;;
 ;; A quoted term is opaque, so no inference or canonicalization reaches inside one: a
