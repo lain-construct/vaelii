@@ -324,6 +324,19 @@ for a range wherever the calendar clock answers for a `DatetimeFn` term. Nothing
 a range's strings as fields, so the interval relations and the context ordering do not see
 it the way they see a calendar term.
 
+The time **before** and the time **after** a moment W are `(IntervalBeforeFn W)` and
+`(IntervalAfterFn W)`. Every interval includes its start and excludes its end, so
+`(IntervalBeforeFn W)` is every moment before W and excludes W, and `(IntervalAfterFn W)`
+is W and every moment after it. The two meet at W: they share no moment and leave no gap
+between them, and W belongs to the after side alone. Each is an `unreifiable_function` from
+a `time_point` to a `time_interval`, with `intervalBeforeOf` and `intervalAfterOf` as the
+corresponding predicates, and each has one bound: a backward rule in `time.txt` gives
+`(endOf (IntervalBeforeFn W) W)` and `(startOf (IntervalAfterFn W) W)` when W is a
+`time_point`. The rule reads a believed `(time_point W)`, which a symbol stated to be a
+`time_point` has and an `(InstantFn …)` term does not: `InstantFn`'s result type is
+checked at assert time and is not answered by a query, so for an `InstantFn` moment the
+bound is stated.
+
 ## A context at a time: `CxTimeFn` and the monad
 
 A context has two parts: its **monad**, the world, story or theory it is a context of,

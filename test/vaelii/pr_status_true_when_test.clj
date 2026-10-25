@@ -24,10 +24,10 @@
   reads the new status, since the new status's stretch starts there and the old one's
   ends there; endpoint contact between two stretches is Allen `meets`, never a clash.
 
-  Neither `IntervalBeforeFn` nor `IntervalAfterFn` is in the shipped KB: time.txt has no
-  function naming the time before or after a moment.  Both are used here as Iris's ruling
-  spells them, with the ordinary bound each one's meaning fixes stated where a test needs
-  it.  `prStatus`, `credentialValid` and the request bookkeeping are the test's own domain
+  time.txt declares `IntervalBeforeFn` and `IntervalAfterFn`, each with a backward rule
+  giving its bound at W, but the rule reads `(time_point W)`, which no reasoner answers
+  for an `InstantFn` term.  So a test that needs a bound states it, the ordinary bound
+  each one's meaning fixes.  `prStatus`, `credentialValid` and the request bookkeeping are the test's own domain
   terms, temporaries in the way temporal_capability_test.clj's `StateFn` is.  `CxTimeFn`
   is declared here as that namespace declares it."
   (:require [clojure.test :refer [is testing use-fixtures]]

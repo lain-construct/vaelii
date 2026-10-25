@@ -311,6 +311,46 @@
 (arg instantNotEqual 1 time_point)
 (arg instantNotEqual 2 time_point)
 
+(comment IntervalAfterFn
+         "(IntervalAfterFn ?instant) means the interval that begins at ?instant and has no end: every moment at or after ?instant. Like every interval it includes its start, so ?instant is inside it. It meets (IntervalBeforeFn ?instant), which ends at ?instant: the two share no moment and leave no gap. An unreifiable_function application, so ?instant is readable inside the term. Its startOf is ?instant by the rule beside it. See docs/time.md.")
+(unreifiable_function IntervalAfterFn)
+(unary_function IntervalAfterFn)
+(functionCorrespondingPredicate IntervalAfterFn intervalAfterOf)
+(arg IntervalAfterFn 1 time_point)
+(result IntervalAfterFn time_interval)
+
+;; The interval after a moment begins at that moment.
+(set/backwardRule
+ (implies (and (time_point ?instant))
+          (startOf (IntervalAfterFn ?instant) ?instant)))
+
+(comment intervalAfterOf
+         "(intervalAfterOf ?instant ?interval) means that ?interval is the time after ?instant, the interval (IntervalAfterFn ?instant) names. IntervalAfterFn is the corresponding function, and its value is the last argument. Nothing reads this predicate: the rule beside IntervalAfterFn reads the term. See docs/time.md.")
+(binary_predicate intervalAfterOf)
+(instance_relation_predicate intervalAfterOf)
+(arg intervalAfterOf 1 time_point)
+(arg intervalAfterOf 2 time_interval)
+
+(comment IntervalBeforeFn
+         "(IntervalBeforeFn ?instant) means the interval that ends at ?instant and has no start: every moment before ?instant. Like every interval it excludes its end, so ?instant is outside it. It meets (IntervalAfterFn ?instant), which begins at ?instant: the two share no moment and leave no gap. An unreifiable_function application, so ?instant is readable inside the term. Its endOf is ?instant by the rule beside it. See docs/time.md.")
+(unreifiable_function IntervalBeforeFn)
+(unary_function IntervalBeforeFn)
+(functionCorrespondingPredicate IntervalBeforeFn intervalBeforeOf)
+(arg IntervalBeforeFn 1 time_point)
+(result IntervalBeforeFn time_interval)
+
+;; The interval before a moment ends at that moment.
+(set/backwardRule
+ (implies (and (time_point ?instant))
+          (endOf (IntervalBeforeFn ?instant) ?instant)))
+
+(comment intervalBeforeOf
+         "(intervalBeforeOf ?instant ?interval) means that ?interval is the time before ?instant, the interval (IntervalBeforeFn ?instant) names. IntervalBeforeFn is the corresponding function, and its value is the last argument. Nothing reads this predicate: the rule beside IntervalBeforeFn reads the term. See docs/time.md.")
+(binary_predicate intervalBeforeOf)
+(instance_relation_predicate intervalBeforeOf)
+(arg intervalBeforeOf 1 time_point)
+(arg intervalBeforeOf 2 time_interval)
+
 (comment intervalEqual
          "(intervalEqual ?interval1 ?interval2) means that ?interval1 and ?interval2 begin together and end together. The identity of the interval algebra, and a claim about extent in time rather than about the identity of the two terms, so it is not the equality closure's equals.")
 (set/monotonic (instance_relation_predicate intervalEqual))
