@@ -130,6 +130,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md)
   *Migration:* none.
 
+### Internal
+
+- **koinii.md carries a whole koinii session that `doc_examples_test` runs**: two agents
+  and an arbiter join one channel, assert, endorse, ask and answer, dispute, rule, and
+  retract the ruling to reopen the dispute, each step checked by a `;=>` value.
+  [koinii.md](docs/koinii.md#a-session-start-to-finish)
+
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 
 | Area | Change |

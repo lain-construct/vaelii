@@ -254,19 +254,63 @@ Two independent facts force the response shape, and together they are decision D
   object with its own creator. So two endorsers of one claim are two distinct `endorses`
   sentexes, the case a bare re-assert would collapse to one.
 
-```clojure
-(def h  (ch/assert atlas '(usesDatabase ProdCluster Postgres)))
-(ch/endorse boreas h)                    ; a distinct sentex, creator Boreas
-(ch/answer  atlas "Postgres 16" query-h) ; (answers Atlas "Postgres 16" (sentexHandle query-h))
-(ch/dispute cyra h)                       ; asserts ¬claim AND a disputes edge — the pair clashes
-```
-
 Idempotence falls out of sentence identity: re-asserting the same meta-sentex in the same
 context moves no belief, so an at-least-once feed is safe to act on — replay a reply and the
 KB is unchanged. The error acts (`notUnderstood`, `refuse`) name the received edge in the
 refusing agent's context and are deliberately *unmarked*: a parse failure is a fact about the
 exchange that should outlive whatever provoked it. Adjudication is a separate concern (below);
 this layer only *represents* the moves.
+
+## A session, start to finish
+
+The block below runs in one process over the `local` medium, and the suite runs it
+(`doc_examples_test`). It opens a KB with the starter ontology, loads the speech acts, and
+joins Ava, Ben and an arbiter, Judge, to the channel `CxDeploy`.
+
+```clojure run
+(require '[vaelii.core :as v]
+         '[vaelii.starter :as starter]
+         '[vaelii.koinii.adjudication :as adj]
+         '[vaelii.koinii.channel :as ch]
+         '[vaelii.koinii.dispute :as d]
+         '[vaelii.koinii.speech-acts :as sa])
+
+(def kb (sa/load-speech-acts (starter/load-into (v/open-kb {:space 5}))))
+(def ava (ch/join (ch/local kb) 'CxDeploy 'AgentAva))
+(def ben (ch/join (ch/local kb) 'CxDeploy 'AgentBen))
+(ch/join (ch/local kb) 'CxDeploy 'AgentJudge)
+
+(def claim '(usesDatabase ProdCluster Postgres))
+(def h (ch/assert ava claim))
+(ch/endorse ben h)
+(map ch/speaker-of (ch/endorsements-of ava h))           ;=> (AgentBen)
+
+(def q (ch/pose-query ava "Which Postgres major version?"))
+(ch/answer ben "16" q)                 ; (answers AgentBen "16" (sentexHandle q)) in CxBen
+(map ch/answer-content (ch/answers-to ava q))            ;=> ("16")
+
+;; the dispute asserts (not claim) and a disputes edge in CxBen; the channel
+;; sees both sides of the clash, and Ava's own context sees one
+(ch/dispute ben h)
+(d/disputed? kb claim 'CxDeploy)                         ;=> true
+(d/disputed? kb claim 'CxAva)                            ;=> false
+
+;; Judge rules for Ava: a :monotonic assertion in CxJudge defeats Ben's rebuttal
+(def id (:dispute-id (first (d/disputes-in kb 'CxDeploy))))
+(def ruling (adj/rule kb 'AgentJudge id claim 'CxDeploy))
+(d/disputed? kb claim 'CxDeploy)                         ;=> false
+(let [r (adj/who-ruled kb ruling)]
+  [(:arbiter r) (= #{id} (:dispute-ids r))])             ;=> [AgentJudge true]
+
+;; retracting the ruling reopens the dispute
+(v/retract! kb ruling)
+(d/disputed? kb claim 'CxDeploy)                         ;=> true
+```
+
+Against a daemon, `ch/wire` over a `vaelii.client` connection takes the place of
+`ch/local`, and the `ch/` calls run unchanged. The `d/` and `adj/` calls take the KB itself
+and refuse a connection or a medium (`:koinii/needs-kb`), so they run in the daemon's
+process ([The deployment shape](#the-deployment-shape)).
 
 ## Disputes and adjudication
 
