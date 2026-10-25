@@ -55,3 +55,24 @@
       (v/assert kb (list 'cat OrdinaryCat) 'CxWell)
       (is (not (v/ask? kb (list 'vehicle OrdinaryCat) 'CxWell)))
       (is (not (v/ask? kb (list tu_bus OrdinaryCat) 'CxWell))))))
+
+(defn- reported?
+  "Whether the clash a membership is in is reported: as a dilemma, as a conflict, or as
+  the defeat that took the membership OUT."
+  [kb h]
+  (boolean
+   (or (some #(contains? (:nogood %) h) (concat (v/contradictions kb) (v/conflicts kb)))
+       (= :defeated (:reason (v/why-not kb h))))))
+
+(tu/deftest-kb an-overlap-under-a-provable-separation-is-always-reported
+  ;; Where (disjoint animal vehicle) is provable and both memberships are visible, the
+  ;; clash is reported whatever strengths the memberships were written at.
+  (tu/with-terms [tu_bus DefaultBoth MonoCat MonoBoth]
+    (v/assert kb (list 'genl tu_bus 'vehicle) 'CxUniverse)
+    (doseq [[term cat-strength bus-strength] [[DefaultBoth :default :default]
+                                              [MonoCat :monotonic :default]
+                                              [MonoBoth :monotonic :monotonic]]]
+      (v/assert kb (list 'cat term) 'CxRealWorld {:strength cat-strength})
+      (v/assert kb (list tu_bus term) 'CxRealWorld {:strength bus-strength})
+      (testing (str "cat " cat-strength ", bus " bus-strength " in CxRealWorld")
+        (is (reported? kb (v/handle-of kb (list tu_bus term) 'CxRealWorld)))))))
