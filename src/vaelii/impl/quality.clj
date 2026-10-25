@@ -989,7 +989,27 @@
              (when (not= (res/substitute x1 s) (res/substitute y1 s))
                [:asymmetric s]))))))))
 
-(declare literal-arity-claim)
+(defn- literal-arity-claim
+  "The arity `lit` binds its first argument to, or nil — the two spellings `checks`
+  reads, asked of a *literal* rather than of the store.
+
+  `(arity ?p n)` says it outright.  A unary `(T ?p)` says it whenever `T` reaches one of
+  the exact-arity classes up `genl`, which is what makes `(symmetric ?p)` a claim of arity
+  2: `symmetric` is a kind of `binary_predicate`.  The table is
+  `tax/exact-arity-classes`, read here rather than copied, since a table copied twice
+  is a table that drifts, and read in key order so a term reaching two that disagree —
+  itself incoherent — reports the same one every run."
+  [tax lit context]
+  (let [f (nm/functor lit)]
+    (when (and (symbol? f) (not (sx/variable? f)))
+      (cond
+        (and (= 'arity f) (= 2 (nm/arity lit)))
+        (let [n (last (nm/args lit))] (when (integer? n) n))
+
+        (= 1 (nm/arity lit))
+        (let [supers (tax/genls tax f context)]
+          (some (fn [[t n]] (when (contains? supers t) n))
+                (sort-by key tax/exact-arity-classes)))))))
 
 (def ^:private relation-wide-arity-classes
   "Each length's relation-wide class in `tax/exact-arity-classes`, the one the predicate
@@ -1030,28 +1050,6 @@
                              (for [i (range (count ts)), j (range (inc i) (count ts))]
                                [(nth ts i) (nth ts j)]))))
                    by-term))))
-
-(defn- literal-arity-claim
-  "The arity `lit` binds its first argument to, or nil — the two spellings `checks`
-  reads, asked of a *literal* rather than of the store.
-
-  `(arity ?p n)` says it outright.  A unary `(T ?p)` says it whenever `T` reaches one of
-  the exact-arity classes up `genl`, which is what makes `(symmetric ?p)` a claim of arity
-  2: `symmetric` is a kind of `binary_predicate`.  The table is
-  `tax/exact-arity-classes`, read here rather than copied, since a table copied twice
-  is a table that drifts, and read in key order so a term reaching two that disagree —
-  itself incoherent — reports the same one every run."
-  [tax lit context]
-  (let [f (nm/functor lit)]
-    (when (and (symbol? f) (not (sx/variable? f)))
-      (cond
-        (and (= 'arity f) (= 2 (nm/arity lit)))
-        (let [n (last (nm/args lit))] (when (integer? n) n))
-
-        (= 1 (nm/arity lit))
-        (let [supers (tax/genls tax f context)]
-          (some (fn [[t n]] (when (contains? supers t) n))
-                (sort-by key tax/exact-arity-classes)))))))
 
 (defn- lower-bounds
   "The numbers `k` the literals `lits` state `v` exceeds: `(lessThan k v)` and
