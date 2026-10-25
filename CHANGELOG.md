@@ -136,6 +136,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   and an arbiter join one channel, assert, endorse, ask and answer, dispute, rule, and
   retract the ruling to reopen the dispute, each step checked by a `;=>` value.
   [koinii.md](docs/koinii.md#a-session-start-to-finish)
+- **koinii.md maps each `CxSpeechActs` act to its KQML / FIPA-ACL performative and
+  dialogue move**, states the commitment the stored act records, and cites the sources.
+  [koinii.md](docs/koinii.md#lineage-acl-performatives-and-social-commitments)
 
 ## 0.29.0 — 2026-10-23 — "Open applications read through `functionCorrespondingPredicate` and resolved under the reader's merges, `try-assert` refusing `:monotonic` complements and length clashes, query-only terms refused under `not`, closed-extent negatives re-checked in every arrival order"
 

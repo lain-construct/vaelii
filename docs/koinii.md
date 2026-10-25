@@ -261,6 +261,47 @@ refusing agent's context and are deliberately *unmarked*: a parse failure is a f
 exchange that should outlive whatever provoked it. Adjudication is a separate concern (below);
 this layer only *represents* the moves.
 
+### Lineage: ACL performatives and social commitments
+
+The eleven acts in `CxSpeechActs` correspond to the performatives of KQML (Finin et al.
+1994) and FIPA-ACL (FIPA 2002), and to the moves of an argumentation dialogue (Walton &
+Krabbe 1995). Both ACLs descend from speech-act theory (Searle 1969). Koinii reads each act
+as a public commitment in the sense of Singh (2000) and Fornara & Colombetti (2002). An
+act's sentex, its context and its `:creator` provenance are stored in the KB, and every
+agent that reads the channel can read all three. FIPA's SL semantics define a performative
+by the sender's beliefs and intentions, and no receiver can inspect that state.
+
+| Act | KQML / FIPA-ACL | Dialogue move | What the stored act records |
+|---|---|---|---|
+| `asserts` | KQML `tell`; FIPA `inform` | claim | The creator commits to the claim, which is stored in the creator's context. |
+| `queries` | KQML `ask-if`; FIPA `query-if`, `query-ref` | question | The creator opens a request for an answer and commits to no content. |
+| `answers` | KQML `reply`; FIPA `inform-if`, `inform-ref` | reply | The answerer commits to the answer content. |
+| `endorses` | FIPA `confirm` (nearest) | concession | The endorser takes on the target's claim under its own `:creator`. |
+| `disputes` | KQML `deny`; FIPA `disconfirm` | challenge | The disputer commits to the negation of the target, which `channel/dispute` asserts beside the edge. |
+| `justifies` | none; an `inform` that carries a reason | argument | The justifier offers a reason for the target. |
+| `votesFor` | none | none in Walton & Krabbe | A ballot for the target, which the majority policy counts. Neither ACL has a ballot act. |
+| `votesAgainst` | none | none in Walton & Krabbe | A ballot against the target, counted as `votesFor` is. |
+| `retracts` | KQML `untell`; FIPA-ACL has none | retraction | `retract!` removes the claim, and the creator's commitment goes with it. FIPA's `cancel` withdraws an intended action, not an `inform`. |
+| `notUnderstood` | KQML `error`; FIPA `not-understood` | none; a protocol move | No content commitment. |
+| `refuse` | KQML `sorry`; FIPA `refuse` | none; a protocol move | No content commitment. |
+
+Koinii stores the acts and computes no commitment state. No function reports whether a
+query has an answer, whether a commitment is discharged or violated, or which commitments an
+agent holds. `channel/open-queries` returns every query node, answered or not. The dispute
+reads (below) report a clash from belief, not from a commitment record. An act is a sentex
+in the KB, and koinii sends no KQML or FIPA-ACL message. The action dimension (request,
+propose, accept, commit-to-do) is not in the vocabulary, and `CxSpeechActs`'s header maps it
+to the A2A protocol.
+
+References: J. R. Searle, *Speech Acts: An Essay in the Philosophy of Language*, Cambridge
+University Press, 1969. T. Finin, R. Fritzson, D. McKay, R. McEntire, "KQML as an Agent
+Communication Language", CIKM 1994. FIPA, *FIPA Communicative Act Library Specification*,
+SC00037J, 2002. M. P. Singh, "A Social Semantics for Agent Communication Languages", in
+*Issues in Agent Communication*, LNCS 1916, Springer, 2000. N. Fornara, M. Colombetti,
+"Operational Specification of a Commitment-Based Agent Communication Language", AAMAS 2002.
+D. N. Walton, E. C. W. Krabbe, *Commitment in Dialogue: Basic Concepts of Interpersonal
+Reasoning*, SUNY Press, 1995.
+
 ## A session, start to finish
 
 The block below runs in one process over the `local` medium, and the suite runs it
