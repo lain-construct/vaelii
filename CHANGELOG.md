@@ -177,17 +177,38 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
 
-- **`time.txt` ships `CxTimeFn`, the context of a monad at a time, with the monad
-  vocabulary of issue #181: `monad_context`, `genlMonad`, `CxMonadOfFn`/`cxMonadOf` and
-  `CxTimeOfFn`/`cxTimeOf`.** `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of
+- **`time.txt` ships `CxTimeFn`, the time slice of a context, with the vocabulary of
+  issue #181: `time_slice_context`, `monad_context`, `genlMonad`, `CxMonadOfFn`/`cxMonadOf`
+  and `CxTimeOfFn`/`cxTimeOf`.** `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of
   `CxStory`. The KB now believes `(result CxTimeFn context)` and `(contextArgSubrelation
   CxTimeFn 2 subintervalOf)`, which a KB had to assert itself before reading a
-  time-sliced context through its application. `CxTimeFn`'s first argument is a
-  `monad_context`, a context with no temporal part (`(genl monad_context context)`), and
-  its second a `time`. `CxMonadOfFn` and `CxTimeOfFn` name a context's monad and time.
-  `genlMonad` is a binary relation between two `monad_context`s that orders monads alone,
-  as `subintervalOf` orders times. No rule or prover reads `cxMonadOf` or `cxTimeOf`
-  yet. [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+  time-sliced context through its application. `(result CxTimeFn time_slice_context)`
+  classifies every slice, with `(genl time_slice_context context)`. `CxTimeFn`'s first
+  argument is any `context` and its second a `time`. `monad_context` is a context that is
+  not a slice; `(not (arg CxTimeFn 1 monad_context))` states that the first argument is
+  not typed by it, because a declared argument type entails membership. `CxMonadOfFn` and
+  `CxTimeOfFn` name a context's monad and time. `genlMonad` is a binary relation between
+  two contexts that orders monads alone, as `subintervalOf` orders times.
+  [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **A slice of a slice is the slice at the intersection of the two times, and
+  `time.txt` ships `TimeIntersectionFn` (issue #181).** `(TimeIntersectionFn A B)` is the
+  time two `time_interval`s have in common, an `unreifiable_function` with
+  `timeIntersectionOf` as its corresponding predicate, and two backward rules make it a
+  `subintervalOf` each argument when both are believed `time_interval`s. Backward rules
+  over `cxMonadOf` and `cxTimeOf` take a slice apart: a context that is not a slice is
+  its own monad, a slice has the monad of the context it slices, a slice of a
+  `monad_context` covers its own time, and a slice of a slice covers the
+  `TimeIntersectionFn` of the inner slice's time and its own. They read the `natFormula`
+  of the slice's `cx/` constant, so a depth-6 `query (cxTimeOf K ?t)` answers for `K`
+  written as `(CxTimeFn S Jan)` with `S` the `cx/` constant of `(CxTimeFn CxStory Y2000)`.
+  A backward rule states that `(CxTimeFn (CxTimeFn C A) B)` equals `(CxTimeFn C
+  (TimeIntersectionFn A B))`; it concludes about two applications, so it answers no goal
+  yet, and the two spellings reify to two `cx/` constants.
+  [time.md](docs/time.md#a-slice-of-a-slice).
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.

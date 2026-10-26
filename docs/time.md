@@ -351,14 +351,20 @@ subcontext of the one along `CxStory` at the same time. Two applications that di
 both arguments are ordered only through a third that differs from each in one argument,
 and only once that third context exists (a fact has been written into it).
 
-A `monad_context` is a context with no temporal part, such as `CxStory` taken over all of
-its time; it is the type of `CxTimeFn`'s first argument, and the second is a `time`.
-`CxMonadOfFn` and `CxTimeOfFn` take a context apart, with `cxMonadOf` and `cxTimeOf` as
-their corresponding predicates: the monad of `(CxTimeFn CxStory (YearFn 2000))` is
-`CxStory` and its time is `(YearFn 2000)`. `genlMonad` orders monads alone, as
-`subintervalOf` orders times alone. A stated `genlMonad` orders `CxTimeFn` applications,
-as above, and not the two monad contexts themselves; no rule or prover reads `cxMonadOf`
-or `cxTimeOf` yet.
+Every application is a `time_slice_context`: `(result CxTimeFn time_slice_context)`
+classifies each slice, and `(genl time_slice_context context)`. `CxTimeFn`'s first argument
+is any `context`, so a slice can be sliced, and its second is a `time`. A `monad_context`
+is a context that is not a slice, such as `CxStory` taken over all of its time. No
+declaration types `CxTimeFn`'s first argument by it, and `(not (arg CxTimeFn 1
+monad_context))` says so: a declared argument type entails membership, so that
+declaration would make every context written in the first argument a `monad_context`.
+Nothing derives `monad_context`, since "not a slice" is negation as failure, so a KB
+states it of its monads. `CxMonadOfFn` and `CxTimeOfFn` take a context apart, with
+`cxMonadOf` and `cxTimeOf` as their corresponding predicates: the monad of `(CxTimeFn
+CxStory (YearFn 2000))` is `CxStory` and its time is `(YearFn 2000)`. `genlMonad` orders
+two contexts by their monads alone, as `subintervalOf` orders times alone. A stated
+`genlMonad` orders `CxTimeFn` applications, as above, and not the two contexts
+themselves.
 
 `Forever` is the time interval that contains every time, and the time of every
 `monad_context`. Backward rules answer `(subintervalOf ?interval Forever)` for each
@@ -366,6 +372,36 @@ or `cxTimeOf` yet.
 `(cxTimeOf ?monad Forever)` for each `monad_context`. They are answered on demand rather
 than stored, so the qualitative network and open enumerations over it list `Forever` only
 when a stated fact relates something to it.
+
+### A slice of a slice
+
+`(CxTimeFn (CxTimeFn CxStory A) B)` is the slice of `CxStory` at the time `A` and `B`
+have in common, `(TimeIntersectionFn A B)`. `TimeIntersectionFn` is an
+`unreifiable_function` from two `time_interval`s to a `time_interval`, with
+`timeIntersectionOf` as its corresponding predicate, and two backward rules make it a
+`subintervalOf` each argument when both are believed `time_interval`s. A query asks and
+gets that answer; the genlCx producer reads only a comparator or a stored fact
+([context-nat.md](context-nat.md#the-bounded-r-oracle--no-proof-inside-the-relabel-loop)),
+so the slice at an intersection is not ordered under the slice at each argument.
+
+Backward rules over `cxMonadOf` and `cxTimeOf` state the slice's two parts:
+
+```clojure
+(cxMonadOf ?monad ?monad)            ; a monad_context is its own monad
+(cxMonadOf ?slice ?monad)            ; a slice has the monad of the context it slices
+(cxTimeOf ?slice ?time)              ; a slice of a monad_context covers its own time
+(cxTimeOf ?slice (TimeIntersectionFn ?outer ?time))
+                                     ; a slice of a slice: the inner time and its own
+```
+
+Each rule reads the `natFormula` of the slice's `cx/` constant. A slice written with the
+inner slice's `cx/` constant, `(CxTimeFn S B)` where `S` names `(CxTimeFn CxStory A)`,
+answers through them: a depth-6 `query (cxTimeOf K ?t)` gives `(TimeIntersectionFn A B)`.
+An inner slice spelled as a `CxTimeFn` application is a term inside the `natFormula`,
+not a constant, and answers nothing. A further backward rule states that `(CxTimeFn
+(CxTimeFn C A) B)` equals `(CxTimeFn C (TimeIntersectionFn A B))`; it concludes about two
+applications, so it answers no goal ([nat.md](nat.md#a-rule-or-a-goal-that-names-an-open-application)),
+and the two spellings reify to two `cx/` constants that no reader equates.
 
 ## Change over time: events, fluents, and inertia
 
