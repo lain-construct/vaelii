@@ -328,6 +328,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a caller that read a part's derived `locatedIn` or `owns` with
   `sentexes-matching` asks it with `ask?`, or asserts the forward rule in its own context.
 
+- **Five shipped unary predicates reach `thing`.** `arity_type`, `spatiality_type` and
+  `temporality_type` are placed under `unary_predicate`, `origin_type` under `type` and
+  `except` under `non_atomic_term`, so `kb-integrity` reports none of them as
+  `:not-under-thing`. [integrity.md](docs/integrity.md)
+  *Migration:* none.
+
 - **A forward rule concluding `equals` or `sameAs` over applications of a
   `reifiable_function` that have no constant yet mints them and stores the equality**, as
   `assert` of the ground sentence does. The firing dropped it as `:not-well-formed`, and
@@ -345,6 +351,64 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(reifiable_function Quote)` declaration. `(different (Quote Bar) (Quote Baz))` holds for
   quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc
   preamble stores them. [nat.md](docs/nat.md#read-path)
+  *Migration:* none.
+
+- **The starter types the argument positions its terms' own definitions fix.**
+  `DayFn`, `MonthFn` and `YearFn` take their corresponding predicates' field types
+  (`integer`, then `positive_integer`), `QuantityFn` and `QuantityIntervalFn` take
+  `number` and `unit_of_measure`, and `FatherFn` and `MotherFn` take an `animal`. The
+  Exists cells' subject, filler and placeholder positions declare `thing`, `greaterThan`
+  and `lessThan` type their whole chain `number`, `not` and the bodies of `forall`,
+  `thereExists` and `exists` declare `formula`. Under assertive argument types, a symbol
+  written in one of these positions now derives the declared membership: `(QuantityFn 5
+  Furlong)` derives `(unit_of_measure Furlong)`. A value of the wrong kind there is
+  refused. The binder of `forall`, `thereExists` and `exists` is a `(quotedArg Q 1
+  open_expression)`. The five aggregation operators type their result, value and body:
+  `agg/count`'s result is a `non_negative_integer`, and the other four's result and every
+  value are a `thing`. `except`'s one position, `exceptWhen`'s rule and every member of
+  `contradicts` are a `sentex_handle_term` taken as written, and `exceptWhen`'s query is a
+  `formula`. [integrity.md](docs/integrity.md#what-a-missing-arg-finding-means)
+
+  *Migration:* an `(except 212)`, an `(except Muffet)` or a `(contradicts 212)` asserted by
+  hand is now refused; write `(except (sentexHandle 212))`.
+
+- **`sentex_handle_term` names the expression `(sentexHandle N)`, N a positive integer.**
+  `reflection.txt` places it below `non_atomic_term`, and `ExpressionKindProver` answers
+  `(sentex_handle_term (Quote (sentexHandle 212)))` by the form's shape.
+  [argtypes.md](docs/argtypes.md#what-a-quoted-form-is)
+
+  *Migration:* none.
+
+- **A `quotedArg` whose type is a kind of `expression` decides a value or a symbol.** Every
+  value kind and `symbol` sit in the expression lattice, so `(quotedArg P n
+  non_atomic_term)` refuses `(P 212)` and `(P Muffet)`, where it read the type
+  open-world and admitted both. A compound stays exempt, as for every declared type.
+  `(quotedArgAndRest P n T)` is the tail form of `quotedArg`, as `argAndRest` is of
+  `arg`. [argtypes.md](docs/argtypes.md#what-a-quoted-form-is)
+
+  *Migration:* a value or a symbol stored where a `quotedArg` names a kind of expression
+  it is not of is now refused at assert.
+
+- **`termsRelated` clusters vocabulary names by mention, as `seeAlso` cross-references
+  them.** `(quotedArgAndRest termsRelated 1 denotational_term)` types the start of its
+  variable-arity tail and every later position the same way, the suffix form of the
+  `(quotedArg seeAlso 1 denotational_term)` / `(quotedArg seeAlso 2 denotational_term)`
+  pair. The named terms can be of any kind — the grouping is for a reader, not an
+  inference — so a symbol the KB says nothing else about is still accepted, taken as
+  written. [argtypes.md](docs/argtypes.md#what-a-quoted-form-is)
+
+  *Migration:* none.
+
+- **`kb-integrity`'s `:missing-arg` reads a relation's declarations from the contexts that
+  state them.** The engine places an exact-arity class in CxUniverse, and the starter's
+  unary batch writes `unary_predicate` there, while a middle context's declarations stay in
+  that context. The audit from CxUniverse reported those relations' typed positions as
+  missing. It now also reads each context that sees the audit context and stores an
+  `arg`-family declaration on the relation or a `genl` edge out of it, and reports a
+  position only if one of those leaves it untyped too. At CxUniverse over the starter it
+  reports 3 findings, where it reported 80: the example predicates' quoted sentence.
+  [integrity.md](docs/integrity.md#what-a-missing-arg-finding-means)
+
   *Migration:* none.
 
 - **`ArgTypeProver` types a term at a position an `argAndRest` declaration types.** A
@@ -393,6 +457,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   rule's body, each holding for a different `?t`, `why-not` of the conclusion listed all
   three under `:satisfied` and `:missing []`; one of them is now under `:missing`.
   [api.md](docs/api.md#three-reads-for-a-reader-rather-than-a-program)
+  *Migration:* none.
+
+### Fix: koinii
+
+- **`identity/load-registry` and `speech-acts/load-speech-acts` load the CxDisputes seed**,
+  so a context that sees CxDisputes reads the dispute marks' declarations before the first
+  mark. A mark into a KB that ran neither loader still loads the seed first.
+  [koinii.md](docs/koinii.md)
   *Migration:* none.
 
 ### Fix: storage

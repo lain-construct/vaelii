@@ -274,16 +274,7 @@
    ;; constant or of a bare symbol written in its place, and whose quotedArg reading
    ;; names no syntactic type of the form
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
-              [[p 2] "the example, a quoted sentence (Quote …)"]))
-   ;; the five aggregation operators: a result, a value variable, a sentence body.  Each
-   ;; is a query operator that is never stored, and a type on a slot reaches the rule
-   ;; variables bound there.
-   (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
-              [[op i] "an operator slot — a result, a value variable and a sentence body"]))
-   ;; the stored exception (exceptWhen Q (sentexHandle H)): assert-entry/assert-exceptWhen-meta!
-   ;; runs no argument check on it, and it is excluded from fact matching
-   {'[exceptWhen 1] "the exception query, whose variables are the rule's, so a type on the slot would reach the rule variables bound there"
-    '[exceptWhen 2] "the sentexHandle of the rule the exception qualifies, a mention of a stored sentex"}))
+              [[p 2] "the example, a quoted sentence (Quote …)"]))))
 
 (deftest every-shipped-function-declares-its-corresponding-predicate
   ;; A function comes with the predicate relating its arguments to its value
@@ -447,14 +438,16 @@
         "every name with a genl edge reaches the root")))
 
 (def ^:private placed-unary-predicates
-  "Fifteen shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
+  "Twenty shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
   edge, so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The
   seven biology properties among them are placed under the kind each is said of, as
-  `the-biology-properties-are-placed-under-their-kind` holds."
+  `the-biology-properties-are-placed-under-their-kind` holds.  The four classifiers and
+  `except` sit under `type`, `unary_predicate` or `non_atomic_term`."
   '#{initially functional_at_instant
      abducible_predicate closed_extent_predicate decontextualized_predicate
      target_following_predicate forced_decontextualized_predicate
      sibling_disjoint
+     arity_type origin_type spatiality_type temporality_type except
      alive dead mortal asleep awake breathes_air warm_blooded})
 
 (tu/deftest-kb every-placed-unary-predicate-reaches-thing
