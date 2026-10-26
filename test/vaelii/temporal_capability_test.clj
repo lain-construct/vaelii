@@ -812,6 +812,65 @@
       (testing "and not the reverse"
         (is (not (v/ask? kb (list q) sup)))))))
 
+(defn- computed-genlcx?
+  "Does CxUniverse hold `(genlCx sub super)` as a stored sentex?  Nobody in these tests
+  asserts a genlCx between two slices, so one that is there the producer materialized."
+  [kb sub super]
+  (boolean (seq (v/sentexes-matching kb (list 'genlCx sub super) U))))
+
+(tu/deftest-kb a-slice-along-a-sub-monad-is-a-computed-spec-of-the-same-time-along-its-super-monad
+  ;; Issue #181: time.txt's `(contextArgSubrelation CxTimeFn 1 genlMonad)` orders two
+  ;; slices that differ only in the monad, as the position-2 declaration orders two that
+  ;; differ only in the time.  Nothing here restates a CxTimeFn declaration, so the edge
+  ;; comes from the shipped KB, and nobody asserts it.
+  (tu/with-terms [p q CxA CxB]
+    (monads! kb CxA CxB)
+    (v/assert kb (list 'genlMonad CxA CxB) U)
+    (let [k-a (cx-of kb (v/assert kb (list p) (slice CxA '(YearFn 2000))))
+          k-b (cx-of kb (v/assert kb (list q) (slice CxB '(YearFn 2000))))]
+      (testing "(CxTimeFn CxA 2000) is a computed genlCx spec of (CxTimeFn CxB 2000)"
+        (is (computed-genlcx? kb k-a k-b))
+        (is (true? (v/sees? kb k-a k-b))))
+      (testing "and not the reverse"
+        (is (not (computed-genlcx? kb k-b k-a)))
+        (is (not (v/sees? kb k-b k-a)))))))
+
+(tu/deftest-kb slices-along-two-monads-with-no-genlmonad-between-them-are-not-ordered
+  ;; The control for a-slice-along-a-sub-monad-is-a-computed-spec-of-the-same-time-along-its-super-monad:
+  ;; the same two slices with no genlMonad stated, so the position-1 declaration has no
+  ;; evidence and orders neither way.
+  (tu/with-terms [p q CxA CxB]
+    (monads! kb CxA CxB)
+    (let [k-a (cx-of kb (v/assert kb (list p) (slice CxA '(YearFn 2000))))
+          k-b (cx-of kb (v/assert kb (list q) (slice CxB '(YearFn 2000))))]
+      (testing "no genlCx edge either way between (CxTimeFn CxA 2000) and (CxTimeFn CxB 2000)"
+        (is (not (computed-genlcx? kb k-a k-b)))
+        (is (not (computed-genlcx? kb k-b k-a)))
+        (is (not (v/sees? kb k-a k-b)))
+        (is (not (v/sees? kb k-b k-a)))))))
+
+(tu/deftest-kb ^:red a-slice-narrower-in-both-monad-and-time-is-a-spec-when-the-middle-slice-is-unwritten
+  ;; What is missing: the producer orders two contexts only when they differ at the one
+  ;; position a declaration names (`context-nat/sibling-key` masks one argument), so
+  ;; (CxTimeFn CxA January 2000) and (CxTimeFn CxB 2000), which differ at both, are no
+  ;; sibling pair under either declaration.  The edge between them could only come from
+  ;; genlCx transitivity through (CxTimeFn CxB January 2000) or (CxTimeFn CxA 2000), and
+  ;; a slice nobody wrote into has no cx/ constant to be a node in that chain
+  ;; (a-slice-nobody-wrote-into-still-inherits).  The product rule — monad at or below
+  ;; and time at or below — is not computed directly from the two arguments.  This test
+  ;; names neither middle slice; writing into one would make it pass only because
+  ;; somebody reified the middle.
+  (tu/with-terms [p q CxA CxB]
+    (monads! kb CxA CxB)
+    (v/assert kb (list 'genlMonad CxA CxB) U)
+    (let [k-a (cx-of kb (v/assert kb (list p) (slice CxA '(MonthFn 2000 1))))
+          k-b (cx-of kb (v/assert kb (list q) (slice CxB '(YearFn 2000))))]
+      (testing "(CxTimeFn CxA January 2000) sees (CxTimeFn CxB 2000)"
+        (is (true? (v/sees? kb k-a k-b)))
+        (is (true? (v/ask? kb (list q) (slice CxA '(MonthFn 2000 1))))))
+      (testing "and not the reverse"
+        (is (not (v/sees? kb k-b k-a)))))))
+
 (tu/deftest-kb ^:red a-slice-sees-a-monad-two-genlmonad-steps-up
   ;; Twin of the entailed-containment half of
   ;; partially-overlapping-slices-and-their-intersection: the ordering is entailed
