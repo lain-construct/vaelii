@@ -19,7 +19,8 @@
   `CxChange` middle theory for the event calculus, and `CxNow` and `CxRealWorldNow` for
   the present.  Nothing here declares a temporal predicate of its own.  `time.txt` also
   declares `CxTimeFn` and the monad vocabulary issue #181 asks for: `genlMonad`,
-  `monad_context`, `CxTimeOfFn`/`cxTimeOf` and `CxMonadOfFn`/`cxMonadOf`.  The tests
+  `time_slice_context`, `monad_context`, `CxTimeOfFn`/`cxTimeOf` and
+  `CxMonadOfFn`/`cxMonadOf`.  The tests
   written before it did still restate the `CxTimeFn` declarations (`declare-cxtimefn!`),
   which changes nothing the KB already believes."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -760,8 +761,9 @@
 ;; `genlMonad` orders monads alone, the way `subintervalOf` orders times alone, and
 ;; `genlCx` between two contexts is the product: one sees another exactly when its monad
 ;; is genlMonad-below the other's and its time is inside the other's.  `CxMonadOfFn` and
-;; `CxTimeOfFn` take a context apart, and `monad_context` is a context with no temporal
-;; part, the type of CxTimeFn's first argument.  Each test below is the monad-side twin
+;; `CxTimeOfFn` take a context apart.  A `CxTimeFn` application is a
+;; `time_slice_context`, its first argument is any context, and a `monad_context` is a
+;; context that is not a slice.  Each test below is the monad-side twin
 ;; of a time-side test above, named in its comment.  A monad-dimension twin of any other
 ;; time-side test sits beside that test, and a time-dimension twin of a test here sits
 ;; beside it.
@@ -770,15 +772,23 @@
   ;; Twin of cxtimefn-is-declared-in-the-shipped-kb.  Issue #181 asks for each of these.
   (testing "genlMonad, a binary relation ordering monads alone"
     (is (true? (v/query? kb '(arity genlMonad 2) U {:max-depth 3}))))
-  (testing "monad_context, a context with no temporal part, types CxTimeFn's first argument"
+  (testing "time_slice_context, CxTimeFn's result type, is a context"
+    (is (true? (v/ask? kb '(genl time_slice_context context) U)))
+    (is (true? (v/ask? kb '(result CxTimeFn time_slice_context) U))))
+  (testing "CxTimeFn's first argument is any context, and not only a monad_context"
+    (is (true? (v/ask? kb '(arg CxTimeFn 1 context) U)))
     (is (true? (v/ask? kb '(genl monad_context context) U)))
-    (is (true? (v/ask? kb '(arg CxTimeFn 1 monad_context) U))))
+    (is (true? (v/ask? kb '(not (arg CxTimeFn 1 monad_context)) U)))
+    (is (not (v/ask? kb '(arg CxTimeFn 1 monad_context) U))))
   (testing "CxTimeOfFn and cxTimeOf, a context's temporal part, which is a time"
     (is (true? (v/ask? kb '(functionCorrespondingPredicate CxTimeOfFn cxTimeOf) U)))
     (is (true? (v/ask? kb '(result CxTimeOfFn time) U))))
-  (testing "CxMonadOfFn and cxMonadOf, a context's monadic part, which is a monad_context"
+  (testing "CxMonadOfFn and cxMonadOf, a context's monadic part, which is a context"
     (is (true? (v/ask? kb '(functionCorrespondingPredicate CxMonadOfFn cxMonadOf) U)))
-    (is (true? (v/ask? kb '(result CxMonadOfFn monad_context) U)))))
+    (is (true? (v/ask? kb '(result CxMonadOfFn context) U))))
+  (testing "genlMonad orders two contexts"
+    (is (true? (v/ask? kb '(arg genlMonad 1 context) U)))
+    (is (true? (v/ask? kb '(arg genlMonad 2 context) U)))))
 
 (tu/deftest-kb a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad
   ;; Twin of a-fact-in-a-year-slice-is-visible-from-its-month: the same time, with the
