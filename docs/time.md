@@ -376,11 +376,17 @@ when a stated fact relates something to it.
 ### A slice of a slice
 
 `(CxTimeFn (CxTimeFn CxStory A) B)` is the slice of `CxStory` at the time `A` and `B`
-have in common, `(TimeIntersectionFn A B)`. `TimeIntersectionFn` is an
-`unreifiable_function` from two `time_interval`s to a `time_interval`, with
-`timeIntersectionOf` as its corresponding predicate, and two backward rules make it a
-`subintervalOf` each argument when both are believed `time_interval`s. A query asks and
-gets that answer; the genlCx producer reads only a comparator or a stored fact
+have in common, `(TimeIntersectionFn A B)`. `subtimeOf` relates one time to another it
+lies within, whatever the two kinds of time: an interval inside an interval, an instant
+inside an interval, a piece of an intermittent time inside the whole. It is reflexive,
+`(genl subtimeOf partOf)` and `(genl subintervalOf subtimeOf)` place it, and a backward
+rule makes an instant a time includes a subtime of it. `TimeIntersectionFn` is the meet
+over `subtimeOf`: an `unreifiable_function` from two times to a time, with
+`timeIntersectionOf` as its corresponding predicate. Two times that share no time have no
+intersection. Backward rules make the intersection a `subtimeOf` each argument when both
+are believed times, and a `subintervalOf` each when both are believed `time_interval`s. A
+query asks and gets that answer; the genlCx producer reads only a comparator or a stored
+fact
 ([context-nat.md](context-nat.md#the-bounded-r-oracle--no-proof-inside-the-relabel-loop)),
 so the slice at an intersection is not ordered under the slice at each argument.
 

@@ -195,10 +195,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none.
 
 - **A slice of a slice is the slice at the intersection of the two times, and
-  `time.txt` ships `TimeIntersectionFn` (issue #181).** `(TimeIntersectionFn A B)` is the
-  time two `time_interval`s have in common, an `unreifiable_function` with
-  `timeIntersectionOf` as its corresponding predicate, and two backward rules make it a
-  `subintervalOf` each argument when both are believed `time_interval`s. Backward rules
+  `time.txt` ships `subtimeOf` and `TimeIntersectionFn` (issue #181).** `(subtimeOf A
+  B)` is one time lying within another, whatever the two kinds of time; it is reflexive,
+  `(genl subtimeOf partOf)` and `(genl subintervalOf subtimeOf)` place it, and an instant
+  a time includes is a subtime of it by a backward rule. `(TimeIntersectionFn A B)` is
+  the time two times have in common, the meet over `subtimeOf`, an
+  `unreifiable_function` with `timeIntersectionOf` as its corresponding predicate.
+  Backward rules make it a `subtimeOf` each argument when both are believed times, and a
+  `subintervalOf` each when both are believed `time_interval`s. Backward rules
   over `cxMonadOf` and `cxTimeOf` take a slice apart: a context that is not a slice is
   its own monad, a slice has the monad of the context it slices, a slice of a
   `monad_context` covers its own time, and a slice of a slice covers the
