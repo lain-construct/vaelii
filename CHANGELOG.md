@@ -66,6 +66,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* fix the finding, or pass `:categories` naming the categories to run.
   *Breaks:* `kb-integrity`
 
+### Breaking: vocabulary
+
+- **`information_bearing_thing` renames to `information`.** CxTra declares
+  `information` with the same comment, examples and `genl` edges to `intangible` and
+  `acausal`, and `digital_artifact` sits below it. The name says what the type holds: the
+  content, apart from the medium that carries it.
+
+  *Class:* **Breaking** (shipped ontology content).
+  *Migration:* rename `information_bearing_thing` to `information` in any KB text that
+  names it.
+  *Breaks:* `information_bearing_thing`
+
 ### Additive: ASP
 
 - **`do/label`'s result carries `:unenumerated` and `:unenumerated-in-guards`**, naming
@@ -174,6 +186,37 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `:fn` names the fn, where they threw an engine exception naming neither.
   [koinii.md](docs/koinii.md#the-deployment-shape)
   *Migration:* none.
+
+### Additive: vocabulary and reasoning
+
+- **The upper ontology ships `intangiblePartOf`, `tangiblePartOf`'s twin for things without
+  mass.** It is transitive, reflexive and below `partOf`, and types both positions
+  `intangible`. `partOf` is not partitioned into the two specs: a mixed pair, e.g. a mind
+  as part of a person, stays plain `partOf`.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **CxTra ships conceptual works, carriers, `subInformationOf`, `agentClaims`, `dataContent` and `propositionalContent`.**
+  `conceptual_work` is below `information`. `(carries ?carrier ?info)` types position 1
+  `temporal` and position 2 `information`, so a tangible paper copy and an intangible
+  event, e.g. a bird's chirp, are both accepted; not functional in position 2, so one
+  carrier holds more than one piece of information. `subInformationOf` specializes
+  `intangiblePartOf` for a chapter in a book or a frame in a video. `(agentClaims ?agent (sentexHandle H))` says that `?agent`
+  presents sentex H as true; it is typed and marked exactly as the earlier design's
+  `claims` was (position 1 `thing`, position 2 a sentex handle left untyped,
+  `target_following_predicate`), and no rule concludes it from `carries`.
+  `(dataContent ?info ?string)` is functional over the exact symbol sequence `?info`
+  holds, independent of any byte encoding that stores it. `(propositionalContent ?info
+  ?proposition)` is not functional over the existing `proposition` type. Neither
+  content relation is derived from an information's author, encoding or context; both
+  are stated directly. [contexts.md](docs/contexts.md).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* an earlier unreleased build of this change shipped
+  `information_carrier`, `information_or_carrier` and `claims`; none of the three ever
+  released, and none of the three is in this KB. A KB text naming any of them states
+  `carries` and `agentClaims` instead.
 
 ### Fix: answers
 
