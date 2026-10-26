@@ -426,9 +426,9 @@ The re-check withdraws a firing whose arguments the declared types no longer adm
 placement context (`chain/entailment-withdrawn?`).
 
 A positive goal on a **super-predicate** of a calculus predicate is answered by lifting:
-`(genl subintervalOf partOf)` makes every entailed `subintervalOf` tuple a `partOf` tuple,
-so a `partOf` goal is solved as one goal per calculus predicate below it that the context
-sees. A lifted goal is answered at completeness 50, beside the super-predicate's stored
+`(genl subintervalOf subtimeOf)` and `(genl subtimeOf partOf)` make every entailed
+`subintervalOf` tuple a `subtimeOf` and a `partOf` tuple, so a `subtimeOf` or `partOf` goal
+is solved as one goal per calculus predicate below it that the context sees. A lifted goal is answered at completeness 50, beside the super-predicate's stored
 tuples and its other specs. Lifting is the prover's alone: forward chaining claims an
 antecedent by a calculus predicate (`qcn-kb/calculus-for`), so a forward rule on `partOf`
 does not join on an entailed `subintervalOf` tuple.

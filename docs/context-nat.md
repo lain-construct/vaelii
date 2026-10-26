@@ -142,6 +142,15 @@ argument is `R`-**below** the other's is the spec, and `genlCx` the more general
 (assert kb '(contextArgSubrelation CxTimeFn 2 subintervalOf) 'CxUniverse)  ; arg 2 = the datetime
 ```
 
+The upper layer's `time.txt` states all three, so a KB that loads it reads `CxTimeFn`
+contexts with no declaration of its own ([time.md](time.md#a-context-at-a-time-cxtimefn-and-the-monad)).
+It also states `(contextArgSubrelation CxTimeFn 1 genlMonad)`, so two applications that
+differ only in the first argument are ordered by a stated `genlMonad` between the two
+contexts there. Each
+declaration orders one position, so two contexts that differ at both are ordered only
+through a third context, differing from each at one position, that has been minted.
+A function of the user's own takes the same declarations, stated by the user.
+
 `vaelii.impl.context-nat` reads the declarations and the context NATs of `F` from the
 store, groups the contexts into **siblings** (same expression but for argument `pos`), and
 for each sibling pair whose `pos` arguments stand in `R` **materializes** the `genlCx` edge.
@@ -196,6 +205,12 @@ oracle:
 A comparator answer is a pure function of the two expressions, already carried by the
 `natFormula` antecedents, so it contributes no extra supporter; a stored fact contributes
 its own handle, so defeating it withdraws the edge.
+
+A backward rule answers a query and not the oracle. `time.txt`'s rules put
+`(TimeIntersectionFn A B)` inside `A` and inside `B` by `subintervalOf`, so a query asks
+and gets that answer, but the slice at the intersection is a spec of the slice at `A` only
+once `(subintervalOf (TimeIntersectionFn A B) A)` is stored
+([time.md](time.md#a-slice-of-a-slice)).
 
 ## The calendar dimension
 
