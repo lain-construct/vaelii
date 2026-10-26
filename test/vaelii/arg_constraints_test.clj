@@ -178,3 +178,9 @@
     (is (= #{#{'(inverse parentOf childOf) (list 'arg 'parentOf (- 3 n) 'organism)}}
            (inverse-supports kb (list 'arg 'childOf n 'organism)))
         (str "position " n))))
+
+(tu/deftest-kb an-inert-inverse-types-no-argument
+  ;; space.txt states each converse pair inert, and an inert sentence is no premise, so
+  ;; westOf's declarations rest on no inverse
+  (doseq [n [1 2]]
+    (is (= #{} (inverse-supports kb (list 'arg 'westOf n 'spatial))) (str "position " n))))

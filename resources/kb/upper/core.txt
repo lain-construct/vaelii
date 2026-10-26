@@ -1749,6 +1749,51 @@
 (forced_monotonic_predicate functionCorrespondingPredicate)
 (forced_monotonic_predicate result)
 
+;; (inverse ?p ?q) says (?p a b) holds exactly when (?q b a) does.  So argument 1 of ?p
+;; is argument 2 of ?q, and argument 2 of ?p is argument 1 of ?q.  The eight rules below
+;; type each position of one partner by the swapped position of the other, four for arg
+;; and four for quotedArg.  An antecedent (inverse ?p ?q) matches a stored inverse in the
+;; order it is written, so each swap has a rule from ?p to ?q and a rule from ?q to ?p.
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (arg ?p 1 ?type))
+  (arg ?q 2 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (arg ?p 2 ?type))
+  (arg ?q 1 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (arg ?q 1 ?type))
+  (arg ?p 2 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (arg ?q 2 ?type))
+  (arg ?p 1 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (quotedArg ?p 1 ?type))
+  (quotedArg ?q 2 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (quotedArg ?p 2 ?type))
+  (quotedArg ?q 1 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (quotedArg ?q 1 ?type))
+  (quotedArg ?p 2 ?type)))
+
+(set/forwardRule
+ (implies
+  (and (inverse ?p ?q) (quotedArg ?q 2 ?type))
+  (quotedArg ?p 1 ?type)))
+
 (comment genl
          "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The type hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Muffet) and never (isa Muffet Dog). The same relation relates predicate specializations of any arity: every tuple of the subtype is a tuple of the supertype, which is what a type reading of it is the unary case of, so neither argument is declared a subtype of thing.")
 (set/monotonic (type_relation_predicate genl))
