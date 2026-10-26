@@ -788,9 +788,14 @@
   (testing "genlMonad orders two contexts"
     (is (true? (v/ask? kb '(arg genlMonad 1 context) U)))
     (is (true? (v/ask? kb '(arg genlMonad 2 context) U))))
-  (testing "TimeIntersectionFn, the time two intervals have in common, which is an interval"
+  (testing "TimeIntersectionFn, the time two times have in common, which is a time"
     (is (true? (v/ask? kb '(functionCorrespondingPredicate TimeIntersectionFn timeIntersectionOf) U)))
-    (is (true? (v/ask? kb '(result TimeIntersectionFn time_interval) U)))))
+    (is (true? (v/ask? kb '(arg TimeIntersectionFn 1 time) U)))
+    (is (true? (v/ask? kb '(result TimeIntersectionFn time) U))))
+  (testing "subtimeOf, one time within another, below partOf and above subintervalOf"
+    (is (true? (v/ask? kb '(arg subtimeOf 1 time) U)))
+    (is (true? (v/ask? kb '(genl subtimeOf partOf) U)))
+    (is (true? (v/ask? kb '(genl subintervalOf subtimeOf) U)))))
 
 (tu/deftest-kb a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad
   ;; Twin of a-fact-in-a-year-slice-is-visible-from-its-month: the same time, with the
@@ -1350,7 +1355,7 @@
                (v/query kb (list 'cxMonadOf (cx-of kb (v/assert kb (list p) twice)) '?m)
                         U slice-query)))))))
 
-(tu/deftest-kb ^:red an-intersection-is-a-subtime-of-each-argument-whatever-kind-of-time
+(tu/deftest-kb an-intersection-is-a-subtime-of-each-argument-whatever-kind-of-time
   ;; TimeIntersectionFn is the meet over subtimeOf, which relates any two times, so the
   ;; intersection of an interval and an instant is a subtime of each.
   (tu/with-terms [Y2000 Noon]
@@ -1359,7 +1364,7 @@
       (is (true? (v/query? kb (list 'subtimeOf both Y2000) U slice-query)))
       (is (true? (v/query? kb (list 'subtimeOf both Noon) U slice-query))))))
 
-(tu/deftest-kb ^:red an-instant-inside-a-time-and-a-subinterval-are-subtimes-of-it
+(tu/deftest-kb an-instant-inside-a-time-and-a-subinterval-are-subtimes-of-it
   ;; subtimeOf is one time lying within another, whatever the two kinds of time: an
   ;; instant a time includes, and an interval inside another, are each a subtime of it,
   ;; and a subtime is a part.

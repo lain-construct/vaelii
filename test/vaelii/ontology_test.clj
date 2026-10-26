@@ -669,19 +669,21 @@
   ;; `person`, disjoint from what the other rule states or concludes about the same term,
   ;; so `arg-type-conflicted?` drops every such pair as unreachable (vaelii#95).
   ;;
-  ;; Five pairs are left unexcepted on purpose.  A proper reading's definition concludes a
-  ;; proper tangible part or a proper sub-situation, so a part; `Forever`'s definition
-  ;; concludes that every time interval is a subinterval of it, so a part; and each of
-  ;; `TimeIntersectionFn`'s two definitions concludes that an intersection is a subinterval
-  ;; of one argument, so a part.  The root rule `(properPartOf x y) → (not (partOf y x))`
-  ;; denies each.  Each fires for one tuple only where the facts already contradict the
-  ;; root rule: a part whose whole is stated a proper part of it, `Forever` stated a proper
-  ;; part of an interval, or an interval stated a proper part of its intersection with
-  ;; another.  All five rules are strict definitions, so that clash is the one the facts
-  ;; owe, and an exception would hide it.  abstract.txt acknowledges the two proper
-  ;; readings' pairs and time.txt the other three with `acknowledgedFinding`, so they are
-  ;; `:rule-clash-review` findings carrying that reason and no live `:rule-clash` finding
-  ;; is left.
+  ;; Eight pairs are left unexcepted on purpose.  A proper reading's definition concludes
+  ;; a proper tangible part or a proper sub-situation, so a part; `Forever`'s definition
+  ;; concludes that every time interval is a subinterval of it, so a part;
+  ;; `TimeIntersectionFn`'s four definitions conclude that an intersection is a subtime of
+  ;; each argument, and a subinterval of each where both are intervals, so a part; and
+  ;; `subtimeOf`'s definition concludes that an instant a time includes is a subtime of
+  ;; it, so a part.  The root rule `(properPartOf x y) → (not (partOf y x))` denies each.
+  ;; Each fires for one tuple only where the facts already contradict the root rule: a
+  ;; part whose whole is stated a proper part of it, `Forever` stated a proper part of an
+  ;; interval, a time stated a proper part of its intersection with another, or a time
+  ;; stated a proper part of an instant it includes.  All eight rules are strict
+  ;; definitions, so that clash is the one the facts owe, and an exception would hide it.
+  ;; abstract.txt acknowledges the two proper readings' pairs and time.txt the other six
+  ;; with `acknowledgedFinding`, so they are `:rule-clash-review` findings carrying that
+  ;; reason and no live `:rule-clash` finding is left.
   (let [live        (rule-clashes-everywhere kb #{:rule-clash})
         pairs       (rule-clashes-everywhere kb #{:rule-clash-review})
         kinds       (frequencies (map :kind (concat live pairs)))
@@ -690,13 +692,13 @@
         acked       (filter :acknowledged pairs)]
     (is (empty? live)
         (str "live clashes: " (pr-str (mapv (juxt :kind :sentences) live))))
-    (is (= {:negation 9} kinds)
+    (is (= {:negation 12} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) (concat live pairs)))))
     (is (every? #(or (:excepted %) (:acknowledged %)) (filter #(= :negation (:kind %)) pairs))
         "negation clashes are excepted or acknowledged")
-    (is (= 5 (count acked))
-        "the root denial meets the two proper readings', Forever's and TimeIntersectionFn's two definitions, unexcepted")
-    (is (every? definition? acked) "and those are the five acknowledged pairs")
+    (is (= 8 (count acked))
+        "the root denial meets the two proper readings', Forever's, TimeIntersectionFn's four and subtimeOf's definitions, unexcepted")
+    (is (every? definition? acked) "and those are the eight acknowledged pairs")
     (is (every? #(not (:excepted %)) acked))))
 
 (tu/deftest-kb a-type-relation-predicate-relates-predicates
