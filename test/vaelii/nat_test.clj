@@ -1517,3 +1517,36 @@
                        :ann-apple (v/ask? kb '(likes Tom (FruitFn Apple)) 'CxAgentAnn)
                        :universe  (v/same-class? kb (nat-read/dedup-constant kb '(FruitFn Apple))
                                                  (nat/constant-for nat-read/nat-namespace '(FruitFn Pomme)))})))))
+
+;; ---- a correspondence stated in one context ---------------------------------
+
+(tu/deftest-kb ^:red a-correspondence-stated-in-one-context-does-not-merge-its-predicates-values-in-another
+  ;; A correspondence can hold only under a simplifying theory.  In an atlas where every
+  ;; country has one capital, `capitalOf` is functional and `CapitalFn` names its value;
+  ;; the world gives one country two.  An application written in the world before its
+  ;; values must not be retired onto each value in turn, which equates the two values
+  ;; through the placeholder.  Red because the declaration is read KB-wide
+  ;; (`res/believed-correspondences`), so the world reads the atlas's correspondence and
+  ;; merges the two capitals.
+  (tu/with-terms [CapitalFn capitalOf country city locatedIn Bolivia LaPaz Sucre Embassy
+                  CxAtlas CxWorld]
+    (doseq [s [(list 'genlCx CxAtlas 'CxUniverse) (list 'genlCx CxWorld 'CxUniverse)
+               (list 'reifiable_function CapitalFn) (list 'unary_function CapitalFn)
+               (list 'arg CapitalFn 1 country) (list 'result CapitalFn city)
+               (list 'binary_predicate capitalOf)
+               (list 'arg capitalOf 1 country) (list 'arg capitalOf 2 city)
+               (list country Bolivia) (list city LaPaz) (list city Sucre)]]
+      (v/assert kb s 'CxUniverse))
+    (v/assert kb (list 'functionCorrespondingPredicate CapitalFn capitalOf) CxAtlas)
+    (v/assert kb (list locatedIn Embassy (list CapitalFn Bolivia)) CxWorld)
+    (v/assert kb (list capitalOf Bolivia LaPaz) CxAtlas)
+    (testing "the atlas reads the correspondence: the application resolves to its value"
+      (let [h (v/assert kb (list locatedIn Embassy (list CapitalFn Bolivia)) CxAtlas)]
+        (is (= (list locatedIn Embassy LaPaz) (:sentence (v/sentex kb h))))))
+    (v/assert kb (list capitalOf Bolivia LaPaz) CxWorld)
+    (v/assert kb (list capitalOf Bolivia Sucre) CxWorld)
+    (testing "the world does not: its two values stay two, and nothing clashes"
+      (is (not (v/same-class? kb LaPaz Sucre CxWorld)))
+      (is (= #{LaPaz Sucre} (set (map '?c (v/ask kb (list capitalOf Bolivia '?c) CxWorld)))))
+      (is (empty? (v/conflicts kb)))
+      (is (empty? (v/contradictions kb))))))
