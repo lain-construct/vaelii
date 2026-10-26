@@ -702,8 +702,10 @@
     (is (= (count labels) (count (distinct labels))) "one heading per group"))
   (testing "a rule's two halves are two groups, the conclusion first"
     ;; `parentOf` is concluded about by one rule and read by others — what a rule *says*
-    ;; about a term outranks what it needs of it
-    (is (= ["Argument position 1" "Rule conclusion" "Rule condition"
+    ;; about a term outranks what it needs of it.  `inverse` is symmetric, so its
+    ;; arguments are stored in sorted order, (inverse childOf parentOf), which puts
+    ;; `parentOf` at argument position 2 as well
+    (is (= ["Argument position 1" "Argument position 2" "Rule conclusion" "Rule condition"
             "Nested elsewhere" "Predicate extent"]
            (group-labels (:body (GET "/term" "q=parentOf"))))))
   (testing "a term only ever read by a rule gets the condition group and not the other"

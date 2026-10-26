@@ -274,6 +274,20 @@ and every other, which adds belief elsewhere. Because `folk_species` is forced-m
 denial of `(folk_species S)` loses to a believed `(folk_species S)` at either strength, and a rule concluding a forced-monotonic literal
 from `(folk_species ?s)` alone is a forced-monotonic rule.
 
+`core.txt` declares `(forced_monotonic_predicate inverse)`. Its rules type each argument
+of one partner of an `(inverse P Q)` by the swapped argument of the other, reading
+`inverse` beside `arg` or `quotedArg`. `arg` is forced-monotonic, so without the
+declaration every firing concluding an `arg` from an inverse is void. `core.txt` also
+declares `(symmetric inverse)`, so `(inverse P Q)` and `(inverse Q P)` store as one
+sentence, each rule reads it from either partner, and a firing read through the mirror
+names `(symmetric inverse)` among its supports. `inverse` is not on
+the baseline: a KB that does not load `core.txt` holds it defeasible, and a `:monotonic`
+denial there defeats a `:default` inverse. Where the declaration is seen, a denial of
+`(inverse P Q)` loses to a believed `(inverse P Q)` at either strength. `retract!` does
+not refuse the declaration's retraction. An inert `(set/inert (inverse P Q))`, as
+`space.txt` states for each converse pair, is no premise and fires no rule, so no argument
+is typed through it.
+
 **Retracting a declaration is refused where its predicate has no unforced semantics.**
 `retract!` and `edit!` refuse the retraction of every declaration `core.txt` makes except those
 of `injection`, `surjection` and `bijection`, with `:type :uncleared-forcing`, the
