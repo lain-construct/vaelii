@@ -278,7 +278,7 @@
           (is (= :unknown (verdict kb (list p) noon2001)))
           (is (not (v/ask? kb (list 'not (list p)) noon2001))))))))
 
-(tu/deftest-kb ^:red a-fact-in-a-super-monads-slice-holds-along-its-sub-monad-and-is-unknown-along-an-unrelated-monad
+(tu/deftest-kb a-fact-in-a-super-monads-slice-holds-along-its-sub-monad-and-is-unknown-along-an-unrelated-monad
   ;; The monad-dimension twin of a-fact-in-a-year-slice-holds-in-its-months-and-is-unknown-the-next-year:
   ;; the sub-monad takes the month's place and an unrelated monad the next year's.
   (declare-cxtimefn! kb)
@@ -542,8 +542,9 @@
   ;; `CxStory` in `(CxTimeFn CxStory T)` is the dimension: "the year 2000, along the
   ;; CxStory dimension" (docs/context-nat.md).  A monad context's own time is unbounded
   ;; (issue #181), so it contains every slice's time, and a slice ought to sit under its
-  ;; monad.  Today the producer orders slices by the time argument alone and the monad is
-  ;; a key and nothing more.  The reverse stays closed: what holds in 2000 need not hold
+  ;; monad.  Today the producer orders one slice under another, by subintervalOf on the
+  ;; time or genlMonad on the monad, and a monad context is not a slice, so nothing places
+  ;; a slice under it.  The reverse stays closed: what holds in 2000 need not hold
   ;; in the story at large.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q CxStory]
@@ -557,8 +558,8 @@
         (is (not (v/ask? kb (list q) CxStory)))))))
 
 (tu/deftest-kb slices-along-two-monads-do-not-see-each-other
-  ;; Two slices that differ in the monad argument are not siblings (they differ at a
-  ;; position no declaration orders), so the same year along two monads are two unrelated
+  ;; Two slices that differ in the monad argument are ordered only by a genlMonad between
+  ;; the monads, and none is stated here, so the same year along two monads are two unrelated
   ;; contexts, and a month along one does not see the year along the other.
   (declare-cxtimefn! kb)
   (tu/with-terms [p CxNorth CxSouth]
@@ -587,7 +588,7 @@
       (testing "nor does the named month along another monad"
         (is (not (v/ask? kb (list p) (slice CxSouth Jan2000))))))))
 
-(tu/deftest-kb ^:red slices-along-two-monads-under-one-super-monad-see-its-slices-and-not-each-other
+(tu/deftest-kb slices-along-two-monads-under-one-super-monad-see-its-slices-and-not-each-other
   ;; The twin of slices-along-two-monads-do-not-see-each-other in which the two monads
   ;; share a super-monad.  Sharing one relates neither to the other, so the original's
   ;; isolation still holds, and each monad's slices now also see the super-monad's slices
@@ -779,7 +780,7 @@
     (is (true? (v/ask? kb '(functionCorrespondingPredicate CxMonadOfFn cxMonadOf) U)))
     (is (true? (v/ask? kb '(result CxMonadOfFn monad_context) U)))))
 
-(tu/deftest-kb ^:red a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad
+(tu/deftest-kb a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad
   ;; Twin of a-fact-in-a-year-slice-is-visible-from-its-month: the same time, with the
   ;; monad narrowing instead of the time.
   (declare-cxtimefn! kb)
@@ -920,7 +921,7 @@
     (for [x (keys slices) y (keys slices) :when (not= x y)]
       [x y (below? x y) (boolean (v/ask? kb (fact y) (slices x)))])))
 
-(tu/deftest-kb ^:red genlcx-between-slices-is-genlmonad-times-time-containment
+(tu/deftest-kb genlcx-between-slices-is-genlmonad-times-time-containment
   ;; The product rule, over the four slices two monads and two times make.  A slice sees
   ;; another exactly when both its monad and its time are at or below the other's, so of
   ;; the twelve ordered pairs of distinct slices three see and nine do not.  The two
@@ -943,7 +944,7 @@
         (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
           (is (= (below? x y) (boolean (v/ask? kb (fact y) (slices x))))))))))
 
-(tu/deftest-kb ^:red genlcx-between-slices-over-named-times-is-genlmonad-times-time-containment
+(tu/deftest-kb genlcx-between-slices-over-named-times-is-genlmonad-times-time-containment
   ;; The reified twin of genlcx-between-slices-is-genlmonad-times-time-containment: the
   ;; month and the year are named intervals with a stated subintervalOf.
   (declare-cxtimefn! kb)
@@ -978,7 +979,7 @@
       (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
         (is (= below? sees?))))))
 
-(tu/deftest-kb ^:red sibling-sub-monads-each-see-their-super-monad-and-not-each-other
+(tu/deftest-kb sibling-sub-monads-each-see-their-super-monad-and-not-each-other
   ;; Twin of sibling-month-slices-do-not-see-each-other.
   ;; slices-along-two-monads-do-not-see-each-other has no common super-monad.
   (declare-cxtimefn! kb)
@@ -1019,7 +1020,7 @@
         (is (not (v/ask? kb (list p) south)))
         (is (not (v/ask? kb (list q) north)))))))
 
-(tu/deftest-kb ^:red a-monad-below-two-monads-sees-both-at-the-same-time
+(tu/deftest-kb a-monad-below-two-monads-sees-both-at-the-same-time
   ;; Twin of partially-overlapping-slices-and-their-intersection: the intersection
   ;; of two monads is a monad genlMonad-below both.
   (declare-cxtimefn! kb)

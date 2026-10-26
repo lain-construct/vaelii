@@ -31,8 +31,9 @@
   The conventions are temporal_capability_test.clj's: the same fixture, the same
   helpers, the shipped vocabulary, and `^:red` on a test that ought to pass and does not
   yet.  Each test that slices restates the `CxTimeFn` declarations time.txt ships, as
-  that namespace does.  `genlMonad` is issue #181's name; time.txt declares it, and
-  nothing yet orders contexts by it, so it is used only inside `^:red` tests."
+  that namespace does.  `genlMonad` is issue #181's name; time.txt declares it and
+  orders two slices that differ only in the monad by it, but nothing orders two monad
+  contexts by it, so the tests here that state it are `^:red`."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -188,8 +189,8 @@
 
 (tu/deftest-kb ^:red along-the-monad-only-a-fact-in-a-monad-and-its-genlmonad-sub-monad-is-true-in-the-monad
   ;; The genlMonad twin of along-the-monad-only-a-fact-in-a-monad-and-its-sub-monad-is-true-in-the-monad.
-  ;; genlMonad is issue #181's name.  time.txt declares it, but no rule reads it, so
-  ;; nothing orders the two monads and the inverse names both today.
+  ;; genlMonad is issue #181's name.  time.txt orders slices by it, but nothing orders
+  ;; two monad contexts by it, so the inverse names both today.
   (tu/with-terms [p CxSuper CxSub CxOther]
     (monads! kb CxSuper CxSub CxOther)
     (v/assert kb (list 'genlMonad CxSub CxSuper) U)

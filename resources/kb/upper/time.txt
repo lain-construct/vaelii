@@ -58,12 +58,13 @@
 (arg cxMonadOf 2 monad_context)
 
 (comment CxTimeFn
-         "(CxTimeFn ?monad ?time) means the context of ?monad at ?time: what holds in the world, story or theory ?monad during ?time. So (CxTimeFn CxStory (YearFn 2000)) is the year 2000 of CxStory. Written in a sentex's context slot, an application reifies to a cx/ constant. Two applications that differ only in the time are ordered by subintervalOf on it: the one at the narrower time is a subcontext of the one at the wider time and sees what it states. CxTimeOfFn and CxMonadOfFn take an application apart. See docs/context-nat.md and docs/time.md.")
+         "(CxTimeFn ?monad ?time) means the context of ?monad at ?time: what holds in the world, story or theory ?monad during ?time. So (CxTimeFn CxStory (YearFn 2000)) is the year 2000 of CxStory. Written in a sentex's context slot, an application reifies to a cx/ constant. Two applications that differ only in the time are ordered by subintervalOf on it: the one at the narrower time is a subcontext of the one at the wider time and sees what it states. Two that differ only in the monad are ordered by genlMonad on it the same way: the one along the sub-monad is a subcontext of the one along the super-monad. CxTimeOfFn and CxMonadOfFn take an application apart. See docs/context-nat.md and docs/time.md.")
 (binary_function CxTimeFn)
 (arity CxTimeFn 2)
 (arg CxTimeFn 1 monad_context)
 (arg CxTimeFn 2 time)
 (result CxTimeFn context)
+(contextArgSubrelation CxTimeFn 1 genlMonad)
 (contextArgSubrelation CxTimeFn 2 subintervalOf)
 
 (comment CxTimeOfFn
