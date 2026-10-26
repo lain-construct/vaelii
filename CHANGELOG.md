@@ -28,6 +28,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   application and stores the conclusion over the constant, which the goal reads.
   *Breaks:* `assert` of a rule whose consequent names an application, `prove`, `query`
 
+- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
+  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
+  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
+  `arg` and `argAndRest` alone. So do the assert-time checks: an `args` declaration is
+  refused, and derives memberships, through the twin, whose handle an entailment rests on
+  and whose `argAndRest from 1, position N` a refusal names. Retracting the `args`
+  declaration retracts the twin. [argtypes.md](docs/argtypes.md).
+
+  *Migration:* a KB that loads `core.txt` needs none. A KB that does not has no forward
+  rule, so its `args` declarations type nothing: state `(argAndRest R 1 T)` instead, or
+  assert the rule.
+  *Breaks:* `args`, `assert`, `check`
+
 ### Breaking: daemon
 
 - **A wire write naming the provenance `:principal` is refused**, 403
@@ -51,6 +65,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Migration:* fix the finding, or pass `:categories` naming the categories to run.
   *Breaks:* `kb-integrity`
+
+### Breaking: vocabulary
+
+- **`information_bearing_thing` renames to `information`.** CxTra declares
+  `information` with the same comment, examples and `genl` edges to `intangible` and
+  `acausal`, and `digital_artifact` sits below it. The name says what the type holds: the
+  content, apart from the medium that carries it.
+
+  *Class:* **Breaking** (shipped ontology content).
+  *Migration:* rename `information_bearing_thing` to `information` in any KB text that
+  names it.
+  *Breaks:* `information_bearing_thing`
 
 ### Additive: ASP
 
@@ -258,7 +284,49 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
 
+### Additive: vocabulary and reasoning
+
+- **The upper ontology ships `intangiblePartOf`, `tangiblePartOf`'s twin for things without
+  mass.** It is transitive, reflexive and below `partOf`, and types both positions
+  `intangible`. `partOf` is not partitioned into the two specs: a mixed pair, e.g. a mind
+  as part of a person, stays plain `partOf`.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **CxTra ships conceptual works, carriers, `subInformationOf`, `agentClaims`, `dataContent` and `propositionalContent`.**
+  `conceptual_work` is below `information`. `(carries ?carrier ?info)` types position 1
+  `temporal` and position 2 `information`, so a tangible paper copy and an intangible
+  event, e.g. a bird's chirp, are both accepted; not functional in position 2, so one
+  carrier holds more than one piece of information. `subInformationOf` specializes
+  `intangiblePartOf` for a chapter in a book or a frame in a video. `(agentClaims ?agent (sentexHandle H))` says that `?agent`
+  presents sentex H as true; it is typed and marked exactly as the earlier design's
+  `claims` was (position 1 `thing`, position 2 a sentex handle left untyped,
+  `target_following_predicate`), and no rule concludes it from `carries`.
+  `(dataContent ?info ?string)` is functional over the exact symbol sequence `?info`
+  holds, independent of any byte encoding that stores it. `(propositionalContent ?info
+  ?proposition)` is not functional over the existing `proposition` type. Neither
+  content relation is derived from an information's author, encoding or context; both
+  are stated directly. [contexts.md](docs/contexts.md).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* an earlier unreleased build of this change shipped
+  `information_carrier`, `information_or_carrier` and `claims`; none of the three ever
+  released, and none of the three is in this KB. A KB text naming any of them states
+  `carries` and `agentClaims` instead.
+
 ### Fix: answers
+
+- **The starter passes the default `kb-integrity` sweep from every middle context.**
+  `CxMereology` states `(transitiveInArgInverse locatedIn 1 tangiblePartOf)` and
+  `(transitiveInArgInverse owns 2 tangiblePartOf)` where it held two forward rules of that
+  shape, so a part's location and ownership are answered at query time and stored nowhere;
+  a reader that sees the whole's fact and the parthood fact answers, wherever each is
+  stored. `CxBiology` records `(declined_rule_macro (genl organism mortal))` beside the
+  `mortal` default, which stays a default.
+  [inherit.md](docs/inherit.md), [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means)
+  *Migration:* a caller that read a part's derived `locatedIn` or `owns` with
+  `sentexes-matching` asks it with `ask?`, or asserts the forward rule in its own context.
 
 - **A forward rule concluding `equals` or `sameAs` over applications of a
   `reifiable_function` that have no constant yet mints them and stores the equality**, as
@@ -279,6 +347,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
 
+- **`ArgTypeProver` types a term at a position an `argAndRest` declaration types.** A
+  believed `(P … x …)` with `x` at position `n` or later beside `(argAndRest P n T)`
+  answers `(T x)`, as `(arg P n T)` at `x`'s position does; `(args P T)` answers through
+  the `argAndRest` twin its rule stores. The exception re-check that follows the inference
+  reads the same declarations, in both arrival orders. The prover reads a predicate's
+  declarations through `res/arg-constraints-at`, held for one stretch of the change clock.
+  [argtypes.md](docs/argtypes.md)
+
+  *Migration:* none. Under the constraint-only reading, `ask` answers such a membership
+  where it answered nothing.
+
+- **A `predAllSpecified` or `predSpecifiedAll` slot typed by a tail declaration is
+  audited.** A slot typed only by `argAndRest`, `args`, `argAndRestGenl` or `argsGenl`
+  reported `{:status :gap :gap :missing-slot-typing}`; the audit now derives its contract
+  from those declarations as from `arg` and `genlArg`. [predall.md](docs/predall.md)
+
+  *Migration:* none. A declaration that reported the gap reports `:audited`.
+
 ### Breaking: integrity
 
 - **Specified obligations audit their defining contexts.** `all-specified-violations`
@@ -293,6 +379,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   population must be audited. Direct `specified-violations`, Exists audits and
   native-only registry declarations retain their existing context behavior.
   *Breaks:* `all-specified-violations`, `kb-integrity`
+
+- **Every `kb-integrity` answer carries `:work` and `:elapsed-ms`**, where only a
+  `:truncated` one did, so a sweep with the work ceiling lifted reports what it spent.
+  [integrity.md](docs/integrity.md#the-call)
+  *Migration:* `dissoc` `:work` and `:elapsed-ms` before comparing an answer with `=`.
+  *Breaks:* `kb-integrity`'s `:audited` and `:gap` answers, `vaelii.client/kb-integrity`
 
 ### Fix: introspection
 

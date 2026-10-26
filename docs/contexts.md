@@ -112,7 +112,8 @@ Data hangs below CxWell.
   CxUniverse and seen by CxWell:
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
-    owning its parts.
+    owning its parts. Both are `transitiveInArgInverse` declarations along
+    `tangiblePartOf`.
   - `CxBiology` — birds fly by default except penguins; organisms are mortal;
     flight enables travel.
   - `CxChange` — a simple event calculus: a state persists until an event ends it,
@@ -142,7 +143,7 @@ Data hangs below CxWell.
   CxWell does **not** see. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds two vocabularies:
+  none of its relations or kinds. CxTra holds three vocabularies:
   - **computing** — ten relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -150,6 +151,21 @@ Data hangs below CxWell.
     its `genl` edges and its disjointness. The computing relations state no rule.
     `(functional toolName)` is a decontextualized mark, so every context that sees
     CxUniverse reads that mark.
+  - **content and carriers** — `information` is content apart from its medium, and
+    `conceptual_work` is information composed as one work. `(carries ?carrier ?info)`
+    types position 1 `temporal` and position 2 `information`, so a tangible paper copy
+    and an intangible event, e.g. a bird's chirp, are both accepted; not functional in
+    position 2, so one carrier holds more than one piece of information.
+    `subInformationOf` specializes the upper ontology's `intangiblePartOf`,
+    `tangiblePartOf`'s twin for things without mass, for a chapter in a book or a frame
+    in a video.
+    `(agentClaims ?agent (sentexHandle H))` says that `?agent` presents sentex H as
+    true; no rule concludes it from `carries`. `(dataContent ?info ?string)` is
+    functional over the exact symbol sequence `?info` holds, and
+    `(propositionalContent ?info ?proposition)` is not functional over the existing
+    `proposition` type; neither is derived from an information's author, encoding or
+    context. `agentClaims` is `target_following_predicate`, so retracting H retracts
+    the claims that name it.
   - **perception** — `perceives` is the general relation and `sees` specializes it.
     `seeImage` and `watchVideo` conclude `sees` by a rule guarded by its `spatial`
     second argument, since an image or a video need not be located.
@@ -450,9 +466,11 @@ knowledge, so it either agrees with a more general one or refines it. **Fewer th
 contexts closes immediately**, which is every KB that has not divided the knowledge in
 question between contexts: there is nothing for a second to meet.
 
-The starter's owns-parts rule shows both outcomes. The rule `(implies (and (owns ?p
-?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`CxMereology`,
-seen by every data context below Well), and the test-world cast supplies the facts. It
+The test world's owns-parts rule shows both outcomes. The forward rule `(implies (and
+(owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is stored in CxWell, which
+every data context sees, and the test-world cast supplies the facts. The starter states the
+same reach as `(transitiveInArgInverse owns 2 tangiblePartOf)` in `CxMereology`, which
+answers at query time and stores no conclusion to place ([inherit.md](inherit.md)). The rule
 derives `(owns Tom Roof1)`: both `(owns Tom House1)` and `(tangiblePartOf Roof1 House1)` sit in
 CxSocialWorld, so the intersection is non-empty and the conclusion lands there.
 But `(owns Tom Engine1)` is **not** derived — `(owns Tom Car1)` is in CxSocialWorld
