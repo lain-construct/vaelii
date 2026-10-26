@@ -119,3 +119,90 @@
         (let [sups (:support (v/why kb (v/handle-of kb (list animal_k Rex) 'CxUniverse)))]
           (is (= ['argAndRest] (map :informant sups)))
           (is (some #{twin} (map :handle (:because (first sups))))))))))
+
+;; ---- an inverse carries its partner's argument types ----------------------
+;; (inverse P Q) says (P a b) holds exactly when (Q b a) does, so argument 1 of P is
+;; argument 2 of Q and argument 2 of P is argument 1 of Q.  core.txt's forward rules type
+;; each position of one partner by the swapped position of the other, for arg and for
+;; quotedArg.  The rules read the inverse from ?p to ?q only, and inverse is symmetric, so
+;; one inverse sentence is read from both partners.
+
+(defn- believed-in-universe?
+  "Is `sentence` stored in CxUniverse and believed there?"
+  [kb sentence]
+  (boolean (some->> (v/handle-of kb sentence 'CxUniverse) (v/in? kb))))
+
+(defn- inverse-supports
+  "The antecedent sentences of each justification of `sentence` in CxUniverse that reads
+  `:supports` there and rests on an `inverse` sentence, as a set of sets."
+  [kb sentence]
+  (when-some [h (v/handle-of kb sentence 'CxUniverse)]
+    (let [verdicts (v/justification-verdicts kb h 'CxUniverse)]
+      (into #{} (comp (filter #(= :supports (verdicts (:id %))))
+                      (map #(into #{} (map (fn [a] (:sentence (v/sentex kb a)))) (:antecedents %)))
+                      (filter #(some (fn [s] (= 'inverse (first s))) %)))
+            (v/supporting-justifications kb h)))))
+
+(tu/deftest-kb an-inverse-types-each-argument-of-its-partner-at-the-swapped-position
+  (tu/with-terms [holds heldBy names namedBy holder_k held_k]
+    (doseq [t [holder_k held_k]]
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [p [holds heldBy names namedBy]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (let [inv (v/assert kb (list 'inverse holds heldBy) 'CxUniverse)]
+      (v/assert kb (list 'arg holds 1 holder_k) 'CxUniverse)
+      (v/assert kb (list 'arg holds 2 held_k) 'CxUniverse)
+      ;; the quotedArg declarations sit on the second partner of the inverse and on the
+      ;; first, so the pair reads the inverse in both directions
+      (v/assert kb (list 'inverse names namedBy) 'CxUniverse)
+      (v/assert kb (list 'quotedArg namedBy 1 'string) 'CxUniverse)
+      (v/assert kb (list 'quotedArg names 1 'symbol) 'CxUniverse)
+      (testing "arg: each position of the first partner types the swapped position of the second"
+        (is (true? (believed-in-universe? kb (list 'arg heldBy 2 holder_k))))
+        (is (true? (believed-in-universe? kb (list 'arg heldBy 1 held_k))))
+        (is (false? (believed-in-universe? kb (list 'arg heldBy 1 holder_k))))
+        ;; inverse is symmetric, so the inverse stores in sorted order, heldBy first, and
+        ;; the rule reads it through the mirror, naming (symmetric inverse)
+        (is (= #{#{(list 'inverse heldBy holds) (list 'arg holds 1 holder_k) '(symmetric inverse)}}
+               (inverse-supports kb (list 'arg heldBy 2 holder_k)))))
+      (testing "quotedArg: a declaration on either partner types the swapped position of the other"
+        (is (true? (believed-in-universe? kb (list 'quotedArg names 2 'string))))
+        (is (true? (believed-in-universe? kb (list 'quotedArg namedBy 2 'symbol))))
+        (is (false? (believed-in-universe? kb (list 'quotedArg names 1 'string)))))
+      (testing "retracting the inverse takes the derived declarations with it"
+        (v/retract! kb inv)
+        (is (false? (believed-in-universe? kb (list 'arg heldBy 2 holder_k))))
+        (is (false? (believed-in-universe? kb (list 'arg heldBy 1 held_k))))))))
+
+(tu/deftest-kb one-inverse-sentence-types-both-partners
+  ;; core.txt's rules read (inverse ?p ?q) from ?p to ?q only, and inverse is symmetric,
+  ;; so the one sentence (inverse parentOf childOf) also reads as (inverse childOf
+  ;; parentOf) and a declaration on either partner types the other
+  (tu/with-terms [parentOf childOf parent_k child_k]
+    (doseq [t [parent_k child_k]]
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [p [parentOf childOf]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (list 'inverse parentOf childOf) 'CxUniverse)
+    (v/assert kb (list 'arg parentOf 1 parent_k) 'CxUniverse)
+    (v/assert kb (list 'arg childOf 1 child_k) 'CxUniverse)
+    (testing "childOf from parentOf"
+      (is (true? (believed-in-universe? kb (list 'arg childOf 2 parent_k)))))
+    (testing "parentOf from childOf"
+      (is (true? (believed-in-universe? kb (list 'arg parentOf 2 child_k)))))))
+
+(tu/deftest-kb childOf-has-the-argument-types-of-parentOf-through-the-inverse
+  ;; life.txt states (inverse parentOf childOf) beside childOf's two declarations, and the
+  ;; rules derive both declarations from parentOf's.  inverse is symmetric, so it stores
+  ;; as (inverse childOf parentOf) and the rules read it through the mirror
+  (doseq [n [1 2]]
+    (is (= #{#{'(inverse childOf parentOf) '(symmetric inverse)
+               (list 'arg 'parentOf (- 3 n) 'organism)}}
+           (inverse-supports kb (list 'arg 'childOf n 'organism)))
+        (str "position " n))))
+
+(tu/deftest-kb an-inert-inverse-types-no-argument
+  ;; space.txt states each converse pair inert, and an inert sentence is no premise, so
+  ;; westOf's declarations rest on no inverse
+  (doseq [n [1 2]]
+    (is (= #{} (inverse-supports kb (list 'arg 'westOf n 'spatial))) (str "position " n))))
