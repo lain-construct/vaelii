@@ -2152,10 +2152,11 @@
 
 (defn kb-integrity
   "Run the bounded integrity sweep in `context` over the finite set of ground
-  `candidate-terms`.  Answers `{:status :audited :candidate-count n}` when no pass finds
-  anything, `:status :gap` with the non-empty categories otherwise, and `:status
-  :truncated` with its `:reason`, the `:pass` it stopped in, `:work`, `:elapsed-ms` and
-  the findings kept before a bound in `options` (`integrity-opt-keys`) ran out.  `:categories`, a set of category
+  `candidate-terms`.  Answers `{:status :audited :candidate-count n :work w :elapsed-ms t}`
+  when no pass finds anything, `:status :gap` with the non-empty categories otherwise, and
+  `:status :truncated` with its `:reason`, the `:pass` it stopped in and the findings kept
+  before a bound in `options` (`integrity-opt-keys`) ran out.  Every answer carries the
+  `:work` spent and the `:elapsed-ms`.  `:categories`, a set of category
   keys, runs those passes alone; without it the sweep runs every pass but the
   `review-categories`.  Reads only: a diagnostic raised by
   evaluating a condition goes to a sink local to the call.  See docs/integrity.md."
@@ -2174,9 +2175,10 @@
                                     (catch clojure.lang.ExceptionInfo e
                                       (or (budget/exhausted e) (throw e))))))
          found           (report-categories (budget/found m))]
-     (cond
-       reason      (merge {:status :truncated :reason reason :pass @at
-                           :candidate-count candidate-count}
-                          (budget/snapshot m) found)
-       (seq found) (merge {:status :gap :candidate-count candidate-count} found)
-       :else       {:status :audited :candidate-count candidate-count}))))
+     (merge (cond
+              reason      {:status :truncated :reason reason :pass @at}
+              (seq found) {:status :gap}
+              :else       {:status :audited})
+            {:candidate-count candidate-count}
+            (budget/snapshot m)
+            found))))

@@ -473,9 +473,9 @@
 ;; ---- where a thing is ---------------------------------------------------
 
 (tu/deftest-kb a-part-is-wherever-its-whole-is
-  ;; Two theories meeting: mereology carries location down parthood, and locatedIn is
-  ;; transitive, so the piston is in the house through four facts and neither of them
-  ;; is about pistons or houses.
+  ;; Two theories meeting: the test world's join rule carries location down parthood,
+  ;; and locatedIn is transitive, so the piston is in the house through four facts and
+  ;; neither of them is about pistons or houses.
   (testing "the rule fires down one level and stores what it concluded"
     (is (seq (v/sentexes-matching kb '(locatedIn Engine1 Garage1) N))))
   (testing "and the chain answers further than anything stored reaches"

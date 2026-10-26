@@ -112,7 +112,8 @@ Data hangs below CxWell.
   CxUniverse and seen by CxWell:
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
-    owning its parts.
+    owning its parts. Both are `transitiveInArgInverse` declarations along
+    `tangiblePartOf`.
   - `CxBiology` — birds fly by default except penguins; organisms are mortal;
     flight enables travel.
   - `CxChange` — a simple event calculus: a state persists until an event ends it,
@@ -450,9 +451,11 @@ knowledge, so it either agrees with a more general one or refines it. **Fewer th
 contexts closes immediately**, which is every KB that has not divided the knowledge in
 question between contexts: there is nothing for a second to meet.
 
-The starter's owns-parts rule shows both outcomes. The rule `(implies (and (owns ?p
-?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`CxMereology`,
-seen by every data context below Well), and the test-world cast supplies the facts. It
+The test world's owns-parts rule shows both outcomes. The forward rule `(implies (and
+(owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is stored in CxWell, which
+every data context sees, and the test-world cast supplies the facts. The starter states the
+same reach as `(transitiveInArgInverse owns 2 tangiblePartOf)` in `CxMereology`, which
+answers at query time and stores no conclusion to place ([inherit.md](inherit.md)). The rule
 derives `(owns Tom Roof1)`: both `(owns Tom House1)` and `(tangiblePartOf Roof1 House1)` sit in
 CxSocialWorld, so the intersection is non-empty and the conclusion lands there.
 But `(owns Tom Engine1)` is **not** derived — `(owns Tom Car1)` is in CxSocialWorld

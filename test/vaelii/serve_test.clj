@@ -974,7 +974,7 @@
           (let [local    (v/kb-integrity kb #{7} CxServe nil)
                 omitted (:result (post-op handler :kb-integrity [#{7} CxServe]))
                 explicit (:result (post-op handler :kb-integrity [#{7} CxServe nil]))]
-            (is (= local omitted explicit))))
+            (is (apply = (map #(dissoc % :work :elapsed-ms) [local omitted explicit])))))
         (testing "a call short of the context is the op's arity refusal, not a padded one"
           (let [r (post-op handler :kb-integrity [#{7}])]
             (is (= 400 (:status r)))
@@ -1084,8 +1084,8 @@
             (let [rs (client/sentexes-matching conn (list bird '?x) CxWire)]
               (is (= (list bird Tweety) (:sentence (first rs))))))
           (testing "explicit nil integrity options match local and daemon defaults"
-            (is (= (v/kb-integrity kb #{} CxWire nil)
-                   (client/kb-integrity conn #{} CxWire nil))))
+            (is (= (dissoc (v/kb-integrity kb #{} CxWire nil) :work :elapsed-ms)
+                   (dissoc (client/kb-integrity conn #{} CxWire nil) :work :elapsed-ms))))
           (testing "a forward rule fires server-side and the derived fact is asked back"
             (client/assert-rule conn [(list bird '?b)] (list flies '?b) CxWire {:direction :forward})
             (is (client/ask? conn (list flies Tweety) CxWire)))

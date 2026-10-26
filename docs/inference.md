@@ -139,11 +139,11 @@ the same path as any other rule's.
 **Connected conjunctive antecedents.** Antecedents that share a variable **join** —
 a binding from one match is carried into the next. The starter leans on this:
 `(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))` joins on
-`?y`; a transitive `locatedIn` plus `(implies (and (tangiblePartOf ?part ?whole) (locatedIn
-?whole ?place)) (locatedIn ?part ?place))` puts a part wherever its whole is; and
-`(implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` propagates
-ownership to a whole's parts (its placement is context-sensitive — see
-[contexts.md](contexts.md)). The `vaelii.world-fables` stories derive their morals the
+`?y`. The test world's `(implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns
+?p ?part))` joins on `?whole`, and its placement is context-sensitive
+([contexts.md](contexts.md)). The starter states that reach, and a part's location, as
+`transitiveInArgInverse` declarations along `tangiblePartOf`, which kb-integrity's
+rule-macro pass suggests for a rule of this shape ([integrity.md](integrity.md)). The `vaelii.world-fables` stories derive their morals the
 same way — a 2- or 3-antecedent join over the tale's facts.
 
 **Antecedents nothing stored.** Two kinds of antecedent are satisfied by content that
