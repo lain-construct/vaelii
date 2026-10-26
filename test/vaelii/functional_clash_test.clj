@@ -14,7 +14,7 @@
 
   The `^:red` tests hold the intended behaviour: `try-assert` refuses a second, distinct
   symbol value as a `:functional` clash, and plain `assert` does not merge two values
-  the KB states distinct without reporting it.  The green tests pin what plain `assert`
+  the KB states distinct without reporting it.  The green tests check what plain `assert`
   does today where that is the intended reading."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -127,7 +127,7 @@
 
 (defn- denial [Draft Open] (list 'not (list 'equals Draft Open)))
 
-(defn- distinctness-pinned
+(defn- distinctness-stated
   "The behaviour `(not (equals Draft Open))` written at `denial-strength` leaves intact
   today: the denial is stored and believed, and two :default values beside it stay
   apart, reported as a :functional dilemma."
@@ -167,10 +167,10 @@
           "the stated distinctness either holds or its defeat is reported"))))
 
 (deftest a-default-denial-of-equality-keeps-two-default-values-apart
-  (distinctness-pinned :default))
+  (distinctness-stated :default))
 
 (deftest a-monotonic-denial-of-equality-keeps-two-default-values-apart
-  (distinctness-pinned :monotonic))
+  (distinctness-stated :monotonic))
 
 (deftest ^:red a-default-denial-of-equality-makes-a-second-value-a-clash
   ;; Today: try-assert stores the second value at either strength; plain assert of two
