@@ -669,14 +669,16 @@
   ;; `person`, disjoint from what the other rule states or concludes about the same term,
   ;; so `arg-type-conflicted?` drops every such pair as unreachable (vaelii#95).
   ;;
-  ;; Two pairs are left unexcepted on purpose.  A proper reading's definition concludes a
-  ;; proper tangible part or a proper sub-situation, so a part, and the root rule
-  ;; `(properPartOf x y) → (not (partOf y x))` denies one.  Both fire for one tuple only
+  ;; Three pairs are left unexcepted on purpose.  A proper reading's definition concludes a
+  ;; proper tangible part or a proper sub-situation, so a part, and `Forever`'s definition
+  ;; concludes that every time interval is a subinterval of it, so a part; the root rule
+  ;; `(properPartOf x y) → (not (partOf y x))` denies each.  Each fires for one tuple only
   ;; where the facts already contradict the root rule: a part whose whole is stated a proper
-  ;; part of it.  Both rules are strict definitions, so that clash is the one the facts owe,
-  ;; and an exception would hide it.  abstract.txt acknowledges both with
-  ;; `acknowledgedFinding`, so they are `:rule-clash-review` findings carrying that reason
-  ;; and no live `:rule-clash` finding is left.
+  ;; part of it, or `Forever` stated a proper part of an interval.  All three rules are
+  ;; strict definitions, so that clash is the one the facts owe, and an exception would hide
+  ;; it.  abstract.txt acknowledges the two proper readings' pairs and time.txt `Forever`'s
+  ;; with `acknowledgedFinding`, so they are `:rule-clash-review` findings carrying that
+  ;; reason and no live `:rule-clash` finding is left.
   (let [live        (rule-clashes-everywhere kb #{:rule-clash})
         pairs       (rule-clashes-everywhere kb #{:rule-clash-review})
         kinds       (frequencies (map :kind (concat live pairs)))
@@ -685,13 +687,13 @@
         acked       (filter :acknowledged pairs)]
     (is (empty? live)
         (str "live clashes: " (pr-str (mapv (juxt :kind :sentences) live))))
-    (is (= {:negation 6} kinds)
+    (is (= {:negation 7} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) (concat live pairs)))))
     (is (every? #(or (:excepted %) (:acknowledged %)) (filter #(= :negation (:kind %)) pairs))
         "negation clashes are excepted or acknowledged")
-    (is (= 2 (count acked))
-        "the root denial meets the two proper readings' definitions, unexcepted")
-    (is (every? definition? acked) "and those are the two acknowledged pairs")
+    (is (= 3 (count acked))
+        "the root denial meets the two proper readings' and Forever's definitions, unexcepted")
+    (is (every? definition? acked) "and those are the three acknowledged pairs")
     (is (every? #(not (:excepted %)) acked))))
 
 (tu/deftest-kb a-type-relation-predicate-relates-predicates

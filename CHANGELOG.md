@@ -192,6 +192,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.
 
+- **`time.txt` ships `Forever`, the time interval that contains every time.** Every
+  `time_interval` is `(subintervalOf ?interval Forever)`, every `time_point` gives
+  `(includesInstant Forever ?instant)`, and every `monad_context` has `(cxTimeOf ?monad
+  Forever)`. The three are backward rules: a query that asks gets the answer, and nothing
+  is stored for every interval, so a network relates Forever only where something mentions
+  it. An interval and an instant get separate rules because `subintervalOf` relates two `time_interval`s and an
+  instant is never one. [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 - **`time.txt` ships `DatetimeRangeFn`, a range between two reduced-precision ISO
   strings, with its corresponding predicate `datetimeRangeOf`.** `(DatetimeRangeFn
   "2000-01" "2000-06")` is January through June 2000: it begins when `(DatetimeFn

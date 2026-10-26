@@ -198,6 +198,33 @@
 (arg finishes 1 temporal)
 (arg finishes 2 temporal)
 
+(comment Forever
+         "The time interval that contains every time: every time interval is a subinterval of Forever, and every instant falls within it. It is the time of every monad_context, which covers all of its world's, story's or theory's time.")
+(time_interval Forever)
+
+;; Every interval falls within Forever, and every instant lies inside it.  Backward:
+;; answered when a query asks, never stored for every interval in the KB.
+(set/backwardRule
+ (implies (and (time_interval ?interval))
+          (subintervalOf ?interval Forever)))
+;; kb-integrity pairs the root denial of a proper part's whole being its part
+;; (abstract.txt) with that definition, as a rule clash.  Acknowledged rather than
+;; excepted, for the reason the record gives.
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (time_interval ?interval))
+                    (subintervalOf ?interval Forever))))
+  "Left unexcepted on purpose. Forever's definition concludes that every time interval is a subinterval of it, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: Forever stated a proper part of an interval. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
+(set/backwardRule
+ (implies (and (time_point ?instant))
+          (includesInstant Forever ?instant)))
+
+;; A monad context covers all of its time.
+(set/backwardRule
+ (implies (and (monad_context ?monad))
+          (cxTimeOf ?monad Forever)))
+
 (comment genlMonad
          "(genlMonad ?monad1 ?monad2) means that the monad ?monad1 falls under the monad ?monad2: a world, story or theory that inherits from another, with time left out. It orders monads alone, as subintervalOf orders times alone. See docs/time.md.")
 (binary_predicate genlMonad)

@@ -354,6 +354,13 @@ their corresponding predicates: the monad of `(CxTimeFn CxStory (YearFn 2000))` 
 `subintervalOf` orders times alone. These are declarations: no rule or prover reads
 `genlMonad`, `cxMonadOf` or `cxTimeOf` yet, so a stated `genlMonad` orders no contexts.
 
+`Forever` is the time interval that contains every time, and the time of every
+`monad_context`. Backward rules answer `(subintervalOf ?interval Forever)` for each
+`time_interval`, `(includesInstant Forever ?instant)` for each `time_point`, and
+`(cxTimeOf ?monad Forever)` for each `monad_context`. They are answered on demand rather
+than stored, so the qualitative network and open enumerations over it list `Forever` only
+when a stated fact relates something to it.
+
 ## Change over time: events, fluents, and inertia
 
 `CxChange` is a simple event calculus, shipped as a **middle theory**: rules over vocabulary
