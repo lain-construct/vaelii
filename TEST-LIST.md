@@ -2,7 +2,7 @@
 
 Every test in `test/vaelii/temporal_capability_test.clj`, 145 in all: 113 **red** (asserts the behaviour vaelii ought to have, fails today, runs only under `lein test :red`) and 32 **green** (passes today, runs in the default suite). A comment follows a name only where the name doesn't say enough by itself.
 
-The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of CxNow. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original. The tests Iris's later rulings add that are not twins sit next to the test they extend (the temporalDistance tests, tagged *temporal distance*, under 38) or in sections of their own at the end.
+The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. Each twin those rulings ask for is listed under its original, tagged with the rule it answers: R2 calendar ↔ reified, R3 DatetimeRangeFn ↔ named bounds, R4 shared super-monad, R5 interval ↔ point, R6 genlCx ↔ genlMonad, R7 time dimension ↔ monad dimension, R8 in a spec of the present. TEMPORAL-MATRIX.md has the inventory: for each numbered test and each rule, the twin, or why there is none. In the test file each twin sits next to its original. The tests Iris's later rulings add that are not twins sit next to the test they extend (the temporalDistance tests, tagged *temporal distance*, under 38) or in sections of their own at the end.
 
 ## Time slices
 
@@ -91,45 +91,45 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 30. `a-monad-context-is-its-own-monad-and-its-time-is-unbounded`: **red**
     - R2: `a-monad-context-is-its-own-monad-and-its-time-contains-named-intervals`: **red**
     - R5: `a-monad-context-is-its-own-monad-and-its-time-includes-every-instant`: **red**
-31. `a-slice-of-a-slice-in-cxtimefns-first-argument-is-the-slice-at-the-intersection`: **red**. Refuses `(CxTimeFn CxNow …)` (pending the owner's ruling on `(CxTimeFn CxNow T)`), and a slice of a slice spelled with `CxTimeFn` twice lands in the slice of its monad at the `TimeIntersectionFn` of the two times.
+31. `a-slice-of-a-slice-in-cxtimefns-first-argument-is-the-slice-at-the-intersection`: **red**. A slice of a slice spelled with `CxTimeFn` twice lands in the slice of its monad at the `TimeIntersectionFn` of the two times.
     - R7: `cxtimefns-second-argument-is-typed-a-time`: **red**
 32. `a-slice-of-a-slice-is-the-slice-of-its-monad-at-the-narrower-time`: **red**
     - R2: `a-slice-of-a-slice-at-a-named-narrower-time-is-the-slice-of-its-monad-there`: **red**
     - R5: `a-slice-of-a-slice-at-an-instant-is-the-slice-of-its-monad-at-that-instant`: **red**
     - R7: `a-slice-of-a-slice-along-the-monad-axis-is-the-slice-of-a-sub-monad-at-its-time`: **red**
 
-## CxNow and temporal projection
+## The real world's present and temporal projection
 
-Here "now" is `(CxTimeOfFn CxNow)`, and it is reached only through lower-bound clock readings, `(instantNotBefore now T)`.
+Here the present is the slice `(CxTimeFn CxRealWorld (IntervalAfterFn W))`, with `W` a named instant, and `W` is reached only through lower-bound clock readings, `(instantNotBefore W T)`.
 
-33. `a-fact-true-now-is-true-in-the-real-worlds-present-and-not-timelessly`: green. CxRealWorldNow sees CxNow and CxRealWorld, and nothing above CxNow sees what CxNow states.
-34. `cxrealworldnow-is-the-real-world-at-the-present`: **red**. Its `cxMonadOf` is CxRealWorld and its `cxTimeOf` is now.
-35. `a-later-clock-reading-supersedes-an-earlier-one`: **red**. A Saturday reading, then a Sunday one. After both, `earliestStartOf now` answers only Sunday's reading.
+33. `a-fact-true-in-the-real-worlds-present-is-not-true-timelessly`: green. Nothing above the present slice sees what it states.
+34. `the-present-slice-is-the-real-world-from-w-on`: **red**. Its `cxMonadOf` is CxRealWorld and its `cxTimeOf` is `(IntervalAfterFn W)`.
+35. `a-later-clock-reading-supersedes-an-earlier-one`: **red**. A Saturday reading, then a Sunday one. After both, `earliestStartOf W` answers only Sunday's reading.
     - R2: `a-later-reading-at-a-named-moment-supersedes-an-earlier-one`: **red**
 36. `with-no-clock-reading-the-present-is-unknown`: green, by design.
     - R2: `with-no-clock-reading-the-present-is-unknown-against-a-named-moment`: green
-37. `an-exact-present-and-a-dated-present-tense-fact-are-refused-in-cxnow`: **red**. "It is 3:41" and "today is Saturday" are both refused, while a reading is accepted.
-    - R2: `an-exact-present-and-a-present-tense-fact-at-named-times-are-refused-in-cxnow`: **red**
-    - R8: `an-exact-present-and-a-dated-present-tense-fact-are-refused-in-a-spec-of-cxnow`: **red**
-38. `age-is-derived-as-a-lower-bound-and-never-as-an-exact-value`: **red**. A person born in 1977, read at 2026-10-17, is at least 48, and 49 is unknown. A later reading raises the bound. `ageAtLeast`/`ageOf` are placeholder names.
+37. `an-exact-present-and-a-dated-present-tense-fact-are-refused-in-the-present`: **red**. "It is 3:41" and "today is Saturday" are both refused, while a reading is accepted.
+    - R2: `an-exact-present-and-a-present-tense-fact-at-named-times-are-refused-in-the-present`: **red**
+    - R8: `an-exact-present-and-a-dated-present-tense-fact-are-refused-in-a-spec-of-the-present`: **red**
+38. `age-is-derived-as-a-lower-bound-and-never-as-an-exact-value`: **red**. A person born in 1977, with `W` read at 2026-10-17, is at least 48, and 49 is unknown. A later reading raises the bound. `ageAtLeast`/`ageOf` are placeholder names.
     - temporal distance: `a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded`: **red**
-    - temporal distance: `a-distance-from-a-minute-start-to-a-lower-bound-on-now-is-a-lower-bound`: **red**
+    - temporal distance: `a-distance-from-a-minute-start-to-a-lower-bound-on-w-is-a-lower-bound`: **red**
     - temporal distance: `a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals`: **red**
-39. `a-reading-places-now-after-a-past-year-and-inside-no-year`: **red**. There's no upper bound, so not even 2026 is known to contain now.
-    - R2: `a-reading-at-a-named-moment-places-now-after-a-named-past-year-and-inside-no-named-year`: **red**
-40. `a-past-slice-of-the-real-world-sees-the-real-world-and-not-what-holds-now`: **red**
-41. `an-eternal-fact-is-visible-from-now-and-from-every-slice`: **red**
+39. `a-reading-places-w-after-a-past-year-and-inside-no-year`: green. There's no upper bound, so not even 2026 is known to contain `W`.
+    - R2: `a-reading-at-a-named-moment-places-w-after-a-named-past-year-and-inside-no-named-year`: green
+40. `a-past-slice-of-the-real-world-sees-the-real-world-and-not-what-holds-in-the-present`: **red**
+41. `an-eternal-fact-is-visible-from-the-present-and-from-every-slice`: **red**
     - R6: `an-eternal-fact-is-visible-from-every-slice-along-a-monad-placed-by-genlmonad`: **red**
-42. `a-fluent-started-in-a-past-slice-holds-now`: **red**. Projection by inertia. A plain fact from 2000 is not projected.
-    - R2: `a-fluent-started-at-a-named-moment-in-a-past-named-slice-holds-now`: **red**
-43. `a-fluent-ended-after-the-past-slice-does-not-hold-now`: **red**. The fluent is ended in 2005, before the reading.
-    - R2: `a-fluent-ended-at-a-named-moment-before-the-reading-does-not-hold-now`: **red**
-44. `a-fluent-ended-after-the-reading-is-not-known-to-hold-now`: **red**. The fluent is ended in 2030, after the reading, so whether it holds now is unknown.
-    - R2: `a-fluent-ended-at-a-named-moment-after-the-reading-is-not-known-to-hold-now`: **red**
-45. `projection-from-now-into-a-dated-future-slice-is-unknown-with-only-lower-bounds`: green, by design. Under lower bounds no dated slice is known to lie after now. The spec keeps this unknown: forward projection from now needs an upper bound on now, which goes stale.
-    - R2: `projection-from-now-into-a-named-future-slice-is-unknown-with-only-lower-bounds`: green
-    - backward from now: `a-state-holding-now-is-unknown-at-a-dated-past-moment`: green, by design. The start of 2025 is before now, but a state observed now may have started after it; inertia runs forward only.
-        - R2: `a-state-holding-now-is-unknown-at-a-named-past-moment`: green
+42. `a-fluent-started-in-a-past-slice-holds-at-w`: **red**. Projection by inertia. A plain fact from 2000 is not projected.
+    - R2: `a-fluent-started-at-a-named-moment-in-a-past-named-slice-holds-at-w`: **red**
+43. `a-fluent-ended-after-the-past-slice-does-not-hold-at-w`: **red**. The fluent is ended in 2005, before the reading.
+    - R2: `a-fluent-ended-at-a-named-moment-before-the-reading-does-not-hold-at-w`: **red**
+44. `a-fluent-ended-after-the-reading-is-not-known-to-hold-at-w`: **red**. The fluent is ended in 2030, after the reading, so whether it holds at `W` is unknown.
+    - R2: `a-fluent-ended-at-a-named-moment-after-the-reading-is-not-known-to-hold-at-w`: **red**
+45. `projection-from-the-present-into-a-dated-future-slice-is-unknown-with-only-lower-bounds`: green, by design. Under lower bounds no dated slice is known to lie after `W`. The spec keeps this unknown: forward projection from the present needs an upper bound on `W`, which goes stale.
+    - R2: `projection-from-the-present-into-a-named-future-slice-is-unknown-with-only-lower-bounds`: green
+    - backward from the present: `a-state-holding-at-w-is-unknown-at-a-dated-past-moment`: green, by design. The start of 2025 is before `W`, but a state observed at `W` may have started after it; inertia runs forward only.
+        - R2: `a-state-holding-at-w-is-unknown-at-a-named-past-moment`: green
     - past to past: `a-fluent-started-in-a-past-slice-holds-at-a-later-dated-past-moment`: **red**. Started June 2000, never ended, holds at the start of 2025.
         - R2: `a-fluent-started-at-a-named-moment-holds-at-a-later-named-past-moment`: **red**
 

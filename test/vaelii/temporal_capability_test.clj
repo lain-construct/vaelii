@@ -16,8 +16,8 @@
 
   The vocabulary is the shipped one: `time.txt` for the interval, instant and calendar
   predicates, `core.txt` for `result`, `contextArgSubrelation` and `genlCx`, and the
-  `CxChange` middle theory for the event calculus, and `CxNow` and `CxRealWorldNow` for
-  the present.  Nothing here declares a temporal predicate of its own.  `time.txt` also
+  `CxChange` middle theory for the event calculus, and `CxRealWorld` for the real world,
+  whose present is a time slice.  Nothing here declares a temporal predicate of its own.  `time.txt` also
   declares `CxTimeFn` and the monad vocabulary issue #181 asks for: `genlMonad`,
   `time_slice_context`, `monad_context`, `CxTimeOfFn`/`cxTimeOf`, `CxMonadOfFn`/`cxMonadOf`
   and `TimeIntersectionFn`.  The tests
@@ -28,13 +28,12 @@
             [vaelii.impl.nat-read :as nat-read]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test, with the upper layer, the CxChange event calculus, CxRealWorld,
-;; CxNow and CxRealWorldNow loaded and no prover registered.  Each test registers what it uses, so the opt-in tests can ask the
+;; A fresh KB per test, with the upper layer, the CxChange event calculus and CxRealWorld
+;; loaded and no prover registered.  Each test registers what it uses, so the opt-in tests can ask the
 ;; same question before and after.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
-                        (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]
-                                              [CxNow "middle"] [CxRealWorldNow "middle"]]))))
+                        (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]]))))
 
 (def ^:private U 'CxUniverse)
 
@@ -1176,12 +1175,8 @@
     (monads! kb CxStory)
     (testing "control: a write into a slice along a monad context is stored"
       (is (= :answered (refusal-type #(v/assert kb (list p) (slice CxStory '(YearFn 2000)))))))
-    (testing "CxNow and a slice are not monad contexts"
-      (is (not (v/ask? kb '(monad_context CxNow) U)))
+    (testing "a slice is not a monad context"
       (is (not (v/ask? kb (list 'monad_context (cx-of kb (v/assert kb (list r) (slice CxStory '(YearFn 2001))))) U))))
-    ;; Pending the owner's ruling on (CxTimeFn CxNow T).
-    (testing "a write into (CxTimeFn CxNow …) is refused for its argument type"
-      (is (= :arg-type (refusal-type #(v/assert kb (list q) (slice 'CxNow '(YearFn 2000)))))))
     (testing "a write into a slice of a slice spelled with CxTimeFn twice lands in the slice at the intersection"
       (is (= (cx-of kb (v/assert kb (list q) (slice (slice CxStory '(YearFn 2000)) '(MonthFn 2000 1))))
              (cx-of kb (v/assert kb (list q) (slice CxStory '(TimeIntersectionFn (YearFn 2000)
@@ -1385,33 +1380,47 @@
         (is (not= :answered (refusal-type #(v/assert kb (list r) (slice s Y2001)))))))))
 
 ;; =========================================================================
-;; CxNow, the moving present, and temporal projection
+;; The real world's present, and temporal projection
 ;; =========================================================================
-;; CxNow is what is true now: a moving, indexical present of no particular world
-;; (resources/kb/middle/CxNow.txt).  CxRealWorldNow is the real world's present and sees
-;; CxRealWorld and CxNow.  `(CxTimeOfFn CxNow)` names the present, so a sentence about
-;; "now" names the time the KB is asked at.  The present is reached through LOWER
-;; BOUNDS: a clock reading states `(instantNotBefore now T)`, which stays true for ever
-;; after, and what is derived from readings is derived as a bound.  With no upper bound
-;; nothing fixes an exact present, so an exact reading ("it is 3:41") and a dated
-;; present-tense fact ("today is Saturday") are not stated in CxNow at all.
+;; The present is a time slice along the real world, `(CxTimeFn CxRealWorld
+;; (IntervalAfterFn W))`: every moment at or after the instant W, which `W` below names.
+;; A fact stated there is true from W on, in the true-when shape of
+;; pr_status_true_when_test.clj.  W is reached through LOWER BOUNDS: a clock reading
+;; states `(instantNotBefore W T)`, which stays true for ever after, and what is derived
+;; from readings is derived as a bound.  With no upper bound nothing fixes W exactly, so
+;; an exact reading ("it is 3:41") and a dated present-tense fact ("today is Saturday")
+;; are not stated in the present slice at all.
 ;;
 ;; Projection is CxChange's inertia carried across contexts: a fluent started at a
 ;; moment in one slice still holds at a later moment, until something ends it.  "Later"
 ;; than a past moment is reached from a reading.  A plain fact of a past slice is not
 ;; projected: it was true in 2000 and is unknown in 2001.
 
-(def ^:private now '(CxTimeOfFn CxNow))
+(def ^:private W
+  "The instant the real world's present starts from."
+  'TmpPresentStart)
+
+(def ^:private present
+  "The real world's present: the slice of CxRealWorld at or after W."
+  (slice 'CxRealWorld (list 'IntervalAfterFn W)))
+
+(defn- present!
+  "Make W a time_point, and return the present slice."
+  [kb]
+  (v/assert kb (list 'time_point W) U)
+  present)
 
 (defn- reading!
-  "A clock reading: in CxNow, now is no earlier than the InstantFn moment `fields`."
+  "A clock reading: W is no earlier than the InstantFn moment `fields`."
   [kb fields]
-  (v/assert kb (list 'instantNotBefore now (cons 'InstantFn fields)) 'CxNow))
+  (present! kb)
+  (v/assert kb (list 'instantNotBefore W (cons 'InstantFn fields)) U))
 
 (defn- reading-at!
-  "A clock reading at a named moment: in CxNow, now is no earlier than `moment`."
+  "A clock reading at a named moment: W is no earlier than `moment`."
   [kb moment]
-  (v/assert kb (list 'instantNotBefore now moment) 'CxNow))
+  (present! kb)
+  (v/assert kb (list 'instantNotBefore W moment) U))
 
 (defn- real-slice
   "The slice of the real world at `time`."
@@ -1432,47 +1441,45 @@
              (list effect event fluent instant)]]
     (v/assert kb s ctx)))
 
-(tu/deftest-kb a-fact-true-now-is-true-in-the-real-worlds-present-and-not-timelessly
-  ;; CxNow sees CxUniverse; CxRealWorldNow sees CxRealWorld and CxNow; nothing above
-  ;; CxNow sees what it states.
-  (tu/with-terms [p q]
-    (v/assert kb (list p) 'CxNow)
-    (v/assert kb (list q) 'CxRealWorld)
-    (testing "the real world's present sees both the present and the real world"
-      (is (true? (v/sees? kb 'CxRealWorldNow 'CxNow)))
-      (is (true? (v/sees? kb 'CxRealWorldNow 'CxRealWorld)))
-      (is (true? (v/ask? kb (list p) 'CxRealWorldNow)))
-      (is (true? (v/ask? kb (list q) 'CxRealWorldNow))))
-    (testing "the present is of no world: CxNow does not see the real world"
-      (is (not (v/ask? kb (list q) 'CxNow))))
-    (testing "a fact true now is not true timelessly, in general, or in the real world at large"
+(tu/deftest-kb a-fact-true-in-the-real-worlds-present-is-not-true-timelessly
+  ;; Nothing above the present slice sees what it states.  Whether the slice sees the
+  ;; real world at large is a-past-slice-of-the-real-world-sees-the-real-world-and-not-what-holds-in-the-present.
+  (tu/with-terms [p]
+    (v/assert kb (list p) (present! kb))
+    (testing "control: the present slice holds it"
+      (is (true? (v/ask? kb (list p) present))))
+    (testing "a fact true in the present is not true timelessly, in general, or in the real world at large"
       (is (not (v/ask? kb (list p) U)))
       (is (not (v/ask? kb (list p) 'CxWell)))
       (is (not (v/ask? kb (list p) 'CxRealWorld))))))
 
-(tu/deftest-kb ^:red cxrealworldnow-is-the-real-world-at-the-present
-  ;; The product read back through #181's two functions: its monad is CxRealWorld and its
-  ;; time is CxNow's.
-  (testing "CxRealWorldNow's monad is CxRealWorld"
-    (is (= [{'?m 'CxRealWorld}] (v/ask kb '(cxMonadOf CxRealWorldNow ?m) U))))
-  (testing "and its time is the present"
-    (is (true? (v/ask? kb (list 'cxTimeOf 'CxRealWorldNow now) U)))))
+(tu/deftest-kb ^:red the-present-slice-is-the-real-world-from-w-on
+  ;; The slice read back through #181's two functions: its monad is CxRealWorld and its
+  ;; time is the interval after W.  Red with nothing stating (monad_context CxRealWorld),
+  ;; which the rules over cxMonadOf and cxTimeOf read.
+  (tu/with-terms [p]
+    (let [k (cx-of kb (v/assert kb (list p) (present! kb)))]
+      (testing "the present slice's monad is CxRealWorld"
+        (is (= [{'?m 'CxRealWorld}] (v/query kb (list 'cxMonadOf k '?m) U {:max-depth 4}))))
+      (testing "and its time is the interval after W"
+        (is (true? (v/query? kb (list 'cxTimeOf k (list 'IntervalAfterFn W)) U {:max-depth 4})))))))
 
 (tu/deftest-kb ^:red a-later-clock-reading-supersedes-an-earlier-one
   ;; Iris's acceptance test: a reading on Saturday 17 October 2026, then a later one on
-  ;; Sunday the 18th.  Both bounds stay true, and the tightest, the earliest the present
-  ;; can be, is Sunday's alone.
+  ;; Sunday the 18th.  Both bounds on W stay true, and the tightest, the earliest W can
+  ;; be, is Sunday's alone.
   (v/add-reasoner kb :point :calendar)
+  (present! kb)
   (reading! kb [2026 10 17 9 0 0])
-  (testing "after Saturday's reading: now is no earlier than Saturday, and Sunday is unknown"
-    (is (true? (v/ask? kb (list 'instantNotBefore now '(InstantFn 2026 10 17 0 0 0)) 'CxNow)))
-    (is (= :unknown (verdict kb (list 'instantNotBefore now '(InstantFn 2026 10 18 0 0 0)) 'CxNow))))
+  (testing "after Saturday's reading: W is no earlier than Saturday, and Sunday is unknown"
+    (is (true? (v/ask? kb (list 'instantNotBefore W '(InstantFn 2026 10 17 0 0 0)) U)))
+    (is (= :unknown (verdict kb (list 'instantNotBefore W '(InstantFn 2026 10 18 0 0 0)) U))))
   (reading! kb [2026 10 18 9 0 0])
-  (testing "after Sunday's: now is no earlier than Sunday"
-    (is (true? (v/ask? kb (list 'instantNotBefore now '(InstantFn 2026 10 18 0 0 0)) 'CxNow))))
-  (testing "and the earliest the present can be is Sunday's reading, not Saturday's"
+  (testing "after Sunday's: W is no earlier than Sunday"
+    (is (true? (v/ask? kb (list 'instantNotBefore W '(InstantFn 2026 10 18 0 0 0)) U))))
+  (testing "and the earliest W can be is Sunday's reading, not Saturday's"
     (is (= [{'?t '(InstantFn 2026 10 18 9 0 0)}]
-           (v/ask kb (list 'earliestStartOf now '?t) 'CxNow)))))
+           (v/ask kb (list 'earliestStartOf W '?t) U)))))
 
 (tu/deftest-kb ^:red a-later-reading-at-a-named-moment-supersedes-an-earlier-one
   ;; The reified twin of a-later-clock-reading-supersedes-an-earlier-one: the two readings
@@ -1480,108 +1487,117 @@
   ;; original's.  The point prover takes the place of the calendar clock.
   (v/add-reasoner kb :point)
   (tu/with-terms [SatMidnight SatReading SunMidnight SunReading]
+    (present! kb)
     (chain! kb SatMidnight SatReading SunMidnight SunReading)
     (reading-at! kb SatReading)
-    (testing "after the first reading: now is no earlier than the first midnight, and the second is unknown"
-      (is (true? (v/ask? kb (list 'instantNotBefore now SatMidnight) 'CxNow)))
-      (is (= :unknown (verdict kb (list 'instantNotBefore now SunMidnight) 'CxNow))))
+    (testing "after the first reading: W is no earlier than the first midnight, and the second is unknown"
+      (is (true? (v/ask? kb (list 'instantNotBefore W SatMidnight) U)))
+      (is (= :unknown (verdict kb (list 'instantNotBefore W SunMidnight) U))))
     (reading-at! kb SunReading)
-    (testing "after the second: now is no earlier than the second midnight"
-      (is (true? (v/ask? kb (list 'instantNotBefore now SunMidnight) 'CxNow))))
-    (testing "and the earliest the present can be is the second reading, not the first"
-      (is (= [{'?t SunReading}] (v/ask kb (list 'earliestStartOf now '?t) 'CxNow))))))
+    (testing "after the second: W is no earlier than the second midnight"
+      (is (true? (v/ask? kb (list 'instantNotBefore W SunMidnight) U))))
+    (testing "and the earliest W can be is the second reading, not the first"
+      (is (= [{'?t SunReading}] (v/ask kb (list 'earliestStartOf W '?t) U))))))
 
 (tu/deftest-kb with-no-clock-reading-the-present-is-unknown
-  ;; Iris's acceptance test: with no reading nothing places the present, not even after
-  ;; the year 1.  Correct by design, and passing today; it stays a test so a change
-  ;; that reads the host's clock into the KB breaks it.
+  ;; Iris's acceptance test: with no reading nothing places W, not even after the year 1.
+  ;; Correct by design, and passing today; it stays a test so a change that reads the
+  ;; host's clock into the KB breaks it.
   (v/add-reasoner kb :point :calendar)
-  (testing "now is neither known to be after nor before the start of the year 1"
-    (is (= :unknown (verdict kb (list 'instantNotBefore now '(InstantFn 1 1 1 0 0 0)) 'CxNow))))
-  (testing "and no earliest present is answered"
-    (is (empty? (v/ask kb (list 'earliestStartOf now '?t) 'CxNow)))))
+  (present! kb)
+  (testing "W is neither known to be after nor before the start of the year 1"
+    (is (= :unknown (verdict kb (list 'instantNotBefore W '(InstantFn 1 1 1 0 0 0)) U))))
+  (testing "and no earliest W is answered"
+    (is (empty? (v/ask kb (list 'earliestStartOf W '?t) U)))))
 
 (tu/deftest-kb with-no-clock-reading-the-present-is-unknown-against-a-named-moment
   ;; The reified twin of with-no-clock-reading-the-present-is-unknown: with no reading,
-  ;; nothing places the present against a named moment either.  Correct by design.
+  ;; nothing places W against a named moment either.  Correct by design.
   (v/add-reasoner kb :point)
   (tu/with-terms [LongAgo]
+    (present! kb)
     (times! kb [] [LongAgo])
-    (testing "now is neither known to be after nor before the named moment"
-      (is (= :unknown (verdict kb (list 'instantNotBefore now LongAgo) 'CxNow))))
-    (testing "and no earliest present is answered"
-      (is (empty? (v/ask kb (list 'earliestStartOf now '?t) 'CxNow))))))
+    (testing "W is neither known to be after nor before the named moment"
+      (is (= :unknown (verdict kb (list 'instantNotBefore W LongAgo) U))))
+    (testing "and no earliest W is answered"
+      (is (empty? (v/ask kb (list 'earliestStartOf W '?t) U))))))
 
-(tu/deftest-kb ^:red an-exact-present-and-a-dated-present-tense-fact-are-refused-in-cxnow
-  ;; Iris's ruling: CxNow holds bounds, never an exact present and never a dated
+(tu/deftest-kb ^:red an-exact-present-and-a-dated-present-tense-fact-are-refused-in-the-present
+  ;; Iris's ruling: the present holds bounds on W, never an exact W and never a dated
   ;; present-tense fact; the day and an age are derived from readings, as bounds.  The
-  ;; control is a reading, which is stored.
+  ;; control is a reading stated in the present slice, which is stored.
+  (present! kb)
   (testing "control: a lower-bound reading is stored"
-    (is (= :answered (refusal-type #(reading! kb [2026 10 21 3 41 0])))))
+    (is (= :answered (refusal-type #(v/assert kb (list 'instantNotBefore W '(InstantFn 2026 10 21 3 41 0))
+                                              present)))))
   (testing "\"it is 3:41\" is refused"
     (is (not= :answered
-              (refusal-type #(v/assert kb (list 'instantEqual now '(InstantFn 2026 10 21 3 41 0))
-                                       'CxNow)))))
+              (refusal-type #(v/assert kb (list 'instantEqual W '(InstantFn 2026 10 21 3 41 0))
+                                       present)))))
   (testing "\"today is Saturday 17 October 2026\" is refused"
     (is (not= :answered
-              (refusal-type #(v/assert kb (list 'includesInstant '(DayFn 2026 10 17) now)
-                                       'CxNow))))))
+              (refusal-type #(v/assert kb (list 'includesInstant '(DayFn 2026 10 17) W)
+                                       present))))))
 
-(tu/deftest-kb ^:red an-exact-present-and-a-present-tense-fact-at-named-times-are-refused-in-cxnow
-  ;; The reified twin of an-exact-present-and-a-dated-present-tense-fact-are-refused-in-cxnow:
+(tu/deftest-kb ^:red an-exact-present-and-a-present-tense-fact-at-named-times-are-refused-in-the-present
+  ;; The reified twin of an-exact-present-and-a-dated-present-tense-fact-are-refused-in-the-present:
   ;; the moment and the day are named, so a refusal that reads only the calendar spelling
   ;; misses them.  The control is a reading at a named moment, which is stored.
   (tu/with-terms [ReadAt TwentyOneFortyOne Saturday]
+    (present! kb)
     (times! kb [Saturday] [ReadAt TwentyOneFortyOne])
     (testing "control: a lower-bound reading at a named moment is stored"
-      (is (= :answered (refusal-type #(reading-at! kb ReadAt)))))
+      (is (= :answered (refusal-type #(v/assert kb (list 'instantNotBefore W ReadAt) present)))))
     (testing "\"it is the named moment\" is refused"
       (is (not= :answered
-                (refusal-type #(v/assert kb (list 'instantEqual now TwentyOneFortyOne) 'CxNow)))))
+                (refusal-type #(v/assert kb (list 'instantEqual W TwentyOneFortyOne) present)))))
     (testing "\"today is the named Saturday\" is refused"
       (is (not= :answered
-                (refusal-type #(v/assert kb (list 'includesInstant Saturday now) 'CxNow)))))))
+                (refusal-type #(v/assert kb (list 'includesInstant Saturday W) present)))))))
 
-(tu/deftest-kb ^:red an-exact-present-and-a-dated-present-tense-fact-are-refused-in-a-spec-of-cxnow
-  ;; The twin of an-exact-present-and-a-dated-present-tense-fact-are-refused-in-cxnow in a
-  ;; context declared under CxNow.  What the present is does not change below CxNow, so
-  ;; the refusals hold there too, and a reading is stored there as it is in CxNow.
-  (tu/with-terms [CxNowSpec]
-    (v/assert kb (list 'genlCx CxNowSpec 'CxNow) U)
-    (testing "control: the spec sees CxNow, and a lower-bound reading is stored in it"
-      (is (true? (v/sees? kb CxNowSpec 'CxNow)))
-      (is (= :answered
-             (refusal-type #(v/assert kb (list 'instantNotBefore now '(InstantFn 2026 10 21 3 41 0))
-                                      CxNowSpec)))))
-    (testing "\"it is 3:41\" is refused"
-      (is (not= :answered
-                (refusal-type #(v/assert kb (list 'instantEqual now '(InstantFn 2026 10 21 3 41 0))
-                                         CxNowSpec)))))
-    (testing "\"today is Saturday 17 October 2026\" is refused"
-      (is (not= :answered
-                (refusal-type #(v/assert kb (list 'includesInstant '(DayFn 2026 10 17) now)
-                                         CxNowSpec)))))))
+(tu/deftest-kb ^:red an-exact-present-and-a-dated-present-tense-fact-are-refused-in-a-spec-of-the-present
+  ;; The twin of an-exact-present-and-a-dated-present-tense-fact-are-refused-in-the-present
+  ;; in a context declared under the present slice.  What W is does not change below the
+  ;; present, so the refusals hold there too, and a reading is stored there as it is in
+  ;; the present.
+  (tu/with-terms [p CxPresentSpec]
+    (let [k (cx-of kb (v/assert kb (list p) (present! kb)))]
+      (v/assert kb (list 'genlCx CxPresentSpec k) U)
+      (testing "control: the spec sees the present, and a lower-bound reading is stored in it"
+        (is (true? (v/sees? kb CxPresentSpec k)))
+        (is (= :answered
+               (refusal-type #(v/assert kb (list 'instantNotBefore W '(InstantFn 2026 10 21 3 41 0))
+                                        CxPresentSpec)))))
+      (testing "\"it is 3:41\" is refused"
+        (is (not= :answered
+                  (refusal-type #(v/assert kb (list 'instantEqual W '(InstantFn 2026 10 21 3 41 0))
+                                           CxPresentSpec)))))
+      (testing "\"today is Saturday 17 October 2026\" is refused"
+        (is (not= :answered
+                  (refusal-type #(v/assert kb (list 'includesInstant '(DayFn 2026 10 17) W)
+                                           CxPresentSpec))))))))
 
 (tu/deftest-kb ^:red age-is-derived-as-a-lower-bound-and-never-as-an-exact-value
-  ;; Iris's acceptance test.  Born in 1977, read at no earlier than 17 October 2026: at
+  ;; Iris's acceptance test.  Born in 1977, W read at no earlier than 17 October 2026: at
   ;; least 48 (a December 1977 birthday is still to come), and not known to be 49 or any
-  ;; exact age, because nothing bounds the present from above.  A later reading on
+  ;; exact age, because nothing bounds W from above.  A later reading on
   ;; 1 January 2027 makes it at least 49.  `ageAtLeast` (an organism, an integer number
   ;; of whole years) is a placeholder name: the KB has no age relation, and birthYearOf
   ;; (life.txt) is the only birth fact it has.
   (v/add-reasoner kb :point :calendar)
   (tu/with-terms [Ann]
+    (present! kb)
     (v/assert kb (list 'person Ann) U)
     (v/assert kb (list 'birthYearOf Ann 1977) 'CxRealWorld)
     (reading! kb [2026 10 17 9 0 0])
     (testing "at least 48, and 49 unknown"
-      (is (true? (v/query? kb (list 'ageAtLeast Ann 48) 'CxRealWorldNow {:max-depth 3})))
-      (is (= :unknown (verdict kb (list 'ageAtLeast Ann 49) 'CxRealWorldNow))))
+      (is (true? (v/query? kb (list 'ageAtLeast Ann 48) present {:max-depth 3})))
+      (is (= :unknown (verdict kb (list 'ageAtLeast Ann 49) present))))
     (testing "no exact age is answered"
-      (is (empty? (v/query kb (list 'ageOf Ann '?n) 'CxRealWorldNow {:max-depth 3}))))
+      (is (empty? (v/query kb (list 'ageOf Ann '?n) present {:max-depth 3}))))
     (reading! kb [2027 1 1 0 0 0])
     (testing "a later reading raises the bound to 49"
-      (is (true? (v/query? kb (list 'ageAtLeast Ann 49) 'CxRealWorldNow {:max-depth 3}))))))
+      (is (true? (v/query? kb (list 'ageAtLeast Ann 49) present {:max-depth 3}))))))
 
 (tu/deftest-kb ^:red a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded
   ;; Iris's ruling: precision shows up in temporalDistance's answer, in its width, with
@@ -1608,25 +1624,26 @@
       (is (= [{'?d '(QuantityIntervalFn 1149619320 1149619440 Second)}]
              (v/ask kb (list 'temporalDistance X Y '?d) U))))))
 
-(tu/deftest-kb ^:red a-distance-from-a-minute-start-to-a-lower-bound-on-now-is-a-lower-bound
-  ;; The present reached only through CxNow's lower-bound readings does not give an
-  ;; exact distance: nothing bounds it from above.  The minute is the one from the
+(tu/deftest-kb ^:red a-distance-from-a-minute-start-to-a-lower-bound-on-w-is-a-lower-bound
+  ;; W reached only through lower-bound readings does not give an exact distance:
+  ;; nothing bounds it from above.  The minute is the one from the
   ;; control above, made up; the reading floor is 09:00 on 17 October 2026, also made
   ;; up.  The distance down to the reading's own named moment is exact and stands for
-  ;; the lower bound on the distance to now, since now is no earlier than that moment;
-  ;; the distance to now itself has no finite upper bound, so temporalDistance returns
-  ;; nothing exact and nothing bounded for it.
+  ;; the lower bound on the distance to W, since W is no earlier than that moment; the
+  ;; distance to W itself has no finite upper bound, so temporalDistance returns nothing
+  ;; exact and nothing bounded for it.
   (v/add-reasoner kb :point :calendar :metric-time)
+  (present! kb)
   (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
     (v/assert kb s U))
   (reading! kb [2026 10 17 9 0 0])
-  (testing "the distance down to the reading floor is exact: a lower bound on the distance to now"
+  (testing "the distance down to the reading floor is exact: a lower bound on the distance to W"
     (is (= [{'?d '(QuantityFn 1149272880 Second)}]
            (v/ask kb '(temporalDistance (StartFn (DatetimeFn "1990-05-17T14:32"))
-                                        (InstantFn 2026 10 17 9 0 0) ?d) 'CxRealWorldNow))))
-  (testing "no exact or bounded distance to now itself is returned"
-    (is (empty? (v/ask kb (list 'temporalDistance '(StartFn (DatetimeFn "1990-05-17T14:32")) now '?d)
-                       'CxRealWorldNow)))))
+                                        (InstantFn 2026 10 17 9 0 0) ?d) present))))
+  (testing "no exact or bounded distance to W itself is returned"
+    (is (empty? (v/ask kb (list 'temporalDistance '(StartFn (DatetimeFn "1990-05-17T14:32")) W '?d)
+                       present)))))
 
 (tu/deftest-kb ^:red a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals
   ;; Varies the precision of each side's containing interval on its own, the other held
@@ -1666,70 +1683,71 @@
       (testing "the earlier side to the month, the later to the minute: bounded to a 2678460-second width"
         (is (= [{'?d '(QuantityIntervalFn 1148375700 1151054160 Second)}] (gap XMonth YMinute)))))))
 
-(tu/deftest-kb ^:red a-reading-places-now-after-a-past-year-and-inside-no-year
-  ;; A reading of 17 October 2026 places the present after all of 2000, and, with no
-  ;; upper bound, inside no year: not even 2026.  So the real world's present sits under
-  ;; no year slice, and a fact of the real world's 2026 slice is not known to hold now.
+(tu/deftest-kb a-reading-places-w-after-a-past-year-and-inside-no-year
+  ;; A reading of 17 October 2026 places W after all of 2000, and, with no upper bound,
+  ;; inside no year: not even 2026.  So the real world's present sits under no year
+  ;; slice, and a fact of the real world's 2026 slice is not known to hold in it.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :point :calendar)
+  (present! kb)
   (reading! kb [2026 10 17 9 0 0])
-  (testing "now is after the end of 2000"
-    (is (true? (v/ask? kb (list 'instantNotBefore now '(InstantFn 2001 1 1 0 0 0)) 'CxNow))))
-  (testing "and whether 2026 includes now is unknown"
-    (is (= :unknown (verdict kb (list 'includesInstant '(YearFn 2026) now) 'CxNow))))
+  (testing "W is after the end of 2000"
+    (is (true? (v/ask? kb (list 'instantNotBefore W '(InstantFn 2001 1 1 0 0 0)) U))))
+  (testing "and whether 2026 includes W is unknown"
+    (is (= :unknown (verdict kb (list 'includesInstant '(YearFn 2026) W) U))))
   (tu/with-terms [p]
     (v/assert kb (list p) (real-slice '(YearFn 2026)))
-    (testing "so a fact of the real world's 2026 slice is not known now"
-      (is (not (v/ask? kb (list p) 'CxRealWorldNow))))))
+    (testing "so a fact of the real world's 2026 slice is not known in the present"
+      (is (not (v/ask? kb (list p) present))))))
 
-(tu/deftest-kb ^:red a-reading-at-a-named-moment-places-now-after-a-named-past-year-and-inside-no-named-year
-  ;; The reified twin of a-reading-places-now-after-a-past-year-and-inside-no-year: the
+(tu/deftest-kb a-reading-at-a-named-moment-places-w-after-a-named-past-year-and-inside-no-named-year
+  ;; The reified twin of a-reading-places-w-after-a-past-year-and-inside-no-year: the
   ;; end of 2000, the reading and the years are named, and the calendar's placement of
-  ;; the reading (after the end of 2000, inside 2026) is stated.  Red for the original's
-  ;; reason: the point prover does not compose the reading's lower bound on now with the
+  ;; the reading (after the end of 2000, inside 2026) is stated.  W is a named
+  ;; time_point, so the point prover composes the reading's lower bound on W with the
   ;; stated order of the two named moments.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :point)
+  (present! kb)
   (tu/with-terms [Y2000 Y2026 End2000 Read]
     (times! kb [Y2000 Y2026] [End2000 Read]
             ['endOf Y2000 End2000] ['instantBefore End2000 Read] ['includesInstant Y2026 Read])
     (reading-at! kb Read)
-    (testing "now is after the end of the named 2000"
-      (is (true? (v/ask? kb (list 'instantNotBefore now End2000) 'CxNow))))
-    (testing "and whether the named 2026 includes now is unknown"
-      (is (= :unknown (verdict kb (list 'includesInstant Y2026 now) 'CxNow))))
+    (testing "W is after the end of the named 2000"
+      (is (true? (v/ask? kb (list 'instantNotBefore W End2000) U))))
+    (testing "and whether the named 2026 includes W is unknown"
+      (is (= :unknown (verdict kb (list 'includesInstant Y2026 W) U))))
     (tu/with-terms [p]
       (v/assert kb (list p) (real-slice Y2026))
-      (testing "so a fact of the real world's named 2026 slice is not known now"
-        (is (not (v/ask? kb (list p) 'CxRealWorldNow)))))))
+      (testing "so a fact of the real world's named 2026 slice is not known in the present"
+        (is (not (v/ask? kb (list p) present)))))))
 
-(tu/deftest-kb ^:red a-past-slice-of-the-real-world-sees-the-real-world-and-not-what-holds-now
+(tu/deftest-kb ^:red a-past-slice-of-the-real-world-sees-the-real-world-and-not-what-holds-in-the-present
   ;; The real world's slice of 2000 sits under its monad CxRealWorld, as any slice sits
-  ;; under its monad, and beside CxRealWorldNow rather than under it: what holds now need
-  ;; not have held in 2000.
+  ;; under its monad, and beside the present slice rather than under it: what holds in
+  ;; the present need not have held in 2000.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r]
     (let [y2000 (real-slice '(YearFn 2000))]
       (v/assert kb (list p) 'CxRealWorld)
-      (v/assert kb (list q) 'CxRealWorldNow)
+      (v/assert kb (list q) (present! kb))
       (v/assert kb (list r) y2000)
       (testing "the 2000 slice sees a fact of the real world at large"
         (is (true? (v/ask? kb (list p) y2000))))
-      (testing "and not a fact true now"
+      (testing "and not a fact true in the present"
         (is (not (v/ask? kb (list q) y2000)))
         (is (= :unknown (verdict kb (list q) y2000)))))))
 
-(tu/deftest-kb ^:red an-eternal-fact-is-visible-from-now-and-from-every-slice
+(tu/deftest-kb ^:red an-eternal-fact-is-visible-from-the-present-and-from-every-slice
   ;; Iris's eternal example from every vantage, not one year: a fact stated unsliced in
-  ;; CxUniverse holds now, in the past and the future, along the real world and along a
-  ;; story, at a year and at a day.
+  ;; CxUniverse holds in the present, in the past and the future, along the real world and
+  ;; along a story, at a year and at a day.
   (declare-cxtimefn! kb)
   (tu/with-terms [p CxStory]
     (v/assert kb (list 'genlCx CxStory 'CxWell) U)
     (v/assert kb (list p) U)
-    (testing "control: from CxNow and the real world's present"
-      (is (true? (v/ask? kb (list p) 'CxNow)))
-      (is (true? (v/ask? kb (list p) 'CxRealWorldNow))))
+    (testing "control: from the real world's present"
+      (is (true? (v/ask? kb (list p) (present! kb)))))
     (doseq [ctx [(real-slice '(YearFn 2000)) (real-slice '(YearFn 2100))
                  (real-slice '(DayFn 2000 2 29)) (slice CxStory '(YearFn 2000))
                  (slice CxStory '(MonthFn 1066 10))]]
@@ -1737,26 +1755,25 @@
         (is (true? (v/ask? kb (list p) ctx)))))))
 
 (tu/deftest-kb ^:red an-eternal-fact-is-visible-from-every-slice-along-a-monad-placed-by-genlmonad
-  ;; The genlMonad twin of an-eternal-fact-is-visible-from-now-and-from-every-slice: the
+  ;; The genlMonad twin of an-eternal-fact-is-visible-from-the-present-and-from-every-slice: the
   ;; story is placed under CxWell by genlMonad, where the original places it by genlCx.
   (declare-cxtimefn! kb)
   (tu/with-terms [p CxStory]
     (v/assert kb (list 'genlMonad CxStory 'CxWell) U)
     (v/assert kb (list p) U)
-    (testing "control: from CxNow and the real world's present"
-      (is (true? (v/ask? kb (list p) 'CxNow)))
-      (is (true? (v/ask? kb (list p) 'CxRealWorldNow))))
+    (testing "control: from the real world's present"
+      (is (true? (v/ask? kb (list p) (present! kb)))))
     (doseq [ctx [(real-slice '(YearFn 2000)) (real-slice '(YearFn 2100))
                  (real-slice '(DayFn 2000 2 29)) (slice CxStory '(YearFn 2000))
                  (slice CxStory '(MonthFn 1066 10))]]
       (testing (str "from " (pr-str ctx))
         (is (true? (v/ask? kb (list p) ctx)))))))
 
-(tu/deftest-kb ^:red a-fluent-started-in-a-past-slice-holds-now
+(tu/deftest-kb ^:red a-fluent-started-in-a-past-slice-holds-at-w
   ;; Projection to the present: a state started in June 2000, stated in the real world's
-  ;; 2000 slice, that nothing has ended since, holds now, and the reading is what puts
-  ;; now after June 2000.  The question is asked in CxRealWorldNow, which does not see the
-  ;; slice: only the fluent crosses, by inertia, and a plain fact of 2000 does not.
+  ;; 2000 slice, that nothing has ended since, holds at W, and the reading is what puts W
+  ;; after June 2000.  The question is asked in the present slice, which does not see the
+  ;; 2000 slice: only the fluent crosses, by inertia, and a plain fact of 2000 does not.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar :point)
   (reading! kb [2026 10 17 9 0 0])
@@ -1765,13 +1782,13 @@
           y2k (real-slice '(YearFn 2000))]
       (happened! kb y2k Start 'initiates f '(InstantFn 2000 6 1 12 0 0))
       (v/assert kb (list p) y2k)
-      (testing "the state holds now"
-        (is (true? (v/query? kb (list 'holdsAt f now) 'CxRealWorldNow {:max-depth 3}))))
+      (testing "the state holds at W"
+        (is (true? (v/query? kb (list 'holdsAt f W) present {:max-depth 3}))))
       (testing "and a plain fact of 2000 is not projected"
-        (is (not (v/ask? kb (list p) 'CxRealWorldNow)))))))
+        (is (not (v/ask? kb (list p) present)))))))
 
-(tu/deftest-kb ^:red a-fluent-started-at-a-named-moment-in-a-past-named-slice-holds-now
-  ;; The reified twin of a-fluent-started-in-a-past-slice-holds-now: the start, the
+(tu/deftest-kb ^:red a-fluent-started-at-a-named-moment-in-a-past-named-slice-holds-at-w
+  ;; The reified twin of a-fluent-started-in-a-past-slice-holds-at-w: the start, the
   ;; reading and the year are named, the start stated inside the year and before the
   ;; reading.  The point prover takes the place of the calendar clock.
   (declare-cxtimefn! kb)
@@ -1784,14 +1801,14 @@
           y2k (real-slice Y2000)]
       (happened! kb y2k Start 'initiates f Began)
       (v/assert kb (list p) y2k)
-      (testing "the state holds now"
-        (is (true? (v/query? kb (list 'holdsAt f now) 'CxRealWorldNow {:max-depth 3}))))
+      (testing "the state holds at W"
+        (is (true? (v/query? kb (list 'holdsAt f W) present {:max-depth 3}))))
       (testing "and a plain fact of the named 2000 is not projected"
-        (is (not (v/ask? kb (list p) 'CxRealWorldNow)))))))
+        (is (not (v/ask? kb (list p) present)))))))
 
-(tu/deftest-kb ^:red a-fluent-ended-after-the-past-slice-does-not-hold-now
+(tu/deftest-kb ^:red a-fluent-ended-after-the-past-slice-does-not-hold-at-w
   ;; No projection past a terminating event: two states start in 2000, one is ended in
-  ;; 2005 (stated in the 2005 slice), and only the other holds now.  The first half is the
+  ;; 2005 (stated in the 2005 slice), and only the other holds at W.  The first half is the
   ;; positive control, so the second is not answered by projection being absent.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar :point)
@@ -1803,13 +1820,13 @@
       (happened! kb y2k Start 'initiates kept '(InstantFn 2000 6 1 12 0 0))
       (v/assert kb (list 'initiates Start ended '(InstantFn 2000 6 1 12 0 0)) y2k)
       (happened! kb (real-slice '(YearFn 2005)) Stop 'terminates ended '(InstantFn 2005 3 1 12 0 0))
-      (testing "the state nothing ended holds now"
-        (is (true? (v/query? kb (list 'holdsAt kept now) 'CxRealWorldNow {:max-depth 3}))))
+      (testing "the state nothing ended holds at W"
+        (is (true? (v/query? kb (list 'holdsAt kept W) present {:max-depth 3}))))
       (testing "the state ended in 2005 does not"
-        (is (not (v/query? kb (list 'holdsAt ended now) 'CxRealWorldNow {:max-depth 3})))))))
+        (is (not (v/query? kb (list 'holdsAt ended W) present {:max-depth 3})))))))
 
-(tu/deftest-kb ^:red a-fluent-ended-at-a-named-moment-before-the-reading-does-not-hold-now
-  ;; The reified twin of a-fluent-ended-after-the-past-slice-does-not-hold-now.
+(tu/deftest-kb ^:red a-fluent-ended-at-a-named-moment-before-the-reading-does-not-hold-at-w
+  ;; The reified twin of a-fluent-ended-after-the-past-slice-does-not-hold-at-w.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :point)
   (tu/with-terms [StateFn Kept Ended Start Stop Y2000 Y2005 Began Stopped Read]
@@ -1822,14 +1839,14 @@
       (happened! kb y2k Start 'initiates kept Began)
       (v/assert kb (list 'initiates Start ended Began) y2k)
       (happened! kb (real-slice Y2005) Stop 'terminates ended Stopped)
-      (testing "the state nothing ended holds now"
-        (is (true? (v/query? kb (list 'holdsAt kept now) 'CxRealWorldNow {:max-depth 3}))))
+      (testing "the state nothing ended holds at W"
+        (is (true? (v/query? kb (list 'holdsAt kept W) present {:max-depth 3}))))
       (testing "the state ended before the reading does not"
-        (is (not (v/query? kb (list 'holdsAt ended now) 'CxRealWorldNow {:max-depth 3})))))))
+        (is (not (v/query? kb (list 'holdsAt ended W) present {:max-depth 3})))))))
 
-(tu/deftest-kb ^:red a-fluent-ended-after-the-reading-is-not-known-to-hold-now
+(tu/deftest-kb ^:red a-fluent-ended-after-the-reading-is-not-known-to-hold-at-w
   ;; The bound cuts both ways: a state started in 2000 and ended on 1 March 2030 held at
-  ;; the reading of 17 October 2026, but now may be past 2030, so whether it holds now is
+  ;; the reading of 17 October 2026, but W may be past 2030, so whether it holds at W is
   ;; unknown, where a state nothing ended holds.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar :point)
@@ -1841,14 +1858,14 @@
       (happened! kb y2k Start 'initiates kept '(InstantFn 2000 6 1 12 0 0))
       (v/assert kb (list 'initiates Start ended '(InstantFn 2000 6 1 12 0 0)) y2k)
       (happened! kb (real-slice '(YearFn 2030)) Stop 'terminates ended '(InstantFn 2030 3 1 12 0 0))
-      (testing "the state nothing ended still holds now"
-        (is (true? (v/query? kb (list 'holdsAt kept now) 'CxRealWorldNow {:max-depth 3}))))
-      (testing "the state ended in 2030 is unknown now, neither held nor ended"
-        (is (= :unknown (verdict kb (list 'holdsAt ended now) 'CxRealWorldNow)))
-        (is (not (v/query? kb (list 'holdsAt ended now) 'CxRealWorldNow {:max-depth 3})))))))
+      (testing "the state nothing ended still holds at W"
+        (is (true? (v/query? kb (list 'holdsAt kept W) present {:max-depth 3}))))
+      (testing "the state ended in 2030 is unknown at W, neither held nor ended"
+        (is (= :unknown (verdict kb (list 'holdsAt ended W) present)))
+        (is (not (v/query? kb (list 'holdsAt ended W) present {:max-depth 3})))))))
 
-(tu/deftest-kb ^:red a-fluent-ended-at-a-named-moment-after-the-reading-is-not-known-to-hold-now
-  ;; The reified twin of a-fluent-ended-after-the-reading-is-not-known-to-hold-now.
+(tu/deftest-kb ^:red a-fluent-ended-at-a-named-moment-after-the-reading-is-not-known-to-hold-at-w
+  ;; The reified twin of a-fluent-ended-after-the-reading-is-not-known-to-hold-at-w.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :point)
   (tu/with-terms [StateFn Kept Ended Start Stop Y2000 Y2030 Began Read Stopped]
@@ -1861,20 +1878,19 @@
       (happened! kb y2k Start 'initiates kept Began)
       (v/assert kb (list 'initiates Start ended Began) y2k)
       (happened! kb (real-slice Y2030) Stop 'terminates ended Stopped)
-      (testing "the state nothing ended still holds now"
-        (is (true? (v/query? kb (list 'holdsAt kept now) 'CxRealWorldNow {:max-depth 3}))))
-      (testing "the state ended after the reading is unknown now, neither held nor ended"
-        (is (= :unknown (verdict kb (list 'holdsAt ended now) 'CxRealWorldNow)))
-        (is (not (v/query? kb (list 'holdsAt ended now) 'CxRealWorldNow {:max-depth 3})))))))
+      (testing "the state nothing ended still holds at W"
+        (is (true? (v/query? kb (list 'holdsAt kept W) present {:max-depth 3}))))
+      (testing "the state ended after the reading is unknown at W, neither held nor ended"
+        (is (= :unknown (verdict kb (list 'holdsAt ended W) present)))
+        (is (not (v/query? kb (list 'holdsAt ended W) present {:max-depth 3})))))))
 
-(tu/deftest-kb projection-from-now-into-a-dated-future-slice-is-unknown-with-only-lower-bounds
-  ;; Projection forward, under the lower-bound ruling.  The present has no upper bound,
-  ;; so no dated slice is known to lie after now: with a reading of 17 October 2026, now
-  ;; may already be past the start of 2027, and a state observed now is neither held nor
-  ;; refuted there.  Correct by design under the ruling, and passing today because no
-  ;; slice sees anything.  Projection forward from now to a dated future needs an upper
-  ;; bound on now, and an upper bound goes stale, so the spec keeps the verdict unknown:
-  ;; a question about a dated future is asked from a dated fact, not from now.
+(tu/deftest-kb projection-from-the-present-into-a-dated-future-slice-is-unknown-with-only-lower-bounds
+  ;; Projection forward, under the lower-bound ruling.  W has no upper bound, so no dated
+  ;; slice is known to lie after it: with a reading of 17 October 2026, W may already be
+  ;; past the start of 2027, and a state observed at W is neither held nor refuted there.  Correct by design under the ruling, and passing today because no
+  ;; slice sees anything.  Projection forward from the present to a dated future needs an upper
+  ;; bound on W, and an upper bound goes stale, so the spec keeps the verdict unknown:
+  ;; a question about a dated future is asked from a dated fact, not from the present.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar :point)
   (reading! kb [2026 10 17 9 0 0])
@@ -1882,14 +1898,14 @@
     (let [kept (fluent! kb StateFn Kept)
           t27  '(InstantFn 2027 1 1 0 0 0)
           y27  (real-slice '(YearFn 2027))]
-      (v/assert kb (list 'holdsAt kept now) 'CxRealWorldNow)
-      (testing "control: it holds now, as stated"
-        (is (true? (v/ask? kb (list 'holdsAt kept now) 'CxRealWorldNow))))
-      (testing "it is unknown at the start of 2027, which now may be past"
+      (v/assert kb (list 'holdsAt kept W) (present! kb))
+      (testing "control: it holds at W, as stated"
+        (is (true? (v/ask? kb (list 'holdsAt kept W) present))))
+      (testing "it is unknown at the start of 2027, which W may be past"
         (is (= :unknown (verdict kb (list 'holdsAt kept t27) y27)))))))
 
-(tu/deftest-kb projection-from-now-into-a-named-future-slice-is-unknown-with-only-lower-bounds
-  ;; The reified twin of projection-from-now-into-a-dated-future-slice-is-unknown-with-only-lower-bounds:
+(tu/deftest-kb projection-from-the-present-into-a-named-future-slice-is-unknown-with-only-lower-bounds
+  ;; The reified twin of projection-from-the-present-into-a-dated-future-slice-is-unknown-with-only-lower-bounds:
   ;; the reading and the later moment are named, the reading stated first.  Correct by
   ;; design under the lower-bound ruling.
   (declare-cxtimefn! kb)
@@ -1900,15 +1916,15 @@
     (reading-at! kb Read)
     (let [kept (fluent! kb StateFn Kept)
           y27  (real-slice Y2027)]
-      (v/assert kb (list 'holdsAt kept now) 'CxRealWorldNow)
-      (testing "control: it holds now, as stated"
-        (is (true? (v/ask? kb (list 'holdsAt kept now) 'CxRealWorldNow))))
-      (testing "it is unknown at the later named moment, which now may be past"
+      (v/assert kb (list 'holdsAt kept W) (present! kb))
+      (testing "control: it holds at W, as stated"
+        (is (true? (v/ask? kb (list 'holdsAt kept W) present))))
+      (testing "it is unknown at the later named moment, which W may be past"
         (is (= :unknown (verdict kb (list 'holdsAt kept Later) y27)))))))
 
-(tu/deftest-kb a-state-holding-now-is-unknown-at-a-dated-past-moment
+(tu/deftest-kb a-state-holding-at-w-is-unknown-at-a-dated-past-moment
   ;; Projection backward, under the lower-bound ruling.  The reading puts the start of
-  ;; 2025 before now, so the order is known, but a state stated to hold now says nothing
+  ;; 2025 before W, so the order is known, but a state stated to hold at W says nothing
   ;; about an earlier moment: it may have started after it.  Inertia carries a state
   ;; forward from where it started, never back from where it is observed.  Correct by
   ;; design.
@@ -1919,14 +1935,14 @@
     (let [kept (fluent! kb StateFn Kept)
           t25  '(InstantFn 2025 1 1 0 0 0)
           y25  (real-slice '(YearFn 2025))]
-      (v/assert kb (list 'holdsAt kept now) 'CxRealWorldNow)
-      (testing "control: it holds now, as stated"
-        (is (true? (v/ask? kb (list 'holdsAt kept now) 'CxRealWorldNow))))
-      (testing "it is unknown at the start of 2025, which is before now"
+      (v/assert kb (list 'holdsAt kept W) (present! kb))
+      (testing "control: it holds at W, as stated"
+        (is (true? (v/ask? kb (list 'holdsAt kept W) present))))
+      (testing "it is unknown at the start of 2025, which is before W"
         (is (= :unknown (verdict kb (list 'holdsAt kept t25) y25)))))))
 
-(tu/deftest-kb a-state-holding-now-is-unknown-at-a-named-past-moment
-  ;; The reified twin of a-state-holding-now-is-unknown-at-a-dated-past-moment: the
+(tu/deftest-kb a-state-holding-at-w-is-unknown-at-a-named-past-moment
+  ;; The reified twin of a-state-holding-at-w-is-unknown-at-a-dated-past-moment: the
   ;; earlier moment and the reading are named, the earlier moment stated first.  Correct
   ;; by design.
   (declare-cxtimefn! kb)
@@ -1937,9 +1953,9 @@
     (reading-at! kb Read)
     (let [kept (fluent! kb StateFn Kept)
           y25  (real-slice Y2025)]
-      (v/assert kb (list 'holdsAt kept now) 'CxRealWorldNow)
-      (testing "control: it holds now, as stated"
-        (is (true? (v/ask? kb (list 'holdsAt kept now) 'CxRealWorldNow))))
+      (v/assert kb (list 'holdsAt kept W) (present! kb))
+      (testing "control: it holds at W, as stated"
+        (is (true? (v/ask? kb (list 'holdsAt kept W) present))))
       (testing "it is unknown at the earlier named moment"
         (is (= :unknown (verdict kb (list 'holdsAt kept Earlier) y25)))))))
 
