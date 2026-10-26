@@ -12,7 +12,7 @@ Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle
 If you're about to assert P, but Q is also true and Q implies P, assert Q instead. The weaker fact stays derivable, so nothing is lost, and the stronger one carries more.
 
 This applies to instance facts, argument types and disjointness alike:
-- **Instances:** if a more specific true type exists, use it. If it doesn't exist yet, mint it (with its genl) rather than settling for the general one.
+- **Instances:** if a more specific true type exists, use it. If it doesn't exist yet, mint it with its genl and a differentia (a fact its members have that the parent's members lack) rather than settling for the general one. A type whose only content is its name is not stronger, because the engine can conclude nothing more from it: see **no OE calligraphy** and **differentia from near-misses**.
 - **Argument types:** type each argument as tightly as the truth allows. If only one kind of thing can fill a position, the arg should name that kind.
 - **Disjointness:** state it at the highest level that is true. If `(disjoint A B)` holds and A′ ⊂ A, don't also state `(disjoint A′ B)`.
 
