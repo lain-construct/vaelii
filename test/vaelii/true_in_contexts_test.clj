@@ -39,11 +39,10 @@
             [vaelii.test-util :as tu]))
 
 ;; The fixture of temporal_capability_test.clj: a fresh KB per test with the upper layer,
-;; the CxChange event calculus, CxRealWorld, CxNow and CxRealWorldNow, and no prover.
+;; the CxChange event calculus and CxRealWorld, and no prover.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
-                        (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]
-                                              [CxNow "middle"] [CxRealWorldNow "middle"]]))))
+                        (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]]))))
 
 (def ^:private U 'CxUniverse)
 

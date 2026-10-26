@@ -36,8 +36,7 @@
 
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
-                        (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]
-                                              [CxNow "middle"] [CxRealWorldNow "middle"]]))))
+                        (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]]))))
 
 (def ^:private U 'CxUniverse)
 
