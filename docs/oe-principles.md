@@ -4,7 +4,7 @@
 - **Not here:** why a particular piece of the shipped ontology is shaped as it is → [oe-defenses.md](oe-defenses.md). The vocabulary itself → [taxonomy.md](taxonomy.md).
 - **Assumes:** you know the KB's metatypes (`genl`, `disjoint`, `partition`, `arg`) from [taxonomy.md](taxonomy.md).
 
-Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle has a short handle, used to cite it, with its full name below; `genlPrinciple` and `specPrinciple` relate a special case to the principle it specializes. Most end with an audit step to run on a vocab PR before it ships.
+Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle has a short handle, used to cite it, with its full name below; `genlPrinciple` and `specPrinciple` relate a special case to the principle it specializes. `overridesPrinciple` names a principle that this one wins over when the two conflict. Most end with an audit step to run on a vocab PR before it ships.
 
 ## strongest form
 *State knowledge in its strongest form*
@@ -76,6 +76,8 @@ Merging is infeasible when the encodings put some dimension (time, modality, pro
 
 This is about vocabulary. Instance-level duplication can be fine for a good reason, e.g. two sources asserting the same fact, kept separately for provenance.
 
+DRY loses to **no silent side effects** when the two conflict: a constraint that should hold after an edit to the facts it follows from is stated directly, though the KB derives it.
+
 ## state it once
 *Don't state what the KB already derives*
 **genlPrinciple:** DRY
@@ -87,7 +89,20 @@ Two exceptions, each marked with a comment saying which one applies:
 
 The same holds for comments. A comment doesn't restate a definitional assertion the KB already makes: no "the complement of X", "with Y it partitions Z" or bare member list when a `partition`, `intersection` or `genl` says it. The comment says what membership means, with examples, and leaves the structure to the assertions.
 
-**Audit:** for every new `genl`, `disjoint` or `arg`, ask whether the rest of the KB already entails it. If so, drop it or mark which exception applies. For every comment, delete any clause that a definitional assertion already states.
+State it once loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate, even where the predicate's `genl` edges derive them.
+
+**Audit:** for every new `genl`, `disjoint` or arg constraint, ask whether the rest of the KB already entails it. If so, drop it, mark which exception applies, or keep it under **no silent side effects**. For every comment, delete any clause that a definitional assertion already states.
+
+## no silent side effects
+*Make an edit's consequences explicit*
+**overridesPrinciple:** DRY, state it once
+When a constraint should hold however another part of the KB is later edited, state it directly on the term it constrains, even if the KB derives it today. A derived constraint changes whenever a fact it follows from changes, and the edit that changes it does not mention it. A stated constraint changes only through an edit that names it.
+
+**Example:** state arg constraints on every predicate. A predicate inherits arg constraints through its `genl` edges, so an edit to those edges would change which arguments the predicate accepts. Stated on the predicate, its arg constraints stay the same when its `genl` edges change.
+
+**Limit:** a stated arg constraint strictly weaker than one the predicate inherits is redundant either way. While the inherited constraint holds, it entails the weaker one. After an edit removes the inherited constraint, the weaker one does not keep the constraint the predicate had.
+
+**Audit:** for every constraint a vocab PR leaves to derivation, ask whether it should hold after an edit to the facts it follows from. If so, state it. For every edit to a `genl` edge, list the arg constraints it changes on the terms below it.
 
 ## don't skip the predicate
 *Don't skip the predicate*
