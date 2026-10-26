@@ -28,6 +28,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   application and stores the conclusion over the constant, which the goal reads.
   *Breaks:* `assert` of a rule whose consequent names an application, `prove`, `query`
 
+- **`(args R T)` derives `(argAndRest R 1 T)`.** A `set/forwardRule` in `core.txt` states
+  the entailment the two spellings' comments describe and stores the `argAndRest` twin, so
+  `query (argAndRest R ?n ?t)` answers `[{?n 1 ?t T}]` of a relation declared only
+  through `args`, and the readers of what a position holds (`res/arg-constraints`) look up
+  `arg` and `argAndRest` alone. So do the assert-time checks: an `args` declaration is
+  refused, and derives memberships, through the twin, whose handle an entailment rests on
+  and whose `argAndRest from 1, position N` a refusal names. Retracting the `args`
+  declaration retracts the twin. [argtypes.md](docs/argtypes.md).
+
+  *Migration:* a KB that loads `core.txt` needs none. A KB that does not has no forward
+  rule, so its `args` declarations type nothing: state `(argAndRest R 1 T)` instead, or
+  assert the rule.
+  *Breaks:* `args`, `assert`, `check`
+
 ### Breaking: daemon
 
 - **A wire write naming the provenance `:principal` is refused**, 403
@@ -192,6 +206,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   quotations stored only as a `modal_predicate`'s proposition, as the plugin's Cyc
   preamble stores them. [nat.md](docs/nat.md#read-path)
   *Migration:* none.
+
+- **`ArgTypeProver` types a term at a position an `argAndRest` declaration types.** A
+  believed `(P … x …)` with `x` at position `n` or later beside `(argAndRest P n T)`
+  answers `(T x)`, as `(arg P n T)` at `x`'s position does; `(args P T)` answers through
+  the `argAndRest` twin its rule stores. The exception re-check that follows the inference
+  reads the same declarations, in both arrival orders. The prover reads a predicate's
+  declarations through `res/arg-constraints-at`, held for one stretch of the change clock.
+  [argtypes.md](docs/argtypes.md)
+
+  *Migration:* none. Under the constraint-only reading, `ask` answers such a membership
+  where it answered nothing.
+
+- **A `predAllSpecified` or `predSpecifiedAll` slot typed by a tail declaration is
+  audited.** A slot typed only by `argAndRest`, `args`, `argAndRestGenl` or `argsGenl`
+  reported `{:status :gap :gap :missing-slot-typing}`; the audit now derives its contract
+  from those declarations as from `arg` and `genlArg`. [predall.md](docs/predall.md)
+
+  *Migration:* none. A declaration that reported the gap reports `:audited`.
 
 ### Breaking: integrity
 
