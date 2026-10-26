@@ -15,6 +15,11 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
+(defn- sans-meter
+  "`report` without the `:work` and `:elapsed-ms` every answer carries."
+  [report]
+  (dissoc report :work :elapsed-ms))
+
 (defn- state-snapshot [kb]
   (let [handles (tu/sentex-ids kb)]
     {:sentexes handles
@@ -111,8 +116,22 @@
                   (v/kb-integrity kb #{7} 'CxUniverse))))
         "8 would clash too, but the sweep never invents or enumerates it")
     (is (= {:status :audited :candidate-count 0}
-           (v/kb-integrity kb #{} 'CxUniverse))
+           (sans-meter (v/kb-integrity kb #{} 'CxUniverse)))
         "the empty finite bound is a real, clean audit")))
+
+(tu/deftest-kb every-answer-carries-the-work-and-time-it-spent
+  (tu/with-terms [widget qualifies required]
+    (v/add-evaluatable kb qualifies (constantly true))
+    (v/add-evaluatable kb required  (constantly false))
+    (v/assert kb (list 'defnSufficient widget (list qualifies '?x)) 'CxUniverse)
+    (v/assert kb (list 'defnNecessary  widget (list required  '?x)) 'CxUniverse)
+    (let [audited (v/kb-integrity kb #{} 'CxUniverse)
+          gap     (v/kb-integrity kb #{7} 'CxUniverse)
+          lifted  (v/kb-integrity kb #{7} 'CxUniverse {:max-work nil})]
+      (is (= [:audited :gap :gap] (mapv :status [audited gap lifted])))
+      (is (every? #(and (nat-int? (:work %)) (number? (:elapsed-ms %)))
+                  [audited gap lifted]))
+      (is (pos? (:work gap)) "a sweep that read a definition spent work on it"))))
 
 (tu/deftest-kb ordinary-represented-contradictions-are-not-definition-findings
   (tu/with-terms [widget]
@@ -120,7 +139,7 @@
     (v/assert kb (list 'not (list widget 7)) 'CxUniverse {:strength :default})
     (is (seq (v/contradictions kb)) "the ordinary contradiction reader sees it")
     (is (= {:status :audited :candidate-count 1}
-           (v/kb-integrity kb #{7} 'CxUniverse))
+           (sans-meter (v/kb-integrity kb #{7} 'CxUniverse)))
         "the definition audit neither aliases nor broadens contradictions")))
 
 (tu/deftest-kb a-strict-genl-necessary-fast-fail-is-not-a-dual-answer
@@ -171,7 +190,7 @@
     (v/assert kb (list 'defnNecessary widget (list required '?x)) CxLeft)
     (is (= :gap (:status (v/kb-integrity kb #{7} CxLeft))))
     (is (= {:status :audited :candidate-count 1}
-           (v/kb-integrity kb #{7} CxRight))
+           (sans-meter (v/kb-integrity kb #{7} CxRight)))
         "a sibling context cannot leak another theory's definitions into its report")))
 
 (tu/deftest-kb aggregate-errors-raised-by-the-audit-stay-local
@@ -243,7 +262,7 @@
 
 (tu/deftest-kb a-nil-bound-is-no-bound-and-a-bad-one-is-refused
   (is (= {:status :audited :candidate-count 0}
-         (v/kb-integrity kb #{} 'CxUniverse {:max-work nil :max-ms nil :max-results nil})))
+         (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:max-work nil :max-ms nil :max-results nil}))))
   (doseq [options [{:max-work -1} {:max-ms "5"} {:max-results 1.5}
                    {:categories [:implicit-genl]} {:categories #{:not-a-category}}]]
     (let [e (is (thrown? clojure.lang.ExceptionInfo
@@ -303,12 +322,12 @@
 
 (tu/deftest-kb a-clean-sweep-at-zero-results-is-complete
   (is (= {:status :audited :candidate-count 0}
-         (v/kb-integrity kb #{} 'CxUniverse {:max-results 0}))
+         (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:max-results 0})))
       "an empty result allowance is not exhaustion when the sweep finds nothing"))
 
 (tu/deftest-kb a-sweep-within-its-work-budget-finishes
   (is (= {:status :audited :candidate-count 0}
-         (v/kb-integrity kb #{} 'CxUniverse {:categories #{:implicit-genl} :max-work 0}))
+         (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:categories #{:implicit-genl} :max-work 0})))
       "a sweep that spends no unit finishes at a budget of none"))
 
 (tu/deftest-kb an-exact-definition-result-cap-is-complete
@@ -571,7 +590,7 @@
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)   ; narrower ⊆ wider
     (v/assert kb (list 'genl siblingOf relatedTo) 'CxUniverse) ; the same type
     (is (= {:status :audited :candidate-count 0}
-           (v/kb-integrity kb #{} 'CxUniverse)))))
+           (sans-meter (v/kb-integrity kb #{} 'CxUniverse))))))
 
 (tu/deftest-kb a-spec-that-declares-nothing-at-a-position-widens-nothing-there
   ;; With no declaration of its own, the spec's position is typed by the genl's
@@ -653,15 +672,15 @@
     (v/assert kb (list 'genl placed_kind_fixture 'thing) 'CxUniverse)        ; directly
     (v/assert kb (list 'genl nested_kind_fixture placed_kind_fixture) 'CxUniverse) ; transitively
     (is (= {:status :audited :candidate-count 3}
-           (v/kb-integrity kb #{placed_kind_fixture nested_kind_fixture 'thing}
-                           'CxUniverse))
+           (sans-meter (v/kb-integrity kb #{placed_kind_fixture nested_kind_fixture 'thing}
+                                       'CxUniverse)))
         "thing itself is never a finding")))
 
 (tu/deftest-kb a-unary-predicate-outside-the-candidate-terms-is-not-reported
   (tu/with-terms [orphan_kind_fixture]
     (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
     (is (= {:status :audited :candidate-count 1}
-           (v/kb-integrity kb #{7} 'CxUniverse {:categories without-missing-arg}))
+           (sans-meter (v/kb-integrity kb #{7} 'CxUniverse {:categories without-missing-arg})))
         "the caller-owned term set is the bound; the sweep enumerates no types")))
 
 (tu/deftest-kb a-non-unary-term-is-not-reported
@@ -670,8 +689,8 @@
     (v/assert kb (list 'binary_predicate relatesFixture) 'CxUniverse)
     (v/assert kb (list 'genl linksFixture relatesFixture) 'CxUniverse)
     (is (= {:status :audited :candidate-count 2}
-           (v/kb-integrity kb #{linksFixture relatesFixture} 'CxUniverse
-                           {:categories without-missing-arg})))))
+           (sans-meter (v/kb-integrity kb #{linksFixture relatesFixture} 'CxUniverse
+                                       {:categories without-missing-arg}))))))
 
 (tu/deftest-kb not-under-thing-findings-respect-context-visibility
   (tu/with-terms [orphan_kind_fixture CxHidden]
@@ -760,7 +779,7 @@
           only   #{:implicit-genl}
           needed (first (filter #(not= :truncated (:status (run {:categories only :max-work %})))
                                 (range 0 2000)))]
-      (is (= [:implicit-genl] (keys (dissoc (run {:categories only}) :status :candidate-count)))
+      (is (= [:implicit-genl] (keys (dissoc (run {:categories only}) :status :candidate-count :work :elapsed-ms)))
           "the other categories' passes do not run")
       (is (some? needed))
       (is (= [novel_kind] (map :term (:implicit-genl (run {:categories only :max-work needed})))))
@@ -956,7 +975,7 @@
     (v/assert kb (list 'genl spatial_like 'thing) 'CxUniverse)
     (v/assert kb (list 'genl temporal_like 'thing) 'CxUniverse)
     (v/assert kb (list 'orthogonal spatial_like temporal_like) 'CxUniverse)
-    (is (= {:status :audited :candidate-count 0} (v/kb-integrity kb #{} 'CxUniverse)))))
+    (is (= {:status :audited :candidate-count 0} (sans-meter (v/kb-integrity kb #{} 'CxUniverse))))))
 
 (tu/deftest-kb every-form-of-stated-separation-is-reported
   (tu/with-terms [left_kind right_kind upper_left upper_right parent_kind kind_metatype
@@ -1049,7 +1068,7 @@
     (declare-types! kb temporal_like aspatial_like acausal_like point_kind interval_kind)
     (doseq [k [point_kind interval_kind], g [temporal_like aspatial_like acausal_like]]
       (v/assert kb (list 'genl k g) 'CxUniverse))
-    (is (= {:status :audited :candidate-count 0} (v/kb-integrity kb #{} 'CxUniverse))
+    (is (= {:status :audited :candidate-count 0} (sans-meter (v/kb-integrity kb #{} 'CxUniverse)))
         "the twin pair is not read by a sweep without :categories")
     (is (= :gap (:status (v/kb-integrity kb #{} 'CxUniverse {:categories #{:twin-genls}})))
         "and is reported once :categories names :twin-genls")))
@@ -1648,8 +1667,8 @@
           only (v/kb-integrity kb #{orphan_kind_fixture} 'CxUniverse
                                {:categories #{:rule-macro}})]
       (is (= #{:not-under-thing :rule-macro}
-             (set (keys (dissoc all :status :candidate-count)))))
-      (is (= [:rule-macro] (keys (dissoc only :status :candidate-count))))
+             (set (keys (dissoc all :status :candidate-count :work :elapsed-ms)))))
+      (is (= [:rule-macro] (keys (dissoc only :status :candidate-count :work :elapsed-ms))))
       (is (= (:rule-macro all) (:rule-macro only))))))
 
 (tu/deftest-kb rule-macro-findings-truncate-under-every-bound

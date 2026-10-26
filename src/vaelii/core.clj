@@ -5907,7 +5907,8 @@
   `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
   `:taxonomy-island`, `:rule-clash-review` and `:rule-macro-review`, or `:status
   :truncated` with its `:reason`, the `:pass` it stopped in and the findings kept when a
-  bound runs out.  `options` takes `:max-work`, `:max-ms` and `:max-results`, and
+  bound runs out.  Every answer carries `:work`, the units spent, and
+  `:elapsed-ms`.  `options` takes `:max-work`, `:max-ms` and `:max-results`, and
   `:categories`, a set of category keys to run.  The seven review-only categories
   `:twin-genls`, `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
   `:taxonomy-island`, `:rule-clash-review` and `:rule-macro-review` run only when

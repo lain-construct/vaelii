@@ -197,6 +197,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   native-only registry declarations retain their existing context behavior.
   *Breaks:* `all-specified-violations`, `kb-integrity`
 
+- **Every `kb-integrity` answer carries `:work` and `:elapsed-ms`**, where only a
+  `:truncated` one did, so a sweep with the work ceiling lifted reports what it spent.
+  [integrity.md](docs/integrity.md#the-call)
+  *Migration:* `dissoc` `:work` and `:elapsed-ms` before comparing an answer with `=`.
+  *Breaks:* `kb-integrity`'s `:audited` and `:gap` answers, `vaelii.client/kb-integrity`
+
 ### Fix: introspection
 
 - **`why-not`'s `{:nearest n}` reports as satisfied only antecedents that hold under one
