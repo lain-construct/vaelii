@@ -650,9 +650,11 @@ loads any of them, and none of them requires anything under `vaelii.impl`.
   The stored half of that lifecycle — the `:notified` and `:stale` marks — lives in
   `CxDisputes` (`dispute/state-context`), the one well-known place a dispute id is
   looked up in. The marks are bookkeeping rather than channel knowledge, so nothing sees
-  the context by default. The first mark written into a KB loads its seed,
-  `resources/kb/koinii/CxDisputes.txt`, which places it under `CxUniverse` and declares
-  `disputeNotified`, `disputeStale` and the `DisputeFn` term they carry.
+  the context by default. Its seed, `resources/kb/koinii/CxDisputes.txt`, places it under
+  `CxUniverse` and declares `disputeNotified`, `disputeStale` and the `DisputeFn` term they
+  carry. `identity/load-registry` and `speech-acts/load-speech-acts` each load the seed,
+  so a context that sees CxDisputes reads those declarations before any dispute exists. A
+  mark written into a KB that ran neither loader loads the seed first.
 - `vaelii.koinii.adjudication` — the leave-open / arbiter / majority policies, the notify
   and stale sweeps, and the contested-premise reads.
 - `vaelii.koinii.belief` — belief projection, `convene` / `disagreements`, and

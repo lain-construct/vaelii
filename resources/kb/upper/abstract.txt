@@ -26,6 +26,7 @@
 ;; biological.
 (comment origin_type "A type of tangible by where its form came from: made or natural.")
 (metatype origin_type)
+(genl origin_type type)
 (typeGenl origin_type tangible)
 ;; Each membership is definitional, so origin_type is forced-monotonic and
 ;; typeOrthogonal's rule concludes an orthogonal from one alone (docs/nmtms.md).

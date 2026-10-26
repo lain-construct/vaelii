@@ -231,6 +231,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a caller that read a part's derived `locatedIn` or `owns` with
   `sentexes-matching` asks it with `ask?`, or asserts the forward rule in its own context.
 
+- **Five shipped unary predicates reach `thing`.** `arity_type`, `spatiality_type` and
+  `temporality_type` are placed under `unary_predicate`, `origin_type` under `type` and
+  `except` under `non_atomic_term`, so `kb-integrity` reports none of them as
+  `:not-under-thing`. [integrity.md](docs/integrity.md)
+  *Migration:* none.
+
 - **A forward rule concluding `equals` or `sameAs` over applications of a
   `reifiable_function` that have no constant yet mints them and stores the equality**, as
   `assert` of the ground sentence does. The firing dropped it as `:not-well-formed`, and
@@ -303,7 +309,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   missing. It now also reads each context that sees the audit context and stores an
   `arg`-family declaration on the relation or a `genl` edge out of it, and reports a
   position only if one of those leaves it untyped too. At CxUniverse over the starter it
-  reports 3 findings, where it reported 76: the example predicates' quoted sentence.
+  reports 3 findings, where it reported 80: the example predicates' quoted sentence.
   [integrity.md](docs/integrity.md#what-a-missing-arg-finding-means)
 
   *Migration:* none.
@@ -354,6 +360,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   rule's body, each holding for a different `?t`, `why-not` of the conclusion listed all
   three under `:satisfied` and `:missing []`; one of them is now under `:missing`.
   [api.md](docs/api.md#three-reads-for-a-reader-rather-than-a-program)
+  *Migration:* none.
+
+### Fix: koinii
+
+- **`identity/load-registry` and `speech-acts/load-speech-acts` load the CxDisputes seed**,
+  so a context that sees CxDisputes reads the dispute marks' declarations before the first
+  mark. A mark into a KB that ran neither loader still loads the seed first.
+  [koinii.md](docs/koinii.md)
   *Migration:* none.
 
 ### Fix: storage
