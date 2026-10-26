@@ -1249,6 +1249,119 @@
       (testing "and that slice sees S's fact"
         (is (true? (v/ask? kb (list p) ss)))))))
 
+;; A slice of a slice is defined through its two parts: `cxMonadOf` of a slice is the
+;; monad of the context it slices, and `cxTimeOf` the `TimeIntersectionFn` of that
+;; context's time and its own.  The rules read the slice's spelling, the `natFormula` of
+;; its `cx/` constant, so the tests below write the inner slice as that constant; the
+;; spelling with `CxTimeFn` twice names a different constant until the engine equates
+;; the two (a-slice-of-a-slice-spelled-with-cxtimefn-twice-is-the-slice-at-the-intersection).
+;; `monad_context` is stated: deriving it for a context that is not a slice is negation
+;; as failure (a-monad-context-is-its-own-monad-and-its-time-is-unbounded).
+
+(def ^:private slice-query
+  "The depth the slice rules need: one step per slice, and the intersection rule."
+  {:max-depth 6})
+
+(tu/deftest-kb ^:red a-slice-of-a-slice-has-the-monad-of-the-context-it-slices
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r CxStory]
+    (monads! kb CxStory)
+    (v/assert kb (list 'monad_context CxStory) U)
+    (let [s   (cx-of kb (v/assert kb (list p) (slice CxStory '(YearFn 2000))))
+          ss  (cx-of kb (v/assert kb (list q) (slice s '(MonthFn 2000 1))))
+          sss (cx-of kb (v/assert kb (list r) (slice ss '(DayFn 2000 1 15))))]
+      (testing "a context that is not a slice is its own monad"
+        (is (= [{'?m CxStory}] (v/query kb (list 'cxMonadOf CxStory '?m) U slice-query))))
+      (testing "a slice, a slice of it and a slice of that all have its monad"
+        (doseq [k [s ss sss]]
+          (is (= [{'?m CxStory}] (v/query kb (list 'cxMonadOf k '?m) U slice-query))))))))
+
+(tu/deftest-kb ^:red a-slice-of-a-slice-covers-the-intersection-of-the-two-times
+  ;; Named intervals, so the rule that puts an intersection inside each argument reads
+  ;; a believed time_interval for both.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory Y2000 Jan2000]
+    (monads! kb CxStory)
+    (v/assert kb (list 'monad_context CxStory) U)
+    (times! kb [Y2000 Jan2000] [])
+    (let [s  (cx-of kb (v/assert kb (list p) (slice CxStory Y2000)))
+          ss (cx-of kb (v/assert kb (list q) (slice s Jan2000)))
+          both (list 'TimeIntersectionFn Y2000 Jan2000)]
+      (testing "a slice of a monad covers its own time"
+        (is (= [{'?t Y2000}] (v/query kb (list 'cxTimeOf s '?t) U slice-query))))
+      (testing "a slice of that slice covers the intersection of the two times"
+        (is (= [{'?t both}] (v/query kb (list 'cxTimeOf ss '?t) U slice-query))))
+      (testing "and the intersection is inside each of them"
+        (is (true? (v/query? kb (list 'subintervalOf both Y2000) U slice-query)))
+        (is (true? (v/query? kb (list 'subintervalOf both Jan2000) U slice-query)))))))
+
+(tu/deftest-kb ^:red a-slice-at-an-intersection-sees-the-slice-at-each-of-the-two-times
+  ;; contextArgSubrelation CxTimeFn 2 subintervalOf orders the slice at the intersection
+  ;; under the slice at each argument, through the rule that puts the intersection
+  ;; inside each.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r CxStory JanJun AprSep]
+    (monads! kb CxStory)
+    (times! kb [JanJun AprSep] [] ['overlaps JanJun AprSep])
+    (let [both (slice CxStory (list 'TimeIntersectionFn JanJun AprSep))]
+      (v/assert kb (list p) (slice CxStory JanJun))
+      (v/assert kb (list q) (slice CxStory AprSep))
+      (v/assert kb (list r) both)
+      (testing "the slice at the intersection sees both"
+        (is (true? (v/query? kb (list p) both slice-query)))
+        (is (true? (v/query? kb (list q) both slice-query))))
+      (testing "and neither slice sees the intersection's fact"
+        (is (not (v/ask? kb (list r) (slice CxStory JanJun))))
+        (is (not (v/ask? kb (list r) (slice CxStory AprSep))))))))
+
+(tu/deftest-kb ^:red a-slice-of-a-slice-spelled-with-cxtimefn-twice-is-the-slice-at-the-intersection
+  ;; The equality the time.txt rule states, read by the engine: (CxTimeFn (CxTimeFn M A)
+  ;; B) and (CxTimeFn M (TimeIntersectionFn A B)) name one context, so a write through
+  ;; either lands in the same cx/ constant, and the twice-spelled slice has M's monad.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory Y2000 Jan2000]
+    (monads! kb CxStory)
+    (v/assert kb (list 'monad_context CxStory) U)
+    (times! kb [Y2000 Jan2000] [])
+    (let [twice (slice (slice CxStory Y2000) Jan2000)
+          once  (slice CxStory (list 'TimeIntersectionFn Y2000 Jan2000))]
+      (testing "the two spellings reify to one cx/ context"
+        (is (= (cx-of kb (v/assert kb (list p) twice))
+               (cx-of kb (v/assert kb (list q) once)))))
+      (testing "and the twice-spelled slice has CxStory's monad"
+        (is (= [{'?m CxStory}]
+               (v/query kb (list 'cxMonadOf (cx-of kb (v/assert kb (list p) twice)) '?m)
+                        U slice-query)))))))
+
+(tu/deftest-kb ^:red the-intersection-of-a-time-and-an-instant-inside-it-is-the-instant
+  ;; Pending the owner's ruling on which containment TimeIntersectionFn is the meet
+  ;; over.  subintervalOf relates two intervals, and TimeIntersectionFn takes two
+  ;; time_intervals, so a slice of a year slice at a moment of that year has no time the
+  ;; KB can name yet.  Under a meet over containment of any time, its time is the moment.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q CxStory Y2000 Noon]
+    (monads! kb CxStory)
+    (v/assert kb (list 'monad_context CxStory) U)
+    (times! kb [Y2000] [Noon] ['includesInstant Y2000 Noon])
+    (let [s  (cx-of kb (v/assert kb (list p) (slice CxStory Y2000)))
+          ss (cx-of kb (v/assert kb (list q) (slice s Noon)))]
+      (testing "the slice of the year slice at the moment covers the moment"
+        (is (= [{'?t Noon}] (v/query kb (list 'cxTimeOf ss '?t) U slice-query)))))))
+
+(tu/deftest-kb ^:red a-slice-of-a-slice-at-a-disjoint-time-is-refused
+  ;; Pending the owner's ruling on an empty intersection: refused, or a slice whose
+  ;; time is empty.  This test asserts the refusal; under the other ruling it asserts
+  ;; the empty time instead.  The control is a slice at an overlapping time.
+  (declare-cxtimefn! kb)
+  (tu/with-terms [p q r CxStory Y2000 Y2001 Jan2000]
+    (monads! kb CxStory)
+    (times! kb [Y2000 Y2001 Jan2000] [] ['before Y2000 Y2001] ['subintervalOf Jan2000 Y2000])
+    (let [s (cx-of kb (v/assert kb (list p) (slice CxStory Y2000)))]
+      (testing "control: a write into the slice of the 2000 slice at January 2000 is stored"
+        (is (= :answered (refusal-type #(v/assert kb (list q) (slice s Jan2000))))))
+      (testing "a write into the slice of the 2000 slice at 2001 is refused"
+        (is (not= :answered (refusal-type #(v/assert kb (list r) (slice s Y2001)))))))))
+
 ;; =========================================================================
 ;; CxNow, the moving present, and temporal projection
 ;; =========================================================================
