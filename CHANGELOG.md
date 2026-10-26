@@ -298,6 +298,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [api.md](docs/api.md#three-reads-for-a-reader-rather-than-a-program)
   *Migration:* none.
 
+### Fix: koinii
+
+- **`identity/load-registry` and `speech-acts/load-speech-acts` load the CxDisputes seed**,
+  so a context that sees CxDisputes reads the dispute marks' declarations before the first
+  mark. A mark into a KB that ran neither loader still loads the seed first.
+  [koinii.md](docs/koinii.md)
+  *Migration:* none.
+
 ### Fix: storage
 
 - **A recover makes no network node for an `assert-inert` record**, as `assert-inert`

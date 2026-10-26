@@ -238,7 +238,7 @@ CxWell — contingent data, not shipped schema.
 ```
 resources/
   kb/upper/*.txt    the upper layer, all loaded into CxUniverse (core.txt the vocabulary); kb/middle/*.txt (theories) — the shipped schema, term-centric text (vaelii.host.seed)
-  kb/koinii/*.txt   CxRegistry + CxSpeechActs + CxDisputes, the app's own seed contexts — vaelii.koinii.identity loads them (CxDisputes on vaelii.koinii.dispute's first mark); the starter does not
+  kb/koinii/*.txt   CxRegistry + CxSpeechActs + CxDisputes, the app's own seed contexts — vaelii.koinii.identity loads them (CxDisputes with each of the other two, and on vaelii.koinii.dispute's first mark into a KB holding neither); the starter does not
   public/          the browser's static assets: vaelii.css (served at /vaelii.css), htmx.min.js, vaelii.js, the favicons, logo.svg, and font/ with Hasklig, Atkinson Hyperlegible Next and their licenses
 ```
 
