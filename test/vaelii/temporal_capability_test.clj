@@ -1166,10 +1166,11 @@
       (is (true? (v/ask? kb (list 'includesInstant (list 'CxTimeOfFn CxStory) '(InstantFn 1 1 1 0 0 0)) U)))
       (is (true? (v/ask? kb (list 'includesInstant (list 'CxTimeOfFn CxStory) '(InstantFn 9000 6 1 12 0 0)) U))))))
 
-(tu/deftest-kb ^:red monad-context-types-cxtimefns-first-argument
-  ;; Issue #181: CxTimeFn's first argument is untyped today, so a write into a slice of
-  ;; CxNow, or of another slice, is stored like any other.  CxNow has a temporal part
-  ;; (it moves), and so does a slice, so neither is a monad_context.
+(tu/deftest-kb ^:red a-slice-of-a-slice-in-cxtimefns-first-argument-is-the-slice-at-the-intersection
+  ;; Issue #181: CxTimeFn's first argument is any context, so a write into a slice of a
+  ;; slice is stored, and the slice of a slice is the slice of the inner slice's monad at
+  ;; the intersection of the two times.  Red for the collapse, which is the engine's
+  ;; reading of the time.txt equality.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxStory]
     (monads! kb CxStory)
@@ -1178,16 +1179,17 @@
     (testing "CxNow and a slice are not monad contexts"
       (is (not (v/ask? kb '(monad_context CxNow) U)))
       (is (not (v/ask? kb (list 'monad_context (cx-of kb (v/assert kb (list r) (slice CxStory '(YearFn 2001))))) U))))
+    ;; Pending the owner's ruling on (CxTimeFn CxNow T).
     (testing "a write into (CxTimeFn CxNow …) is refused for its argument type"
       (is (= :arg-type (refusal-type #(v/assert kb (list q) (slice 'CxNow '(YearFn 2000)))))))
-    (testing "and so is a write into a slice of a slice spelled with CxTimeFn twice"
-      (is (= :arg-type (refusal-type #(v/assert kb (list q)
-                                                (slice (slice CxStory '(YearFn 2000))
-                                                       '(MonthFn 2000 1)))))))))
+    (testing "a write into a slice of a slice spelled with CxTimeFn twice lands in the slice at the intersection"
+      (is (= (cx-of kb (v/assert kb (list q) (slice (slice CxStory '(YearFn 2000)) '(MonthFn 2000 1))))
+             (cx-of kb (v/assert kb (list q) (slice CxStory '(TimeIntersectionFn (YearFn 2000)
+                                                                                 (MonthFn 2000 1))))))))))
 
 (tu/deftest-kb ^:red cxtimefns-second-argument-is-typed-a-time
-  ;; The time-dimension twin of monad-context-types-cxtimefns-first-argument: CxTimeFn's
-  ;; second argument is untyped today, so a write into a slice keyed by a context or by a
+  ;; The time-dimension twin of a-slice-of-a-slice-in-cxtimefns-first-argument-is-the-slice-at-the-intersection:
+  ;; CxTimeFn's second argument is untyped today, so a write into a slice keyed by a context or by a
   ;; number is stored like any other.  A slice is keyed by a time.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q CxStory]
@@ -1275,7 +1277,7 @@
   "The depth the slice rules need: one step per slice, and the intersection rule."
   {:max-depth 6})
 
-(tu/deftest-kb ^:red a-slice-of-a-slice-has-the-monad-of-the-context-it-slices
+(tu/deftest-kb a-slice-of-a-slice-has-the-monad-of-the-context-it-slices
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxStory]
     (monads! kb CxStory)
@@ -1298,7 +1300,7 @@
       (is (true? (v/query? kb (list 'subintervalOf both JanJun) U slice-query)))
       (is (true? (v/query? kb (list 'subintervalOf both AprSep) U slice-query))))))
 
-(tu/deftest-kb ^:red a-slice-of-a-slice-covers-the-intersection-of-the-two-times
+(tu/deftest-kb a-slice-of-a-slice-covers-the-intersection-of-the-two-times
   (declare-cxtimefn! kb)
   (tu/with-terms [p q CxStory Y2000 Jan2000]
     (monads! kb CxStory)

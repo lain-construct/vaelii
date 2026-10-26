@@ -58,7 +58,7 @@
 (arg cxMonadOf 2 context)
 
 (comment CxTimeFn
-         "(CxTimeFn ?context ?time) means the time slice of ?context at ?time: what holds in ?context during ?time. So (CxTimeFn CxStory (YearFn 2000)) is the year 2000 of CxStory. Every application is a time_slice_context. Written in a sentex's context slot, an application reifies to a cx/ constant. Two applications that differ only in the time are ordered by subintervalOf on it: the one at the narrower time is a subcontext of the one at the wider time and sees what it states. Two that differ only in the context are ordered by genlMonad on it the same way: the one along the sub-monad is a subcontext of the one along the super-monad. CxTimeOfFn and CxMonadOfFn take an application apart. See docs/context-nat.md and docs/time.md.")
+         "(CxTimeFn ?context ?time) means the time slice of ?context at ?time: what holds in ?context during ?time. So (CxTimeFn CxStory (YearFn 2000)) is the year 2000 of CxStory. Every application is a time_slice_context. ?context may itself be a slice: (CxTimeFn (CxTimeFn CxStory ?interval1) ?interval2) is the slice of CxStory at (TimeIntersectionFn ?interval1 ?interval2), by the rules over cxMonadOf and cxTimeOf below. Written in a sentex's context slot, an application reifies to a cx/ constant. Two applications that differ only in the time are ordered by subintervalOf on it: the one at the narrower time is a subcontext of the one at the wider time and sees what it states. Two that differ only in the context are ordered by genlMonad on it the same way: the one along the sub-monad is a subcontext of the one along the super-monad. CxTimeOfFn and CxMonadOfFn take an application apart. See docs/context-nat.md and docs/time.md.")
 (binary_function CxTimeFn)
 (arity CxTimeFn 2)
 (arg CxTimeFn 1 context)
@@ -81,6 +81,39 @@
 (instance_relation_predicate cxTimeOf)
 (arg cxTimeOf 1 context)
 (arg cxTimeOf 2 time)
+
+;; A slice of a slice is the slice of the inner slice's context at the intersection of
+;; the two times:
+;; (CxTimeFn (CxTimeFn ?context ?interval1) ?interval2) is the context
+;; (CxTimeFn ?context (TimeIntersectionFn ?interval1 ?interval2)).  The two parts state it
+;; through cxMonadOf and cxTimeOf.  Each rule reads the natFormula of the slice's cx/
+;; constant, so a slice written with an inner slice's cx/ constant answers through them;
+;; an inner slice spelled as a CxTimeFn application is a term, not a constant, and does
+;; not.  A context that is not a slice is its own monad, and a slice has the monad of the
+;; context it slices.
+(set/backwardRule
+ (implies (and (monad_context ?monad))
+          (cxMonadOf ?monad ?monad)))
+(set/backwardRule
+ (implies (and (natFormula ?slice (CxTimeFn ?context ?time)) (cxMonadOf ?context ?monad))
+          (cxMonadOf ?slice ?monad)))
+;; A slice of a context that is not a slice covers its own time, and a slice of a slice
+;; covers the intersection of the inner slice's time and its own.
+(set/backwardRule
+ (implies (and (natFormula ?slice (CxTimeFn ?monad ?time)) (monad_context ?monad))
+          (cxTimeOf ?slice ?time)))
+(set/backwardRule
+ (implies (and (natFormula ?slice (CxTimeFn ?context ?time))
+               (natFormula ?context (CxTimeFn ?inner ?innerTime))
+               (cxTimeOf ?context ?outer))
+          (cxTimeOf ?slice (TimeIntersectionFn ?outer ?time))))
+;; The equality itself, between the two spellings.  It concludes about CxTimeFn
+;; applications, so it answers no goal until the engine reads it (docs/nat.md, a rule or
+;; a goal that names an open application).
+(set/backwardRule
+ (implies (and (context ?context) (time_interval ?interval1) (time_interval ?interval2))
+          (equals (CxTimeFn (CxTimeFn ?context ?interval1) ?interval2)
+                  (CxTimeFn ?context (TimeIntersectionFn ?interval1 ?interval2)))))
 
 (comment DatetimeFn
          "(DatetimeFn ?iso) means the interval a reduced-precision ISO 8601 string names, so (DatetimeFn \"2000\") is the year 2000, (DatetimeFn \"2000-01\") its January and (DatetimeFn \"2000-01-15T13\") one hour of its fifteenth day, down to the second. A time_interval, like YearFn, MonthFn and DayFn. An unreifiable_function application: it stays structural, so the string is readable inside the term and a reader can see which intervals contain which. (DatetimeFn \"2000-01\") and (MonthFn 2000 1) name the same interval and order against each other. See docs/context-nat.md and docs/time.md.")
@@ -433,7 +466,7 @@
 (arg metBy 2 temporal)
 
 (comment monad_context
-         "A context that is not a time slice: a world, story or theory taken over all of its time, such as CxStory, as opposed to one year of it. Its time is Forever. CxTimeFn's first argument is any context and not only a monad_context, so a slice of a slice is a slice. See docs/time.md.")
+         "A context that is not a time slice: a world, story or theory taken over all of its time, such as CxStory, as opposed to one year of it. It is its own monad and its time is Forever, by the rules that read it. CxTimeFn's first argument is any context and not only a monad_context, so a slice of a slice is a slice. See docs/time.md.")
 (genl monad_context context)
 (not (arg CxTimeFn 1 monad_context))
 

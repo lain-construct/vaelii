@@ -91,7 +91,7 @@ The 54 numbered tests are the ones Iris's rulings of 2026-10-21 were made over. 
 30. `a-monad-context-is-its-own-monad-and-its-time-is-unbounded`: **red**
     - R2: `a-monad-context-is-its-own-monad-and-its-time-contains-named-intervals`: **red**
     - R5: `a-monad-context-is-its-own-monad-and-its-time-includes-every-instant`: **red**
-31. `monad-context-types-cxtimefns-first-argument`: **red**. Refuses `(CxTimeFn CxNow …)` and a CxTimeFn whose first argument is itself a slice.
+31. `a-slice-of-a-slice-in-cxtimefns-first-argument-is-the-slice-at-the-intersection`: **red**. Refuses `(CxTimeFn CxNow …)` (pending the owner's ruling on `(CxTimeFn CxNow T)`), and a slice of a slice spelled with `CxTimeFn` twice lands in the slice of its monad at the `TimeIntersectionFn` of the two times.
     - R7: `cxtimefns-second-argument-is-typed-a-time`: **red**
 32. `a-slice-of-a-slice-is-the-slice-of-its-monad-at-the-narrower-time`: **red**
     - R2: `a-slice-of-a-slice-at-a-named-narrower-time-is-the-slice-of-its-monad-there`: **red**
