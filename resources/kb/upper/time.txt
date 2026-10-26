@@ -553,6 +553,46 @@
 (arg terminates 2 fluent)
 (arg terminates 3 time_point)
 
+(comment TimeIntersectionFn
+         "(TimeIntersectionFn ?interval1 ?interval2) means the time ?interval1 and ?interval2 have in common, so (TimeIntersectionFn (DatetimeRangeFn \"2000-01\" \"2000-06\") (DatetimeRangeFn \"2000-04\" \"2000-09\")) is April through June 2000. It is a subinterval of each argument by the rules beside it, which read a believed time_interval for both. An unreifiable_function application, so both arguments are readable inside the term. See docs/time.md.")
+(unreifiable_function TimeIntersectionFn)
+(binary_function TimeIntersectionFn)
+(arity TimeIntersectionFn 2)
+(functionCorrespondingPredicate TimeIntersectionFn timeIntersectionOf)
+(arg TimeIntersectionFn 1 time_interval)
+(arg TimeIntersectionFn 2 time_interval)
+(result TimeIntersectionFn time_interval)
+
+;; The intersection is inside each of the two times.
+(set/backwardRule
+ (implies (and (time_interval ?interval1) (time_interval ?interval2))
+          (subintervalOf (TimeIntersectionFn ?interval1 ?interval2) ?interval1)))
+(set/backwardRule
+ (implies (and (time_interval ?interval1) (time_interval ?interval2))
+          (subintervalOf (TimeIntersectionFn ?interval1 ?interval2) ?interval2)))
+;; kb-integrity pairs the root denial of a proper part's whole being its part
+;; (abstract.txt) with each of those definitions, as two rule clashes.  Both are
+;; acknowledged rather than excepted, for the reason each record gives.
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (time_interval ?interval1) (time_interval ?interval2))
+                    (subintervalOf (TimeIntersectionFn ?interval1 ?interval2) ?interval1))))
+  "Left unexcepted on purpose. TimeIntersectionFn's definition concludes that an intersection is a subinterval of its first argument, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: an interval stated a proper part of its intersection with another. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (time_interval ?interval1) (time_interval ?interval2))
+                    (subintervalOf (TimeIntersectionFn ?interval1 ?interval2) ?interval2))))
+  "Left unexcepted on purpose. TimeIntersectionFn's definition concludes that an intersection is a subinterval of its second argument, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: an interval stated a proper part of its intersection with another. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
+
+(comment timeIntersectionOf
+         "(timeIntersectionOf ?interval1 ?interval2 ?intersection) means that ?intersection is the time ?interval1 and ?interval2 have in common, the interval (TimeIntersectionFn ?interval1 ?interval2) names. TimeIntersectionFn is the corresponding function, and its value is the last argument. Nothing reads this predicate: the rules beside TimeIntersectionFn read the term. See docs/time.md.")
+(ternary_predicate timeIntersectionOf)
+(arg timeIntersectionOf 1 time_interval)
+(arg timeIntersectionOf 2 time_interval)
+(arg timeIntersectionOf 3 time_interval)
+
 (comment time_slice_context
          "A context that is one stretch or moment of another context's time: an application of CxTimeFn, such as (CxTimeFn CxStory (YearFn 2000)), the year 2000 of CxStory. CxTimeFn's result type, so each application is one. cxMonadOf names its monad, a context that is not a time slice, and cxTimeOf the time it covers. See docs/time.md.")
 (genl time_slice_context context)

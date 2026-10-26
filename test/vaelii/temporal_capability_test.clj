@@ -19,8 +19,8 @@
   `CxChange` middle theory for the event calculus, and `CxNow` and `CxRealWorldNow` for
   the present.  Nothing here declares a temporal predicate of its own.  `time.txt` also
   declares `CxTimeFn` and the monad vocabulary issue #181 asks for: `genlMonad`,
-  `time_slice_context`, `monad_context`, `CxTimeOfFn`/`cxTimeOf` and
-  `CxMonadOfFn`/`cxMonadOf`.  The tests
+  `time_slice_context`, `monad_context`, `CxTimeOfFn`/`cxTimeOf`, `CxMonadOfFn`/`cxMonadOf`
+  and `TimeIntersectionFn`.  The tests
   written before it did still restate the `CxTimeFn` declarations (`declare-cxtimefn!`),
   which changes nothing the KB already believes."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -788,7 +788,10 @@
     (is (true? (v/ask? kb '(result CxMonadOfFn context) U))))
   (testing "genlMonad orders two contexts"
     (is (true? (v/ask? kb '(arg genlMonad 1 context) U)))
-    (is (true? (v/ask? kb '(arg genlMonad 2 context) U)))))
+    (is (true? (v/ask? kb '(arg genlMonad 2 context) U))))
+  (testing "TimeIntersectionFn, the time two intervals have in common, which is an interval"
+    (is (true? (v/ask? kb '(functionCorrespondingPredicate TimeIntersectionFn timeIntersectionOf) U)))
+    (is (true? (v/ask? kb '(result TimeIntersectionFn time_interval) U)))))
 
 (tu/deftest-kb a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad
   ;; Twin of a-fact-in-a-year-slice-is-visible-from-its-month: the same time, with the
@@ -1286,9 +1289,16 @@
         (doseq [k [s ss sss]]
           (is (= [{'?m CxStory}] (v/query kb (list 'cxMonadOf k '?m) U slice-query))))))))
 
+(tu/deftest-kb the-intersection-of-two-intervals-is-inside-each
+  ;; Named intervals, so the rules that put an intersection inside each argument read a
+  ;; believed time_interval for both.
+  (tu/with-terms [JanJun AprSep]
+    (times! kb [JanJun AprSep] [] ['overlaps JanJun AprSep])
+    (let [both (list 'TimeIntersectionFn JanJun AprSep)]
+      (is (true? (v/query? kb (list 'subintervalOf both JanJun) U slice-query)))
+      (is (true? (v/query? kb (list 'subintervalOf both AprSep) U slice-query))))))
+
 (tu/deftest-kb ^:red a-slice-of-a-slice-covers-the-intersection-of-the-two-times
-  ;; Named intervals, so the rule that puts an intersection inside each argument reads
-  ;; a believed time_interval for both.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q CxStory Y2000 Jan2000]
     (monads! kb CxStory)
@@ -1300,15 +1310,15 @@
       (testing "a slice of a monad covers its own time"
         (is (= [{'?t Y2000}] (v/query kb (list 'cxTimeOf s '?t) U slice-query))))
       (testing "a slice of that slice covers the intersection of the two times"
-        (is (= [{'?t both}] (v/query kb (list 'cxTimeOf ss '?t) U slice-query))))
-      (testing "and the intersection is inside each of them"
-        (is (true? (v/query? kb (list 'subintervalOf both Y2000) U slice-query)))
-        (is (true? (v/query? kb (list 'subintervalOf both Jan2000) U slice-query)))))))
+        (is (= [{'?t both}] (v/query kb (list 'cxTimeOf ss '?t) U slice-query)))))))
 
 (tu/deftest-kb ^:red a-slice-at-an-intersection-sees-the-slice-at-each-of-the-two-times
   ;; contextArgSubrelation CxTimeFn 2 subintervalOf orders the slice at the intersection
-  ;; under the slice at each argument, through the rule that puts the intersection
-  ;; inside each.
+  ;; under the slice at each argument, through the rules that put the intersection
+  ;; inside each (the-intersection-of-two-intervals-is-inside-each).  Red because the
+  ;; producer of genlCx edges between slices reads a structural comparator or a stored
+  ;; subintervalOf fact, never a rule (context_nat.clj, the bounded oracle), so the
+  ;; subintervalOf those rules answer reaches a query and not the ordering.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxStory JanJun AprSep]
     (monads! kb CxStory)
