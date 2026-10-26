@@ -1350,11 +1350,32 @@
                (v/query kb (list 'cxMonadOf (cx-of kb (v/assert kb (list p) twice)) '?m)
                         U slice-query)))))))
 
+(tu/deftest-kb ^:red an-intersection-is-a-subtime-of-each-argument-whatever-kind-of-time
+  ;; TimeIntersectionFn is the meet over subtimeOf, which relates any two times, so the
+  ;; intersection of an interval and an instant is a subtime of each.
+  (tu/with-terms [Y2000 Noon]
+    (times! kb [Y2000] [Noon] ['includesInstant Y2000 Noon])
+    (let [both (list 'TimeIntersectionFn Y2000 Noon)]
+      (is (true? (v/query? kb (list 'subtimeOf both Y2000) U slice-query)))
+      (is (true? (v/query? kb (list 'subtimeOf both Noon) U slice-query))))))
+
+(tu/deftest-kb ^:red an-instant-inside-a-time-and-a-subinterval-are-subtimes-of-it
+  ;; subtimeOf is one time lying within another, whatever the two kinds of time: an
+  ;; instant a time includes, and an interval inside another, are each a subtime of it,
+  ;; and a subtime is a part.
+  (tu/with-terms [Y2000 Jan2000 Noon]
+    (times! kb [Y2000 Jan2000] [Noon] ['includesInstant Y2000 Noon] ['subintervalOf Jan2000 Y2000])
+    (testing "an instant the year includes is a subtime of it"
+      (is (true? (v/query? kb (list 'subtimeOf Noon Y2000) U slice-query))))
+    (testing "a subinterval of the year is a subtime of it, and a part of it"
+      (is (true? (v/query? kb (list 'subtimeOf Jan2000 Y2000) U slice-query)))
+      (is (true? (v/query? kb (list 'partOf Jan2000 Y2000) U slice-query))))))
+
 (tu/deftest-kb ^:red the-intersection-of-a-time-and-an-instant-inside-it-is-the-instant
-  ;; Pending the owner's ruling on which containment TimeIntersectionFn is the meet
-  ;; over.  subintervalOf relates two intervals, and TimeIntersectionFn takes two
-  ;; time_intervals, so a slice of a year slice at a moment of that year has no time the
-  ;; KB can name yet.  Under a meet over containment of any time, its time is the moment.
+  ;; TimeIntersectionFn is the meet over subtimeOf, so the intersection of a year and a
+  ;; moment of that year is the moment, and a slice of the year slice at the moment
+  ;; covers the moment.  Red: the meet's absorption is the engine's, and the slice rules
+  ;; answer the intersection term itself.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q CxStory Y2000 Noon]
     (monads! kb CxStory)
@@ -1365,19 +1386,20 @@
       (testing "the slice of the year slice at the moment covers the moment"
         (is (= [{'?t Noon}] (v/query kb (list 'cxTimeOf ss '?t) U slice-query)))))))
 
-(tu/deftest-kb ^:red a-slice-of-a-slice-at-a-disjoint-time-is-refused
-  ;; Pending the owner's ruling on an empty intersection: refused, or a slice whose
-  ;; time is empty.  This test asserts the refusal; under the other ruling it asserts
-  ;; the empty time instead.  The control is a slice at an overlapping time.
+(tu/deftest-kb ^:red a-slice-at-an-empty-intersection-is-refused
+  ;; An empty intersection is refused: a slice at no time holds nothing worth
+  ;; concluding.  January and February 2000 share no time, so a write into the slice at
+  ;; their intersection is refused.  Red: the refusal is the engine's, at the write.  The
+  ;; control is a slice at the intersection of January and the year, which share January.
   (declare-cxtimefn! kb)
-  (tu/with-terms [p q r CxStory Y2000 Y2001 Jan2000]
+  (tu/with-terms [p q CxStory]
     (monads! kb CxStory)
-    (times! kb [Y2000 Y2001 Jan2000] [] ['before Y2000 Y2001] ['subintervalOf Jan2000 Y2000])
-    (let [s (cx-of kb (v/assert kb (list p) (slice CxStory Y2000)))]
-      (testing "control: a write into the slice of the 2000 slice at January 2000 is stored"
-        (is (= :answered (refusal-type #(v/assert kb (list q) (slice s Jan2000))))))
-      (testing "a write into the slice of the 2000 slice at 2001 is refused"
-        (is (not= :answered (refusal-type #(v/assert kb (list r) (slice s Y2001)))))))))
+    (let [jan-and-2000 (slice CxStory '(TimeIntersectionFn (MonthFn 2000 1) (YearFn 2000)))
+          jan-and-feb  (slice CxStory '(TimeIntersectionFn (MonthFn 2000 1) (MonthFn 2000 2)))]
+      (testing "control: a write into the slice at the intersection of January and 2000 is stored"
+        (is (= :answered (refusal-type #(v/assert kb (list p) jan-and-2000)))))
+      (testing "a write into the slice at the intersection of January and February is refused"
+        (is (not= :answered (refusal-type #(v/assert kb (list q) jan-and-feb))))))))
 
 ;; =========================================================================
 ;; The real world's present, and temporal projection
