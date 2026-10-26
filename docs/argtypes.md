@@ -73,53 +73,73 @@ failed. The boundary of the inner reading:
   vantage, like every definitional check: a context below the one they are written in
   inherits them, a sibling is not refused by them.
 
-### A unary predicate declares a position only when its `genl` parent does not imply it
+### A unary predicate declares its position even where its `genl` parent implies the type
 
-An `arg` declaration on a unary predicate and a `genl` edge above it can say the same
-thing, and which of the two is right turns on where the parent sits relative to the type
-the declaration names.
+A unary predicate declares its argument position, and the declaration names each type its
+`genl` parents give the argument. `(genl instance_relation_predicate binary_predicate)`
+concludes `(binary_predicate P)` from `(instance_relation_predicate P)`, and
+`(arg instance_relation_predicate 1 binary_predicate)` names the same type. While the edge
+stands, the two agree. After an edit removes or moves the edge, the declaration still types
+the position, so the edit does not change which arguments the predicate accepts
+([no silent side effects](oe-principles.md#no-silent-side-effects)). A predicate with two
+parents declares both: `fixed_arity_predicate`, below `fixed_arity` and `predicate`,
+declares `(arg fixed_arity_predicate 1 fixed_arity)` and
+`(arg fixed_arity_predicate 1 predicate)`, and an argument is held to each.
 
-`fixed_arity` carries `(arg fixed_arity 1 relation)`, and the `(genl fixed_arity relation)`
-edge that `(partition relation fixed_arity variable_arity)` installs names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
-nothing is disjoint from `relation` for a number, so the declaration's value conviction
-is the only conviction there is: with it `assert` stores `(fixed_arity 5)` inert and
-`try-assert` refuses it, and without it the fact is believed. `variable_arity`
-and the function marks are in the same position and keep theirs.
+A declaration strictly weaker than a type the parents give is redundant and is not
+written. `(arg instance_relation_predicate 1 predicate)` beside the edge to
+`binary_predicate`, which is below `predicate`, adds nothing while the edge stands. After an
+edit removes the edge, it does not keep the type the argument had.
 
-`instance_relation_predicate` is the other case. Its parent is `binary_predicate`, which
-sits **below** `predicate`, so `(arg instance_relation_predicate 1 predicate)` would
-restate in a weaker form what the edge already concludes, and under the constraint-only
-reading it would turn that conclusion into a precondition: `(instance_relation_predicate
-pairOf)` after `(arity pairOf 2)`, which places `pairOf` under `relation` and not under
-`predicate`, would be refused for a kind the sentence itself states. So the six marks whose
-own `genl` parent supplies the declared type declare no position:
+`fixed_arity` and `variable_arity` carry `(arg C 1 relation)`, the type
+`(partition relation fixed_arity variable_arity)` gives them through its `genl` edges. For
+a number that declaration is the only refusal: the edge concludes `(relation 5)` from
+`(fixed_arity 5)`, and nothing is disjoint from `relation` for a number. Every predicate
+below them inherits the declaration through the predicate hierarchy, so
+`(fixed_arity_predicate Fred)` with `Fred` a person derives `(relation Fred)`, a clash with
+`person`. In core.txt, `fixed_arity_predicate`, `fixed_arity_function`,
+`variable_arity_predicate`, `binary_predicate` and the six marks
 `instance_relation_predicate`, `type_relation_predicate`, `equivalence_relation`,
-`injection`, `surjection` and `bijection`.
+`injection`, `surjection` and `bijection` declare no position. Under this rule each of them
+declares the types its parents give.
 
-| argument | what happens |
-|---|---|
-| a number | `:arg-type`, through the `(arg fixed_arity 1 relation)` floor the mark inherits |
-| a term reaching only `thing` | stored; the floor derives `relation` and the mark's edges place it under `predicate` |
-| a `function` | stored, with `instance_relation_predicate` and `function` a placed clash |
-| a relation whose kind is not yet stated | stored, and the mark supplies the kind |
+#### What a declared position changes
+
+Both readings convict a symbol argument only by a type the taxonomy separates from the
+declared one ([below](#an-argument-constraint-derives-try-assert-refuses-a-separated-argument)).
+A symbol whose types do not reach the declared type, and are not separated from it, is
+admitted. So `(arg instance_relation_predicate 1 binary_predicate)` refuses no relation
+whose kind is not yet stated. `(arity pairOf 2)` places `pairOf` under `relation`,
+`fixed_arity` and `binary`, and none of those is separated from `binary_predicate`, so
+`(instance_relation_predicate pairOf)` written after it is stored and believed under both
+readings. The entailing reading also derives `(binary_predicate pairOf)` from the
+declaration, a second support for the membership the edge concludes.
+
+A declared position changes what happens to an argument holding a separated type. The
+declaration convicts it on `:arg-type`, where without the declaration the edge's conclusion
+forms a `:disjoint` clash:
+
+| argument of `instance_relation_predicate` | no declaration | `(arg instance_relation_predicate 1 binary_predicate)` |
+|---|---|---|
+| a number | `:arg-type`, through the inherited `(arg fixed_arity 1 relation)` | `:arg-type` |
+| a term reaching only `thing` | stored; the inherited declaration derives `relation` and the mark's edges place it under `predicate` | the same, and the entailing reading derives `binary_predicate` from the declaration |
+| a relation whose kind is not yet stated | stored, and the mark supplies the kind | the same |
+| a `function` F | `try-assert` refuses it `:disjoint`; `assert` stores it, and the settle weighs it against `(function F)` | `try-assert` refuses it `:arg-type`. Under the entailing reading `assert` stores it and the settle weighs it as before. Under the constraint-only reading `assert` holds it inert in `:out` |
+
+The arity policy shows the same change. With `(variable_arity P)` stored, `(binary_predicate P)`
+derives `(fixed_arity P)` through its edges, and `(partition relation fixed_arity
+variable_arity)` separates the two. Without a declaration on `fixed_arity_predicate`, both
+memberships are stored and believed at `:default` under either reading. With
+`(arg fixed_arity_predicate 1 fixed_arity)`, the entailing reading leaves both believed,
+and the constraint-only reading holds `(binary_predicate P)` inert on `:arg-type` while
+`(variable_arity P)` stays believed. A held fact's verdict is read off the stored state, so
+the result is the same in either arrival order
+([held inert](#an-argument-that-fails-its-declared-type-is-held-inert)).
 
 `arity_vocabulary_test/a-predicate-only-classification-is-order-independent-of-the-arity`
-compares the two orders on the whole closure rather than on an acceptance, and
-`an-arity-alone-leaves-the-relation-kind-open` asserts the rows of the table.
-
-### The policy classes declare one position and their specializations declare none
-
-`fixed_arity` and `variable_arity` each carry `(arg C 1 relation)`. Nothing below them
-carries one. The parent's declaration descends the predicate hierarchy, so
-`(fixed_arity_predicate Fred)` with `Fred` a person derives `(relation Fred)`, a clash
-with `person`, while a narrower `(arg fixed_arity_predicate 1 predicate)` would derive the
-wrong thing: a relation whose only stated type is `variable_arity` would be derived a
-`predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would carry a
-second derived type where the contradiction is the arity policy. The two are one
-contradiction and are stored as a clash in either order. A relation classified into the
-wrong kind is caught by `(disjoint predicate function)` through the `genl` edges, a
-disjointness derived from `(partition relation function truth_valued_relation)` rather
-than stated.
+compares the two orders of the arity and the mark on the whole closure rather than on an
+acceptance, and `an-arity-alone-leaves-the-relation-kind-open` asserts the last three rows
+of the no-declaration column.
 
 ## The covering constraints: typing a variable-arity tail
 

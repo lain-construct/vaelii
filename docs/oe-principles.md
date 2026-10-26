@@ -65,7 +65,9 @@ When you're about to assert a constraint (especially `disjoint`), first check wh
 
 **Example:** a type X with only a social genl needs a hand-written `(disjoint X Y)`. If X also has a true physical genl P, and `(disjoint P Y)` holds upstream, the disjointness derives and the hand-written line is redundant. The gap is the missing genl, not the missing constraint.
 
-**Audit:** for every `disjoint`, `arg` or `genlArg`, walk both terms up their genl chains. An explicit constraint that a better classification entails is a smell.
+Classify before you constrain loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate, even where a better classification entails them.
+
+**Audit:** for every `disjoint` and every arg constraint, walk both terms up their genl chains. An explicit `disjoint` that a better classification entails is a smell. Where a better classification entails an arg constraint, add the missing genl and keep the arg constraint.
 
 ## DRY
 *One thing, one representation*
@@ -95,7 +97,7 @@ State it once loses to **no silent side effects** when the two conflict. Arg con
 
 ## no silent side effects
 *Make an edit's consequences explicit*
-**overridesPrinciple:** DRY, state it once
+**overridesPrinciple:** DRY, state it once, classify before you constrain
 When a constraint should hold however another part of the KB is later edited, state it directly on the term it constrains, even if the KB derives it today. A derived constraint changes whenever a fact it follows from changes, and the edit that changes it does not mention it. A stated constraint changes only through an edit that names it.
 
 **Example:** state arg constraints on every predicate. A predicate inherits arg constraints through its `genl` edges, so an edit to those edges would change which arguments the predicate accepts. Stated on the predicate, its arg constraints stay the same when its `genl` edges change.
@@ -183,7 +185,7 @@ List the members, then the near-misses: things under the same parent that aren't
 
 ## no naked terms
 *Hypothesized vocabulary comes with its definitional assertions*
-Every proposed term, even in a thought experiment, ships as a block: its metatype(s), `genl`, every `arg`, its `disjoint`/`separating`/`orthogonal` relations to siblings, and its `comment`. Where they apply, also relation properties (`transitive`, `functional`, …) and `termsRelated`/`seeAlso`. A term without its definitional block can't be evaluated yet.
+Every proposed term, even in a thought experiment, ships as a block: its metatype(s), `genl`, its arg constraints, its `disjoint`/`separating`/`orthogonal` relations to siblings, and its `comment`. Where they apply, also relation properties (`transitive`, `functional`, …) and `termsRelated`/`seeAlso`. A term without its definitional block can't be evaluated yet.
 
 ## ontology over quirk
 *Ship the right ontology over an engine quirk*
