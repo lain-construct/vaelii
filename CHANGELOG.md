@@ -186,8 +186,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `monad_context`, a context with no temporal part (`(genl monad_context context)`), and
   its second a `time`. `CxMonadOfFn` and `CxTimeOfFn` name a context's monad and time.
   `genlMonad` is a binary relation between two `monad_context`s that orders monads alone,
-  as `subintervalOf` orders times. No rule or prover reads `genlMonad`, `cxMonadOf` or
-  `cxTimeOf` yet. [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+  as `subintervalOf` orders times. No rule or prover reads `cxMonadOf` or `cxTimeOf`
+  yet. [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **Two `CxTimeFn` slices that differ only in the monad are ordered by `genlMonad`
+  (issue #181).** `time.txt` declares `(contextArgSubrelation CxTimeFn 1 genlMonad)`
+  beside the position-2 `subintervalOf` declaration, so with `(genlMonad CxSubStory
+  CxStory)` stated, `(CxTimeFn CxSubStory (YearFn 2000))` is a computed genlCx spec of
+  `(CxTimeFn CxStory (YearFn 2000))` and sees what it states. The producer reads a stated
+  `genlMonad` fact, so retracting it withdraws the edge. Two slices that differ in both
+  the monad and the time are ordered only through a third slice that differs from each in
+  one argument and has been written into.
+  [context-nat.md](docs/context-nat.md#the-structural-genlcx-producer),
+  [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
 
   *Class:* **Additive** (shipped ontology content).
   *Migration:* none.

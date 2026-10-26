@@ -345,14 +345,20 @@ and its **time**. `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of `CxStor
 context)`, so an application written in a sentex's context slot reifies to a `cx/`
 constant, and `(contextArgSubrelation CxTimeFn 2 subintervalOf)`, so the application at
 the narrower time is a subcontext of the one at the wider time with the same monad.
+`(contextArgSubrelation CxTimeFn 1 genlMonad)` orders the other way round: with
+`(genlMonad CxSubStory CxStory)` stated, the application along `CxSubStory` is a
+subcontext of the one along `CxStory` at the same time. Two applications that differ in
+both arguments are ordered only through a third that differs from each in one argument,
+and only once that third context exists (a fact has been written into it).
 
 A `monad_context` is a context with no temporal part, such as `CxStory` taken over all of
 its time; it is the type of `CxTimeFn`'s first argument, and the second is a `time`.
 `CxMonadOfFn` and `CxTimeOfFn` take a context apart, with `cxMonadOf` and `cxTimeOf` as
 their corresponding predicates: the monad of `(CxTimeFn CxStory (YearFn 2000))` is
 `CxStory` and its time is `(YearFn 2000)`. `genlMonad` orders monads alone, as
-`subintervalOf` orders times alone. These are declarations: no rule or prover reads
-`genlMonad`, `cxMonadOf` or `cxTimeOf` yet, so a stated `genlMonad` orders no contexts.
+`subintervalOf` orders times alone. A stated `genlMonad` orders `CxTimeFn` applications,
+as above, and not the two monad contexts themselves; no rule or prover reads `cxMonadOf`
+or `cxTimeOf` yet.
 
 `Forever` is the time interval that contains every time, and the time of every
 `monad_context`. Backward rules answer `(subintervalOf ?interval Forever)` for each

@@ -144,6 +144,10 @@ argument is `R`-**below** the other's is the spec, and `genlCx` the more general
 
 The upper layer's `time.txt` states all three, so a KB that loads it reads `CxTimeFn`
 contexts with no declaration of its own ([time.md](time.md#a-context-at-a-time-cxtimefn-and-the-monad)).
+It also states `(contextArgSubrelation CxTimeFn 1 genlMonad)`, so two applications that
+differ only in the monad are ordered by a stated `genlMonad` between the monads. Each
+declaration orders one position, so two contexts that differ at both are ordered only
+through a third context, differing from each at one position, that has been minted.
 A function of the user's own takes the same declarations, stated by the user.
 
 `vaelii.impl.context-nat` reads the declarations and the context NATs of `F` from the
