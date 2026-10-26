@@ -163,6 +163,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fix: answers
 
+- **The starter passes the default `kb-integrity` sweep from every middle context.**
+  `CxMereology` states `(transitiveInArgInverse locatedIn 1 tangiblePartOf)` and
+  `(transitiveInArgInverse owns 2 tangiblePartOf)` where it held two forward rules of that
+  shape, so a part's location and ownership are answered at query time and stored nowhere;
+  a reader that sees the whole's fact and the parthood fact answers, wherever each is
+  stored. `CxBiology` records `(declined_rule_macro (genl organism mortal))` beside the
+  `mortal` default, which stays a default.
+  [inherit.md](docs/inherit.md), [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means)
+  *Migration:* a caller that read a part's derived `locatedIn` or `owns` with
+  `sentexes-matching` asks it with `ask?`, or asserts the forward rule in its own context.
+
 - **A forward rule concluding `equals` or `sameAs` over applications of a
   `reifiable_function` that have no constant yet mints them and stores the equality**, as
   `assert` of the ground sentence does. The firing dropped it as `:not-well-formed`, and

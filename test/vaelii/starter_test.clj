@@ -21,9 +21,23 @@
   before the test-world loads beneath it."
   (atom ::unread))
 
+(def ^:private integrity-readers
+  "Three shipped contexts that together see every middle context: CxWell's seven through
+  CxRealWorld, and the two opt-in theories CxWell does not see."
+  '[CxNormalPhysicalConditions CxTra CxSocialExtension])
+
+(def ^:private starter-integrity
+  "The default `kb-integrity` sweep over no candidate terms from each of
+  `integrity-readers`, read by the `:once` fixture before the test-world loads beneath it."
+  (atom ::unread))
+
 (use-fixtures :once (tu/loaded (fn [kb]
                                  (starter/load-into kb)
                                  (reset! starter-violations (v/violations kb))
+                                 (reset! starter-integrity
+                                         (into {} (for [c integrity-readers]
+                                                    [c (dissoc (v/kb-integrity kb #{} c)
+                                                               :work :elapsed-ms)])))
                                  (world/load-into kb))))
 (use-fixtures :each (tu/neutral))
 
@@ -39,6 +53,16 @@
   (is (not= ::unread @starter-violations) "the fixture read the ledger")
   (is (empty? @starter-violations)
       (str "the starter load files violations: " (pr-str @starter-violations))))
+
+(tu/deftest-kb the-shipped-ontology-passes-the-default-integrity-sweep
+  ;; With no candidate terms the sweep runs the declaration and rule censuses, which read
+  ;; every declaration and stored rule the reader sees.  A finding names a shipped rule a
+  ;; declaration states, or a shipped declaration that clashes, in a middle file.
+  (is (every? (fn [c] (some #(v/sees? kb % c) integrity-readers))
+              (seed/layer-contexts "middle"))
+      "every middle context is seen by one of the readers")
+  (is (= (zipmap integrity-readers (repeat {:status :audited :candidate-count 0}))
+         @starter-integrity)))
 
 (tu/deftest-kb the-loaded-starter-holds-every-argument-type-derivation
   ;; `record-arg-types` records the derivations a store loaded around `assert` lacks.  The

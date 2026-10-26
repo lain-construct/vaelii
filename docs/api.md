@@ -1480,8 +1480,8 @@ facts are stored. `vaelii.host.sync/sync!` locks CxUniverse's premises about the
 vocabulary to the shipped files, every `genlCx` edge excepted ([contexts.md](contexts.md#the-context-topology)).
 
 The **middle contexts** are `kb/middle/`, each seeing CxUniverse (`CxKinship`,
-`CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules; `CxAnatomy` and `CxSize`
-— claims about kinds), and **CxWell** sees the seven, so it transitively sees the whole
+`CxBiology`, `CxChange`, `CxSocial` — the rules; `CxMereology` — two preservation
+declarations; `CxAnatomy` and `CxSize` — claims about kinds), and **CxWell** sees the seven, so it transitively sees the whole
 ontology but three opt-in theories.
 `CxNormalPhysicalConditions`, the states of matter at room temperature, and `CxTra`,
 vocabulary that is generally useful but specific to one domain (the relations over
@@ -1502,7 +1502,7 @@ The middle theories are the defeasible defaults that state their own exception w
 are alive until they are dead and awake until they are asleep; a `metal_stuff` is solid
 at room temperature except mercury — five rules of one shape, differing in whether the exception
 names a species, a whole class, a kind of stuff, or a state that changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
-a variable so they join — grandparentOf, part-location, owns-parts).
+a variable so they join, such as grandparentOf).
 
 **A binary predicate says which level it relates at, unless its two ends disagree.**
 `relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
