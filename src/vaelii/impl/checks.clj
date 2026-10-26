@@ -173,10 +173,15 @@
 
 (defn- syntactic-type?
   "Is `t` a type `quotedArg` can judge a value against — a syntactic root or a subtype
-  of one?  A declared type outside this lattice leaves the constraint open-world."
+  of one, or a kind of `expression` (reflection.txt), which every value kind and
+  `symbol` sit below?  `(quotedArg except 1 sentex_handle_term)` so refuses `(except
+  212)`, an integer being no `sentex_handle_term`, and `denotational_term` admits a
+  symbol or a value.  A declared type outside this lattice leaves the constraint
+  open-world."
   [tax t context]
   (or (contains? syntactic-roots t)
-      (some #(tax/genl? tax t % context) syntactic-roots)))
+      (some #(tax/genl? tax t % context) syntactic-roots)
+      (tax/genl? tax t 'expression context)))
 
 (def ^:private declaration-queries
   "Per declaration kind, the sentence `declaration-reader` queries: the functor, then the
@@ -192,6 +197,7 @@
     argsGenl        (argsGenl ?type)
     argAndRest      (argAndRest ?start ?type)
     argAndRestGenl  (argAndRestGenl ?start ?type)
+    quotedArgAndRest (quotedArgAndRest ?start ?type)
     interArgs       (interArgs ?type)
     interArgAndRest (interArgAndRest ?start ?type)})
 
@@ -1116,8 +1122,39 @@
                          (value-outside? kb tax arg ks t context))
                     (compound-kind-against tax arg t context))))))
 
+(defn- quoted-declarations
+  "The `quotedArg` and `quotedArgAndRest` declarations `decls` reads, merged into
+  `[start tail? type match]` entries in content order, as `covering-triples` merges the
+  covering forms: a `quotedArg` types its one position, a `quotedArgAndRest` its start
+  and every later one.  A tail declaration whose start is not a positive integer is
+  dropped, its own `(arg quotedArgAndRest 2 positive_integer)` refusing it at the entry
+  point."
+  [decls]
+  (nm/sort-by-content-key
+   #(nm/print-key (:sentence (nth (nth % 3) 2))) compare
+   (concat (for [m (decls 'quotedArg)]
+             [(get (nth m 1) '?n) false (get (nth m 1) '?type) m])
+           (for [m     (decls 'quotedArgAndRest)
+                 :let  [b (nth m 1) s (get b '?start)]
+                 :when (and (integer? s) (pos? s))]
+             [s true (get b '?type) m]))))
+
+(defn- quoted-declared?
+  "Is any `quotedArg` or `quotedArgAndRest` declaration stored — the presence check the
+  mention arms stand behind.  `quotedArg` by the O(1) count `kind-stored?` reads, and
+  `quotedArgAndRest` by its `:declares-quoted-arg-and-rest` mark (`covering-declared?`), a
+  `:props` lookup the declaration's own arms keep as it arrives and leaves: a second
+  count read here would cost every assert of every KB one predicate-extent read for a
+  form the KB does not use.  Global, as both presence checks are; the scoped `decls`
+  read decides whose tuples a declaration binds and whether the context sees it."
+  [kb decls]
+  (or (kind-stored? decls 'quotedArg)
+      (covering-declared? kb [:declares-quoted-arg-and-rest])))
+
 (defn- args-quoted-problem
-  "First `(quotedArg pred n type)` violation for a sentence, or nil.
+  "First `(quotedArg pred n type)` or `(quotedArgAndRest pred n type)` violation for a
+  sentence, or nil.  The tail form reads every position from `n` to the last, as
+  `argAndRest` does for `arg`.
 
   The **mention** twin of `args-problem`: where that types what an argument *denotes*,
   this types the argument *as a term* — what is decidable from the value itself
@@ -1146,13 +1183,11 @@
         as   (vec (nm/args sentence))
         tax  (reasoning/taxonomy kb)]
     (when (and (symbol? pred)
-               (kind-stored? decls 'quotedArg))
+               (quoted-declared? kb decls))
       (first
-       (for [d     (in-content-order (decls 'quotedArg))
-             :let  [b   (nth d 1)
-                    n   (get b '?n)
-                    t   (get b '?type)
-                    arg (arg-at as n)
+       (for [[start tail? t d] (quoted-declarations decls)
+             n     (if tail? (suffix-positions as start) [start])
+             :let  [arg (arg-at as n)
                     lit (value-kind arg)
                     ks  (if lit (value-kinds arg) (provers/shape-kinds arg))]
              :when (quoted-outside? kb tax arg t context)]
@@ -1166,7 +1201,8 @@
                         (when-not lit
                           (str ", and " (compound-kind-against tax arg t context)
                                " is disjoint from " t))
-                        " (arg " n " of " pred (via-clause (declared-of d) pred) ")")})))))
+                        " (" (when tail? (str "quotedArgAndRest from " start ", "))
+                        "arg " n " of " pred (via-clause (declared-of d) pred) ")")})))))
 
 ;; ---- the inputs of a function application ---------------------------------
 ;; The arms above read the declarations of the sentence's own relation, and an
@@ -1178,23 +1214,29 @@
 ;; function standing where the predicate stood.  Both readings run; neither replaces
 ;; the other.
 
-(defn- mentioned-positions
-  "The positions of the relation `decls` reads that a visible `quotedArg` declaration
-  types — the positions holding a **mention** of the term written there rather than a
-  use of it.  Through `decls` with no count check of its own: the reader memoizes the
-  kind, so `args-quoted-problem`'s read of it over the same relation is the one read."
+(defn- mentioned-position
+  "A test of the positions of the relation `decls` reads that a visible `quotedArg` or
+  `quotedArgAndRest` declaration types — the positions holding a **mention** of the term
+  written there rather than a use of it.  Through `decls` with no count check of its own:
+  the reader memoizes the kind, so `args-quoted-problem`'s read of it over the same
+  relation is the one read."
   [decls]
-  (into #{} (map #(get (nth % 1) '?n)) (decls 'quotedArg)))
+  (let [at   (into #{} (map #(get (nth % 1) '?n)) (decls 'quotedArg))
+        from (some->> (decls 'quotedArgAndRest)
+                      (keep #(let [s (get (nth % 1) '?start)] (when (and (integer? s) (pos? s)) s)))
+                      seq (apply min))]
+    (fn [n] (or (contains? at n) (and from (>= n from))))))
 
 (defn quoted-positions
-  "The positions of `pred` a `quotedArg` declaration visible from `context` types
-  (`mentioned-positions`), behind the O(1) presence check: `#{}` where no `quotedArg` is
-  stored."
+  "A test of the positions of `pred` a `quotedArg` or `quotedArgAndRest` declaration
+  visible from `context` types (`mentioned-position`), behind `quoted-declared?`: false
+  of every position where neither is stored."
   [kb pred context]
   (let [decls (declaration-reader kb pred context)]
-    (if (and (symbol? pred) (not (sx/variable? pred)) (kind-stored? decls 'quotedArg))
-      (mentioned-positions decls)
-      #{})))
+    (if (and (symbol? pred) (not (sx/variable? pred))
+             (quoted-declared? kb decls))
+      (mentioned-position decls)
+      (constantly false))))
 
 (defn- formula-head?
   "Does the compound `x`, written in an argument position, have a head the KB knows as a
@@ -1247,12 +1289,12 @@
                (some application-term? as)
                (not (contains? res/nat-quoting-predicates pred))
                (not (sx/quoting-functor? pred)))
-      (let [mentioned (mentioned-positions decls)]
+      (let [mentioned? (mentioned-position decls)]
         (first-refusing
          (for [[n x] (map-indexed (fn [i a] [(inc i) a]) as)
                :when (and (application-term? x)
                           (not (contains? provers/formula-heads (first x)))
-                          (not (contains? mentioned n)))
+                          (not (mentioned? n)))
                :let  [ds (declaration-reader kb (first x) context (decls ::counts nil))
                       p  (first-refusing
                           (keep #(%)

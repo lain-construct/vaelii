@@ -2994,7 +2994,7 @@
 ;; same entries under their own `:kind`, so a caller asking whether a position is typed
 ;; at all reads one list.
 
-(def ^:private arg-constraint-kinds
+(def arg-constraint-kinds
   "Per declaration functor, the `:kind` its entries carry and its shape: `:at` types
   position n, `(K P n T)`; `:rest` types n and every later one, `(K P n T)`; `:every`
   types every position, `(K P T)`, read as `:rest` from 1."
@@ -3003,7 +3003,8 @@
     genlArg        [:type :at]
     argAndRestGenl [:type :rest]
     argsGenl       [:type :every]
-    quotedArg      [:quoted :at]})
+    quotedArg      [:quoted :at]
+    quotedArgAndRest [:quoted :rest]})
 
 (defn- read-arg-constraints
   "`arg-constraints`, read from the store: every visible declaration of each
