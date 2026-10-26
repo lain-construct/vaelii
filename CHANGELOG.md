@@ -189,6 +189,103 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additive: vocabulary and reasoning
 
+- **`time.txt` ships `IntervalBeforeFn` and `IntervalAfterFn`, the time before and the
+  time after a moment, with their corresponding predicates `intervalBeforeOf` and
+  `intervalAfterOf`.** `(IntervalBeforeFn W)` is every moment before W and
+  `(IntervalAfterFn W)` is W and every moment after it: every interval includes its start
+  and excludes its end, so the two meet at W and W belongs to the after side alone. Each
+  is an `unreifiable_function` from a `time_point` to a `time_interval`, and a
+  `set/backwardRule` gives its one bound, `(endOf (IntervalBeforeFn W) W)` and
+  `(startOf (IntervalAfterFn W) W)`, when `(time_point W)` is believed. An `(InstantFn …)`
+  term answers no `time_point` query, so for one the bound is stated.
+  [time.md](docs/time.md#naming-an-interval-the-calendar-constructors).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **`time.txt` ships `CxTimeFn`, the time slice of a context, with the vocabulary of
+  issue #181: `time_slice_context`, `monad_context`, `genlMonad`, `CxMonadOfFn`/`cxMonadOf`
+  and `CxTimeOfFn`/`cxTimeOf`.** `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of
+  `CxStory`. The KB now believes `(result CxTimeFn context)` and `(contextArgSubrelation
+  CxTimeFn 2 subintervalOf)`, which a KB had to assert itself before reading a
+  time-sliced context through its application. `(result CxTimeFn time_slice_context)`
+  classifies every slice, with `(genl time_slice_context context)`. `CxTimeFn`'s first
+  argument is any `context` and its second a `time`. `monad_context` is a context that is
+  not a slice; `(not (arg CxTimeFn 1 monad_context))` states that the first argument is
+  not typed by it, because a declared argument type entails membership. `CxMonadOfFn` and
+  `CxTimeOfFn` name a context's monad and time. `genlMonad` is a binary relation between
+  two contexts that orders monads alone, as `subintervalOf` orders times.
+  [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **A slice of a slice is the slice at the intersection of the two times, and
+  `time.txt` ships `subtimeOf` and `TimeIntersectionFn` (issue #181).** `(subtimeOf A
+  B)` is one time lying within another, whatever the two kinds of time; it is reflexive,
+  `(genl subtimeOf partOf)` and `(genl subintervalOf subtimeOf)` place it, and an instant
+  a time includes is a subtime of it by a backward rule. `(TimeIntersectionFn A B)` is
+  the time two times have in common, the meet over `subtimeOf`, an
+  `unreifiable_function` with `timeIntersectionOf` as its corresponding predicate.
+  Backward rules make it a `subtimeOf` each argument when both are believed times, and a
+  `subintervalOf` each when both are believed `time_interval`s. Backward rules
+  over `cxMonadOf` and `cxTimeOf` take a slice apart: a context that is not a slice is
+  its own monad, a slice has the monad of the context it slices, a slice of a
+  `monad_context` covers its own time, and a slice of a slice covers the
+  `TimeIntersectionFn` of the inner slice's time and its own. They read the `natFormula`
+  of the slice's `cx/` constant, so a depth-6 `query (cxTimeOf K ?t)` answers for `K`
+  written as `(CxTimeFn S Jan)` with `S` the `cx/` constant of `(CxTimeFn CxStory Y2000)`.
+  A backward rule states that `(CxTimeFn (CxTimeFn C A) B)` equals `(CxTimeFn C
+  (TimeIntersectionFn A B))`; it concludes about two applications, so it answers no goal
+  yet, and the two spellings reify to two `cx/` constants.
+  [time.md](docs/time.md#a-slice-of-a-slice).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **Two `CxTimeFn` slices that differ only in the monad are ordered by `genlMonad`
+  (issue #181).** `time.txt` declares `(contextArgSubrelation CxTimeFn 1 genlMonad)`
+  beside the position-2 `subintervalOf` declaration, so with `(genlMonad CxSubStory
+  CxStory)` stated, `(CxTimeFn CxSubStory (YearFn 2000))` is a computed genlCx spec of
+  `(CxTimeFn CxStory (YearFn 2000))` and sees what it states. The producer reads a stated
+  `genlMonad` fact, so retracting it withdraws the edge. Two slices that differ in both
+  the monad and the time are ordered only through a third slice that differs from each in
+  one argument and has been written into.
+  [context-nat.md](docs/context-nat.md#the-structural-genlcx-producer),
+  [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **`time.txt` ships `Forever`, the time interval that contains every time.** Every
+  `time_interval` is `(subintervalOf ?interval Forever)`, every `time_point` gives
+  `(includesInstant Forever ?instant)`, and every `monad_context` has `(cxTimeOf ?monad
+  Forever)`. The three are backward rules: a query that asks gets the answer, and nothing
+  is stored for every interval, so a network relates Forever only where something mentions
+  it. An interval and an instant get separate rules because `subintervalOf` relates two `time_interval`s and an
+  instant is never one. [time.md](docs/time.md#a-context-at-a-time-cxtimefn-and-the-monad).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+- **`time.txt` ships `DatetimeRangeFn`, a range between two reduced-precision ISO
+  strings, with its corresponding predicate `datetimeRangeOf`.** `(DatetimeRangeFn
+  "2000-01" "2000-06")` is January through June 2000: it begins when `(DatetimeFn
+  "2000-01")` begins and ends when `(DatetimeFn "2000-06")` ends. It is an
+  `unreifiable_function` and a `time_interval`, like `DatetimeFn`, and two
+  `set/backwardRule`s give it its endpoints from the two `DatetimeFn` intervals, so with
+  `:calendar` registered a depth-3 `query (startOf (DatetimeRangeFn "2000-01" "2000-06")
+  ?i)` answers `(InstantFn 2000 1 1 0 0 0)` and `endOf` answers `(InstantFn 2000 7 1 0 0
+  0)`. Calendar units nest or are disjoint, so this is the first term that names two
+  stretches that partially overlap. Nothing reads its strings as fields yet, so neither
+  the interval relations nor the context ordering compare a range the way they compare a
+  calendar term. [time.md](docs/time.md#naming-an-interval-the-calendar-constructors).
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
+### Additive: vocabulary and reasoning
+
 - **The upper ontology ships `intangiblePartOf`, `tangiblePartOf`'s twin for things without
   mass.** It is transitive, reflexive and below `partOf`, and types both positions
   `intangible`. `partOf` is not partitioned into the two specs: a mixed pair, e.g. a mind

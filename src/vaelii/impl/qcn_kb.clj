@@ -634,8 +634,9 @@
 (defn- lifted-predicates
   "The calculus predicates `goal`'s predicate sits above by `genl`, as `context` sees the
   edges, when `goal` is a positive binary literal on a predicate the calculus does not
-  answer; else nil.  `(genl subintervalOf partOf)` makes every `subintervalOf` tuple a
-  `partOf` tuple, so a `partOf` goal lifts to `subintervalOf`."
+  answer; else nil.  `(genl subintervalOf subtimeOf)` and `(genl subtimeOf partOf)` make
+  every `subintervalOf` tuple a `subtimeOf` and a `partOf` tuple, so a goal on either
+  lifts to `subintervalOf`."
   [calc kb goal context]
   (when (and (sequential? goal) (= 3 (count goal)))
     (let [q (first goal)]
