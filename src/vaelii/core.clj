@@ -5811,13 +5811,16 @@
   a clean audit to `empty?`/`seq` — exactly the silent pass the gap exists to prevent.
   The gap is a declaration-contract diagnostic, reported explicitly rather than
   silently audited unconstrained; it covers the denotation-typing declarations only
-  (`arg` / `genlArg` / a `type_relation_predicate` membership) — a slot typed solely
-  by `quotedArg`, the mention twin, still reads as untyped here.
+  (`arg` / `argAndRest` / `args`, their type-level twins, and a
+  `type_relation_predicate` membership) — a slot typed solely by `quotedArg`, the
+  mention twin, still reads as untyped here.
 
-  The required filler type is **derived** from `pred`'s argument contract, never restated:
-  each visible `(arg cp n t)` — over every constraining predicate `cp`, `pred` plus the
-  super-predicates its `genl` closure reaches, the same union the assert-time checker
-  reads — requires membership in `t`, each visible `(genlArg cp n t)` requires being a
+  The required filler type is **derived** from `pred`'s argument contract, never restated,
+  and read through the argnum chokepoint (`res/arg-constraints-at`): each visible
+  `(arg cp n t)`, or `(argAndRest cp m t)` / `(args cp t)` reaching `n` — over every
+  constraining predicate `cp`, `pred` plus the super-predicates its `genl` closure
+  reaches, the same union the assert-time checker reads — requires membership in `t`,
+  each visible `genlArg`, `argAndRestGenl` or `argsGenl` reaching `n` requires being a
   subtype of `t`, a `type_relation_predicate` membership requires the filler to be
   visibly a type at every position, and the constraints compose conjunctively, as the
   assert-time checker composes them.
@@ -5907,7 +5910,8 @@
   `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
   `:taxonomy-island`, `:rule-clash-review` and `:rule-macro-review`, or `:status
   :truncated` with its `:reason`, the `:pass` it stopped in and the findings kept when a
-  bound runs out.  `options` takes `:max-work`, `:max-ms` and `:max-results`, and
+  bound runs out.  Every answer carries `:work`, the units spent, and
+  `:elapsed-ms`.  `options` takes `:max-work`, `:max-ms` and `:max-results`, and
   `:categories`, a set of category keys to run.  The seven review-only categories
   `:twin-genls`, `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
   `:taxonomy-island`, `:rule-clash-review` and `:rule-macro-review` run only when

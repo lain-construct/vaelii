@@ -33,7 +33,7 @@
 
 ```clojure
 (v/kb-integrity kb #{-212 0 212} 'CxUniverse)
-;; => {:status :audited :candidate-count 3}
+;; => {:status :audited :candidate-count 3 :work 41 :elapsed-ms 2.3}
 
 (v/kb-integrity kb candidates 'CxUniverse
                 {:max-work 10000 :max-ms 1000 :max-results 100})
@@ -56,8 +56,10 @@ checked at the same boundaries and inside the argument-preservation prover's cla
 Reaching any bound returns `:status :truncated` with a reason and never labels a partial
 sweep `:audited`. `:pass` names the category whose pass was running when the bound ran
 out, and `:work` the units spent up to that point; a pass that did not finish has no
-total to report. The daemon fills all three when the map is absent, clamps callers to
-its ceilings, and refuses an over-ceiling request by type before acquiring the
+total to report. An answer that completes carries `:work` and `:elapsed-ms` too, the
+units and milliseconds the whole sweep spent, so an operator reads a ceiling off an
+unbounded run. The examples below omit both keys. The daemon fills all three when the
+map is absent, clamps callers to its ceilings, and refuses an over-ceiling request by type before acquiring the
 operation's work.
 
 Work and time are cooperative, not preemptive hard ceilings. The sweep checks immediately
