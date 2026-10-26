@@ -1750,10 +1750,10 @@
 (forced_monotonic_predicate result)
 
 ;; (inverse ?p ?q) says (?p a b) holds exactly when (?q b a) does.  So argument 1 of ?p
-;; is argument 2 of ?q, and argument 2 of ?p is argument 1 of ?q.  The eight rules below
-;; type each position of one partner by the swapped position of the other, four for arg
-;; and four for quotedArg.  An antecedent (inverse ?p ?q) matches a stored inverse in the
-;; order it is written, so each swap has a rule from ?p to ?q and a rule from ?q to ?p.
+;; is argument 2 of ?q, and argument 2 of ?p is argument 1 of ?q.  The four rules below
+;; type each position of one partner by the swapped position of the other, two for arg
+;; and two for quotedArg.  inverse is symmetric, so an antecedent (inverse ?p ?q) matches
+;; a stored inverse in either order and each rule reads the pair from both partners.
 (set/forwardRule
  (implies
   (and (inverse ?p ?q) (arg ?p 1 ?type))
@@ -1766,16 +1766,6 @@
 
 (set/forwardRule
  (implies
-  (and (inverse ?p ?q) (arg ?q 1 ?type))
-  (arg ?p 2 ?type)))
-
-(set/forwardRule
- (implies
-  (and (inverse ?p ?q) (arg ?q 2 ?type))
-  (arg ?p 1 ?type)))
-
-(set/forwardRule
- (implies
   (and (inverse ?p ?q) (quotedArg ?p 1 ?type))
   (quotedArg ?q 2 ?type)))
 
@@ -1783,16 +1773,6 @@
  (implies
   (and (inverse ?p ?q) (quotedArg ?p 2 ?type))
   (quotedArg ?q 1 ?type)))
-
-(set/forwardRule
- (implies
-  (and (inverse ?p ?q) (quotedArg ?q 1 ?type))
-  (quotedArg ?p 2 ?type)))
-
-(set/forwardRule
- (implies
-  (and (inverse ?p ?q) (quotedArg ?q 2 ?type))
-  (quotedArg ?p 1 ?type)))
 
 (comment genl
          "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The type hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Muffet) and never (isa Muffet Dog). The same relation relates predicate specializations of any arity: every tuple of the subtype is a tuple of the supertype, which is what a type reading of it is the unary case of, so neither argument is declared a subtype of thing.")
@@ -1947,9 +1927,10 @@
 (set/monotonic (genl instance_relation_predicate binary_predicate))
 
 (comment inverse
-         "(inverse ?predicate1 ?predicate2) means that ?predicate1 and ?predicate2 are inverse relations, so (?predicate1 a b) holds exactly when (?predicate2 b a) does. Answered by a prover that hands the swapped goal back to the engine rather than matching raw facts, so an inverse composes with its partner's transitivity. Forced-monotonic, since rules read it beside arg to type each partner's arguments by the other's.")
+         "(inverse ?predicate1 ?predicate2) means that ?predicate1 and ?predicate2 are inverse relations, so (?predicate1 a b) holds exactly when (?predicate2 b a) does. Answered by a prover that hands the swapped goal back to the engine rather than matching raw facts, so an inverse composes with its partner's transitivity. Symmetric, since (inverse P Q) and (inverse Q P) say the same thing, so the two spellings store as one sentence. Forced-monotonic, since rules read it beside arg to type each partner's arguments by the other's.")
 (positiveExample inverse (Quote (inverse parentOf childOf)))
 (set/monotonic (instance_relation_predicate inverse))
+(set/monotonic (symmetric inverse))
 (arg inverse 1 predicate)
 (arg inverse 2 predicate)
 (decontextualized_predicate inverse)
