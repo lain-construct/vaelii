@@ -231,6 +231,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a caller that read a part's derived `locatedIn` or `owns` with
   `sentexes-matching` asks it with `ask?`, or asserts the forward rule in its own context.
 
+- **Five shipped unary predicates reach `thing`.** `arity_type`, `spatiality_type` and
+  `temporality_type` are placed under `unary_predicate`, `origin_type` under `type` and
+  `except` under `non_atomic_term`, so `kb-integrity` reports none of them as
+  `:not-under-thing`. [integrity.md](docs/integrity.md)
+  *Migration:* none.
+
 - **A forward rule concluding `equals` or `sameAs` over applications of a
   `reifiable_function` that have no constant yet mints them and stores the equality**, as
   `assert` of the ground sentence does. The firing dropped it as `:not-well-formed`, and

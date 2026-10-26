@@ -863,6 +863,7 @@
 ;; unary holds every type, so the members of arity_type are of more than one order, and
 ;; arity_type is at_least_metatype rather than metatype.
 (at_least_metatype arity_type)
+(genl arity_type unary_predicate)
 (typeGenl arity_type relation)
 (forced_monotonic_predicate arity_type)
 (arity_type unary)
@@ -1574,8 +1575,10 @@
 (forced_monotonic_predicate arg4)
 (forced_monotonic_predicate arg5)
 (forced_monotonic_predicate except)
-;; except takes one argument, the sentexHandle of the sentence it hides.
+;; except takes one argument, the sentexHandle of the sentence it hides, and that
+;; argument is a non-atomic term.
 (unary_predicate except)
+(genl except non_atomic_term)
 (forced_monotonic_predicate exceptWhen)
 ;; exceptWhen takes two arguments as stored, the query and the sentexHandle of the rule it
 ;; qualifies.
@@ -2632,6 +2635,8 @@
 (at_least_metatype temporality_type)
 (typeGenl spatiality_type thing)
 (typeGenl temporality_type thing)
+(genl spatiality_type unary_predicate)
+(genl temporality_type unary_predicate)
 (forced_monotonic_predicate spatiality_type)
 (forced_monotonic_predicate temporality_type)
 (implementationNote spatiality_type "Its memberships are at default strength. Written monotonic, with (orthogonalMetatypes spatiality_type temporality_type), they give the derived orthogonals genlArg justifications that differ between authored order and a reloaded text export: https://github.com/vaelii/vaelii/issues/173")
