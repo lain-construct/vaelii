@@ -46,9 +46,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
-- **The shipped relations' rigidity kinds.** 388 of the starter's 575 relations now
-  have a rigidity kind visible from CxUniverse: 302 time-invariant, 57 time-agnostic
-  and 29 time-varying. Types over numbers, expressions, relations and types, every
+- **The shipped relations' rigidity kinds.** 537 of the starter's 638 relations now
+  have a rigidity kind visible from CxUniverse: 432 time-invariant, 58 time-agnostic
+  and 47 time-varying. Types over numbers, expressions, relations and types, every
   metatype, the folk kinds, the meta, logical and type-relation predicates, kinship,
   `madeOf`, `contains`, `length`, `totalDuration`, `overlapDuration`, the integrity
   requirements and the predall placeholders are time-invariant.
