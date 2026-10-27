@@ -5098,7 +5098,7 @@
     (doseq [c '[CxGcuSide CxGcuRule]]
       (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse m))
     (v/assert kb '(reifiable_function GcuFn) 'CxUniverse m)
-    (v/assert kb '(functionCorrespondingPredicate GcuFn gcuOf) 'CxGcuSide)
+    (v/assert kb '(functionCorrespondingPredicate GcuFn gcuOf 2) 'CxGcuSide)
     (v/assert kb '(set/forwardRule (implies (gcu_tagged (GcuFn ?t)) (gcu_ripe ?t))) 'CxGcuRule)
     (v/with-deferred-settle kb
       (doseq [i (range n)
@@ -5122,7 +5122,7 @@
         xs (mapv #(symbol (str "GdvX" %)) (range 8))]
     (v/assert kb '(genlCx CxGdvStory CxUniverse) 'CxUniverse m)
     (v/assert kb '(reifiable_function GdvFn) 'CxUniverse m)
-    (v/assert kb '(functionCorrespondingPredicate GdvFn gdvOf) 'CxUniverse m)
+    (v/assert kb '(functionCorrespondingPredicate GdvFn gdvOf 2) 'CxUniverse m)
     (v/with-deferred-settle kb
       (doseq [x xs, i (range n)]
         (v/assert kb (list 'gdvUse (symbol (str "GdvA" i)) (list 'GdvFn x)) 'CxUniverse)))

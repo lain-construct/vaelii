@@ -1864,9 +1864,9 @@
   (tu/with-terms [FruitFn SeedFn PitFn tagged ripe seedOf pitOf stoneOf]
     (doseq [f [FruitFn SeedFn PitFn]]
       (v/assert kb (list 'reifiable_function f) 'CxUniverse))
-    (v/assert kb (list 'functionCorrespondingPredicate SeedFn seedOf) 'CxUniverse)
-    (v/assert kb (list 'functionCorrespondingPredicate PitFn pitOf) 'CxUniverse)
-    (v/assert kb (list 'functionCorrespondingPredicate PitFn stoneOf) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate SeedFn seedOf 2) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate PitFn pitOf 2) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingPredicate PitFn stoneOf 2) 'CxUniverse)
     (let [h1 (v/assert kb (list 'implies (list tagged (list FruitFn '?t)) (list ripe '?t)) 'CxUniverse)
           _  (v/assert kb (list 'implies (list tagged (list PitFn '?t)) (list ripe '?t)) 'CxUniverse)
           _  (v/assert kb (list 'implies (list tagged (list SeedFn '?t)) (list ripe '?t)) 'CxUniverse)
