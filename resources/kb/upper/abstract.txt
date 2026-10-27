@@ -1,6 +1,7 @@
 ;; abstract.txt — non-biological upper-ontology types (intangible, physical
 ;; objects, substances, made things, body parts, events and their kinds), the
-;; physical-structure relations tangiblePartOf/locatedIn/madeOf, the event relations
+;; physical-structure relations tangiblePartOf/locatedIn/madeOf, tangiblePartOf's twin
+;; intangiblePartOf for things without mass, the event relations
 ;; doneBy/performedBy and input/output, and the two type-level relations
 ;; typeLargerThan/partType. Loaded into CxUniverse with the rest of kb/upper/.
 
@@ -26,6 +27,7 @@
 ;; biological.
 (comment origin_type "A type of tangible by where its form came from: made or natural.")
 (metatype origin_type)
+(genl origin_type type)
 (typeGenl origin_type tangible)
 ;; Each membership is definitional, so origin_type is forced-monotonic and
 ;; typeOrthogonal's rule concludes an orthogonal from one alone (docs/nmtms.md).
@@ -175,7 +177,8 @@
 (genl liquid substance)
 
 (comment locatedIn
-         "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is the spatial calculi's business, and partOfRegion is the relation to reach for there.")
+         "(locatedIn ?object ?place) means that ?object sits within ?place. CxMereology states that a part is located wherever its whole is. Both arguments are physical objects: a region is the spatial calculi's business, and partOfRegion is the relation to reach for there.")
+(implementationNote locatedIn "Declared transitive, so the transitive prover walks a chain of containments at query time and stores no conclusion of it. CxMereology states (transitiveInArgInverse locatedIn 1 tangiblePartOf), so a goal about a part's location is answered at query time from its whole's.")
 (set/monotonic (instance_relation_predicate locatedIn))
 (set/monotonic (time_varying_relation locatedIn))
 (arg locatedIn 1 tangible)
@@ -275,6 +278,21 @@
 ;; A proper part's whole is not a part of it.  Stated once here, at the root: every proper
 ;; parthood relation is below properPartOf, and a denial of partOf denies each spec's tuple.
 (set/forwardRule (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+;; kb-integrity pairs the root denial with the definition properCounterpart generates
+;; (core.txt) for the tangible and the situation proper readings below, as two rule
+;; clashes.  Both are acknowledged rather than excepted, for the reason each record gives.
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (tangiblePartOf ?x ?y) (not (tangiblePartOf ?y ?x)))
+                    (properTangiblePartOf ?x ?y))))
+  "Left unexcepted on purpose. A proper reading's definition concludes a proper tangible part, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: a part whose whole is stated a proper part of it. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+   (Quote (implies (and (subSituationOf ?x ?y) (not (subSituationOf ?y ?x)))
+                    (properSubSituationOf ?x ?y))))
+  "Left unexcepted on purpose. A proper reading's definition concludes a proper sub-situation, so a part, and the root rule denies one. Both fire for one tuple only where the facts already contradict the root rule: a part whose whole is stated a proper part of it. Both rules are strict definitions, so that clash is the one the facts owe, and an exception would hide it.")
 
 (comment permanentPartOf
          "(permanentPartOf ?part ?whole) means that ?part is a part of ?whole that could not stop being one while both exist. A region's parts and a situation's parts are permanent parts. A wheel is a part of a car and no permanent part, since it can come off. Declared transitive, and both positions declare thing, as partOf's do.")
@@ -288,7 +306,8 @@
 (genl permanentPartOf partOf)
 
 (comment tangiblePartOf
-         "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
+         "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. A part of a part is a part. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
+(implementationNote tangiblePartOf "Declared transitive, so the transitive prover answers a chain of parthood at query time and stores no conclusion of it.")
 (set/monotonic (instance_relation_predicate tangiblePartOf))
 (set/monotonic (time_varying_relation tangiblePartOf))
 (arg tangiblePartOf 1 tangible)
@@ -296,6 +315,20 @@
 (set/monotonic (transitive tangiblePartOf))
 (set/monotonic (reflexive tangiblePartOf))
 (genl tangiblePartOf partOf)
+
+;; intangiblePartOf is tangiblePartOf's twin for things without mass.  The two specs never
+;; overlap, because their arg types already separate them, and a mixed pair (a mind as part
+;; of a person, a person as part of an organization) stays plain partOf and neither spec:
+;; partOf is not partitioned into the two.
+(comment intangiblePartOf
+         "(intangiblePartOf ?part ?whole) means that the intangible ?part is a component of the intangible ?whole. A part of a part is a part. Structural parthood between things without mass, as tangiblePartOf states between tangible things. A tangible part of an intangible whole, or an intangible part of a tangible whole, stays plain partOf and neither spec.")
+(implementationNote intangiblePartOf "Declared transitive, so the transitive prover answers a chain of parthood at query time and stores no conclusion of it.")
+(set/monotonic (instance_relation_predicate intangiblePartOf))
+(arg intangiblePartOf 1 intangible)
+(arg intangiblePartOf 2 intangible)
+(set/monotonic (transitive intangiblePartOf))
+(set/monotonic (reflexive intangiblePartOf))
+(genl intangiblePartOf partOf)
 
 (comment properTangiblePartOf
          "(properTangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole and ?whole is not a component of ?part.")
@@ -456,7 +489,8 @@
 
 ;; --- causes: a causal thing brings a situation about ---------------------------
 (comment causes
-         "(causes ?cause ?effect) means that ?cause brings ?effect about. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: something that holds or happens, over any extent. Declared transitive, so a chain of causes is itself a cause and the chain is answered by the closure prover rather than stored.")
+         "(causes ?cause ?effect) means that ?cause brings ?effect about. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: something that holds or happens, over any extent. A chain of causes is itself a cause.")
+(implementationNote causes "Declared transitive, so the transitive prover answers a chain of causes at query time and stores no conclusion of it.")
 (set/monotonic (time_invariant_relation causes))
 (positiveExampleComment causes "the flattery made the crow sing")
 (positiveExampleComment causes "the rock dented the car")

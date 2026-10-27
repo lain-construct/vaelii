@@ -18,4 +18,5 @@
             contradictions     ; [{:nogood #{handle} :priority int :sentence any}]
             content            ; {handle {:sentence s :context c}} — what each assumption SAYS
             cardinalities])    ; [{:op :at-most|:at-least :k int :members #{handle} :hard bool
-                               ;   :priority int :sentence any}] — only `solve-context` fills it
+                               ;   :priority int :sentence any, :weights {handle int} when
+                               ;   weighted}] — only `solve-context` fills it

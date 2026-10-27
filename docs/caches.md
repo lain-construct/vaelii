@@ -5,7 +5,8 @@
   `:counters` `:note`), the one bound policy (wholesale clear, never eviction), the profile
   that scales every counted bound (`VAELII_CACHE_SCALE`, `cache-profile`,
   `set-cache-scale`, `set-cache-limit`), the memory-pressure guard that shrinks the caches
-  under a filling heap and grows them back, the two reads `caches` / `clear-caches`, and
+  under a filling heap and grows them back, the heap mark that refuses a chaining run over
+  a nearly full heap, the two reads `caches` / `clear-caches`, and
   the derived-state register: every structure kept between writes, its key, its reads and
   the write events that retire it.
 - **Not here:** what the *stores* cost — the JVM heap figure and a loaded KB's estimated
@@ -122,6 +123,9 @@ between two marks:
 - under **0.60** it raises pressure back toward the operator's scale, so a transient spike
   does not leave the caches small for the rest of the run.
 
+Over **0.92** it also sets `caches/heap-critical?` ([the heap mark](#the-heap-mark)), and the
+next collection under 0.92 clears it.
+
 Both multipliers apply: a cache's effective bound is `default × scale × pressure`, floored at
 `min-limit`, and `cache-profile` shows both. An overridden cache's bound is `override ×
 pressure`, since an override is set against the scale but not against the guard. The trim is **partial**, not a
@@ -148,6 +152,50 @@ its token dictionary, [storage.md](storage.md#symbol-interning)); and **hot reco
 LRU has its own knob (`vaelii.disk.cache`). The nil-bound caches
 have no count to scale. An override does not move any of these, so `set-cache-limit` refuses one
 rather than recording an override nothing reads.
+
+## The heap mark
+
+The heap mark is the crash refusal, and it is separate from the guard's cache trim.
+`kb/open-kb` arms it once per JVM (`caches/arm-heap-mark!`), and nothing disarms it. The mark
+sets the old generation's collection-usage threshold at **0.92** of the pool's max and
+attaches a listener for `MEMORY_COLLECTION_THRESHOLD_EXCEEDED`, which sets
+`caches/heap-critical?`. A chaining run reads that flag before each agenda datum, before each
+firing, and before each join row under a bound. Inside `chain/*rollback-scope*` the run
+refuses `:interrupted :bound :heap` and the write rolls back in the remaining 8%.
+`forward-chain` runs inside that scope under either `:on-stop` value. A replay
+(`oplog/*replaying?*`) takes no heap stop (`chain/heap-stop?`). Every other run goes
+on ([inference.md](inference.md#stopping-a-run)). Below the mark, a
+collection runs no engine code, and a firing pays one volatile read per check.
+
+- **The pool** is the one the guard reads: the heap pool named `old` or `tenured` with the
+  largest max (G1 Old Gen, PS Old Gen, Tenured Gen, ZGC Old Generation). The guard sets
+  and clears the flag at each collection from that collection's usage of the same pool. Shenandoah,
+  Epsilon and non-generational ZGC name no such pool, and the mark arms nothing there.
+  `memory-guard` reports the armed pool under `:heap-mark`.
+- **The flag clears** at a check that reads the pool under 0.92, with or without the guard.
+  The reading is the lower of the pool's collection usage and its usage now
+  (`caches/pool-fraction`). A young collection's after-usage, which the guard reads, counts
+  dead tenured objects. G1's collection usage counts a dead humongous object until a young
+  collection reclaims it, so on G1 a dead humongous object holds the flag from the
+  concurrent cycle that counted it to the next young collection. The pool is read only
+  while the flag is set. A rolled-back run's garbage counts against the pool until
+  the next collection of the old generation, so a write retried at once may refuse again.
+- **The threshold fires at the collection the guard's reading crosses 0.92**, measured on
+  JDK 25's G1 under a heap filling at a steady rate (256 MiB, 1 GiB and 2 GiB heaps). G1
+  updates the old pool's collection usage at a mixed collection, a concurrent cycle's end
+  and a full collection, and not at a young-only collection; above the initiating occupancy
+  a concurrent cycle runs between young collections, so the reading moves at the same
+  collection.
+- **The opt-out** is `vaelii.heap.mark=false` ([operations.md](operations.md)). The JVM keeps
+  one collection-usage threshold per pool and the last writer sets it, so an embedder that
+  sets its own turns the mark off.
+- **Settle and recover read the flag only in their chaining.** A settle's re-chain and
+  `recover`'s refusal re-fire (`rerecord-refusals!`) run the agenda loop and read it there;
+  settle's relabel and recover's rebuild of the taxonomy and the network read nothing.
+- **An `OutOfMemoryError` that arrives anyway** unwinds through `undoing-refusal`, which runs
+  the rollback; a rollback that fails too is attached to the error as suppressed, and the
+  error is rethrown. A logged write marks the log `[:unusable [:vm-error op cls]]`
+  ([operations.md](operations.md)).
 
 ## Reading them
 
@@ -262,8 +310,9 @@ The tables are generated from the register by `lein regen-goldens`, and
 | T4 | Rewrite rules | `taxonomy` | handle | records M1 | E2 K, E3 K, E8 K, E17 R, E18 R | write | index | taxonomy |  |  |
 | T5 | Taxonomy closures | `taxonomy` | node | T1 M1 | E7 G, E8 G, E17 W, E21 W, every other event G* | read | cache | no | `:taxonomy-closures` |  |
 | T7 | Closure filter memo | `taxonomy` | context | T1 M1 index records | E17 W, every other event G* | read | cache | no |  |  |
-| T10 | Taxonomy pass caches | `taxonomy` | node | T1 M1 | P | pass | pass | no |  |  |
+| T10 | Taxonomy pass caches | `taxonomy` | node | T1 M1 index records | P | pass | pass | no |  |  |
 | T11 | Taxonomy supporters | `taxonomy` | value | index | E7 K, E8 K, E9 K, E17 W, E21 W | read | cache | no | `:taxonomy-supporters` |  |
+| T12 | Supporter reach memo | `kb` | value | index justifications | E1 G, E3 G, E4 G, E5 K, E6 K, E16 K, E17 R, E18 R | read | cache | no |  |  |
 | M1 | Labels | `jtms` | handle | justifications | E5 K, E10 K, E17 R, E18 R | write | index | network |  |  |
 | M2 | Touched set | `jtms` | handle | M1 | E5 K, E10 K, E16 W, E17 W | write | journal | no |  |  |
 | M3 | Belief hold | `jtms` | global | M1 | E6 K | settle | index | no |  |  |
@@ -324,12 +373,12 @@ The tables are generated from the register by `lein regen-goldens`, and
 
 | id | event | choke points | names | rows it retires |
 |---|---|---|---|---|
-| E1 | `stored` | `kb/create-sentex` | handle, sentence, context | T5 T7 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 R1 R2 R3 R6 R9 R10 R13 K10 K11 |
+| E1 | `stored` | `kb/create-sentex` | handle, sentence, context | T5 T7 T12 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 R1 R2 R3 R6 R9 R10 R13 K10 K11 |
 | E2 | `integrated` | `special/integrate-sentex`, `special/derived-sentex-added`, `special/integrate-twin` | handle, functor | S5 T4 T5 T7 X1 X3 R1 R2 R3 K10 K11 |
-| E3 | `removed` | `integrate/sentex-removed!` | record, except target | S5 T4 T5 T7 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 D3 Q7 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 |
-| E4 | `respelled` | `kb/respell-sentex!` | old and new sentex, one handle | T5 T7 J1 J2 N1 N2 N5 N6 X1 X3 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 |
-| E5 | `relabelled` | `jtms/supersede`, `jtms/ensure-node`, `jtms/add-premise`, `jtms/suspend-premise`, `jtms/add-justification`, `jtms/restrength-informant`, `jtms/set-forced`, `jtms/relabel`, `jtms/set-blocked`, `jtms/retract!`, `jtms/sweep!`, `jtms/drop-justification!` | the handles of the region, held in the network | T5 T7 M1 M2 M4 N3 N10 X1 X3 R1 R2 R3 K10 K11 |
-| E6 | `held` | `settle/hold-belief!`, `settle/publish-belief!` | hold token | T5 T7 M3 X1 X3 Q4 R1 R2 R3 K10 K11 |
+| E3 | `removed` | `integrate/sentex-removed!` | record, except target | S5 T4 T5 T7 T12 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 D3 Q7 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 |
+| E4 | `respelled` | `kb/respell-sentex!` | old and new sentex, one handle | T5 T7 T12 J1 J2 N1 N2 N5 N6 X1 X3 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 |
+| E5 | `relabelled` | `jtms/supersede`, `jtms/ensure-node`, `jtms/add-premise`, `jtms/suspend-premise`, `jtms/add-justification`, `jtms/restrength-informant`, `jtms/set-forced`, `jtms/relabel`, `jtms/set-blocked`, `jtms/retract!`, `jtms/sweep!`, `jtms/drop-justification!` | the handles of the region, held in the network | T5 T7 T12 M1 M2 M4 N3 N10 X1 X3 R1 R2 R3 K10 K11 |
+| E6 | `held` | `settle/hold-belief!`, `settle/publish-belief!` | hold token | T5 T7 T12 M3 X1 X3 Q4 R1 R2 R3 K10 K11 |
 | E7 | `edge` | `taxonomy/add-genl`, `taxonomy/del-genl!`, `taxonomy/add-genlCx`, `taxonomy/del-genlCx!` | handle, edge, context | T1 T5 T7 T11 J1 J5 N1 N2 N3 N5 N6 N8 N10 X1 X3 R1 R2 R3 K10 K11 |
 | E8 | `edge-belief` | `special/reconcile-belief-change`, `taxonomy/refresh-beliefs` | moved handles, or nil for all | T1 T2 T3 T4 T5 T7 T11 J1 J2 J4 J5 N2 N3 N5 N6 N8 N10 X1 X3 Q5 R1 R2 R3 K10 K11 |
 | E9 | `declared` | `taxonomy/add-supported`, `taxonomy/del-supported!` | handle, [kind key], context | T2 T5 T7 T11 J1 J4 N1 N2 N5 N6 X1 X3 R1 R2 R3 K10 K11 |
@@ -339,9 +388,9 @@ The tables are generated from the register by `lein regen-goldens`, and
 | E13 | `rule-indexed` | `special/index-rule-sentex` | rule, antecedent predicates, context | T5 T7 X1 X3 R1 R2 R3 K10 K11 |
 | E14 | `recheck` | `special/mark-recheck` | rules; a trigger, :all or :all-rejoin | T5 T7 X1 X3 R1 R2 R3 K10 K11 |
 | E15 | `inherited` | `decide.inherited/install-inherited!`, `decide.inherited/update-inherited!` | clash rows | T5 T7 J1 J2 N7 X1 X3 D3 R1 R2 R3 K10 K11 |
-| E16 | `settle-exit` | `settle/settle-finish` | region | T1 T5 T7 M2 X1 X3 D3 Q2 Q3 Q5 Q6 R1 R2 R3 K10 K11 |
-| E17 | `recover` | `recovery/recover-from-records`, `recovery/install-rebuilt!` | the whole store | S5 T1 T2 T3 T4 T5 T7 T11 M1 M2 J1 J2 J4 J5 J6 N1 N2 N3 N5 N6 N7 N8 N10 X1 X3 D3 Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 Q9 R1 R2 R3 R6 R9 K10 K11 |
-| E18 | `image-install` | `reasoning-image/install-from!` | the image | S5 S7 T1 T2 T3 T4 T5 T7 M1 J1 J2 J5 J6 N1 N2 N3 N5 N6 N7 N10 X1 X3 D3 Q1 Q2 Q5 Q7 Q10 R1 R2 R3 K10 K11 |
+| E16 | `settle-exit` | `settle/settle-finish` | region | T1 T5 T7 T12 M2 X1 X3 D3 Q2 Q3 Q5 Q6 R1 R2 R3 K10 K11 |
+| E17 | `recover` | `recovery/recover-from-records`, `recovery/install-rebuilt!` | the whole store | S5 T1 T2 T3 T4 T5 T7 T11 T12 M1 M2 J1 J2 J4 J5 J6 N1 N2 N3 N5 N6 N7 N8 N10 X1 X3 D3 Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 Q9 R1 R2 R3 R6 R9 K10 K11 |
+| E18 | `image-install` | `reasoning-image/install-from!` | the image | S5 S7 T1 T2 T3 T4 T5 T7 T12 M1 J1 J2 J5 J6 N1 N2 N3 N5 N6 N7 N10 X1 X3 D3 Q1 Q2 Q5 Q7 Q10 R1 R2 R3 K10 K11 |
 | E19 | `cleared` | `vaelii.core/clear!`, `reindex/reindex`, `io.import/clearing-on-refusal` | the stores, wiped | S5 T5 T7 X1 X3 Q2 Q8 Q9 Q10 R1 R2 R3 R4 R10 K10 K11 |
 | E20 | `closed` | `vaelii.core/close!` | the KB | T5 T7 X1 X3 R1 R2 R3 R9 K10 K11 |
 | E21 | `caches-cleared` | `caches/clear-caches`, `caches/shrink!` | the KB, or every live KB | T5 T7 T11 N8 X1 X3 R1 R2 R3 R6 R9 K3 K4 K5 K6 K10 K11 |

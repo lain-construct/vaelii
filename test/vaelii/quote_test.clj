@@ -102,7 +102,13 @@
               "a quantifier binds its variable"]
              ['sentence (list 'forAll 'Muffet (list dog 'Muffet)) false
               "forAll is a predicate's spelling, and forall is the quantifier"]
-             ['ill_formed_expression (list 3 4) true "a number in operator position"]]]
+             ['ill_formed_expression (list 3 4) true "a number in operator position"]
+             ['sentex_handle_term (list 'sentexHandle 212) true "a handle names a stored sentex"]
+             ['closed_expression (list 'sentexHandle 212) true "a handle is a closed non_atomic_term"]
+             ['sentex_handle_term 212 false "a bare integer names no sentex"]
+             ['sentex_handle_term (list 'sentexHandle 0) false "a handle's id is a positive integer"]
+             ['sentex_handle_term (list 'sentexHandle "212") false "and an integer"]
+             ['sentex_handle_term (list 'sentexHandle 212 213) false "a handle names one sentex"]]]
       (testing (str (list kind (list 'Quote x)) " " holds? ": " why)
         (is (= holds? (v/ask? kb (list kind (list Quote x)) 'CxUniverse)))))))
 
@@ -336,6 +342,27 @@
         (v/retract! kb h)
         (is (not (v/ask? kb (list mentions Tom Ann) 'CxUniverse))
             (str "rule first " rule-first? ": withdrawn with the fact"))))))
+
+;; `argN` binds `?g` from the formula the recursive literal binds, and the check reads `?g`;
+;; its name sorts before or after `argN`, so canonical form stores the two in either order.
+(tu/deftest-kb a-computed-literal-runs-after-the-argn-literal-binding-its-input
+  (doseq [check-first? [true false] rule-first? [true false]]
+    (tu/with-terms [aChk zChk nested likes Ann Bob Carl]
+      (let [chk  (if check-first? aChk zChk)
+            ante [(list nested '?x '?f) (list 'argN '?g 1 '?f) (list chk '?g '?x)]
+            rule #(v/assert kb (list 'implies (cons 'and ante) (list nested '?x '?g))
+                            'CxUniverse {:direction :forward})]
+        (v/add-evaluatable kb chk not=)
+        ;; `expression`, not `formula`: the rule concludes `(nested Ann Bob)`, and a
+        ;; `quotedArg` kind of expression decides a symbol written in the position
+        (v/assert kb (list 'quotedArg nested 2 'expression) 'CxUniverse)
+        (when rule-first? (rule))
+        (v/assert kb (list nested Ann (list likes (list likes Bob Carl) Carl)) 'CxUniverse)
+        (when-not rule-first? (rule))
+        (is (= #{(list likes Bob Carl) Bob}
+               (set (keep #(when (v/ask? kb (list nested Ann %) 'CxUniverse) %)
+                          [(list likes Bob Carl) Bob Carl])))
+            (str "check " chk ", rule first " rule-first?))))))
 
 (tu/deftest-kb a-backward-argn-antecedent-is-proved-once-its-formula-is-bound
   ;; nothing stores an argN row, so the index model alone would run the argN conjunct first

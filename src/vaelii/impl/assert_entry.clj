@@ -45,9 +45,33 @@
 (def ^:dynamic *premise-audit*
   "When bound to an atom, every premise mark on the assert path first records the
   datum's **prior** premise state here — `{handle {:premise? bool :strength kw
-  :spellings rec}}`, first writer wins, `:spellings` read only for a prior premise.
-  `core/preview`, `core/edit!` and a single `core/assert` bind it, and
-  `core/rollback-batch!` reads it (docs/preview.md, \"The mechanism\")."
+  :spellings rec}}`, first writer wins, `:spellings` read only for a prior premise — and
+  `reconcile-rule-slots!` records a stored rule's prior `:slots` (`{:engines :defeasible}`)
+  under the rule's handle before it rewrites them.  `core/preview`, `core/edit!` and a
+  single `core/assert` bind it, and `core/rollback-batch!` reads it (docs/preview.md,
+  \"The mechanism\")."
+  nil)
+
+(def ^:dynamic *write-mark*
+  "When bound to a volatile, the handle a rollback removes every record above, once
+  `take-write-mark!` has taken it, else nil.  `core/undoing-refusal` and `core/edit!`'s
+  adds bind it.  The KB has one writer, so every sentex and justification at a higher
+  handle is the write's own creation (docs/inference.md, \"Stopping a run\")."
+  nil)
+
+(defn take-write-mark!
+  "Take the write's mark (`*write-mark*`) once, from the handle counter: before the write
+  first creates records its premise audit does not reach, the conclusions of a run whose
+  rule or antecedents the write did not store.  Burns one handle."
+  [kb]
+  (when-let [m *write-mark*]
+    (when-not @m (vreset! m (p/next-id (:records kb))))))
+
+(def ^:dynamic *write-check*
+  "Nil, or a fn of the KB and the set of handles a write's rule firings concluded
+  (`observe/*fired-sink*`) that throws to refuse the write.  `core/undoing-refusal`
+  calls it once the write has stored, chained and settled, inside the audit, so the throw
+  takes the write back.  `vaelii.host.serve` binds it for a token-table grant."
   nil)
 
 (defn put-premise-mark
@@ -88,7 +112,7 @@
   behind for the next assertion to inherit."
   [kb h strength]
   (when-let [audit *premise-audit*]
-    (when-not (contains? @audit h)
+    (when-not (contains? (get @audit h) :premise?)
       (let [tms      (reasoning/tms kb)
             premise? (jtms/premise? tms h)]
         ;; the spellings are read only for a handle that is a premise already, the one
@@ -96,11 +120,12 @@
         ;; instead, and every `assert` runs under an audit, so reading them there would
         ;; add a record-store read to every new fact for nothing.
         (swap! audit (fn [m]
-                       (if (contains? m h)
+                       (if (contains? (get m h) :premise?)
                          m
-                         (assoc m h {:premise?  premise?
-                                     :strength  (jtms/premise-strength tms h)
-                                     :spellings (when premise? (integrate/spellings kb h))})))))))
+                         (update m h merge
+                                 {:premise?  premise?
+                                  :strength  (jtms/premise-strength tms h)
+                                  :spellings (when premise? (integrate/spellings kb h))})))))))
   (put-premise-mark kb h (strength/max (jtms/premise-strength (reasoning/tms kb) h) strength)))
 
 (defn check-rule-sentence
@@ -160,6 +185,13 @@
         def?     (when (and (:defeasible stored) (:defeasible incoming)) true)
         moved?   (not= engines (:engines stored))]
     (when (or moved? (not= (boolean def?) (boolean (:defeasible stored))))
+      (when-let [audit *premise-audit*]
+        (swap! audit (fn [m] (if (contains? (get m h) :slots)
+                               m
+                               (assoc-in m [h :slots] (select-keys stored [:engines :defeasible]))))))
+      ;; the run below concludes from a rule this write did not store, out of the audit's
+      ;; reach
+      (take-write-mark! kb)
       (let [s' (assoc stored :engines engines :defeasible def?)]
         (when moved? (p/unindex-sentex! (:index kb) stored h))
         (p/put-sentex (:records kb) s')
@@ -177,6 +209,27 @@
                    (not (rules/forward-sentex? stored)))
           (chain/chain-all kb [h] opts))
         (settle/settle-write kb (:chain? opts true))))))
+
+(defn restore-rule-slots!
+  "Put rule `h`'s `:engines` and `:defeasible` back to `slots`, the values
+  `reconcile-rule-slots!` recorded in the audit before it rewrote them: the record, the
+  index entries filed under the engines, and the firings' strength and forced memberships
+  a defeasibility move re-read.  `core/rollback-batch!`'s undo of that rewrite, run before
+  the rollback's settle, so the settle chains nothing through engines the write added."
+  [kb h {:keys [engines defeasible]}]
+  (when-let [cur (p/get-sentex (:records kb) h)]
+    (let [moved?     (not= engines (:engines cur))
+          def-moved? (not= (boolean defeasible) (boolean (:defeasible cur)))]
+      (when (or moved? def-moved?)
+        (let [s' (assoc cur :engines engines :defeasible defeasible)]
+          (when moved? (p/unindex-sentex! (:index kb) cur h))
+          (p/put-sentex (:records kb) s')
+          (when moved?
+            (p/index-sentex (:index kb) s' h)
+            (rules/forget-stratification))
+          (when def-moved?
+            (special/restrength-firings! kb h)
+            (checks/force-sentexes! kb [s'])))))))
 
 (defn- note-rule-spelling!
   "Record on rule row `h`, stored as `s`, the spelling `sentence` has with its open
@@ -471,31 +524,27 @@
             ;; the record is born carrying its strength, so `mark-premise` below has
             ;; nothing to re-store — see `kb/create-sentex`.
             ;;
-            ;; **A predicate that permutes keeps the probe.**  `create-sentex` canonicalizes
-            ;; the arguments (`res/kb-sentex` sorts a `(symmetric P)` literal, and the
-            ;; commuting component of a commutative one), so the bulk row is *stored* in
-            ;; canonical order — but skipping the probe stored it beside a permutation
-            ;; already there, two records for one proposition, which the caller cannot
-            ;; pre-dedup: telling `(siblingOf Bob Ann)` from a stored `(siblingOf Ann Bob)`
-            ;; needs exactly the `(symmetric P)` read the fast path is avoiding, and
-            ;; `(covering W C A B)` from a stored `(covering W A B C)` the commuting-group
-            ;; read.  So for such a functor the row takes `find-or-create` (one taxonomy
-            ;; read per row for a rare mark), which is what makes the bulk result identical
-            ;; to loading one-by-one (`integrate/commute-existing`, vaelii#61).  Both reads
-            ;; are inside the `bulk?` `and`, so `and` short-circuits them away on the
-            ;; non-bulk path, which never reaches them.
-            [h s _]  (if (and bulk?
-                              (not (and pred
-                                        (let [tax (reasoning/taxonomy kb)]
-                                          (or (tax/has-prop? tax :symmetric pred)
-                                              (seq (tax/commuting-groups tax pred)))))))
+            ;; **A sentence a mark permutes, at its literal or below it, keeps the
+            ;; probe.**  `create-sentex` canonicalizes the arguments (`res/kb-sentex`
+            ;; sorts a `(symmetric P)` literal, the commuting component of a commutative
+            ;; one, and each such compound below the literal), so the bulk row is
+            ;; *stored* in canonical order — but skipping the probe stored it beside a
+            ;; permutation already there, two records for one proposition, which the
+            ;; caller cannot pre-dedup: telling `(siblingOf Bob Ann)` from a stored
+            ;; `(siblingOf Ann Bob)` needs exactly the `(symmetric P)` read the fast path
+            ;; is avoiding.  So such a sentence takes `find-or-create`
+            ;; (`integrate/permuting-sentence?`, a taxonomy read per functor), which is
+            ;; what makes the bulk result identical to loading one-by-one
+            ;; (`integrate/commute-existing`, vaelii#61).  The read is inside the `bulk?`
+            ;; `and`, so the non-bulk path never reaches it.
+            [h s _]  (if (and bulk? (not (integrate/permuting-sentence? kb sentence)))
                        (let [[h s] (kb/create-sentex kb sentence context strength)] [h s true])
                        (kb/find-or-create-sentex kb sentence context strength))
             ;; a predicate a mark permutes may store this assertion under a spelling other
             ;; than the one written, and the row has to remember which, for the mark's
             ;; leaving to hand it back (`integrate/spellings-key`) — read before the mark
             ;; below moves the class the record starts from
-            permuted? (integrate/permuting? kb (res/permuted-functor sentence))
+            permuted? (integrate/permuting-sentence? kb sentence)
             prior    (when permuted? (jtms/premise-strength (reasoning/tms kb) h))]
         ;; the labeller's forced memberships go in before the mark, so a denial of a
         ;; forced-monotonic literal and a fact an argument declaration convicts are never IN

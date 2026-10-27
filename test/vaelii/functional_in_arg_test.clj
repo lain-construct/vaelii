@@ -18,7 +18,7 @@
   - `(functionalInArg P 1)` on a **unary** predicate has an *empty* determinant, which
     reads as \"at most one filler, full stop.\"  Every filler must reconcile with every
     other, so it is the sharpest available probe of the merge/reject rule and it is what
-    Pace's matrix uses.
+    the matrix below uses.
 
   The merge-or-nogood rule itself is not new and is not ours to invent.  CxUniverse's
   comment on `functional`:
@@ -31,7 +31,7 @@
   question asked five ways: *does the generalized determinant reach the same verdict the
   arity-2 path reaches, in every context that can see both fillers?*
 
-  Context shape throughout, per Pace's specification:
+  Context shape throughout:
 
       CxUniverse
         ├── CxLeft   (p ThingOne)
@@ -118,7 +118,7 @@
 
 (defn- equality-in?
   "Is `(equals x y)` a stored sentex visible from `ctx`?  This is the per-context
-  question, and the one Pace's matrix is actually about."
+  question, and the one the matrix is about."
   [kb x y ctx]
   (boolean (v/handle-of kb (list 'equals x y) ctx)))
 
@@ -282,7 +282,7 @@
       (check (= #{CxBottom} (reading-contexts kb [CxLeft CxRight CxBottom]))
              "decided at the vantage that sees both, as position 2 already was"))))
 
-;; ---- Pace's matrix, rows 1 and 2 ----------------------------------------
+;; ---- the matrix, rows 1 and 2 -------------------------------------------
 
 ;; vaelii#43 closed the gap: `special/equate-under-context-edge` (and the
 ;; `derive-functional-equalities` sweep it now shares with the plain fact-arrival
@@ -291,7 +291,7 @@
 ;; `:functional-in-arg` table, only the arity-2 `:functional` one — now admit the
 ;; empty-determinant shape too, so `clash-nogoods` finds the unmergeable pair.  Two
 ;; numbers cannot be ranked, so the vantage below reports a dilemma and both fillers
-;; stand: the row reads `contradictions` from that vantage, which is the question Pace's
+;; stand: the row reads `contradictions` from that vantage, which is the question the
 ;; matrix asks.
 (tu/deftest-kb two-numbers-under-an-empty-determinant-contradict-in-the-context-below
   ;; Row 1.  `(p 1)` in CxLeft and `(p 2)` in CxRight are each fine where they stand;
@@ -311,12 +311,9 @@
       (check (not (equality-in? kb 1 2 CxBottom)) "no (equals 1 2)"))))
 
 (tu/deftest-kb a-clash-no-context-can-see-is-not-a-clash
-  ;; Pace's rule, S174, and the converse of the row above — the half that makes it a
-  ;; rule rather than a labelling choice:
-  ;;
-  ;;   "it's silly to compute {CxLeft CxRight} if they're both leaf contexts. Who cares
-  ;;    whether there's an implicit contradiction if there's no context that sees that
-  ;;    contradiction. that's just wasting compute."
+  ;; The converse of the row above, and the half that makes it a rule rather than a
+  ;; labelling choice: a clash between two leaf contexts that no context sees together
+  ;; is not computed.
   ;;
   ;; Same two facts as the row above, with **no context below either side**.  Neither
   ;; leaf can see the other, so no vantage exists from which the two fillers are both
@@ -338,7 +335,7 @@
 ;; sweep every reader below a fact's own context (`tax/context-down`), not only
 ;; `equate-under-context-edge`'s own genlCx-triggered sweep.
 (tu/deftest-kb two-symbols-under-an-empty-determinant-merge-in-the-context-below
-  ;; Row 2, and the one Pace specified the answer for: the desired behaviour is
+  ;; Row 2: the desired behaviour is
   ;; `(equals ThingOne ThingTwo)` in CxBottom.  This is where a functional clash is
   ;; *knowledge* — two names for one thing — rather than an error.
   (tu/with-terms [p ThingOne ThingTwo CxLeft CxRight CxBottom]
@@ -509,10 +506,10 @@
         (is (not (merged? kb ObjOne ObjTwo))
             "the determinant differs, so these fill two slots and neither constrains the other")))))
 
-;; ---- the wide case: Pace's 212 ------------------------------------------
+;; ---- the wide case: arity 212 ------------------------------------------
 
 (def ^:private wide-arity
-  "212, at Pace's request.  Nothing in the suite goes above 7 and the metatype names stop
+  "212.  Nothing else in the suite goes above 7 and the metatype names stop
   at three, so this is the first argument count anything here has been asked to carry."
   212)
 

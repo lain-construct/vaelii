@@ -22,9 +22,14 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.capabilities :as cap]
+            [vaelii.impl.checks :as checks]
+            [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.special :as special]))
+            [vaelii.impl.special :as special]
+            [vaelii.impl.types.reasoning :as reasoning]))
 
 (defn- hinting-store
   "`inner` with `Prefetching` bolted on, recording each hint into `hints` (and each
@@ -287,3 +292,220 @@
     (special/post-taxonomy-supporters! kb2)
     (is (= 20 (count genls)))
     (is (every? (set (mapcat identity @hints)) genls))))
+
+;; ---- the membership placement pass hints a chunk of terms at a time -------
+
+(defn- standing-nogoods
+  "A KB of `n` terms each held in two types a `disjoint` separates, so `n` membership
+  nogoods stand, read through `hinting-store`, and its hint log."
+  [n]
+  (let [kb    (v/open-kb {:backend :memory :space (gensym "prefetch")})
+        _     (v/with-deferred-settle kb
+                (v/assert kb '(disjoint pfa_kind pfb_kind) 'CxPrefetch {:strength :monotonic})
+                (doseq [i (range n) :let [x (symbol (str "Ind" i))]]
+                  (v/assert kb (list 'pfa_kind x) 'CxPrefetch)
+                  (v/assert kb (list 'pfb_kind x) 'CxPrefetch)))
+        hints (atom [])]
+    [(assoc kb :records (hinting-store (:records kb) hints)) hints]))
+
+(deftest the-membership-placement-pass-hints-each-nogoods-records-in-chunks
+  ;; a `genl` edge above one of the types places every nogood again, reading each
+  ;; one's members and its placed `(contradicts …)`
+  (let [n          600
+        [kb hints] (standing-nogoods n)
+        recs       (:records kb)
+        of         (fn [f] (into #{} (filter #(= f (first (:sentence (p/get-sentex recs %)))))
+                                 (p/sentex-ids recs)))]
+    (reset! hints [])
+    (v/assert kb '(genl pfa_kind pfc_kind) 'CxPrefetch {:strength :monotonic})
+    (let [hinted (set (mapcat identity @hints))]
+      (is (= n (count (of 'contradicts))))
+      (is (every? hinted (concat (of 'contradicts) (of 'pfa_kind) (of 'pfb_kind)))
+          "every member and every placed nogood")
+      (is (<= (count @hints) 12)
+          "a hint a chunk of terms, in the pass that plans and the pass that places"))))
+
+(defn- belief-content
+  "Every live sentex as `[sentence context in?]` and every stored justification, by handle."
+  [kb]
+  (let [recs (:records kb)
+        tms  (reasoning/tms kb)]
+    {:sentexes       (into (sorted-map)
+                           (map (fn [h] (let [s (p/get-sentex recs h)]
+                                          [h [(:sentence s) (:context s) (jtms/in? tms h)]])))
+                           (p/sentex-ids recs))
+     :justifications (into (sorted-map) (map (fn [j] [j (into {} (p/get-justification recs j))]))
+                           (p/justification-ids recs))}))
+
+(defn- random-membership-writes
+  "`k` writes drawn by `rnd` over three individuals, six types, two `disjoint`
+  declarations, three `genl` edges between the types and three contexts under a world
+  context: a membership or a denial stated, a stored one retracted, an edge stated or
+  retracted."
+  [^java.util.Random rnd k]
+  (let [pick  #(nth % (.nextInt rnd (count %)))
+        types (mapv #(symbol (str "pfr" % "_kind")) (range 6))
+        inds  (mapv #(symbol (str "PfrInd" %)) (range 3))
+        ctxs  '[CxPfrA CxPfrB CxPfrD]
+        edges '[[pfr4_kind pfr0_kind] [pfr5_kind pfr2_kind] [pfr4_kind pfr3_kind]]]
+    (vec (repeatedly k #(case (.nextInt rnd 5)
+                          0 [:assert (list (pick types) (pick inds)) (pick ctxs)]
+                          1 [:assert (list 'not (list (pick types) (pick inds))) (pick ctxs)]
+                          2 [:retract]
+                          3 [:assert (apply list 'genl (pick edges)) 'CxPfrW]
+                          4 [:retract-edge (apply list 'genl (pick edges))])))))
+
+(defn- apply-write!
+  "Apply one `random-membership-writes` write to `kb`; `:retract` takes the stored
+  membership or denial at index `i` of the handle order."
+  [kb [op s ctx] i]
+  (case op
+    :assert       (try (v/assert kb s ctx (if (= 'genl (first s)) {:strength :monotonic} {}))
+                       (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))
+    :retract-edge (some->> (v/handle-of kb s 'CxPfrW) (v/retract! kb))
+    :retract      (let [recs (:records kb)
+                        hs   (sort (filter #(let [s (:sentence (p/get-sentex recs %))]
+                                              (re-find #"^pfr\d_kind$" (str (first (if (= 'not (first s)) (second s) s)))))
+                                           (p/premise-ids recs)))]
+                    (when (seq hs) (v/retract! kb (nth hs (mod i (count hs))))))))
+
+(defn- membership-world
+  "A KB holding `random-membership-writes`' contexts and declarations, through
+  `hinting-store` when `hints` is an atom."
+  [hints]
+  (let [kb (v/open-kb {:backend :memory :space (gensym "prefetch")})
+        m  {:strength :monotonic}]
+    (doseq [[c up] '[[CxPfrW CxUniverse] [CxPfrA CxPfrW] [CxPfrB CxPfrW] [CxPfrD CxPfrA] [CxPfrD CxPfrB]]]
+      (v/assert kb (list 'genlCx c up) 'CxUniverse m))
+    (v/assert kb '(disjoint pfr0_kind pfr1_kind) 'CxPfrW m)
+    (v/assert kb '(disjoint pfr2_kind pfr3_kind) 'CxPfrW m)
+    (cond-> kb hints (assoc :records (hinting-store (:records kb) hints)))))
+
+(deftest a-hinted-membership-placement-pass-places-what-an-unhinted-one-places
+  ;; the hint returns nothing, so a store that prefetches and one that does not end every
+  ;; write with the same records, justifications and belief
+  (doseq [seed (range 6)]
+    (testing (str "seed " seed)
+      (let [hints    (atom [])
+            plain    (membership-world nil)
+            hinted   (membership-world hints)
+            placed   (atom 0)
+            diverged (into [] (keep-indexed
+                               (fn [i w]
+                                 (apply-write! plain w i)
+                                 (apply-write! hinted w i)
+                                 (let [a (belief-content plain)]
+                                   (swap! placed + (count (filter #(= 'contradicts (ffirst (val %)))
+                                                                  (:sentexes a))))
+                                   (when (not= a (belief-content hinted)) [i w]))))
+                           (random-membership-writes (java.util.Random. seed) 60))]
+        (is (empty? diverged))
+        (is (pos? @placed) "the writes placed nogoods")
+        (is (seq @hints) "and the hinted world's placement pass hinted")))))
+
+;; ---- the subsumed-mint pass hints a chunk of candidates at a time ---------
+
+(defmacro ^:private with-pruning
+  "The body with the argument entailment on and subsumed mints pruned, bound so a run
+  under either switch's parity setting still reaches the pass."
+  [& body]
+  `(binding [argument/*assertive-arg-types?* true
+             checks/*prune-subsumed-mints?* true]
+     ~@body))
+
+(deftest the-subsumed-mint-pass-hints-each-mint-and-its-subsumers-in-chunks
+  ;; `(pmh_animal x)` minted in CxPmh for each x, `(pmh_dog x)` stated where CxPmh does
+  ;; not see it: the edge `(genl pmh_dog pmh_animal)` asks every mint the whole question
+  ;; (`edge-route-candidates`), which reads the mint and the membership below it
+  (with-pruning
+    (let [n     600
+          kb    (v/open-kb {:backend :memory :space (gensym "prefetch")})
+          m     {:strength :monotonic}
+          _     (v/assert kb '(arg pmhOwns 1 pmh_animal) 'CxPmh m)
+          _     (v/with-deferred-settle kb
+                  (doseq [i (range n) :let [x (symbol (str "PmhInd" i))]]
+                    (v/assert kb (list 'pmhOwns x 'PmhThing) 'CxPmh m)
+                    (v/assert kb (list 'pmh_dog x) 'CxPmhSide m)))
+          hints (atom [])
+          kb    (assoc kb :records (hinting-store (:records kb) hints))
+          recs  (:records kb)
+          of    (fn [f] (into #{} (filter #(= f (first (:sentence (p/get-sentex recs %)))))
+                              (p/sentex-ids recs)))
+          mints (of 'pmh_animal)]
+      (v/assert kb '(genl pmh_dog pmh_animal) 'CxPmh m)
+      (let [hinted (set (mapcat identity @hints))]
+        (is (= n (count mints) (count (of 'pmh_animal))) "every mint stands")
+        (is (every? hinted (concat mints (of 'pmh_dog))) "every mint and the membership below it")
+        (is (<= (count @hints) 6) "two hints a chunk of 256 candidates")))))
+
+(defn- random-mint-writes
+  "`k` writes drawn by `rnd` over four individuals, five types, four `genl` edges between
+  them, argument declarations on `pmrOwns` and three contexts under a world context: a
+  membership or a `pmrOwns` fact stated, one of them retracted, an edge or a declaration
+  stated or retracted."
+  [^java.util.Random rnd k]
+  (let [pick  #(nth % (.nextInt rnd (count %)))
+        types (mapv #(symbol (str "pmr" % "_kind")) (range 5))
+        inds  (mapv #(symbol (str "PmrInd" %)) (range 4))
+        ctxs  '[CxPmrA CxPmrB CxPmrD]
+        edges '[[pmr1_kind pmr0_kind] [pmr2_kind pmr1_kind] [pmr3_kind pmr0_kind] [pmr4_kind pmr2_kind]]]
+    (vec (repeatedly k #(case (.nextInt rnd 12)
+                          (0 1 2) [:assert (list (pick types) (pick inds)) (pick ctxs)]
+                          (3 4 5) [:assert (list 'pmrOwns (pick inds) 'PmrThing) (pick ctxs)]
+                          6       [:retract]
+                          (7 8)   [:assert (apply list 'genl (pick edges)) 'CxPmrW]
+                          9       [:retract-in (apply list 'genl (pick edges)) 'CxPmrW]
+                          10      [:assert (list 'arg 'pmrOwns 1 (pick types)) 'CxPmrW]
+                          11      [:retract-in (list 'arg 'pmrOwns 1 (pick types)) 'CxPmrW])))))
+
+(defn- apply-mint-write!
+  "Apply one `random-mint-writes` write to `kb`; `:retract` takes the stored membership
+  or `pmrOwns` fact at index `i` of the handle order."
+  [kb [op s ctx] i]
+  (case op
+    :assert     (try (v/assert kb s ctx {:strength :monotonic})
+                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))
+    :retract-in (some->> (v/handle-of kb s ctx) (v/retract! kb))
+    :retract    (let [recs (:records kb)
+                      hs   (sort (filter #(re-find #"^(pmr\d_kind|pmrOwns)$"
+                                                   (str (first (:sentence (p/get-sentex recs %)))))
+                                         (p/premise-ids recs)))]
+                  (when (seq hs) (v/retract! kb (nth hs (mod i (count hs))))))))
+
+(defn- mint-world
+  "A KB holding `random-mint-writes`' contexts and a declaration on `pmrOwns`, through
+  `hinting-store` when `hints` is an atom."
+  [hints]
+  (let [kb (v/open-kb {:backend :memory :space (gensym "prefetch")})]
+    (doseq [[c up] '[[CxPmrW CxUniverse] [CxPmrA CxPmrW] [CxPmrB CxPmrW] [CxPmrD CxPmrA]]]
+      (v/assert kb (list 'genlCx c up) 'CxUniverse {:strength :monotonic}))
+    (v/assert kb '(arg pmrOwns 1 pmr0_kind) 'CxPmrW {:strength :monotonic})
+    (cond-> kb hints (assoc :records (hinting-store (:records kb) hints)))))
+
+(deftest a-hinted-subsumed-mint-pass-withdraws-what-an-unhinted-one-withdraws
+  ;; the hinter reads and writes nothing the pass does not read, so a store that
+  ;; prefetches and one that does not end every write, and a recover, with the same
+  ;; records, justifications and belief
+  (with-pruning
+    (doseq [seed (range 6)]
+      (testing (str "seed " seed)
+        (let [hints     (atom [])
+              plain     (mint-world nil)
+              hinted    (mint-world hints)
+              withdrawn (atom 0)
+              diverged  (into [] (keep-indexed
+                                  (fn [i w]
+                                    (let [before (reads/stored-mint-count-global (:index plain))]
+                                      (apply-mint-write! plain w i)
+                                      (apply-mint-write! hinted w i)
+                                      (when (and (= :assert (first w))
+                                                 (< (reads/stored-mint-count-global (:index plain)) before))
+                                        (swap! withdrawn inc))
+                                      (when (not= (belief-content plain) (belief-content hinted)) [i w]))))
+                              (random-mint-writes (java.util.Random. seed) 80))]
+          (v/recover plain)
+          (v/recover hinted)
+          (is (empty? diverged))
+          (is (= (belief-content plain) (belief-content hinted)) "after a recover")
+          (is (pos? @withdrawn) "a write withdrew a mint")
+          (is (seq @hints) "and the hinted world hinted"))))))

@@ -160,6 +160,11 @@ un-believes the mint, and the mint stops firing. Nothing has to hunt it down:
 ;; the generated rule is no longer believed, and neither is anything it concluded
 ```
 
+A defeat of a `:default` fill hides the mint and its conclusions the same way, though the
+network keeps them IN. The mint's class is the fill's, and it caps the class of each firing
+of the mint, so the read that hides the fill reaches every conclusion resting on it
+([nmtms.md](nmtms.md#strength-propagates-from-the-antecedents)).
+
 Dedup is the ordinary sentex dedup, so two generators that generate the same rule share
 one handle and collect a justification each — and the rule survives until the last of
 them goes.

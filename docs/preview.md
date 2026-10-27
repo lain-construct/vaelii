@@ -52,8 +52,9 @@ belief without the sweep ([nmtms.md](nmtms.md) states why that is the whole effe
 belief). The rollback puts the premise back with `add-premise`, then applies the audit to
 it as to any add: a handle the batch both adds and removes is suspended at the class the
 add raised, and only the audit holds the class the batch found. A real removal queues the
-`exceptWhen` re-check at the removal choke point, so a suspension queues it by hand, and
-the rollback queues it again when the premise returns.
+`exceptWhen` re-check at the removal choke point, and for an `except` the re-join of the
+firings it refused (`special/recheck-except`). A suspension queues both by hand, and the
+rollback queues them again when the premise returns.
 
 **`settle`'s own sweep is off for the duration** (`settle/*sweep?*`). An added
 `exceptWhen`, or a fact that triggers one, blocks a justification without deleting what
@@ -87,7 +88,7 @@ adds can still fill it.
 exists, and the number would later name another one. Content that was already stored
 keeps its handle, so a defeated default and a blocked conclusion stay addressable.
 
-`:justification` is one level, not `why`'s tree: the informant, the strength it confers,
+`:justification` is one level, not `why`'s graph: the informant, the strength it confers,
 the rule it names when that informant is a stored rule, and the antecedent sentences. A
 tree apiece would be a proof search per entry. A datum several derivations support names
 the **content-least** justification (`supporting-justifications`), never whichever
@@ -206,7 +207,7 @@ that throws after writing). The two entry points differ in **when** they roll ba
 
 | | `preview` | `edit!` |
 |---|---|---|
-| rolls back | always | only when the batch throws |
+| rolls back | always | only when the batch throws, the caller's `:max-ms` or `:stop?` ending its adds included ([inference.md](inference.md#stopping-a-run)) |
 | an `:add` | asserted, undone through the audit | the same |
 | a `:remove` | `jtms/suspend-premise`, restored | a real teardown, never reached by a rollback |
 | `settle`'s sweep | off for the batch | on, as for any write |

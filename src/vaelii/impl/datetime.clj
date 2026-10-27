@@ -112,6 +112,13 @@
        (and (<= (count pb) (count pa))
             (= pb (subvec pa 0 (count pb))))))))
 
+(def order-comparators
+  "The registered pure comparators of an order, `{relation → (fn [a b] a-below-b?)}`.
+  Each reads two terms' shape with no store read and no proof, and is total, returning
+  `false` for terms it does not apply to.  `context-nat` reads one to order two context
+  NATs, and the canonicalizer reads one to absorb a meet's argument (`res/meet-order`)."
+  {'subintervalOf subinterval?})
+
 ;; ---- the moments a calendar term lies between ----------------------------
 
 (def instant-function

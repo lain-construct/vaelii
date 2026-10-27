@@ -85,7 +85,7 @@
                       (comp (filter (comp opts? val)) (map key) (remove specced))
                       (ns-publics 'vaelii.core))]
     (is (= '#{abduce add-evaluatable argue assert-many bulk-assert-facts! check clear-caches
-              compare-tacticians conflicts contradictions edit-with-consequences! export!
+              compare-tacticians conflicts contradictions edit! edit-with-consequences! export!
               export-text! fork import!
               kb-quality load-foreign! preview query-status search-tree}
            gap)

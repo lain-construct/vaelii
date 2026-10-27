@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check that doc claims about the code still match the code.
 
-Scans README.md and docs/**.md for the drift classes that actually bite. Two
-checks reach wider than that, because the prose outside docs/ rots the same way
+Scans README.md, docs/**.md and handbook/*.md for the drift classes that
+actually bite. Two checks reach wider than that, because the prose outside docs/ rots the same way
 and nothing else reads it: the LINK check (E4) and ARCHAEOLOGY (E7/W7) also read
 CHANGELOG.md, CONTRIBUTING.md, CLAUDE.md and .claude/rules/*.md — see
 `extra_md_files`. The rest stay on docs/: they check claims about the engine,
@@ -38,7 +38,11 @@ and those files describe the project around it.
       and so does "has since moved", because evidence moves at run time.  Scans
       source and scripts as well as docs, plus the markdown in `extra_md_files`.  Two of those files STATE this rule and so
       quote its phrasings in order to ban them; they are exempt by name, the
-      same way this checker excludes itself.
+      same way this checker excludes itself.  Review talk is E7 too: a reviewer
+      named as the source of a constraint, a pointer into review notes, a pull
+      request as where a fact lives, chat (`REVIEW_TALK`), and `ruled` or
+      `ruling` outside the logical sense, docs/defenses.md and koinii (`RULING`).
+      The text states the constraint.
   E8  `(requiring-resolve 'ns/var)` on a literal symbol anywhere under src/
       except vaelii.impl.wiring — a layering cut left at its call site, where
       nothing counts it and nothing stops the next one.  A computed symbol (a
@@ -70,12 +74,12 @@ and those files describe the project around it.
       sources, the docs, `extra_md_files` and the shipped ontology under
       `resources/kb/`; the allowlist excuses a token where a doc needs the
       borrowed word to explain the borrowing.
-  E12 A doc under docs/ whose title is not followed by the three orientation
+  E12 A doc under docs/ or handbook/ whose title is not followed by the three orientation
       bullets — **Covers**, **Not here**, **Assumes**.  They are what lets a
       reader (or a model routing on minimum context) spend one sentence rather
       than one section discovering the page is the wrong one, and they are only
-      worth reading if every page has them.  docs/README.md is the map and
-      dependencies.md is generated, so neither carries them.
+      worth reading if every page has them.  The two README.md files are maps
+      and dependencies.md is generated, so none of them carries the bullets.
   E13 A ```clojure or ```edn block that is not a whole s-expression.  A snippet
       missing its last paren looks like a snippet, so the reader who pastes it
       reads the error as theirs.  A real scan rather than a bracket count —
@@ -137,6 +141,13 @@ and those files describe the project around it.
       in it, so E8 and E19 cannot see it, and the lower namespace answers wrongly
       until the higher one loads.  Route it through vaelii.impl.wiring.  A call made
       inside a fn body (a listener a caller registers) is not top-level and passes.
+  E21 A ```clojure block in handbook/ that has drifted from what it shows.  A
+      block calling `v/name` must name a var vaelii.core defines.  Any other
+      block quotes the shipped KB or the test-world, so each top-level form in
+      it must appear in resources/kb/**/*.txt or test/vaelii/world*.clj,
+      whitespace aside.  A block written for the page
+      rather than quoted opens with ```clojure composed, and only its `v/` calls
+      are checked.
 
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
@@ -273,10 +284,11 @@ def md_files():
     p = pjoin(ROOT, "README.md")
     if os.path.exists(p):
         yield p
-    for dirpath, _, names in pwalk(pjoin(ROOT, "docs")):
-        for n in sorted(names):
-            if n.endswith(".md"):
-                yield pjoin(dirpath, n)
+    for top in ("docs", "handbook"):
+        for dirpath, _, names in pwalk(pjoin(ROOT, top)):
+            for n in sorted(names):
+                if n.endswith(".md"):
+                    yield pjoin(dirpath, n)
 
 
 def extra_md_files():
@@ -653,8 +665,8 @@ for path in repo_text_files():
 
 # ── E6: every doc under docs/ is linked from another doc ───────────────────
 # docs/README.md is the map, so it needs no inbound link; dependencies.md is
-# generated.
-UNLINKED_OK = {"docs/README.md", "docs/dependencies.md"}
+# generated. The handbook is reached by name, not from the docs map.
+UNLINKED_OK = {"docs/README.md", "docs/dependencies.md", "handbook/README.md"}
 MD_LINK = re.compile(r"\[[^\]]*\]\(([^)#]+)")
 
 linked = set()
@@ -734,6 +746,32 @@ ARCHAEOLOGY = re.compile(
     r"|option)\b"
     r"|\b" + _BANNED_REPO + r"\b",
     re.I)
+# Review talk: a reviewer named as the source of a constraint, a pointer into review
+# notes outside the tree, a pull request as the place a fact lives, and chat.  The text
+# states the constraint instead.  Case-sensitive, so a capitalized word is a name; the
+# banned name is assembled from halves for the reason `_BANNED_REPO` is.
+REVIEW_TALK = re.compile(
+    r"\b(?:" + "Ir" + "is" + r")\b"
+    r"|\bdesign call\b"
+    r"|\b[A-Z][a-z]+'s (?:request|specification|matrix|packet|example"
+    r"|list|acceptance test)\b"
+    r"|\bas [A-Z][a-z]+ (?:ruled|agreed|requested|asked|put it|specified)\b"
+    r"|\bat [A-Z][a-z]+'s request\b"
+    r"|\([A-Z][a-z]+, \d{4}-\d\d-\d\d\b"
+    r"|\bdesign\.md\b|\[\d\d\] item \d"
+    r"|\b(?:[Uu]n-?)?(?:punted|PUNTED)\b"
+    r"|\b(?i:in the PR|the PR that|this PR|vocabulary-only PR)\b"
+    r"|\bdo NOT delete\b"
+    r"|\b(?:kinda|sorta|lol|tbh|fwiw|imho|skolems suck)\b")
+# `ruled` and `ruling` point at who decided, except in the logical sense ("ruled
+# out", "ruling two parts out", a phrase wrapped onto the next line).  The reasoning
+# behind a decision is stated as a defense in docs/defenses.md, without the word.
+# koinii's arbiter issues rulings as its API (`adj/rule`, `who-ruled`), so its files,
+# an arbiter row and the changelog's koinii entries are exempt.  Only the files that
+# ship are read: the working rules `extra_md_files` adds describe the review itself.
+RULING = re.compile(r"(?i)\b(?:ruled|rulings?)\b(?!(?:\s+\w+)?\s+out\b)(?![-?])")
+RULING_SHIPPED = {pabs(p) for p in repo_text_files()} | {pabs(os.path.join(ROOT, f))
+                                                        for f in ("CHANGELOG.md", "CONTRIBUTING.md")}
 # "<lowercase word> used to <verb>", excluding the auxiliary ("be used to") and
 # the appositive (", used to …") — both of which are the *employed to* sense.
 AMBIGUOUS = re.compile(r"(?<!be )(?<!,)\b[a-z0-9`)\]*]+ used to [a-z]")
@@ -755,8 +793,16 @@ for path in itertools.chain(repo_text_files(), extra_md_files()):
     # make it permanent noise.  E7 still reads every file, and the write-time
     # hook covers the ambiguous half of a comment as it is typed.
     soft_ok = rel.endswith(".md")
-    for i, line in enumerate(open(path, errors="replace"), 1):
-        m = ARCHAEOLOGY.search(line)
+    ruling_ok = (pabs(path) not in RULING_SHIPPED or rel == "CHANGELOG.md"
+                 or "koinii" in rel)
+    lines = open(path, errors="replace").read().split("\n")
+    for i, line in enumerate(lines, 1):
+        m = ARCHAEOLOGY.search(line) or REVIEW_TALK.search(line)
+        if not m and not ruling_ok and "arbiter" not in line:
+            # the next line's first word joins, so a wrapped "ruled / out" reads whole
+            nxt = lines[i].lstrip(" \t;#*\"/") if i < len(lines) else ""
+            r = RULING.search(line.rstrip() + " " + nxt[:24])
+            m = r if r and r.start() < len(line.rstrip()) else None
         kind = "E7"
         if not m and soft_ok:
             m, kind = AMBIGUOUS.search(line), "W7"
@@ -1069,12 +1115,12 @@ for path in itertools.chain(repo_text_files(), extra_md_files(),
 # whether this page happens to have them is back to reading the page.  So the
 # convention is checked rather than trusted, the way the prose rules are.
 ORIENTATION = ("- **Covers:**", "- **Not here:**", "- **Assumes:**")
-# The map does not orient itself, and dependencies.md is generated output.
-ORIENTATION_EXEMPT = {"docs/README.md", "docs/dependencies.md"}
+# A map does not orient itself, and dependencies.md is generated output.
+ORIENTATION_EXEMPT = {"docs/README.md", "docs/dependencies.md", "handbook/README.md"}
 
 for doc in md_files():
     rel = prel(doc, ROOT)
-    if not rel.startswith("docs/") or rel in ORIENTATION_EXEMPT:
+    if not rel.startswith(("docs/", "handbook/")) or rel in ORIENTATION_EXEMPT:
         continue
     lines = open(doc, errors="replace").read().splitlines()
     # The block sits between the title and the first section heading. A bullet
@@ -1087,7 +1133,7 @@ for doc in md_files():
     if missing:
         flag("E12", doc, rel,
              f"{rel} does not open with {', '.join(m.strip('- *:') for m in missing)}"
-             f" — every doc under docs/ carries Covers / Not here / Assumes under"
+             f" — every doc under docs/ and handbook/ carries Covers / Not here / Assumes under"
              f" its title, so a reader can route without reading the page")
 
 # ── E13: every s-expression example is a whole s-expression ────────────────
@@ -1118,6 +1164,80 @@ for doc in itertools.chain(md_files(), extra_md_files()):
                  f"the {lang} block at {rel}:{start} does not parse — {note}."
                  f" A reader pastes these; one that cannot be pasted is worse than"
                  f" no example, because the error it raises is about them")
+
+# ── E21: a handbook example still shows what the code and the KB hold ──────
+# The handbook quotes the shipped KB and the test-world and calls the public API; a
+# renamed var or an edited KB line leaves the example reading as current. A quoted
+# form is matched as a whitespace-collapsed substring of a KB or test-world file, so a
+# form quoted out of a comment string matches too.
+COMPOSED_FENCE = re.compile(r"^\s*```clojure\s+composed\b")
+API_CALL = re.compile(r"\(v/([\w*+!?<>=.'-]+)")
+
+
+def collapse_ws(text):
+    return re.sub(r"\(\s+", "(", re.sub(r"\s+\)", ")", re.sub(r"\s+", " ", text))).strip()
+
+
+def top_forms(src):
+    """The top-level `( … )` forms of `src`, skipping comments and strings."""
+    forms, depth, start, i, n = [], 0, None, 0, len(src)
+    while i < n:
+        c = src[i]
+        if c == "\\":
+            i += 2
+            continue
+        if c == ";":
+            while i < n and src[i] != "\n":
+                i += 1
+            continue
+        if c == '"':
+            i += 1
+            while i < n and src[i] != '"':
+                i += 2 if src[i] == "\\" else 1
+        elif c == "(":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == ")" and depth:
+            depth -= 1
+            if depth == 0:
+                forms.append(src[start:i + 1])
+        i += 1
+    return forms
+
+
+kb_texts = []
+for dirpath, _, names in pwalk(pjoin(RESOURCES, "kb")):
+    for n in sorted(names):
+        if n.endswith(".txt"):
+            kb_texts.append(collapse_ws(open(pjoin(dirpath, n)).read()))
+for n in ("world.clj", "world_fables.clj", "world_narrative.clj"):
+    kb_texts.append(collapse_ws(open(pjoin(ROOT, "test", "vaelii", n)).read()))
+core_text = src_text.get(ns_to_path("vaelii.core"), "")
+
+for doc in md_files():
+    rel = prel(doc, ROOT)
+    if not rel.startswith("handbook/"):
+        continue
+    lines = open(doc, errors="replace").read().splitlines()
+    for lang, start, body in fenced_blocks(doc):
+        if lang != "clojure":
+            continue
+        calls = API_CALL.findall(body)
+        for name in sorted(set(calls)):
+            if not re.search(DEF_RE + re.escape(name) + r"(?![\w*+!?<>=.'-])", core_text):
+                flag("E21", doc, f"v/{name}",
+                     f"{rel}:{start} calls `v/{name}`, which vaelii.core does not define")
+        if calls or COMPOSED_FENCE.match(lines[start - 1]):
+            continue
+        for form in top_forms(body):
+            want = collapse_ws(form)
+            if not any(want in t for t in kb_texts):
+                flag("E21", doc, f"{rel}:{start}",
+                     f"{rel}:{start} quotes `{want[:60]}`, which neither"
+                     f" resources/kb/ nor the test-world holds — requote it, or open the block with"
+                     f" ```clojure composed if the page wrote it")
+                break
 
 # ── E14: every Clojure source opens with the licence header ────────────────
 # The engine is SSPL-1.0 and the adapter siblings are Apache-2.0, on purpose —
@@ -1305,6 +1425,8 @@ E16_GLOBAL_ALLOW = {
     # The rules on a typed calculus predicate in every context, queued when a membership
     # moves what the predicate admits: each queued rule is re-checked from its own context.
     ("src/vaelii/impl/special.clj", "recheck-typed-admission"),
+    # The re-check index rebuilt from the records: every stored rule, in every context.
+    ("src/vaelii/impl/special.clj", "post-recheck-keys!"),
     # The supporter visibility check and its readers: the targets every stored except and
     # defeat names, each filtered by the reader's view afterwards.
     ("src/vaelii/impl/except.clj", "named-entries"),
@@ -1336,6 +1458,7 @@ E16_GLOBAL_ALLOW = {
     ("src/vaelii/impl/nat.clj", "corresponded-rules"),
     ("src/vaelii/impl/nat.clj", "held-application-rules"),
     ("src/vaelii/impl/nat.clj", "formula-position-rules"),
+    ("src/vaelii/impl/integrity.clj", "rule-clash-findings"),
     # The planner's lead choice under a variable context, which has no ancestor set yet:
     # the argument's census over every context bounds what the lead can cost.
     ("src/vaelii/impl/resolution.clj", "arg-lead"),
@@ -1424,6 +1547,9 @@ E16_GLOBAL_ALLOW = {
     # last, so each argument's contexts are then read narrowed to the reader's.
     ("src/vaelii/impl/provers.clj", "uncovered-declarations"),
     ("src/vaelii/impl/provers.clj", "open-candidates"),
+    # The token-table check reads every stored generator a grant's write triggers, in
+    # whatever context it is stated: a genlCx edge stored later would make it visible.
+    ("src/vaelii/host/serve.clj", "generators-on"),
 }
 E16_GLOBAL_CALL = re.compile(r"\breads/([\w?!*-]+-global)(?![\w?-])")
 E16_EVERY = re.compile(r"\bp/every-context\b")
@@ -1570,6 +1696,7 @@ E17_ALLOW = {
     # that can, and a missed trigger is a wrong belief where a spare one is a query
     # (`inherit/declared` states the argument in full).
     ("src/vaelii/impl/special.clj", "recheck-declaration"),
+    ("src/vaelii/impl/special.clj", "trigger-named-facts"),
     ("src/vaelii/impl/special.clj", "arg-declared-types"),
     ("src/vaelii/impl/special.clj", "recheck-arg-inferred"),
     ("src/vaelii/impl/special.clj", "composed-exception-rules"),
@@ -1595,6 +1722,13 @@ E17_ALLOW = {
     # found is then asked its own context's declarations (`deduce-placed`).
     ("src/vaelii/impl/special.clj", "mints-on-lengths"),
     ("src/vaelii/impl/special.clj", "descent-surplus-placements"),
+    # The predicates below or above the one a `try-assert` writes, a superset over every
+    # context: a `genl` edge stated below the writer's context relates them there, and
+    # each tuple found is then asked from its own vantage.
+    ("src/vaelii/impl/checks.clj", "declaration-conflict"),
+    ("src/vaelii/impl/checks.clj", "self-tuple-declaration-conflict"),
+    ("src/vaelii/impl/checks.clj", "below-declaration-conflict"),
+    ("src/vaelii/impl/checks.clj", "rule-declaration-conflict"),
     ("src/vaelii/impl/inherit.clj", "moved-goal-test"),
     ("src/vaelii/impl/qcn_kb.clj", "held-contexts"),
     ("src/vaelii/impl/qcn_kb.clj", "calculi-triggered-by"),
@@ -1603,6 +1737,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/special.clj", "rule-key-functors"),
     ("src/vaelii/impl/special.clj", "key-fan"),
     ("src/vaelii/impl/special.clj", "under-seen-edges"),
+    ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
     # Settle's candidate discovery. An over-approximated candidate merely checks and
     # yields nothing, and the arbitration that follows is context-scoped anyway.
     ("src/vaelii/impl/recheck.clj", "negates-reaches?"),
@@ -1635,6 +1770,12 @@ E17_ALLOW = {
     # is decided again from its own (`checks/rule-conviction`).
     ("src/vaelii/impl/checks.clj", "declared-positions-global"),
     ("src/vaelii/impl/checks.clj", "clash-possible?"),
+    # The predicates a declaration names are a superset over every reader, each stored
+    # declaration then read for belief (`jtms/in?`): a relation's length is read the same
+    # at every context, and a relation-kind membership reads the declaring contexts below
+    # its own.
+    ("src/vaelii/impl/checks.clj", "stranding-conflict"),
+    ("src/vaelii/impl/checks.clj", "relation-kind-conflict"),
     # The arity length entries are a superset over every reader, kept where no reader
     # exists, as the candidate rows they serve are (`decide/unscoped-closures`).
     ("src/vaelii/impl/decide/arity.clj", "evict-below!"),
@@ -1670,6 +1811,7 @@ E17_ALLOW = {
     # context's frame reads a part of them.
     ("src/vaelii/impl/except.clj", "frame-inputs"),
     ("src/vaelii/impl/except.clj", "forced-reads?"),
+    ("src/vaelii/impl/except.clj", "yielding-reads?"),
     # The declared forced-monotonic set's union over every reader, which the network computes and the
     # placement re-places from: a declaration's reach and the predicates declared.
     ("src/vaelii/impl/chain.clj", "declaration-reach"),
@@ -1682,13 +1824,14 @@ E17_ALLOW = {
     # A write report's exemption seeds: the memberships of every type under a symbol a
     # moved sentence names, a superset over every reader the report then reads scoped.
     ("src/vaelii/impl/settle.clj", "sentence-seeds"),
-    # A report on the whole taxonomy, which has no vantage to read from.
-    ("src/vaelii/impl/quality.clj", "taxonomy-coverage"),
+    # A report on the whole taxonomy, which has no vantage to read from: the census's
+    # nil context; a kb-integrity sweep passes its audit context and reads scoped.
+    ("src/vaelii/impl/integrity.clj", "taxonomy-reach"),
     # The clash reading's candidate fan. A rule pair is decided from a common descendant
     # of the two rules' contexts — a vantage belonging to neither — so fanning from
     # either would drop a pair the context that can see both would find, and the pair
     # itself is decided scoped.
-    ("src/vaelii/impl/quality.clj", "clash-partners"),
+    ("src/vaelii/impl/integrity.clj", "clash-partners"),
     # The context adjacency read where no reader exists: the settle's `genlCx` moves
     # (an active edge an except reaches, every reader's moves read from it), and the
     # candidate filter in front of a fact's declarations below it, each candidate then asked
@@ -1711,7 +1854,6 @@ E17_ALLOW = {
     ("src/vaelii/core.clj", "rehome-forced-extent!"),
     ("src/vaelii/core.clj", "target-following-meta?"),
     ("src/vaelii/impl/assert_entry.clj", "storage-context"),
-    ("src/vaelii/impl/assert_entry.clj", "assert-one"),
     ("src/vaelii/impl/checks.clj", "checked-sentence"),
     ("src/vaelii/impl/checks.clj", "stored-spelling"),
     ("src/vaelii/impl/decide.clj", "forced-monotonic?"),
@@ -1720,7 +1862,8 @@ E17_ALLOW = {
     ("src/vaelii/impl/kb.clj", "permuting-literal?"),
     ("src/vaelii/impl/nat_read.clj", "reifiable-function?"),
     ("src/vaelii/impl/quasiquote.clj", "ensure-quasiquote-functions"),
-    ("src/vaelii/impl/resolution.clj", "kb-sentex"),
+    ("src/vaelii/impl/resolution.clj", "opaque-fn"),
+    ("src/vaelii/impl/resolution.clj", "store-marks"),
     ("src/vaelii/impl/resolution.clj", "respell-walk"),
     ("src/vaelii/impl/resolution.clj", "formula-type?"),
     ("src/vaelii/impl/nat.clj", "formula-declared-predicates"),
@@ -1729,7 +1872,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/resolution.clj", "raw-match-with"),
     ("src/vaelii/impl/special.clj", "meta-target"),
     ("src/vaelii/impl/special.clj", "equality-wff-problems"),
-    ("src/vaelii/impl/special.clj", "deduce-lifts"),
+    ("src/vaelii/impl/special.clj", "lifts-to-universe?"),
     # A candidate superset a later step narrows: a candidate filter in front of a scoped read, a
     # trigger or seed whose re-join reads the rule's own context, a nogood candidate row
     # kept where no reader exists and placed after (`decide/unscoped-closures`), and a claim
@@ -1781,6 +1924,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/resolution.clj", "retired-for?"),
     ("src/vaelii/impl/nat_read.clj", "reify-in"),
     ("src/vaelii/impl/nat.clj", "names-reifiable-nat?"),
+    ("src/vaelii/impl/nat.clj", "formula-position-rules"),
     # A candidate superset a later step narrows: a trigger whose firing names the mark it
     # was read through, which the read walk hides per reader; a walk the prover filters
     # again at its context; nogood candidate rows; a per-reader filter.
@@ -1799,6 +1943,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/resolution.clj", "reified-reading"),
     ("src/vaelii/impl/resolution.clj", "constraining-predicates"),
     ("src/vaelii/impl/special.clj", "declaring-predicates"),
+    ("src/vaelii/impl/integrity.clj", "declaring-contexts"),
     ("src/vaelii/impl/special.clj", "marked-roots"),
     # The re-join reads every context, so an edge's upper end is read through every edge.
     ("src/vaelii/impl/provers.clj", "support-answers-reading"),

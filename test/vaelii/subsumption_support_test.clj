@@ -53,7 +53,7 @@
       (testing "the edge is an antecedent, beside the fact and the rule"
         (is (contains? (antecedent-sentences kb derived) (list 'genl fatherOf parentOf))))
       (testing "so `why` shows it, rather than a proof that skips how the fact matched"
-        (let [because (->> (v/why kb derived) :support first :because (map :sentence) set)]
+        (let [because (->> (tu/why-root kb derived) :support first :because (map :sentence) set)]
           (is (contains? because (list 'genl fatherOf parentOf))))))))
 
 (tu/deftest-kb an-ordinary-firing-names-no-edge
@@ -215,6 +215,60 @@
       (v/retract! kb via-pet)
       (is (empty? (v/sentexes-matching kb (list breathes Muffet) 'CxUniverse))
           "with both routes gone the conclusion has nothing left to rest on"))))
+
+(tu/deftest-kb a-derived-edge-a-partition-also-states-keeps-the-conclusion-when-its-premise-is-denied
+  ;; the edge's rule firing goes OUT under the forced denial of its premise; the
+  ;; `partition` still states the edge, so the firing that subsumed through it stands.
+  ;; The last row states no `partition`, and the conclusion goes with the edge.
+  (doseq [[order in?] [[[:rule :p :ev :fact :deny] true] [[:p :rule :fact :ev :deny] true]
+                       [[:deny :ev :rule :p :fact] true] [[:rule :ev :fact :deny] false]]]
+    (tu/with-terms [dog_t pet_t cat_t srcRel breathes Muffet]
+      (doseq [s order]
+        (case s
+          :rule (v/assert kb (list 'implies (list srcRel '?a '?c) (list 'genl '?a '?c)) 'CxUniverse {:direction :forward})
+          :ev   (v/assert kb (list srcRel dog_t pet_t) 'CxUniverse)
+          :deny (v/assert kb (list 'not (list srcRel dog_t pet_t)) 'CxUniverse {:strength :monotonic})
+          :p    (v/assert kb (list 'partition pet_t dog_t cat_t) 'CxUniverse)
+          :fact (do (v/assert kb (list 'implies (list pet_t '?x) (list breathes '?x)) 'CxUniverse {:direction :forward})
+                    (v/assert kb (list dog_t Muffet) 'CxUniverse))))
+      (let [d (v/handle-of kb (list breathes Muffet) 'CxUniverse)]
+        (is (= [order in? in?]
+               [order (boolean (v/ask? kb (list breathes Muffet) 'CxUniverse)) (boolean (some->> d (v/in? kb)))]))))))
+
+(tu/deftest-kb a-firing-stating-a-derived-edge-stands-only-where-its-second-supporter-is-believed
+  ;; The rule states `(genl ?a pet_t)`, so its firing is read by its witness path.  The
+  ;; edge's derivation goes OUT under the forced denial of its premise, and the
+  ;; `partition` stating the edge too is visible (`:none`), hidden at CxEx by an except
+  ;; (`:except`), or concluded from a `:default` premise (`:void`).  A `partition` is
+  ;; forced-monotonic, so the `:void` firing is held void at every context
+  ;; (`:forced-conclusion`), and the `partition` is OUT before and after `:hide`
+  ;; denies the premise.
+  (doseq [lose  [:none :except :void]
+          order [[:edge :part :rule :deny :hide] [:rule :part :hide :deny :edge]
+                 [:deny :part :hide :edge :rule] [:part :hide :rule :edge :deny]]]
+    (tu/with-terms [dog_t pet_t cat_t srcRel srcPart tagged_t marked_t CxEx]
+      (let [U    'CxUniverse
+            part (list 'partition pet_t dog_t cat_t)]
+        (v/assert kb (list 'genlCx CxEx U) U)
+        (doseq [st order]
+          (case st
+            :edge (do (v/assert kb (list 'implies (list srcRel '?a '?c) (list 'genl '?a '?c)) U {:direction :forward})
+                      (v/assert kb (list srcRel dog_t pet_t) U))
+            :part (if (= :void lose)
+                    (do (v/assert kb (list 'implies (list srcPart '?p '?a '?b) (list 'partition '?p '?a '?b)) U {:direction :forward})
+                        (v/assert kb (list srcPart pet_t dog_t cat_t) U))
+                    (v/assert kb part U))
+            :rule (do (v/assert kb (list 'implies (list 'and (list 'genl '?a pet_t) (list tagged_t '?a)) (list marked_t '?a))
+                                U {:direction :forward})
+                      (v/assert kb (list tagged_t dog_t) U))
+            :deny (v/assert kb (list 'not (list srcRel dog_t pet_t)) U {:strength :monotonic})
+            :hide (case lose
+                    :none   nil
+                    :except (v/assert kb (list 'except (list 'sentexHandle (v/handle-of kb part U))) CxEx {:strength :monotonic})
+                    :void   (v/assert kb (list 'not (list srcPart pet_t dog_t cat_t)) U {:strength :monotonic}))))
+        (is (= [lose order (not= :void lose) (= :none lose)]
+               [lose order (boolean (v/ask? kb (list marked_t dog_t) U))
+                (boolean (v/ask? kb (list marked_t dog_t) CxEx))]))))))
 
 (tu/deftest-kb the-edge-survives-a-rebuild-in-the-antecedent-list
   ;; a justification is a durable record, so the edges it names are durable state —
@@ -431,7 +485,7 @@
                    ;; the same choice as a caller reads it: `why` walks the justification
                    ;; into `:because`, so a witness that moved with arrival order would move
                    ;; the proof tree a reader is shown
-                   :because   (->> (:support (v/why kb derived))
+                   :because   (->> (:support (tu/why-root kb derived))
                                    (mapcat :because)
                                    (filter #(= 'genl (first (:sentence %))))
                                    (map :context)

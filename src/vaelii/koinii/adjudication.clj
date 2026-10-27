@@ -96,18 +96,10 @@
 ;; ---- the stale sweep: bound the accumulation -----------------------------
 
 (defn- support-handles
-  "The transitive premise handles a stored conclusion `handle` rests on — a
-  visited-guarded walk of `why`'s `:because` graph, excluding the conclusion itself.  Cheap
-  for a shallow derivation and cycle-safe; a premise has no `:because`, so the walk stops
-  there."
+  "The handles a stored conclusion `handle` transitively rests on: every node of its `why`
+  graph except the conclusion itself."
   [kb handle]
-  (loop [stack [handle] seen #{}]
-    (if-let [h (peek stack)]
-      (if (seen h)
-        (recur (pop stack) seen)
-        (let [prem (for [j (:support (v/why kb h)) b (:because j)] (:handle b))]
-          (recur (into (pop stack) prem) (conj seen h))))
-      (disj seen handle))))
+  (disj (set (keys (:nodes (v/why kb handle)))) handle))
 
 (defn- opened-at
   "When dispute `id` arose: the latest `:created` time among its clashing sides and
@@ -334,13 +326,15 @@
                        '?ctx))
 
 (defn- proven-voter?
-  "Does `ballot` prove its voter: an attestation naming the voter (`identity/attested-by`),
-  or a `:principal` the daemon recorded from the voter's token-table grant
-  (docs/operations.md, the token table)?"
+  "Does `ballot` prove its voter: stored in the voter's own context (`identity/context-for`),
+  and carrying an attestation naming the voter (`identity/attested-by`) or a `:principal`
+  the daemon recorded from the voter's token-table grant (docs/operations.md, the token
+  table)?"
   [kb ballot]
   (let [voter (second (:sentence ballot))]
-    (or (= voter (id/attested-by kb (:id ballot)))
-        (= voter (:principal (v/provenance kb (:id ballot)))))))
+    (and (= (:context ballot) (id/context-for voter))
+         (or (= voter (id/attested-by kb (:id ballot)))
+             (= voter (:principal (v/provenance kb (:id ballot))))))))
 
 (defn tally
   "Count the ballots cast on the claim at `claim-handle`: `{:for n :against n}`, each a
@@ -402,8 +396,9 @@
                          [:for :against])]
     (when (seq unattested)
       (throw (ex-info (str "koinii: majority resolution refused — " (count unattested)
-                           " ballot(s) on the claim carry no attestation and no"
-                           " daemon-recorded principal naming their voter, so the count"
+                           " ballot(s) on the claim sit outside their voter's own context or"
+                           " carry no attestation and no daemon-recorded principal naming"
+                           " their voter, so the count"
                            " includes names nobody proved.  Cast ballots with cast-ballot"
                            " under a :proof-tier principal, or over a daemon holding a"
                            " token table, and retract the ones in :unattested")

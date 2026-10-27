@@ -43,19 +43,12 @@
 
 ;; ---- the bounded R oracle -------------------------------------------------
 
-(def ^:private comparators
-  "Registered pure structural comparators, `{sub-relation → (fn [a b] boolean)}`.  A
-  comparator answers `R` between two structural argument terms by reading their shape — no
-  store read, no proof — so the producer may call it inside the relabel loop.  Each is a
-  total predicate that returns `false` for terms it does not apply to, so it composes with
-  the stored-fact fallback: `datetime/subinterval?` answers a pair of `DatetimeFn` terms
-  and declines anything else."
-  {'subintervalOf datetime/subinterval?})
-
 (defn- comparator-holds?
-  "True iff a registered comparator for `r` answers that `a` is `R`-below `b`."
+  "True iff a registered comparator for `r` (`datetime/order-comparators`) answers that
+  `a` is `R`-below `b`.  A comparator reads the two terms' shape alone, so the producer may
+  call it inside the relabel loop."
   [r a b]
-  (boolean (when-let [f (get comparators r)] (f a b))))
+  (boolean (when-let [f (get datetime/order-comparators r)] (f a b))))
 
 (defn- r-evidence
   "The belief the relationship `a` `R`-below `b` rests on: `::pure` when a comparator

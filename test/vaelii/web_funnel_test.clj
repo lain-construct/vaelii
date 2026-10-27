@@ -151,3 +151,45 @@
                  [(list 'unknown (list grownIn PearTree Orchard)) :not-well-formed]}
                (into #{} (comp (filter #(= hu (:rule %))) (map (juxt :sentence :violation)))
                      (v/violations kb))))))))
+
+(deftest chain-report-reads-a-firing-the-argument-hold-keeps-out-as-blocked
+  ;; the constraint reading, under which the `arg` declaration convicts the conclusion
+  (tu/without-entailing
+   (let [kb tu/*kb*
+         U  'CxUniverse]
+     (tu/with-terms [person rock parentOf looksLike Boulder Muffet]
+       (v/assert kb (list 'genl person 'thing) U)
+       (v/assert kb (list 'genl rock 'thing) U)
+       (let [dh (v/assert kb (list 'disjoint person rock) U)
+             _  (v/assert kb (list 'arg parentOf 1 person) U)
+             _  (v/assert kb (list rock Boulder) U)
+             rh (v/assert-rule kb [(list looksLike '?x)] (list parentOf '?x Muffet) U {:direction :forward})
+             _  (v/assert kb (list looksLike Boulder) U)
+             row #(select-keys (first (filter (fn [r] (= rh (:rule r))) (v/chain-report kb)))
+                               [:placed :void :refused :refusals :status])]
+         (is (= {:placed 0 :void 0 :refused 1 :status :blocked
+                 :refusals [{:state :blocked :reason :constraint
+                             :conseq (list parentOf Boulder Muffet) :context U}]}
+                (row)))
+         (v/retract! kb dh)
+         (is (= {:placed 1 :void 0 :refused 0 :refusals nil :status :fires} (row))
+             "the retraction that lifts the conviction places the firing"))))))
+
+(deftest chain-report-lists-a-held-conclusion-once-for-every-firing-concluding-it
+  (tu/without-entailing
+   (let [kb tu/*kb*
+         U  'CxUniverse]
+     (tu/with-terms [person rock parentOf seenBy Boulder Muffet Ann Bob]
+       (v/assert kb (list 'genl person 'thing) U)
+       (v/assert kb (list 'genl rock 'thing) U)
+       (v/assert kb (list 'disjoint person rock) U)
+       (v/assert kb (list 'arg parentOf 1 person) U)
+       (v/assert kb (list rock Boulder) U)
+       (let [rh (v/assert-rule kb [(list seenBy '?x '?y)] (list parentOf '?x Muffet) U {:direction :forward})]
+         (v/assert kb (list seenBy Boulder Ann) U)
+         (v/assert kb (list seenBy Boulder Bob) U)
+         (is (= {:placed 0 :refused 1 :status :blocked
+                 :refusals [{:state :blocked :reason :constraint
+                             :conseq (list parentOf Boulder Muffet) :context U}]}
+                (select-keys (first (filter #(= rh (:rule %)) (v/chain-report kb)))
+                             [:placed :refused :refusals :status]))))))))

@@ -224,21 +224,15 @@
               (filter #(= rh (:informant (jtms/justification tms %)))))
         closures))
 
-(defn- names-moved?
-  "Do the bindings `b` of a firing or a refusal bind a variable to one of `moved`?"
-  [moved b]
-  (boolean (some moved (vals b))))
-
-(defn- separation-candidates
-  "The members of `firings` whose bindings name a type of the `{::separation types}`
-  markers' sets `seps`: a separation moved only for pairs below what moved, and a
-  firing binds the pair its `disjoint` antecedent read."
-  [kb firings seps]
-  (let [moved (into #{} cat seps)]
-    (filter (fn [jid]
-              (when-let [j (p/get-justification (:records kb) jid)]
-                (names-moved? moved (:bindings j))))
-            firings)))
+(defn- firings-naming
+  "The members of `firings` whose recorded bindings name one of the terms `moved`, at
+  any depth (`special/names-any?`): a separation marker's moved types, or a merge's
+  class.  A firing binds the pair its `disjoint` or `different` antecedent read."
+  [kb firings moved]
+  (filter (fn [jid]
+            (when-let [j (p/get-justification (:records kb) jid)]
+              (special/names-any? moved (:bindings j))))
+          firings))
 
 (defn exception-candidates
   "The justifications of the queued rules whose block condition the queued triggers could
@@ -246,57 +240,71 @@
   keeps every firing.  The block literals are the exception conjuncts read through
   their query frames (`rules/watched-literals`), the NAF inner queries and the aggregate
   bodies (docs/naf.md).  A withdrawal marker adds the firings its own test keeps
-  (`entailment-candidates`, `preserving-candidates`, `except-candidates`,
-  `separation-candidates`), and `::computed` keeps every firing."
+  (`entailment-candidates`, `preserving-candidates`, `except-candidates`, and
+  `firings-naming` for a separation's types and a merge's class), and `::computed`
+  keeps every firing.  A `different`-only rule's triggers narrow to the firings naming
+  the terms they moved (`special/different-rechecked-terms`).
+
+  One question memo (`inherit/with-memo`) holds every marker's `moved-goal-test` reads:
+  the markers one settle pass queues share their terms, and a `genl` edge into a broad
+  type reads that type's whole reach, which a memo per marker read again for each edge.
+  The re-check moves no belief, so the memo needs no invalidation."
   [kb queued]
-  (let [tms      (reasoning/tms kb)
-        cross?   (memoize #(cross-argument-predicate? kb %))
-        norm     (merge-normalizer kb)
-        blocked  (delay (jtms/blocked tms))
-        test-for (memoize #(inherit/moved-goal-test kb %))]
-    (into #{}
-          (mapcat (fn [[rh triggers]]
-                    (let [firings (jtms/dependents tms rh)]
-                      (if (#{:all :all-rejoin} triggers)
-                        firings
-                        (let [sens   (remove withdrawal-marker? triggers)
-                              marks  (filter withdrawal-marker? triggers)
-                              shapes (when (seq sens) (trigger-shapes sens norm))
-                              rsx    (when (or (seq marks) (not= :all shapes))
-                                       (p/get-sentex (:records kb) rh))
-                              block-lits (when rsx
-                                           (concat (mapcat rules/watched-literals
-                                                           (apply concat (provers/rule-exceptions kb rh)))
-                                                   (rules/naf-queries rsx)
-                                                   (rules/aggregate-queries rsx)))
-                              pres   (keep ::special/preserving marks)
-                              seps   (keep ::special/separation marks)]
-                          (cond
-                            (and (seq sens) (or (= :all shapes) (empty? block-lits)))
-                            firings                        ; nothing to narrow by
-                            (and (seq marks) (nil? rsx)) firings
-                            :else
-                            (concat
-                             (when (seq sens)
-                               ;; the bindings are on the record: the network keeps only
-                               ;; what belief is computed from (`jtms/graph-just`)
-                               (let [reach? (firing-test kb block-lits shapes cross? norm)]
-                                 (filter (fn [jid]
-                                           (if-let [j (p/get-justification (:records kb) jid)]
-                                             (reach? (:bindings j))
-                                             false))
-                                         firings)))
-                             (when (some #{::special/entailment} marks)
-                               (entailment-candidates kb rsx firings block-lits blocked))
-                             ;; a computed answer moves with every source the prover
-                             ;; reads, which no argument of the firing names
-                             (when (some #{::special/computed} marks) firings)
-                             (when (seq seps) (separation-candidates kb firings seps))
-                             (when (seq pres)
-                               (preserving-candidates kb rsx firings pres test-for
-                                                      norm))
-                             (except-candidates tms rh (keep ::special/except-closure marks)))))))))
-          queued)))
+  (inherit/with-memo
+    (let [tms      (reasoning/tms kb)
+          cross?   (memoize #(cross-argument-predicate? kb %))
+          norm     (merge-normalizer kb)
+          blocked  (delay (jtms/blocked tms))
+          test-for (memoize #(inherit/moved-goal-test kb %))]
+      (into #{}
+            (mapcat (fn [[rh triggers]]
+                      (let [firings (jtms/dependents tms rh)
+                            moved   (when-not (#{:all :all-rejoin} triggers)
+                                      (special/different-rechecked-terms kb rh triggers))]
+                        (cond
+                          (#{:all :all-rejoin} triggers) firings
+                          moved (firings-naming kb firings moved)
+                          :else
+                          (let [sens   (remove withdrawal-marker? triggers)
+                                marks  (filter withdrawal-marker? triggers)
+                                shapes (when (seq sens) (trigger-shapes sens norm))
+                                rsx    (when (or (seq marks) (not= :all shapes))
+                                         (p/get-sentex (:records kb) rh))
+                                block-lits (when rsx
+                                             (concat (mapcat rules/watched-literals
+                                                             (apply concat (provers/rule-exceptions kb rh)))
+                                                     (rules/naf-queries rsx)
+                                                     (rules/aggregate-queries rsx)))
+                                pres   (keep ::special/preserving marks)
+                                seps   (keep ::special/separation marks)]
+                            (cond
+                              (and (seq sens) (or (= :all shapes) (empty? block-lits)))
+                              firings                        ; nothing to narrow by
+                              (and (seq marks) (nil? rsx)) firings
+                              :else
+                              (concat
+                               (when (seq sens)
+                                 ;; the bindings are on the record: the network keeps only
+                                 ;; what belief is computed from (`jtms/graph-just`)
+                                 (let [reach? (firing-test kb block-lits shapes cross? norm)]
+                                   (filter (fn [jid]
+                                             (if-let [j (p/get-justification (:records kb) jid)]
+                                               (reach? (:bindings j))
+                                               false))
+                                           firings)))
+                               (when (some #{::special/entailment} marks)
+                                 (entailment-candidates kb rsx firings block-lits blocked))
+                               ;; a computed answer moves with every source the prover
+                               ;; reads, which no argument of the firing names
+                               (when (some #{::special/computed} marks) firings)
+                               (when (seq seps) (firings-naming kb firings (into #{} cat seps)))
+                               (when-let [ms (seq (keep ::special/merged marks))]
+                                 (firings-naming kb firings (into #{} cat ms)))
+                               (when (seq pres)
+                                 (preserving-candidates kb rsx firings pres test-for
+                                                        norm))
+                               (except-candidates tms rh (keep ::special/except-closure marks)))))))))
+            queued))))
 
 (defn exception-blocked-set
   "The blocked set after re-deciding, for each of `exception-candidates`' firings,
@@ -336,9 +344,12 @@
                (= :overflow recs) (update acc :overflow conj rh)
                :else
                (let [seps   (when (set? triggers) (keep ::special/separation triggers))
-                     ;; separation markers alone keep the refusals naming a moved type
-                     moved? (when (and (seq seps) (every? ::special/separation triggers))
-                              (partial names-moved? (into #{} cat seps)))
+                     ;; separation markers alone keep the refusals naming a moved type,
+                     ;; and a `different`-only rule's triggers those naming a term they moved
+                     moved? (if-let [ts (special/different-rechecked-terms kb rh triggers)]
+                              #(special/names-any? ts %)
+                              (when (and (seq seps) (every? ::special/separation triggers))
+                                (partial special/names-any? (into #{} cat seps))))
                      shapes (if (and (set? triggers) (some withdrawal-marker? triggers))
                               :all             ; a marker keeps every refusal, as `:all` does
                               (trigger-shapes triggers norm))

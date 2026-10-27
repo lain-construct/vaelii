@@ -191,13 +191,36 @@
       (is (qkb/inconsistent? pt/instants kb C))
       (is (= #{} (pt/possible-point-relations kb C P R)))
       (is (= :inconsistent (qkb/definite pt/instants kb C P R))))
-    (testing "and an inconsistent theory is not mined for conclusions — anywhere"
+    (testing "and no goal over a term of the unsatisfiable component is answered"
       (is (not (v/ask? kb (list 'instantBefore P Q) C)))
       (is (empty? (v/ask kb (list 'instantBefore P '?y) C))))
     (testing "retracting one of the three gives the others their answers back"
       (v/retract! kb (v/handle-of kb (list 'instantBefore R P) C))
       (is (not (qkb/inconsistent? pt/instants kb C)))
       (is (v/ask? kb (list 'instantBefore P R) C)))))
+
+(tu/deftest-kb a-transitive-chain-answers-beside-a-contradictory-component-on-both-routes
+  ;; a rule concluding `instantBefore` sends its goals down the union path, where
+  ;; `TransitivePredicateProver` chains the stored facts beside the calculus
+  (doseq [rule? [false true]]
+    (tu/with-terms [P Q R X Y Z marker]
+      (v/assert kb (list 'instantBefore P Q) C)
+      (v/assert kb (list 'instantBefore Q R) C)
+      (v/assert kb (list 'instantBefore X Y) C)
+      (v/assert kb (list 'instantAfter X Y) C)
+      (v/assert kb (list 'instantBefore Y Z) C)
+      (when rule?
+        (v/assert kb (list 'set/backwardRule
+                           (list 'implies (list marker '?x '?y) (list 'instantBefore '?x '?y)))
+                  C))
+      (testing (if rule? "union path" "sole-prover path")
+        (is (= (if rule? #{:rules} #{})
+               (provers/shadowing-channels kb (list 'instantBefore P R) C)))
+        (is (qkb/inconsistent? pt/instants kb C))
+        (is (v/ask? kb (list 'instantBefore P R) C) "the chain outside the clash")
+        (is (= #{{'?y Q} {'?y R}} (set (v/ask kb (list 'instantBefore P '?y) C))))
+        (is (not (v/ask? kb (list 'instantBefore X Z) C)) "the chain through the clash")
+        (is (not-any? #{{'?y Z}} (v/ask kb (list 'instantBefore X '?y) C)))))))
 
 (tu/deftest-kb two-facts-about-one-pair-can-contradict-outright
   (tu/with-terms [P Q]

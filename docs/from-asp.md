@@ -24,6 +24,7 @@ program for it. Read the two structural sections before the tables.
 | `h(X) :- a(X) ; b(X).` | `(implies (or (a ?x) (b ?x)) (h ?x))` | a body disjunction, stored as one rule per alternative rather than solved |
 | `:- b(X).` | `set/hardConstraint` | renders as a genuine integrity constraint; the model is excluded |
 | `:~ b(X). [1@l]` | `(set/softConstraint l (implies …))` | a violation atom and a `#minimize` at level `l`; without the leading `l` the level is 1 |
+| `:- #sum{ W,X : h(X), w(X,W) } > K.` | `(asp/atMostSum K ?w ?x (and (h ?x) (w ?x ?w)))` | the weight is believed data, a non-negative integer; `asp/atLeastSum` is the floor → [solving.md](solving.md) |
 | `#minimize { W@P,X : h(X), w(X,W) }.` | `(asp/minimize P ?w (and (h ?x) (w ?x ?w)))` | the weight is ordinary believed data, an integer inside the solver's 32-bit range → [solving.md](solving.md) |
 | `not a(item)` | `(unknown (a Item))` | a query operator, ground-only, storing nothing; over a **choice** head in a constraint body write `(not (a Item))` instead ([below](#negation-and-there-are-three)) |
 | `not (a(X), b(X))` over a shared variable | `(unknown (thereExists ?x (and (a ?x) (b ?x))))` | joined, so one witness satisfies both |
@@ -203,12 +204,12 @@ a solve answers something surprising. → [asp.md](asp.md)
   `(agg/count ?n ?v Body)` after the generator antecedent that binds the group, re-checked
   as the census moves — but they are *query* operators a prover computes rather than atoms
   a solve reasons over, and none may be a rule's consequent. GROUP BY falls out of which
-  variable an antecedent binds → [aggregate.md](aggregate.md). A **cardinality bound over
-  the choices** is the one count a solve does reason over: `(asp/atMost k ?v (p ?v …))` /
-  `asp/atLeast` translate to a solver cardinality atom, the `{ … } <= k` you would have
-  written, rather than the census `agg/count` is → [solving.md](solving.md)
-- `#sum` as a **bound**. A weighted sum exists only as an objective — `(asp/minimize P ?w
-  body)` is the `#minimize` over a data weight — and no weighted bound constrains a model
+  variable an antecedent binds → [aggregate.md](aggregate.md). A **bound over the
+  choices** is the one count or sum a solve does reason over: `(asp/atMost k ?v (p ?v …))`
+  / `asp/atLeast` translate to a solver cardinality atom, the `{ … } <= k` you would have
+  written, and `(asp/atMostSum k ?w ?v body)` / `asp/atLeastSum` to the `#sum{ W,V : … } <=
+  k` over a weight a background fact gives each head, rather than the census `agg/count`
+  is → [solving.md](solving.md)
 - Multi-shot solving. A solve is one program, built from one region, answered once
 - Theory atoms and any constraint layer over integers
 

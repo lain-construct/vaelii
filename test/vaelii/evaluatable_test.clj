@@ -7,7 +7,9 @@
   as a leaf of a node-engine derivation."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -139,7 +141,7 @@
         (is (empty? (mapcat :because proof)))))
     (testing "the computed antecedent is traceable through the stored justification (why)"
       (let [h            (v/handle-of kb (list hasPassed Alice) 'CxUniverse)
-            w            (v/why kb h)
+            w            (tu/why-root kb h)
             support      (:support w)
             rule-syms    (into #{} (mapcat (comp flatten :rule)) support)
             because-syms (into #{} (comp (mapcat :because) (mapcat (comp flatten :sentence)))
@@ -209,6 +211,160 @@
              (set (map #(get % '?x)
                        (v/query kb (list topScorer '?x) 'CxUniverse {:max-depth 5}))))))))
 
+;; ---- a computed antecedent only the recursive literal binds runs after it ----
+;; `onLine` is the consequent's functor, so its three antecedents are the recursive
+;; literals the planner places last; `otherThan` reads `?a` and `?c`, which only those
+;; bind. It is computed by an evaluatable, or by a prover answering a ground goal only,
+;; whose estimate for an open one is the default `deferred-est`. A second evaluatable
+;; `otherThanB` over the same two variables binds neither of them for `otherThan`. The two
+;; directions are merged, so each `dirOf` the join reads is a restatement.
+
+(defn- other-than-prover [pred source]
+  (v/prover {:applicable?        (fn [_ g _] (and (seq? g) (= pred (first g))))
+             :solve-with-support (fn [_ [_ a b :as g] _]
+                                   (if (and (sx/ground-term? g) (not= a b))
+                                     [[{} []]]
+                                     []))
+             :support-functors   #{pred}
+             :support-sources    #{source}}))
+
+(tu/deftest-kb a-computed-antecedent-the-recursive-literal-binds-joins-after-it-in-both-orders
+  (doseq [computed [:evaluatable :prover :two-evaluatables] rule-first? [true false]]
+    (tu/with-terms [otherThan otherThanB markOf dirOf onLine Mm Dd LineOne LineTwo North South]
+      (if (= :prover computed)
+        ;; the join asks a prover in the contexts its sources are stated in
+        (do (v/add-prover kb (other-than-prover otherThan markOf))
+            (v/assert kb (list markOf Mm Dd) 'CxUniverse {:strength :monotonic}))
+        (v/add-evaluatable kb otherThan not=))
+      (when (= :two-evaluatables computed) (v/add-evaluatable kb otherThanB not=))
+      (let [ante (cond-> [(list onLine '?a '?l1) (list onLine '?a '?l2) (list dirOf '?l1 '?d)
+                          (list dirOf '?l2 '?d) (list onLine '?c '?l2) (list otherThan '?a '?c)]
+                   (= :two-evaluatables computed) (conj (list otherThanB '?a '?c)))
+            rule #(v/assert kb (list 'implies (cons 'and ante) (list onLine '?c '?l1))
+                            'CxUniverse {:direction :forward :strength :monotonic})]
+        (when rule-first? (rule))
+        (doseq [f [(list onLine Mm LineOne) (list onLine Mm LineTwo) (list onLine Dd LineTwo)
+                   (list dirOf LineOne North) (list dirOf LineTwo South)
+                   (list 'equals North South)]]
+          (v/assert kb f 'CxUniverse {:strength :monotonic}))
+        (when-not rule-first? (rule))
+        (testing (str (name computed) ", rule asserted " (if rule-first? "before" "after")
+                      " the facts")
+          (let [answered? (boolean (some #(= {'?c Dd '?l1 LineOne} (select-keys % '[?c ?l1]))
+                                         (v/query kb ante 'CxUniverse)))
+                fired?    (v/ask? kb (list onLine Dd LineOne))]
+            (is answered? "the query answers the antecedent")
+            (is fired? "the forward join fired")))))))
+
+;; ---- a computed literal runs after the computed literal that binds its input ----
+;; `mSum` binds `?m` from `?n` (`:result :first`), and `aChk` or `zChk` reads `?m`, its
+;; name sorting before or after `mSum`'s, so canonical form stores the two in either
+;; order. `?n` is bound by `reachN`, the recursive literal, in the `:recursive` row, and by
+;; `numOf` in the `:plain` row. `quote-test` holds the `argN` row, which reads the upper
+;; layer.
+
+(tu/deftest-kb a-computed-literal-runs-after-the-computed-literal-binding-its-input
+  (doseq [shape [:recursive :plain] check-first? [true false] rule-first? [true false]]
+    (tu/with-terms [aChk zChk mSum reachN numOf succOf Ann]
+      (let [chk  (if check-first? aChk zChk)
+            [ante head seed]
+            (case shape
+              :recursive [[(list reachN '?x '?n) (list mSum '?m '?n 1) (list chk '?m '?n)]
+                          reachN (list reachN Ann 0)]
+              :plain     [[(list numOf '?x '?n) (list mSum '?m '?n 1) (list chk '?m '?n)]
+                          succOf (list numOf Ann 0)])
+            rule #(v/assert kb (list 'implies (cons 'and ante) (list head '?x '?m))
+                            'CxUniverse {:direction :forward :strength :monotonic})]
+        (v/add-evaluatable kb mSum + {:result :first})
+        (v/add-evaluatable kb chk (fn [m n] (and (< n m) (< m 5))))
+        (when rule-first? (rule))
+        (v/assert kb seed 'CxUniverse {:strength :monotonic})
+        (when-not rule-first? (rule))
+        (testing (str (name shape) ", " (name chk) ", rule asserted "
+                      (if rule-first? "before" "after") " the fact")
+          (let [answered (set (map #(get % '?m) (v/query kb ante 'CxUniverse)))]
+            (is (= ({:recursive #{1 2 3 4} :plain #{1}} shape) answered))
+            (is (= answered (set (filter #(v/ask? kb (list head Ann %)) (range 1 6))))
+                "the forward join fires for each answer the query gives")))))))
+
+;; ---- a computed antecedent runs once the join has bound its variables ----
+;; `otherThan ?a ?b` is a test over the two `memberOf` literals' variables, and
+;; `groupHas ?g ?c` multiplies each of their rows by the group's five members. A second
+;; group's members make `groupHas` the larger extent, so the join starts at `memberOf`,
+;; whichever order canonical form stores the antecedents in. The test
+;; asked once per pair is asked 25 times; behind `groupHas` it is asked 125 times. The
+;; prover row estimates an open goal by core's default, the estimate row as an app may,
+;; and the override sees the literal as the trigger substituted it, open in all three.
+
+(tu/deftest-kb a-computed-antecedent-runs-as-soon-as-the-join-binds-its-variables
+  (tu/with-shipped-config
+    (doseq [computed [:evaluatable :prover :prover-estimate]]
+      (tu/with-terms [otherThan markOf memberOf groupHas tripleOf GroupOne GroupTwo]
+        (let [asks  (atom 0)
+              rows  (atom 0)
+              other (fn [a b] (swap! asks inc) (not= a b))
+              spec  {:applicable?        (fn [_ g _] (and (seq? g) (= otherThan (first g))))
+                     :solve-with-support (fn [_ [_ a b :as g] _]
+                                           (if (and (sx/ground-term? g) (other a b)) [[{} []]] []))
+                     :support-functors   #{otherThan}
+                     :support-sources    #{markOf}}
+              ms    (map #(symbol (str GroupOne "M" %)) (range 5))
+              ante  [(list memberOf '?a '?g) (list memberOf '?b '?g) (list groupHas '?g '?c)
+                     (list otherThan '?a '?b)]
+              join  @#'chain/join-antecedent]
+          (case computed
+            :evaluatable     (v/add-evaluatable kb otherThan other)
+            :prover          (v/add-prover kb (v/prover spec))
+            :prover-estimate (v/add-prover kb (v/prover (assoc spec :est-bindings
+                                                               (fn [_ g _] (if (sx/ground-term? g) 1 1000000))))))
+          (v/assert kb (list markOf (first ms) (second ms)) 'CxUniverse {:strength :monotonic})
+          (doseq [m ms, f [(list memberOf m GroupOne) (list groupHas GroupOne m)
+                           (list groupHas GroupTwo (symbol (str GroupTwo m)))]]
+            (v/assert kb f 'CxUniverse {:strength :monotonic}))
+          (with-redefs-fn {#'chain/join-antecedent
+                           (fn [& args] (let [r (apply join args)] (swap! rows + (count r)) r))}
+            #(v/assert kb (list 'implies (cons 'and ante) (list tripleOf '?a '?b '?c)) 'CxUniverse
+                       {:direction :forward :strength :monotonic}))
+          (testing (name computed)
+            (is (= 25 @asks) "the test is asked once per pair of the first two literals")
+            (is (= (+ 5 25 20 100) @rows) "`groupHas` joins only the rows the test kept")
+            (is (= (set (for [a ms b ms c ms :when (not= a b)] {'?a a '?b b '?c c}))
+                   (set (v/query kb [(list tripleOf '?a '?b '?c)] 'CxUniverse)))
+                "the rule concludes one triple per pair of distinct members and member")))))))
+
+;; ---- a prefix estimated at no rows keeps a computed literal behind its binders ----
+;; `segLen` commutes, and its fact is stored as `(segLen Pa Pb Ll)`.  The `link` trigger
+;; binds the first `segLen` literal to the other spelling, `(segLen Pb Pa ?x)`, which the
+;; index counts at no rows though the join reads one through the commutation.  Every
+;; literal then joins onto no rows, and `apart`, whose prover answers only a ground goal,
+;; stood first among the tied: asked open, it answered nothing and the trigger found no
+;; firing.  The firing arrived only where a full join ran after the trigger's facts.
+
+(tu/deftest-kb a-computed-literal-waits-for-its-binders-behind-a-prefix-of-no-rows
+  (doseq [order [[:rule :lens :link] [:rule :link :lens] [:lens :link :rule]
+                 [:lens :rule :link] [:link :rule :lens] [:link :lens :rule]]]
+    (tu/with-terms [link segLen apart sameLen markOf Pa Pb Pc Pd Ll Lm]
+      (v/add-prover kb (v/prover {:applicable?        (fn [_ g _] (and (seq? g) (= apart (first g))))
+                                  :solve-with-support (fn [_ [_ a b :as g] _]
+                                                        (if (and (sx/ground-term? g) (not= a b)) [[{} []]] []))
+                                  :support-functors   #{apart}
+                                  :support-sources    #{markOf}}))
+      (v/assert kb (list markOf Pa) 'CxUniverse)
+      (doseq [p [link apart sameLen]] (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+      (v/assert kb (list 'ternary_predicate segLen) 'CxUniverse)
+      (v/assert kb (list 'commutativeInArgs segLen 1 2) 'CxUniverse)
+      (doseq [op order]
+        (case op
+          :rule (v/assert kb (list 'implies (list 'and (list link '?a '?b) (list segLen '?a '?b '?x)
+                                                  (list apart '?c '?d) (list segLen '?c '?d '?x))
+                                   (list sameLen '?c '?d))
+                          'CxUniverse {:direction :forward})
+          :lens (doseq [f [(list segLen Pa Pb Ll) (list segLen Pc Pd Ll) (list segLen Pa Pc Lm)]]
+                  (v/assert kb f 'CxUniverse))
+          :link (v/assert kb (list link Pb Pa) 'CxUniverse)))
+      (let [concluded? (v/ask? kb (list sameLen Pc Pd) 'CxUniverse)]
+        (is concluded? (pr-str order))))))
+
 ;; ---- the sole-prover guard applies to the wrapper too -------------------
 
 (tu/deftest-kb a-rule-concluding-the-predicate-stops-the-evaluatable-running-alone
@@ -222,7 +378,9 @@
       (v/assert kb (list 'genl someType 'thing) 'CxUniverse)
       (v/assert kb (list 'implies (list someType '?x) (list flag 1)) 'CxUniverse
                 {:direction :backward})
-      (is (contains? (provers/shadowing-channels kb (list flag 3) 'CxUniverse) :rules))
+      (is (contains? (provers/shadowing-channels kb (list flag 1) 'CxUniverse) :rules))
       (testing "so the wrapper no longer runs alone — the union includes the rule"
-        (let [appl (provers/applicable-provers kb (provers/registry kb) (list flag 3) 'CxUniverse)]
-          (is (nil? (provers/sole-prover kb appl (list flag 3) 'CxUniverse))))))))
+        (let [appl (provers/applicable-provers kb (provers/registry kb) (list flag 1) 'CxUniverse)]
+          (is (nil? (provers/sole-prover kb appl (list flag 1) 'CxUniverse)))))
+      (testing "but not for a goal the rule's consequent does not unify with"
+        (is (empty? (provers/shadowing-channels kb (list flag 3) 'CxUniverse)))))))

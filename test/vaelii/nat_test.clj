@@ -49,6 +49,23 @@
           (is (empty? (v/sentexes-matching kb (list 'color (list FruitFn 'PearTree) '?c) '?ctx)))
           (is (= before (count (v/sentexes-matching kb (list 'natFormula '?k '?e) 'CxUniverse)))))))))
 
+(tu/deftest-kb a-reified-constant-is-held-to-no-length-by-its-spelling
+  ;; a minted name (`nat/a0IQ…`) reads as camelCase, and the mint of a function whose
+  ;; result is `unary_predicate` asserts `(unary_predicate nat/K)` under `:naming :strict`
+  (tu/with-terms [PropertyFn Tom Red Green Pink likesProperty]
+    (doseq [s [(list 'reifiable_function PropertyFn) (list 'unary_function PropertyFn)
+               (list 'result PropertyFn 'unary_predicate)]]
+      (v/assert kb s 'CxUniverse {:strength :monotonic}))
+    (let [k (symbol nat-read/nat-namespace (str (gensym "aTmp")))]
+      (doseq [s [(list likesProperty Tom (list PropertyFn Red))
+                 (list 'unary_predicate (list PropertyFn Green))
+                 (list 'arity (list PropertyFn Pink) 1)
+                 (list 'unary_predicate k)
+                 (list k Tom)]]
+        (testing (pr-str s)
+          (is (integer? (v/assert kb s 'CxUniverse)))
+          (is (some? (v/handle-of kb s 'CxUniverse))))))))
+
 (tu/deftest-kb handle-of-and-why-not-resolve-a-nat-to-its-stored-constant
   ;; `ist` stores the constant, so `handle-of` resolves the compound to it, and
   ;; `(retract! kb (handle-of kb s c))` retracts the stored sentex
@@ -581,6 +598,38 @@
                                                  'CxUniverse)))
         "and one naming a type disjoint from it is held inert")))
 
+(tu/deftest-kb a-goal-reads-the-result-type-of-an-application-that-is-never-minted
+  (tu/with-terms [ClockFn SpanFn PickFn moment temporal other kind startsAt CxDecl]
+    (doseq [f [ClockFn SpanFn PickFn]] (v/assert kb (list 'unreifiable_function f) 'CxUniverse))
+    (v/assert kb (list 'genl temporal 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl moment temporal) 'CxUniverse)
+    (v/assert kb (list 'genl other 'thing) 'CxUniverse)
+    (v/assert kb (list 'result ClockFn moment) 'CxUniverse)
+    (v/assert kb (list 'resultArg PickFn 1) 'CxUniverse)
+    (v/assert kb (list 'result SpanFn other) CxDecl)
+    (let [t (list ClockFn 1)]
+      (doseq [ty [moment temporal]]
+        (testing (str "the declared result type and its genls answer, " ty)
+          (is (v/ask? kb (list ty t) 'CxUniverse))
+          (is (= 1 (count (v/prove kb [(list ty t)] 'CxUniverse))))
+          (is (seq (binding [v/*query-engine* :inference v/*query-options* {:max-depth 3}]
+                     (v/prove kb (list ty t) 'CxUniverse))))))
+      (is (not (v/ask? kb (list other t) 'CxUniverse)) "a type the result does not reach answers nothing")
+      (is (not (v/ask? kb (list moment (list ClockFn '?x)) 'CxUniverse)) "an open application answers nothing")
+      (is (v/ask? kb (list kind (list PickFn kind)) 'CxUniverse) "a resultArg position types the application")
+      (is (v/ask? kb (list other (list SpanFn t)) CxDecl) "the declaration's context reads it")
+      (is (not (v/ask? kb (list other (list SpanFn t)) 'CxUniverse)) "a context that does not see it reads nothing")
+      (testing "a backward rule's membership antecedent is discharged for the application"
+        (v/assert kb (list 'set/backwardRule
+                           (list 'implies (list moment '?m) (list startsAt (list SpanFn '?m) '?m)))
+                  'CxUniverse)
+        (let [g (list startsAt (list SpanFn t) '?w)]
+          (is (= [{'?w t}] (v/prove kb [g] 'CxUniverse)))
+          (is (= [{'?w t}] (distinct (binding [v/*query-engine* :inference v/*query-options* {:max-depth 3}]
+                                       (v/prove kb g 'CxUniverse))))))))
+    (testing "the shipped result of InstantFn answers time_point"
+      (is (v/ask? kb '(time_point (InstantFn 2026 10 6 0 0 0)) 'CxUniverse)))))
+
 (tu/deftest-kb a-result-arg-membership-entailed-off-the-map-is-bookkeeping
   (tu/with-terms [MemberFn kind studies Alice]
     (tu/with-entailing
@@ -670,7 +719,7 @@
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
-    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
       (testing "the application resolves to the value, and mints nothing beside it"
         (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h))))
@@ -697,7 +746,7 @@
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat-read/reified-nat-symbol? k))
-      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
       (testing "one value, and it is the one somebody named"
         (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse))))
       (testing "the use of the placeholder migrated onto it"
@@ -713,7 +762,7 @@
     (v/assert kb (list 'reifiable_function StreetCornerFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 1)
               'CxUniverse)
-    (v/assert kb (list streetCornerOf Lot7 Xing1 North) 'CxUniverse)
+    (v/assert kb (list streetCornerOf Lot7 Xing1 North) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list ownedBy (list StreetCornerFn Xing1 North) Alice) 'CxUniverse)]
       (is (= (list ownedBy Lot7 Alice) (:sentence (v/sentex kb h)))))))
 
@@ -723,7 +772,7 @@
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat-read/reified-nat-symbol? k))
-      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
       (testing "before the declaration the two terms are unrelated"
         (is (= k (nat-read/dedup-constant kb (list MotherFn Muffet)))))
       (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
@@ -752,15 +801,15 @@
           k (nth (:sentence (v/sentex kb h)) 2)]
       (is (nat-read/reified-nat-symbol? k))
       (is (not= Mary k))
-      (testing "and neither predicate is projected onto"
-        (is (empty? (v/ask kb (list parentOf Muffet '?m) '?ctx)))
-        (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))))))
+      (testing "and each declaration projects the placeholder onto its own predicate"
+        (is (= [{'?m k}] (v/ask kb (list parentOf Muffet '?m) 'CxUniverse)))
+        (is (= #{{'?m Mary} {'?m k}} (set (v/ask kb (list motherOf Muffet '?m) 'CxUniverse))))))))
 
 (tu/deftest-kb retracting-the-declaration-stops-the-application-resolving
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor sees]
     (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (let [d (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)]
-      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
       (is (= Mary (nat-read/correspondence-value kb (list MotherFn Muffet) nil)))
       (v/retract! kb d)
       (testing "the declaration is belief-following, so the reify stops reading it"
@@ -849,7 +898,7 @@
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse)
-    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse)
+    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
     (v/recover kb)
     (is (= Mary (nat-read/correspondence-value kb (list MotherFn Muffet) nil)))
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
@@ -988,19 +1037,49 @@
   (withdrawal-collects-the-constant kb :derived)
   (withdrawal-collects-the-constant kb :asserted))
 
-(tu/deftest-kb a-firing-mints-the-application-its-consequent-names
+(tu/deftest-kb a-constant-minted-by-a-firing-is-collected-and-re-minted-under-its-name
   ;; the consequent stays as written, so the firing mints `(FruitFn AppleTree)` with no
   ;; value stored for it, and the correspondence projects the new constant
   (tu/with-terms [FruitFn AppleTree Orchard fruit fruitOf bears grownIn tagged picked]
     (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
     (orchard-rules! kb FruitFn fruitOf bears grownIn tagged picked)
-    (v/assert kb (list bears AppleTree Orchard) 'CxUniverse)
-    (let [k (nat-read/dedup-constant kb (list FruitFn AppleTree))]
-      (is (nat-read/reified-nat-symbol? k))
+    (let [h (v/assert kb (list bears AppleTree Orchard) 'CxUniverse)
+          k (nat-read/dedup-constant kb (list FruitFn AppleTree))]
+      (testing "the firing alone mints the constant"
+        (is (nat-read/reified-nat-symbol? k))
+        (is (= [(list grownIn k Orchard)]
+               (mapv :sentence (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse))))
+        (is (v/ask? kb (list fruitOf AppleTree k) 'CxUniverse)))
+      (v/retract! kb h)
+      (testing "the derived use was the only one, so the constant goes with it"
+        (is (nil? (nat-read/dedup-constant kb (list FruitFn AppleTree))))
+        (is (empty? (kb/find-sentexes kb k)))
+        (is (empty? (nat/orphaned-constants kb))))
+      (let [h2 (v/assert kb (list bears AppleTree Orchard) 'CxUniverse)]
+        (testing "re-deriving mints the same constant, since the name is the expression's"
+          (is (= k (nat-read/dedup-constant kb (list FruitFn AppleTree))))
+          (is (v/ask? kb (list grownIn k Orchard) 'CxUniverse)))
+        (v/retract! kb h2)))))
+
+(tu/deftest-kb a-conclusion-the-checks-drop-mints-no-constant
+  ;; a convicted input of a function application drops the firing's conclusion, and the
+  ;; checks read the application before the mint, so the drop leaves no constant behind
+  (tu/with-terms [FruitFn Orchard source grownIn]
+    (doseq [s [(list 'reifiable_function FruitFn) (list 'unary_function FruitFn)
+               (list 'arg FruitFn 1 'integer) (list 'result FruitFn 'thing)
+               (list 'set/forwardRule
+                     (list 'implies (list source '?x) (list grownIn (list FruitFn '?x) Orchard)))]]
+      (v/assert kb s 'CxUniverse))
+    (v/assert kb (list source "x") 'CxUniverse)
+    (v/assert kb (list source 5) 'CxUniverse)
+    (let [k (nat-read/dedup-constant kb (list FruitFn 5))]
       (is (= [(list grownIn k Orchard)]
-             (mapv :sentence (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse))))
-      (is (v/ask? kb (list fruitOf AppleTree k) 'CxUniverse)))))
+             (mapv :sentence (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse)))
+          "only the well-typed conclusion is stored"))
+    (is (nil? (nat-read/dedup-constant kb (list FruitFn "x"))) "and nothing was minted for the drop")
+    (is (some #(= grownIn (first (:sentence %))) (v/violations kb))
+        "the drop is recorded")))
 
 (tu/deftest-kb a-generated-rule-names-the-constant-in-its-antecedent
   ;; a generator's generated rule is a derived conclusion too, and a ground application in
@@ -1019,11 +1098,11 @@
 (tu/deftest-kb a-mint-whose-projection-fails-a-declared-type-holds-the-projection-inert
   ;; the correspondence projects the new constant onto a predicate whose `arg` declaration
   ;; its result type is disjoint from, so the mint's own assert holds the projection inert
-  ;; and the fact is stored.  Forced to the constraint reading, where the declaration
-  ;; convicts the constant; the entailing one mints `(beast …)` beside `(fruit …)` and
-  ;; stores the clash (docs/argtypes.md)
+  ;; and the fact or the firing's conclusion is stored.  Forced to the constraint reading,
+  ;; where the declaration convicts the constant; the entailing one mints `(beast …)`
+  ;; beside `(fruit …)` and stores the clash (docs/argtypes.md)
   (tu/without-entailing
-   (tu/with-terms [FruitFn Pear fruit beast keeperOf tagged]
+   (tu/with-terms [FruitFn AppleTree Pear Orchard fruit beast keeperOf bears grownIn tagged]
      (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
      (v/assert kb (list 'genl fruit 'thing) 'CxUniverse)
      (v/assert kb (list 'genl beast 'thing) 'CxUniverse)
@@ -1031,13 +1110,21 @@
      (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
      (v/assert kb (list 'arg keeperOf 2 beast) 'CxUniverse)
      (v/assert kb (list 'functionCorrespondingPredicate FruitFn keeperOf) 'CxUniverse)
-     (is (some? (v/assert kb (list tagged (list FruitFn Pear)) 'CxUniverse)))
+     (testing "the assert path stores the application and holds its projection"
+       (is (some? (v/assert kb (list tagged (list FruitFn Pear)) 'CxUniverse))))
+     (v/assert kb (list 'set/forwardRule
+                        (list 'implies (list bears '?t '?o) (list grownIn (list FruitFn '?t) '?o)))
+               'CxUniverse)
+     (is (some? (v/assert kb (list bears AppleTree Orchard) 'CxUniverse))
+         "the assert that fires the rule is not refused")
+     (is (seq (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse))
+         "the conclusion is stored")
      (let [vs (v/violations kb)]
-       (is (= #{[keeperOf Pear]}
+       (is (= #{[keeperOf AppleTree] [keeperOf Pear]}
               (into #{} (comp (filter #(= :inert-argument (:violation %)))
                               (map #(vec (take 2 (:sentence %)))))
                     vs))
-           "the projection is held inert")
+           "both projections are held inert")
        (is (not-any? #(= :mint-refused (:violation %)) vs))))))
 
 ;; ---- an open application read through its corresponding predicate --------
@@ -1050,12 +1137,13 @@
     (for [x xs, more (orders (remove #{x} xs))] (cons x more))))
 
 (defn- answers
-  "`goal`'s answers under `engine`, projected onto `vars`, as a set."
-  [kb engine goal vars]
-  (into #{} (map #(select-keys % vars))
-        (binding [v/*query-engine* engine
-                  v/*query-options* {:max-depth 4}]
-          (v/prove kb goal 'CxUniverse))))
+  "`goal`'s answers in `ctx` (CxUniverse) under `engine`, projected onto `vars`, as a set."
+  ([kb engine goal vars] (answers kb engine goal vars 'CxUniverse))
+  ([kb engine goal vars ctx]
+   (into #{} (map #(select-keys % vars))
+         (binding [v/*query-engine* engine
+                   v/*query-options* {:max-depth 4}]
+           (v/prove kb goal ctx)))))
 
 (defn- names?
   "Does the stored sentence of handle `h` name `term`?"
@@ -1069,7 +1157,7 @@
   ;; backward rule's consequent stays as written, so no goal over the application or its
   ;; constant reaches it, and an open goal binds the application as written.
   (doseq [order (orders [:mark :corr :rules :fact])]
-    (tu/with-terms [FruitFn AppleTree Orchard Pace bears grownIn tagged ripe sweet fruitOf favoriteFood]
+    (tu/with-terms [FruitFn AppleTree Orchard Ann bears grownIn tagged ripe sweet fruitOf favoriteFood]
       (let [steps {:mark  [(list 'reifiable_function FruitFn)]
                    :corr  [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
                    :rules [(list 'implies (list bears '?t '?o) (list grownIn (list FruitFn '?t) '?o))
@@ -1077,7 +1165,7 @@
                            (list 'set/forwardRule
                                  (list 'implies (list tagged (list FruitFn '?t)) (list sweet '?t)))]
                    :fact  [(list tagged (list FruitFn AppleTree))
-                           (list favoriteFood Pace (list FruitFn AppleTree))]}
+                           (list favoriteFood Ann (list FruitFn AppleTree))]}
             _     (v/assert kb (list bears AppleTree Orchard) 'CxUniverse)
             hs    (into {} (map (fn [step] [step (mapv #(v/assert kb % 'CxUniverse) (steps step))])) order)
             k     (nat-read/dedup-constant kb (list FruitFn AppleTree))
@@ -1088,8 +1176,8 @@
                      (answers kb engine [(list tagged '?f) (list grownIn '?f '?o)] ['?f '?o])
                      (answers kb engine (list ripe '?t) ['?t])
                      (answers kb engine (list grownIn (list FruitFn '?t) '?o) ['?t '?o])
-                     (answers kb engine (list favoriteFood Pace (list FruitFn '?tree)) ['?tree])
-                     (answers kb engine [(list 'equals '?food (list FruitFn '?tree)) (list favoriteFood Pace '?food)]
+                     (answers kb engine (list favoriteFood Ann (list FruitFn '?tree)) ['?tree])
+                     (answers kb engine [(list 'equals '?food (list FruitFn '?tree)) (list favoriteFood Ann '?food)]
                               ['?food '?tree])])
             want  [#{} #{} #{{'?f (list FruitFn AppleTree) '?o Orchard}}
                    #{} #{{'?t AppleTree}} #{}
@@ -1149,15 +1237,15 @@
 (tu/deftest-kb an-open-application-goal-answers-through-a-correspondence-value-in-either-order
   ;; a value the KB states, not a minted constant: the goal reads `(fruitOf AppleTree Gala)`
   (doseq [value-first? [true false]]
-    (tu/with-terms [FruitFn AppleTree Gala Pace favoriteFood fruitOf]
+    (tu/with-terms [FruitFn AppleTree Gala Ann favoriteFood fruitOf]
       (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
       (v/assert kb (list 'functionCorrespondingPredicate FruitFn fruitOf) 'CxUniverse)
-      (let [steps [(list fruitOf AppleTree Gala) (list favoriteFood Pace (list FruitFn AppleTree))]]
-        (run! #(v/assert kb % 'CxUniverse) (cond-> steps (not value-first?) reverse)))
+      (let [steps [(list fruitOf AppleTree Gala) (list favoriteFood Ann (list FruitFn AppleTree))]]
+        (run! #(v/assert kb % 'CxUniverse {:strength :monotonic}) (cond-> steps (not value-first?) reverse)))
       (doseq [engine [:dfs :inference]]
         (is (= [#{{'?tree AppleTree}} #{{'?food Gala '?tree AppleTree}}]
-               [(answers kb engine (list favoriteFood Pace (list FruitFn '?tree)) ['?tree])
-                (answers kb engine [(list 'equals '?food (list FruitFn '?tree)) (list favoriteFood Pace '?food)]
+               [(answers kb engine (list favoriteFood Ann (list FruitFn '?tree)) ['?tree])
+                (answers kb engine [(list 'equals '?food (list FruitFn '?tree)) (list favoriteFood Ann '?food)]
                          ['?food '?tree])])
             (str value-first? " " engine))))))
 
@@ -1190,39 +1278,39 @@
   ;; term the KB states, whichever of the mark, the correspondence and the facts arrive first
   (doseq [value [:minted :stated]
           order (orders [:mark :corr :facts])]
-    (tu/with-terms [FruitFn AppleTree Gala Pace favoriteFood fruitOf]
+    (tu/with-terms [FruitFn AppleTree Gala Ann favoriteFood fruitOf]
       (let [steps {:mark  [(list 'reifiable_function FruitFn)]
                    :corr  [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
                    :facts (if (= value :minted)
-                            [(list favoriteFood Pace (list FruitFn AppleTree))]
-                            [(list fruitOf AppleTree Gala) (list favoriteFood Pace Gala)])}]
+                            [(list favoriteFood Ann (list FruitFn AppleTree))]
+                            [(list fruitOf AppleTree Gala) (list favoriteFood Ann Gala)])}]
         (doseq [step order] (run! #(v/assert kb % 'CxUniverse) (steps step)))
         (let [food (if (= value :minted) (nat-read/dedup-constant kb (list FruitFn AppleTree)) Gala)]
           (doseq [engine [:dfs :inference]]
             (is (= [#{{'?tree AppleTree}}
                     #{{'?fn FruitFn}}
                     #{{'?food food '?tree AppleTree '?fn FruitFn}}]
-                   [(answers kb engine (list favoriteFood Pace (list FruitFn '?tree)) ['?tree])
-                    (answers kb engine (list favoriteFood Pace (list '?fn AppleTree)) ['?fn])
+                   [(answers kb engine (list favoriteFood Ann (list FruitFn '?tree)) ['?tree])
+                    (answers kb engine (list favoriteFood Ann (list '?fn AppleTree)) ['?fn])
                     (answers kb engine (list 'and (list 'equals '?food (list FruitFn '?tree))
                                              (list 'equals '?food (list '?fn AppleTree))
-                                             (list favoriteFood Pace '?food))
+                                             (list favoriteFood Ann '?food))
                              ['?food '?tree '?fn])])
                 (str value " " order " " engine))))))))
 
 (tu/deftest-kb a-goal-answers-through-every-believed-correspondence
-  (tu/with-terms [FruitFn AppleTree PearTree Gala Bosc Pace favoriteFood fruitOf producesFruit]
+  (tu/with-terms [FruitFn AppleTree PearTree Gala Bosc Ann favoriteFood fruitOf producesFruit]
     (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
     (run! #(v/assert kb % 'CxUniverse)
           [(list 'functionCorrespondingPredicate FruitFn fruitOf)
            (list 'functionCorrespondingPredicate FruitFn producesFruit)
            (list fruitOf AppleTree Gala) (list producesFruit PearTree Bosc)
-           (list favoriteFood Pace Gala) (list favoriteFood Pace Bosc)])
+           (list favoriteFood Ann Gala) (list favoriteFood Ann Bosc)])
     (doseq [engine [:dfs :inference]]
       (is (= [#{{'?tree AppleTree} {'?tree PearTree}}
               #{{'?fn FruitFn '?tree AppleTree} {'?fn FruitFn '?tree PearTree}}]
-             [(answers kb engine (list favoriteFood Pace (list FruitFn '?tree)) ['?tree])
-              (answers kb engine (list favoriteFood Pace (list '?fn '?tree)) ['?fn '?tree])])
+             [(answers kb engine (list favoriteFood Ann (list FruitFn '?tree)) ['?tree])
+              (answers kb engine (list favoriteFood Ann (list '?fn '?tree)) ['?fn '?tree])])
           (str engine)))))
 
 (tu/deftest-kb a-variable-functor-goal-reads-every-value-position
@@ -1264,19 +1352,163 @@
         (v/retract! kb (first (:fruit hs)))
         (is (= #{} (ripe?)) (str order " no correspondence: held"))))))
 
+(tu/deftest-kb a-correspondence-respells-a-rule-and-a-goal-only-where-its-context-is-seen
+  ;; the declaration is in CxSide; CxLow sees it, CxUniverse does not
+  (tu/with-terms [FruitFn AppleTree Gala Ann tagged ripe fruitOf favoriteFood CxSide CxLow]
+    (run! #(v/assert kb % 'CxUniverse {:strength :monotonic})
+          [(list 'genlCx CxSide 'CxUniverse) (list 'genlCx CxLow CxSide)
+           (list 'reifiable_function FruitFn)])
+    (v/assert kb (list 'functionCorrespondingPredicate FruitFn fruitOf) CxSide)
+    (run! #(v/assert kb % 'CxUniverse)
+          [(list fruitOf AppleTree Gala) (list tagged Gala) (list favoriteFood Ann Gala)])
+    (let [rule (list 'set/forwardRule (list 'implies (list tagged (list FruitFn '?t)) (list ripe '?t)))
+          top  (v/assert kb rule 'CxUniverse)
+          low  (v/assert kb rule CxLow)
+          goal (list favoriteFood Ann (list FruitFn '?tree))]
+      (testing "a reader that cannot see the declaration: the rule is held, the goal answers nothing"
+        (is (= [true false] [(names? kb top FruitFn) (names? kb top fruitOf)]))
+        (is (= [false :inert] ((juxt :believed? :reason) (v/why-not kb top))))
+        (is (not (v/ask? kb (list ripe AppleTree) 'CxUniverse)))
+        (is (= #{} (answers kb :dfs goal ['?tree]) (answers kb :inference goal ['?tree]))))
+      (testing "the held rule is respelled where its context and the declaration's meet"
+        (is (v/ask? kb (list ripe AppleTree) CxSide)))
+      (testing "a reader below the declaration's context: the rule is respelled, the goal answers"
+        (is (= [false true] [(names? kb low FruitFn) (names? kb low fruitOf)]))
+        (is (v/ask? kb (list ripe AppleTree) CxLow))
+        (is (= #{{'?tree AppleTree}} (answers kb :dfs goal ['?tree] CxSide)
+               (answers kb :inference goal ['?tree] CxLow)))))))
+
+(def ^:private meet-variants
+  "The rule's context, the `genlCx` edge step and the readers' answers in `meet-readers`
+  order with the edge and after it leaves.  Fixed edges: CxSide, CxLow under CxUniverse,
+  CxBoth under CxLow; the declaration is in CxSide."
+  {:low  {:rule :low  :edge [:low :side]  :with [true false true false]  :without [false false false false]}
+   :top  {:rule :top  :edge [:low :side]  :with [true true true false]   :without [false true false false]}
+   :meet {:rule :low  :edge [:both :side] :with [false false true false] :without [false false false false]}})
+
+(defn- meet-run!
+  "Assert the `variant` ingredients of `meet-variants` in `order` on `kb` and answer
+  `{:hs {step [handle …]} :row (fn [] [ripe-per-reader goal-at-CxBoth])}`."
+  [kb variant order {:keys [FruitFn AppleTree Gala Ann tagged ripe fruitOf favoriteFood CxSide CxLow CxBoth]}]
+  (let [cx    {:low CxLow :side CxSide :both CxBoth :top 'CxUniverse}
+        {:keys [rule edge]} (meet-variants variant)]
+    (run! #(v/assert kb % 'CxUniverse {:strength :monotonic})
+          [(list 'genlCx CxSide 'CxUniverse) (list 'genlCx CxLow 'CxUniverse) (list 'genlCx CxBoth CxLow)
+           (list 'reifiable_function FruitFn)])
+    (let [steps {:corr  [[(list 'functionCorrespondingPredicate FruitFn fruitOf) CxSide]]
+                 :rule  [[(list 'set/forwardRule
+                                (list 'implies (list tagged (list FruitFn '?t)) (list ripe '?t)))
+                          (cx rule)]]
+                 :facts [[(list fruitOf AppleTree Gala) 'CxUniverse] [(list tagged Gala) 'CxUniverse]
+                         [(list favoriteFood Ann Gala) 'CxUniverse]]
+                 :edge  [[(list 'genlCx (cx (first edge)) (cx (second edge))) 'CxUniverse]]}]
+      {:hs  (into {} (map (fn [step] [step (mapv (fn [[s c]] (v/assert kb s c {:strength :monotonic}))
+                                                 (steps step))]))
+                  order)
+       :row #(vector (mapv (fn [c] (v/ask? kb (list ripe AppleTree) c)) [CxLow CxSide CxBoth 'CxUniverse])
+                     (answers kb :dfs (list favoriteFood Ann (list FruitFn '?tree)) ['?tree] CxBoth))})))
+
+(tu/deftest-kb a-correspondence-respells-a-rule-where-its-context-meets-the-declarations-in-every-order
+  ;; the declaration, the rule, the facts and an edge, in all 24 orders, for a rule below
+  ;; the declaration's context once the edge is in, a rule in CxUniverse, and a rule whose
+  ;; context meets the declaration's only in CxBoth; then the edge leaves
+  (doseq [variant (keys meet-variants)
+          order   (orders [:corr :rule :facts :edge])]
+    (tu/with-terms [FruitFn AppleTree Gala Ann tagged ripe fruitOf favoriteFood CxSide CxLow CxBoth]
+      (let [{:keys [hs row]} (meet-run! kb variant order {:FruitFn FruitFn :AppleTree AppleTree :Gala Gala
+                                                          :Ann Ann :tagged tagged :ripe ripe :fruitOf fruitOf
+                                                          :favoriteFood favoriteFood :CxSide CxSide
+                                                          :CxLow CxLow :CxBoth CxBoth})
+            {:keys [with without]} (meet-variants variant)]
+        (is (= [with #{{'?tree AppleTree}}] (row)) (str variant " " order))
+        (v/retract! kb (first (:edge hs)))
+        (is (= [without #{}] (row)) (str variant " " order " the edge leaves"))))))
+
+(tu/deftest-kb a-correspondence-meet-respelling-leaves-with-each-ingredient
+  (doseq [variant (keys meet-variants)
+          gone    [:corr :rule :facts :edge]]
+    (tu/with-terms [FruitFn AppleTree Gala Ann tagged ripe fruitOf favoriteFood CxSide CxLow CxBoth]
+      (let [{:keys [hs row]} (meet-run! kb variant [:rule :facts :corr :edge]
+                                        {:FruitFn FruitFn :AppleTree AppleTree :Gala Gala :Ann Ann
+                                         :tagged tagged :ripe ripe :fruitOf fruitOf :favoriteFood favoriteFood
+                                         :CxSide CxSide :CxLow CxLow :CxBoth CxBoth})
+            {:keys [without]} (meet-variants variant)]
+        (run! #(v/retract! kb %) (gone hs))
+        (is (= (case gone :edge [without #{}] :rule [[false false false false] #{{'?tree AppleTree}}]
+                     [[false false false false] #{}])
+               (row))
+            (str variant " without " gone))))))
+
+(tu/deftest-kb recover-stores-the-meet-spelling-a-store-without-it-lacks
+  ;; the write stores no meet spelling, as a store written before a held rule stored one
+  ;; holds none; `recover` adds it, and the teardown of the rule removes it
+  (tu/with-terms [FruitFn AppleTree Gala tagged ripe fruitOf CxSide]
+    (run! #(v/assert kb % 'CxUniverse {:strength :monotonic})
+          [(list 'genlCx CxSide 'CxUniverse) (list 'reifiable_function FruitFn)
+           (list fruitOf AppleTree Gala) (list tagged Gala)])
+    (with-redefs-fn {(ns-resolve 'vaelii.impl.chain 'rule-correspondence-want) (constantly nil)}
+      #(do (v/assert kb (list 'functionCorrespondingPredicate FruitFn fruitOf) CxSide)
+           (v/assert kb (list 'set/forwardRule (list 'implies (list tagged (list FruitFn '?t)) (list ripe '?t)))
+                     'CxUniverse)))
+    (is (not (v/ask? kb (list ripe AppleTree) CxSide)) "the store holds no meet spelling")
+    (v/recover kb)
+    (is (v/ask? kb (list ripe AppleTree) CxSide))
+    (is (not (v/ask? kb (list ripe AppleTree) 'CxUniverse)))))
+
 (tu/deftest-kb a-rule-holding-a-variable-functor-application-is-held
-  (tu/with-terms [FruitFn AppleTree Gala Rex Pace tagged ripe fruitOf dog heard]
+  (tu/with-terms [FruitFn AppleTree Gala Rex Ann tagged ripe fruitOf dog heard]
     (run! #(v/assert kb % 'CxUniverse)
           [(list 'reifiable_function FruitFn) (list 'functionCorrespondingPredicate FruitFn fruitOf)
            (list fruitOf AppleTree Gala) (list tagged Gala)
            (list 'set/forwardRule (list 'implies (list tagged (list '?fn '?t)) (list ripe '?t)))])
     (is (empty? (v/query kb (list ripe '?t) 'CxUniverse)) "the rule fires nothing")
     (testing "a variable-functor compound in a formula position is a sentence pattern"
-      (v/assert kb (list 'believes Pace (list dog Rex)) 'CxUniverse)
+      (v/assert kb (list 'believes Ann (list dog Rex)) 'CxUniverse)
       (v/assert kb (list 'set/forwardRule (list 'implies (list 'believes '?a (list '?p Rex)) (list heard '?a '?p)))
                 'CxUniverse)
-      (is (true? (v/ask? kb (list heard Pace dog) 'CxUniverse)))
-      (is (= #{{'?p dog}} (answers kb :dfs (list 'believes Pace (list '?p Rex)) ['?p]))))))
+      (is (true? (v/ask? kb (list heard Ann dog) 'CxUniverse)))
+      (is (= #{{'?p dog}} (answers kb :dfs (list 'believes Ann (list '?p Rex)) ['?p]))))))
+
+(tu/deftest-kb a-modal-proposition-keeps-its-applications-as-written-on-every-path-in-every-order
+  ;; the rule over Ann's belief and the goals read the proposition as written, the Bob
+  ;; firing stores the asserted spelling, and with no correspondence only the rule whose
+  ;; application sits outside a proposition is held
+  (doseq [corr? [true false]
+          order (orders (cond-> [:rules :facts] corr? (conj :corr)))]
+    (tu/with-terms [FruitFn Ann Bob Apple Pear likes fanOf admires tagged fruitOf]
+      (let [bob   (list 'believes Bob (list likes Bob (list FruitFn Pear)))
+            steps {:corr  [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
+                   :rules [(list 'set/forwardRule
+                                 (list 'implies (list tagged (list FruitFn '?t))
+                                       (list 'believes Bob (list likes Bob (list FruitFn '?t)))))
+                           (list 'set/forwardRule
+                                 (list 'implies (list 'believes '?a (list likes '?a (list FruitFn '?t)))
+                                       (list fanOf '?a '?t)))
+                           (list 'implies (list 'believes '?a (list likes '?a (list FruitFn '?t)))
+                                 (list admires '?a '?t))]
+                   :facts [(list tagged (list FruitFn Pear))
+                           (list 'believes Ann (list likes Ann (list FruitFn Apple)))]}
+            _     (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+            hs    (into {} (map (fn [step] [step (mapv #(v/assert kb % 'CxUniverse) (steps step))])) order)
+            at    (str corr? " " (vec order))
+            fans  (set (map :sentence (v/sentexes-matching kb (list fanOf '?a '?t) 'CxUniverse)))
+            bobs  (v/sentexes-matching kb (list 'believes Bob '?p) 'CxUniverse)]
+        (is (= (cond-> #{(list fanOf Ann Apple)} corr? (conj (list fanOf Bob Pear))) fans)
+            (str at " the rule over a belief matches the stored belief"))
+        (is (= (if corr? [bob] []) (mapv :sentence bobs)) (str at " the firing stores the proposition as written"))
+        (is (= corr? (v/ask? kb bob 'CxUniverse)) (str at " ask"))
+        (doseq [engine [:dfs :inference]]
+          (is (= #{{'?t Apple}}
+                 (answers kb engine (list 'believes Ann (list likes Ann (list FruitFn '?t))) ['?t]))
+              (str at " " engine " goal"))
+          (is (= (cond-> #{{'?a Ann '?t Apple}} corr? (conj {'?a Bob '?t Pear}))
+                 (answers kb engine (list admires '?a '?t) ['?a '?t]))
+              (str at " " engine " backward rule")))
+        (is (not= :inert (:reason (v/why-not kb (second (:rules hs)))))
+            (str at " a rule whose only application is in a proposition is not held"))
+        (when corr?
+          (is (= (:id (first bobs)) (v/assert kb bob 'CxUniverse))
+              (str at " the asserted and the derived belief are one sentex")))))))
 
 (tu/deftest-kb a-formula-declaration-releases-a-held-variable-functor-rule-in-every-order
   ;; the declaration types holdsIn's second position `sentence` directly, or `note` that a
@@ -1329,7 +1561,7 @@
 (tu/deftest-kb a-never-minted-application-in-a-goal-equals-only-itself-and-its-congruent-spellings
   ;; `no-match` names no term: no equality, `different` or taxonomy reading answers it.
   ;; An equation keeps the application as written, so identity and congruence answer.
-  (tu/with-terms [FooFn Xa Xb Xc Xd Ann Bob Zed CxA fooOf likes twin]
+  (tu/with-terms [FooFn BarFn BazFn Xa Xb Xc Xd Ann Bob Zed CxA fooOf likes twin tag]
     (let [app   (fn [& args] (apply list FooFn args))
           reads (fn [goal cx] (mapv #(set (% kb goal cx)) [v/ask v/prove v/query]))
           check (fn [stage rows]
@@ -1346,7 +1578,20 @@
               [(list 'equals '?x ab) CxA #{}]
               [(list 'genl ab '?y) CxA #{}]
               [(list 'equals (app '?a Xb) (app '?c Xd)) CxA #{}]
-              [(list 'different ab Zed) CxA #{}]])
+              [(list 'different ab Zed) CxA #{}]
+              [(list 'different (list BarFn ab) Zed) CxA #{}]
+              [(list 'equals (list BarFn ab) (list BarFn cd)) CxA #{}]
+              [(list 'equals (list BarFn ab) (list BarFn ab)) CxA #{{}}]
+              [(list 'equals '?x (list BarFn ab)) CxA #{}]
+              [(list 'genl (list BarFn ab) '?y) CxA #{}]
+              [(list 'different (list BazFn (list BarFn ab)) Zed) CxA #{}]
+              [(list 'equals (list BazFn (list BarFn ab)) (list BazFn (list BarFn cd))) CxA #{}]
+              [(list 'not (list 'different ab Zed)) CxA #{}]
+              [(list 'not (list 'different (list BarFn ab) Zed)) CxA #{}]])
+      (v/assert kb (list tag Zed) 'CxUniverse)
+      (let [naf [(list tag '?z) (list 'unknown (list tag ab))]]
+        (is (= [#{{'?z Zed}} #{{'?z Zed}}] (mapv #(set (% kb naf CxA)) [v/prove v/query]))
+            "an unknown's sentence"))
       (v/assert kb (list likes Ann (app Ann Bob)) 'CxUniverse)
       (let [k (nat-read/dedup-constant kb (app Ann Bob))]
         (check :minted
@@ -1404,11 +1649,11 @@
   (doseq [other '[Maria Mz]]
     (is (= '[(tagged Mary)]
            (on-own-kb (fn [kb]
-                        (run! (fn [[s cx]] (v/assert kb s cx))
+                        (run! (fn [[s cx & opts]] (apply v/assert kb s cx opts))
                               [['(reifiable_function MomFn) 'CxUniverse]
                                ['(functionCorrespondingPredicate MomFn momOf) 'CxUniverse]
                                ['(genlCx CxB CxUniverse) 'CxUniverse]
-                               ['(momOf Muffet Mary) 'CxUniverse]
+                               ['(momOf Muffet Mary) 'CxUniverse {:strength :monotonic}]
                                [(list 'equals 'Mary other) 'CxB]
                                ['(tagged (MomFn Muffet)) 'CxUniverse]])
                         (mapv :sentence (v/sentexes-matching kb '(tagged ?x) 'CxUniverse)))))
@@ -1432,6 +1677,221 @@
                                            (v/ask kb '(momOf Muffet ?m) 'CxUniverse)))})))
         (pr-str order))))
 
+;; ---- a :default value copies the uses of the placeholder -------------------
+
+(defn- believed-content
+  "Every believed sentex's `[sentence context]`, as a set."
+  [kb]
+  (into #{} (map #(let [s (v/sentex kb %)] [(v/sentence-of s) (:context s)]))
+        (v/believed kb (tu/sentex-ids kb))))
+
+(defn- default-value-step!
+  "Write `step` of the `:default` value scenario over `terms`: the declaration, the
+  `:default` fact and a use of the value in CxStory, a use of the application in
+  CxUniverse, or a forward and a backward rule naming the application."
+  [kb [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory] step]
+  (let [app (list MomFn Muffet)]
+    (case step
+      :decl  (v/assert kb (list 'functionCorrespondingPredicate MomFn momOf) 'CxUniverse)
+      :fact  (do (v/assert kb (list momOf Muffet Mary) CxStory)
+                 (v/assert kb (list likes Ann Mary) CxStory))
+      :use   (v/assert kb (list likes Tom app) 'CxUniverse)
+      :rules (do (v/assert kb (list 'set/forwardRule (list 'implies (list likes '?x app) (list fond '?x)))
+                           'CxUniverse)
+                 (v/assert kb (list 'implies (list likes '?x app) (list warm '?x)) 'CxUniverse)))))
+
+(defn- default-value-kb!
+  "The mark and `(genlCx CxStory CxUniverse)`, then `steps` (`default-value-step!`)."
+  [kb [MomFn _ _ _ _ _ _ _ _ CxStory :as terms] steps]
+  (v/assert kb (list 'reifiable_function MomFn) 'CxUniverse {:strength :monotonic})
+  (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse {:strength :monotonic})
+  (run! #(default-value-step! kb terms %) steps))
+
+(defn- rule-answers
+  "`{:fond … :warm …}`: what the forward and the backward rule answer in `ctx`."
+  [kb [_ _ _ _ _ _ _ fond warm] ctx]
+  {:fond (answers kb :dfs (list fond '?x) ['?x] ctx)
+   :warm (answers kb :dfs (list warm '?x) ['?x] ctx)})
+
+(deftest a-default-value-reads-the-same-in-every-order
+  (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+    (let [terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+          runs  (for [order (orders [:decl :fact :use :rules])]
+                  (on-own-kb (fn [kb]
+                               (default-value-kb! kb terms order)
+                               {:content  (believed-content kb)
+                                :story    (rule-answers kb terms CxStory)
+                                :universe (rule-answers kb terms 'CxUniverse)})))]
+      (is (= 1 (count (set (map :content runs)))) "one believed set")
+      (is (= #{{:story    {:fond #{{'?x Ann} {'?x Tom}} :warm #{{'?x Ann} {'?x Tom}}}
+                :universe {:fond #{{'?x Tom}} :warm #{{'?x Tom}}}}}
+             (set (map #(dissoc % :content) runs)))
+          "the forward and the backward rule answer alike in both contexts"))))
+
+(tu/deftest-kb a-default-value-copies-the-uses-and-the-rules-and-merges-nothing
+  (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+    (let [terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+          _     (default-value-kb! kb terms [:decl :fact :use :rules])
+          k     (nat-read/dedup-constant kb (list MomFn Muffet))
+          held  (believed-content kb)]
+      (is (nat-read/reified-object-symbol? k))
+      (is (= #{[(list likes Tom k) 'CxUniverse] [(list likes Tom Mary) CxStory]}
+             (into #{} (filter #(= likes (ffirst %))) (filter #(= Tom (second (first %))) held))))
+      (is (contains? held [(list momOf Muffet k) 'CxUniverse]))
+      (is (v/believed? kb (v/handle-of kb (list 'implies (list likes '?x Mary) (list fond '?x)) CxStory) CxStory))
+      (is (not-any? #(= 'rewriteOf (ffirst %)) (filter #(seq? (first %)) held))))))
+
+(tu/deftest-kb a-default-value-defeated-takes-every-copy-out
+  (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+    (let [terms  [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+          _      (default-value-kb! kb terms [:decl :fact :use :rules])
+          denial (v/assert kb (list 'not (list momOf Muffet Mary)) CxStory {:strength :monotonic})
+          mary   (fn [] (into #{} (filter #(some #{Mary} (tree-seq sequential? seq (first %))))
+                              (believed-content kb)))]
+      (is (= #{[(list likes Ann Mary) CxStory] [(list 'not (list momOf Muffet Mary)) CxStory]} (mary)))
+      (is (= {:fond #{{'?x Tom}} :warm #{{'?x Tom}}} (rule-answers kb terms CxStory)))
+      (v/retract! kb denial)
+      (is (contains? (mary) [(list likes Tom Mary) CxStory]))
+      (is (= {:fond #{{'?x Ann} {'?x Tom}} :warm #{{'?x Ann} {'?x Tom}}} (rule-answers kb terms CxStory))))))
+
+;; a `defeat` or `contradicts` names handles, which vary with the order
+(defn- unnamed-content
+  "`believed-content` with each `(sentexHandle h)` replaced by `h`'s `[sentence context]`."
+  [kb]
+  (letfn [(unname [x]
+            (cond (and (seq? x) (= 'sentexHandle (first x)))
+                  (if-let [s (v/sentex kb (second x))] [(unname (v/sentence-of s)) (:context s)] x)
+                  (seq? x) (map unname x)
+                  :else x))]
+    (into #{} (map (fn [[s c]] [(unname s) c])) (believed-content kb))))
+
+(defn- rival-value-kb
+  "The mark and `(genlCx CxStory CxUniverse)`, then `steps` of the two-value scenario:
+  the declaration, the `:default` values `Mary` and `Jane` in CxStory, a `:monotonic`
+  denial of `Jane` there (`:deny`) or an `except` of `Jane`'s fact there (`:exc`, after
+  `:jane`), a use of the application in CxUniverse, and an `except` of the use in CxStory
+  (`:exc-use`, after `:use`).  Returns the handles the steps wrote, by step."
+  [kb [MomFn momOf Muffet Mary Jane Tom likes CxStory] steps]
+  (v/assert kb (list 'reifiable_function MomFn) 'CxUniverse {:strength :monotonic})
+  (v/assert kb (list 'genlCx CxStory 'CxUniverse) 'CxUniverse {:strength :monotonic})
+  (reduce (fn [hs step]
+            (assoc hs step
+                   (case step
+                     :decl (v/assert kb (list 'functionCorrespondingPredicate MomFn momOf) 'CxUniverse)
+                     :mary (v/assert kb (list momOf Muffet Mary) CxStory)
+                     :jane (v/assert kb (list momOf Muffet Jane) CxStory)
+                     :deny (v/assert kb (list 'not (list momOf Muffet Jane)) CxStory {:strength :monotonic})
+                     :exc  (v/assert kb (list 'except (list 'sentexHandle (:jane hs))) CxStory
+                                     {:strength :monotonic})
+                     :use  (v/assert kb (list likes Tom (list MomFn Muffet)) 'CxUniverse)
+                     :exc-use (v/assert kb (list 'except (list 'sentexHandle (:use hs))) CxStory
+                                        {:strength :monotonic}))))
+          {} steps))
+
+(defn- rival-value-orders
+  "Every order of the steps with `rival`, `:deny` or `:exc`; `:exc` follows `:jane`,
+  whose handle it names."
+  [rival]
+  (filterv #(or (= :deny rival) (< (.indexOf ^java.util.List % :jane) (.indexOf ^java.util.List % :exc)))
+           (map vec (orders [:decl :mary :jane rival :use]))))
+
+(defn- rival-value-runs
+  "`{:content :copies}` after each of `orders` on a KB of its own: the believed set
+  (`unnamed-content`), and whether CxStory believes the copy naming `Mary` and the one
+  naming `Jane`."
+  [orders]
+  (tu/with-terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
+    (let [terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]]
+      (doall
+       (for [order orders]
+         (on-own-kb (fn [kb]
+                      (rival-value-kb kb terms order)
+                      {:content (unnamed-content kb)
+                       :copies  [(v/ask? kb (list likes Tom Mary) CxStory)
+                                 (v/ask? kb (list likes Tom Jane) CxStory)]})))))))
+
+(deftest ^:slow a-default-value-whose-rival-is-defeated-or-excepted-takes-its-copy-in-every-order
+  (doseq [rival [:deny :exc]]
+    (let [runs (rival-value-runs (rival-value-orders rival))]
+      (is (= 1 (count (set (map :content runs)))) (str rival ": one believed set"))
+      (is (= #{[true false]} (set (map :copies runs))) (str rival)))))
+
+(deftest a-default-value-whose-rival-is-defeated-or-excepted-takes-its-copy-in-sampled-orders
+  (doseq [orders [[[:decl :mary :jane :use :deny] [:use :jane :mary :deny :decl]
+                   [:deny :mary :decl :jane :use] [:jane :deny :use :mary :decl]]
+                  [[:decl :mary :jane :use :exc] [:use :mary :decl :jane :exc]
+                   [:jane :exc :decl :use :mary] [:mary :jane :exc :use :decl]]]]
+    (let [runs (rival-value-runs orders)]
+      (is (= 1 (count (set (map :content runs)))) (str (peek (first orders)) ": one believed set"))
+      (is (= #{[true false]} (set (map :copies runs))) (str (peek (first orders)))))))
+
+(deftest a-use-whose-except-is-retracted-takes-its-copy-in-every-order
+  (tu/with-terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
+    (let [terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
+          copy  (list likes Tom Mary)
+          runs  (for [order (map vec (orders [:decl :mary :use :exc-use]))
+                      :when (< (.indexOf ^java.util.List order :use) (.indexOf ^java.util.List order :exc-use))]
+                  (on-own-kb (fn [kb]
+                               (let [hs   (rival-value-kb kb terms order)
+                                     with [(v/ask? kb copy CxStory) (unnamed-content kb)]]
+                                 (v/retract! kb (:exc-use hs))
+                                 {:with with :after [(v/ask? kb copy CxStory) (unnamed-content kb)]}))))]
+      (is (= 12 (count runs)))
+      (is (= 1 (count (set runs))) "one believed set with the except and one after it")
+      (is (= [false true] (map #(first (get (first runs) %)) [:with :after]))
+          "CxStory holds the copy once the except is retracted"))))
+
+(tu/deftest-kb a-default-value-whose-rival-is-given-back-loses-its-copy
+  (doseq [rival [:deny :exc]]
+    (tu/with-terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
+      (let [terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
+            hs    (rival-value-kb kb terms [:decl :mary :jane rival :use])]
+        (is (v/ask? kb (list likes Tom Mary) CxStory) (str rival))
+        (v/retract! kb (get hs rival))
+        (is (v/ask? kb (list momOf Muffet Jane) CxStory) (str rival))
+        (is (not (v/ask? kb (list likes Tom Mary) CxStory)) (str rival))
+        (is (not (v/ask? kb (list likes Tom Jane) CxStory)) (str rival))))))
+
+(tu/deftest-kb a-context-that-does-not-see-a-default-value-reads-the-placeholder-only
+  (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory CxOther]
+    (let [terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]]
+      (default-value-kb! kb terms [:decl :fact :use :rules])
+      (v/assert kb (list 'genlCx CxOther 'CxUniverse) 'CxUniverse {:strength :monotonic})
+      (is (empty? (v/ask kb (list likes '?x Mary) CxOther)))
+      (is (= [(nat-read/dedup-constant kb (list MomFn Muffet))]
+             (map '?m (v/ask kb (list momOf Muffet '?m) CxOther))))
+      (is (v/ask? kb (list likes Tom (list MomFn Muffet)) CxOther))
+      (is (= {:fond #{{'?x Tom}} :warm #{{'?x Tom}}} (rule-answers kb terms CxOther))))))
+
+(tu/deftest-kb a-default-value-made-monotonic-and-default-again-ends-where-it-started
+  (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+    (let [terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+          _     (default-value-kb! kb terms [:decl :fact :use :rules])
+          start (believed-content kb)
+          fact  (v/handle-of kb (list momOf Muffet Mary) CxStory)
+          k     (nat-read/dedup-constant kb (list MomFn Muffet))]
+      (v/assert kb (list momOf Muffet Mary) CxStory {:strength :monotonic})
+      (is (contains? (believed-content kb) [(list 'rewriteOf Mary k) CxStory]))
+      (is (= Mary (nat-read/correspondence-value kb (list MomFn Muffet) CxStory)))
+      (v/retract! kb fact)
+      (v/assert kb (list momOf Muffet Mary) CxStory)
+      (is (= start (believed-content kb))))))
+
+(deftest retracting-a-default-value-or-its-declaration-is-net-neutral
+  (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
+    (let [terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]]
+      (doseq [[step written ctx] [[:fact (list momOf Muffet Mary) CxStory]
+                                  [:decl (list 'functionCorrespondingPredicate MomFn momOf) 'CxUniverse]]]
+        (is (on-own-kb
+             (fn [kb]
+               (default-value-kb! kb terms (concat [:use :rules] (remove #{step} [:decl :fact])))
+               (v/assert kb (list likes Ann Mary) CxStory)
+               (let [before (tu/baseline kb)]
+                 (default-value-step! kb terms step)
+                 (v/retract! kb (v/handle-of kb written ctx))
+                 (= before (tu/baseline kb)))))
+            (str step))))))
+
 ;; ---- an application resolves under the reader's merges ---------------------
 
 (deftest an-application-resolves-under-the-merges-the-reader-sees
@@ -1454,6 +1914,76 @@
                         (v/assert kb '(sameAs Apple Pomme) 'CxOne)
                         [(v/ask? kb '(likes Tom (FruitFn Pomme)) 'CxOne)
                          (v/ask? kb '(likes Tom Pomme) 'CxOne)]))))))
+
+(deftest a-compound-rewriteof-resolves-an-application-only-where-its-context-is-seen
+  ;; CxBelow sees CxStory, which states the rewriteOf; CxOther and CxUniverse do not
+  (doseq [order [[:rewrite :facts] [:facts :rewrite]]]
+    (is (= {:other-stored-as-target false :universe-stored-as-target false
+            :other-reads false :universe-reads false :below-reads true}
+           (on-own-kb
+            (fn [kb]
+              (v/assert kb '(reifiable_function MotherFn) 'CxUniverse)
+              (doseq [[c p] '[[CxStory CxUniverse] [CxBelow CxStory] [CxOther CxUniverse]]]
+                (v/assert kb (list 'genlCx c p) 'CxUniverse))
+              (doseq [step order]
+                (case step
+                  :rewrite (v/assert kb '(rewriteOf Mary (MotherFn Muffet)) 'CxStory)
+                  :facts   (do (v/assert kb '(hates Tom Mary) 'CxUniverse)
+                               (v/assert kb '(likes Tom (MotherFn Muffet)) 'CxOther)
+                               (v/assert kb '(admires Tom (MotherFn Muffet)) 'CxUniverse))))
+              (let [stored-as-target? (fn [pat cx]
+                                        (= ['Mary] (map #(nth (:sentence %) 2)
+                                                        (v/sentexes-matching kb pat cx))))
+                    reads?            #(v/ask? kb '(hates Tom (MotherFn Muffet)) %)]
+                {:other-stored-as-target    (stored-as-target? '(likes Tom ?x) 'CxOther)
+                 :universe-stored-as-target (stored-as-target? '(admires Tom ?x) 'CxUniverse)
+                 :other-reads               (reads? 'CxOther)
+                 :universe-reads            (reads? 'CxUniverse)
+                 :below-reads               (reads? 'CxBelow)}))))
+        (pr-str order))))
+
+(deftest two-rewriteof-targets-mint-the-expression-in-every-order
+  ;; CxD sees CxA and CxB (both state Mary) and CxC (states Jane)
+  (doseq [order (orders '[CxA CxB CxC])]
+    (is (true? (on-own-kb
+                (fn [kb]
+                  (v/assert kb '(reifiable_function MotherFn) 'CxUniverse)
+                  (doseq [c '[CxA CxB CxC CxD]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+                  (doseq [c '[CxA CxB CxC]] (v/assert kb (list 'genlCx 'CxD c) 'CxUniverse))
+                  (doseq [c order]
+                    (v/assert kb (list 'rewriteOf (if (= 'CxC c) 'Jane 'Mary) '(MotherFn Muffet)) c))
+                  (v/assert kb '(likes Tom (MotherFn Muffet)) 'CxD)
+                  (let [xs (map #(nth (:sentence %) 2) (v/sentexes-matching kb '(likes Tom ?x) 'CxD))]
+                    (and (= 1 (count xs)) (nat-read/reified-nat-symbol? (first xs)))))))
+        (pr-str order))))
+
+(defn- rewrite-reads
+  "`{:application :target}`, whether `(likes Tom (MotherFn Muffet))` and `(likes Tom
+  Mary)` hold in `reader` after `steps`, `[sentence context]` asserted in turn, on a KB of
+  its own."
+  [steps reader]
+  (on-own-kb
+   (fn [kb]
+     (v/assert kb '(reifiable_function MotherFn) 'CxUniverse)
+     (doseq [[s c] steps] (v/assert kb s c))
+     {:application (v/ask? kb '(likes Tom (MotherFn Muffet)) reader)
+      :target      (v/ask? kb '(likes Tom Mary) reader)})))
+
+(deftest a-compound-rewriteof-reads-the-same-in-every-order-of-rewrite-use-and-edge
+  ;; each order against the fresh load, the listed order: one context; CxBelow under
+  ;; CxStory by an edge; CxNew under CxUniverse by an edge
+  (doseq [[steps reader] '[[[[(rewriteOf Mary (MotherFn Muffet)) CxUniverse]
+                             [(likes Tom (MotherFn Muffet)) CxUniverse]] CxUniverse]
+                           [[[(genlCx CxBelow CxStory) CxUniverse]
+                             [(rewriteOf Mary (MotherFn Muffet)) CxStory]
+                             [(likes Tom (MotherFn Muffet)) CxBelow]] CxBelow]
+                           [[[(genlCx CxNew CxUniverse) CxUniverse]
+                             [(rewriteOf Mary (MotherFn Muffet)) CxUniverse]
+                             [(likes Tom (MotherFn Muffet)) CxNew]] CxNew]]
+          :let  [fresh (rewrite-reads steps reader)]
+          order (orders steps)]
+    (is (= {:application true :target true} fresh))
+    (is (= fresh (rewrite-reads order reader)) (pr-str order))))
 
 (deftest a-collision-a-merge-joins-in-a-context-is-repaired-there-in-every-order
   ;; `[asked in CxQ, asked in CxQ, asked in CxUniverse, repair equalities in CxQ]`
@@ -1485,3 +2015,36 @@
                        :ann-apple (v/ask? kb '(likes Tom (FruitFn Apple)) 'CxAgentAnn)
                        :universe  (v/same-class? kb (nat-read/dedup-constant kb '(FruitFn Apple))
                                                  (nat/constant-for nat-read/nat-namespace '(FruitFn Pomme)))})))))
+
+;; ---- a correspondence stated in one context ---------------------------------
+
+(tu/deftest-kb ^:red a-correspondence-stated-in-one-context-does-not-merge-its-predicates-values-in-another
+  ;; A correspondence can hold only under a simplifying theory.  In an atlas where every
+  ;; country has one capital, `capitalOf` is functional and `CapitalFn` names its value;
+  ;; the world gives one country two.  An application written in the world before its
+  ;; values must not be retired onto each value in turn, which equates the two values
+  ;; through the placeholder.  Red because the declaration is read KB-wide
+  ;; (`res/believed-correspondences`), so the world reads the atlas's correspondence and
+  ;; merges the two capitals.
+  (tu/with-terms [CapitalFn capitalOf country city locatedIn Bolivia LaPaz Sucre Embassy
+                  CxAtlas CxWorld]
+    (doseq [s [(list 'genlCx CxAtlas 'CxUniverse) (list 'genlCx CxWorld 'CxUniverse)
+               (list 'reifiable_function CapitalFn) (list 'unary_function CapitalFn)
+               (list 'arg CapitalFn 1 country) (list 'result CapitalFn city)
+               (list 'binary_predicate capitalOf)
+               (list 'arg capitalOf 1 country) (list 'arg capitalOf 2 city)
+               (list country Bolivia) (list city LaPaz) (list city Sucre)]]
+      (v/assert kb s 'CxUniverse))
+    (v/assert kb (list 'functionCorrespondingPredicate CapitalFn capitalOf) CxAtlas)
+    (v/assert kb (list locatedIn Embassy (list CapitalFn Bolivia)) CxWorld)
+    (v/assert kb (list capitalOf Bolivia LaPaz) CxAtlas)
+    (testing "the atlas reads the correspondence: the application resolves to its value"
+      (let [h (v/assert kb (list locatedIn Embassy (list CapitalFn Bolivia)) CxAtlas)]
+        (is (= (list locatedIn Embassy LaPaz) (:sentence (v/sentex kb h))))))
+    (v/assert kb (list capitalOf Bolivia LaPaz) CxWorld)
+    (v/assert kb (list capitalOf Bolivia Sucre) CxWorld)
+    (testing "the world does not: its two values stay two, and nothing clashes"
+      (is (not (v/same-class? kb LaPaz Sucre CxWorld)))
+      (is (= #{LaPaz Sucre} (set (map '?c (v/ask kb (list capitalOf Bolivia '?c) CxWorld)))))
+      (is (empty? (v/conflicts kb)))
+      (is (empty? (v/contradictions kb))))))

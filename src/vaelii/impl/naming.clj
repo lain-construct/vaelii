@@ -28,6 +28,17 @@
   `vaelii.impl.nat` requires this namespace."
   "cx")
 
+(def reified-namespaces
+  "The two namespaces a reified constant lives in: `nat` (an object) and `cx` (a context)
+  (docs/nat.md).  A literal, since `vaelii.impl.nat-read` requires this namespace."
+  #{"nat" context-namespace})
+
+(defn reified-constant?
+  "Is `x` a reified constant, a symbol in `nat/` or `cx/`?  The engine mints its name, so
+  the name states no role, and `length-class` holds it to no length."
+  [x]
+  (and (symbol? x) (contains? reified-namespaces (namespace x))))
+
 (defn context?
   "Is `x` a context: a `Cx…` CapitalCamelCase name, or a symbol in the `cx/` namespace?
   Decided by spelling alone, so a query context answers true."
@@ -52,6 +63,12 @@
 (defn individual? [x] (and (symbol? x) (not (lexeme? x))
                            (some? (re-matches #"[A-Z][A-Za-z0-9]*" (nm x)))
                            (not (context? x))))
+(defn function-spelled?
+  "Is `x` an `individual?` whose name ends in `Fn` (`FatherFn`, `QuantityFn`), the
+  spelling of a function?  `individual?` answers true for it as well; a relation slot in
+  `vaelii.impl.wff` reads this to admit a function (docs/naming.md)."
+  [x]
+  (and (individual? x) (some? (re-matches #"[A-Z][A-Za-z0-9]*Fn" (nm x)))))
 (defn predicate?  [x] (and (symbol? x) (not (lexeme? x))
                            (some? (re-matches #"[a-z][a-zA-Z0-9]*" (nm x)))))
 (defn value?
@@ -351,11 +368,11 @@
   commits, or nil: `:functor-arity` when `f` is spelled as a type (underscored, or a
   sense) and `binding` admits no length of one, `:functor-unary` when `f` is camelCase,
   not `unary-spelling-exempt`, and `binding` admits the length one alone.  `binding` is
-  `{:exact n}` or `{:min m}`; a bare lowercase word and a symbol matching no convention
-  answer nil."
+  `{:exact n}` or `{:min m}`; a bare lowercase word, a `reified-constant?` and a symbol
+  matching no convention answer nil."
   [f {exact :exact floor :min}]
   (cond
-    (not (symbol? f)) nil
+    (or (not (symbol? f)) (reified-constant? f)) nil
 
     (and (type-symbol? f) (not (predicate? f))
          (if exact (not= 1 exact) (< 1 (long floor))))

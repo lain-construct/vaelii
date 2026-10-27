@@ -352,10 +352,10 @@
                         (vreset! moves nil)
                         r)))
                   special/context-move*
-                  (fn [kb ctxs sub super]
+                  (fn [kb ctxs sub super off]
                     ;; the move's own walk reads `sub`'s ancestor set without the edge,
                     ;; which the bound is not about
-                    (let [m (binding [reads/*contexts-read* nil] (cmove kb ctxs sub super))]
+                    (let [m (binding [reads/*contexts-read* nil] (cmove kb ctxs sub super off))]
                       (when @moves (vswap! moves conj m))
                       m))]
       (close! (run-ops! world ops)))

@@ -70,7 +70,7 @@ SELF = os.path.abspath(__file__)
 BASELINE = os.path.join(ROOT, "scripts", "prose-baseline.txt")
 
 # Directories scanned, and the extensions scanned inside them.
-SCAN_DIRS = ["src", "test", "bench", "docs", "scripts", "resources/kb"]
+SCAN_DIRS = ["src", "test", "bench", "docs", "handbook", "scripts", "resources/kb"]
 SCAN_EXT = (".clj", ".cljc", ".cljs", ".md", ".py", ".sh", ".txt", ".edn")
 # Directory names never descended into, wherever they appear: build output, vendored
 # code, and the large gitignored working directories a bench tree keeps. A sibling

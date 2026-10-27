@@ -1,11 +1,13 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.cardinality-solve-test
-  "`asp/atMost` / `asp/atLeast` and the soft twins, which `solve-context` grounds to one
-  solver cardinality entry per group (docs/solving.md, \"`atMost` / `atLeast`\").  The
+  "`asp/atMost` / `asp/atLeast`, their weighted `…Sum` forms and the soft twins, which
+  `solve-context` grounds to one solver cardinality entry per group (docs/solving.md,
+  \"`atMost` / `atLeast`\").  The
   solving tests are guarded on `asp?`; the wrapper, record and refusal tests run without a
   backend."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.protocols :as p]
@@ -297,3 +299,145 @@
             (is (= 30 (+ (count trans) (count army))) "every city still builds exactly one")
             (is (<= (count trans) 10) "the hard cap still binds")
             (is (empty? (clojure.set/intersection trans army)))))))))
+
+;; ---- 7. a weighted bound: each head counts the weight a fact gives it ----
+
+(defn- refusal-type [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(deftest a-weighted-bound-is-a-marked-constraint-rule
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [load]
+      (let [body (list 'and (list load '?c) (list 'tons '?c '?w))
+            h    (v/assert kb (list 'asp/atMostSum 9 '?w '?c body) 'CxUniverse)
+            sx   (sentex-of kb h)]
+        (testing "it stores as a hard constraint rule whose marker carries the bound and both variables"
+          (is (= :hard (rules/constraint-of sx)))
+          (is (= [:at-most 9] ((juxt :op :k) (rules/cardinality-of sx))))
+          (is (every? some? ((juxt :weight :counted) (rules/cardinality-of sx)))))
+        (testing "the authored surface comes back"
+          (is (= ['asp/atMostSum 9] (take 2 (rules/rewrap-sentex (v/sentence-of sx) sx)))))
+        (testing "the soft twin stores soft, and is a distinct rule"
+          (let [soft (v/assert kb (list 'asp/softAtMostSum 9 '?w '?c body) 'CxUniverse)]
+            (is (= :soft (rules/constraint-of (sentex-of kb soft))))
+            (is (not= h soft))))))))
+
+(deftest a-malformed-weighted-bound-is-refused-and-check-reports-it
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [load]
+      (let [body (list 'and (list load '?c) (list 'tons '?c '?w))]
+        (doseq [bad [(list 'asp/atMostSum 9 'W '?c body)
+                     (list 'asp/atMostSum 9 '?c '?c body)
+                     (list 'asp/atMostSum 9 '?x '?c body)
+                     (list 'asp/atMostSum 9 '?c body)
+                     (list 'asp/atMostSum -1 '?w '?c body)]]
+          (testing (pr-str bad)
+            (is (= :not-well-formed (refusal-type #(v/assert kb bad 'CxUniverse))))
+            (is (= :not-well-formed (:type (first (v/check kb bad 'CxUniverse)))))))))))
+
+(defn- install-cargo!
+  "Cargo over `ctx`: each item in `tons` loads or not (a choice), and an item left behind
+  costs 1, so the optimum loads as many items as the asserted bound admits."
+  [kb ctx load tons]
+  (v/assert kb (list 'set/assumptionRule (list 'implies (list 'cargo '?c) (list load '?c))) ctx)
+  (v/assert kb (list 'set/softConstraint
+                     (list 'implies (list 'and (list 'cargo '?c) (list 'not (list load '?c)))
+                           (list 'left_behind '?c)))
+            ctx {:strength :monotonic})
+  (doseq [[c w] tons]
+    (v/assert kb (list 'cargo c) ctx {:strength :monotonic})
+    (v/assert kb (list 'tons c w) ctx {:strength :monotonic})))
+
+(defn- loaded [labeling load]
+  (set (for [s (:true labeling) :when (= load (first s))] (second s))))
+
+(defn- label-one [kb ctx]
+  (first (:labelings (v/assert kb (list 'do/label ctx (symbol (str ctx "Plan")) :one) ctx))))
+
+(deftest at-most-sum-caps-the-total-weight
+  ;; Items of 5, 4, 3 and 2 tons under a 9-ton cap: three items fit (4 + 3 + 2), where a
+  ;; headcount cap of 9 would load all four (14 tons).
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [load]
+        (install-cargo! kb 'CxHold load '{I1 5 I2 4 I3 3 I4 2})
+        (v/assert kb (list 'asp/atMostSum 9 '?w '?c (list 'and (list load '?c) (list 'tons '?c '?w)))
+                  'CxHold {:strength :monotonic})
+        (is (= '#{I2 I3 I4} (loaded (label-one kb 'CxHold) load)))))))
+
+(deftest at-most-sum-groups-by-the-uncounted-variables
+  ;; Two 5-ton trucks and items of 4, 3, 2 and 1 tons, each on at most one truck: the cap is
+  ;; one weight body per truck, so every item rides (4 + 1, 3 + 2) and no truck passes 5.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [onto]
+        (doseq [c '[I1 I2 I3 I4]] (v/assert kb (list 'cargo c) 'CxTrucks {:strength :monotonic}))
+        (doseq [[c w] '{I1 4 I2 3 I3 2 I4 1}] (v/assert kb (list 'tons c w) 'CxTrucks {:strength :monotonic}))
+        (doseq [t '[T1 T2]] (v/assert kb (list 'truck t) 'CxTrucks {:strength :monotonic}))
+        (v/assert kb (list 'set/assumptionRule
+                           (list 'implies (list 'and (list 'cargo '?c) (list 'truck '?t)) (list onto '?c '?t)))
+                  'CxTrucks)
+        (v/assert kb (list 'functional onto) 'CxTrucks {:strength :monotonic})
+        (v/assert kb (list 'set/softConstraint
+                           (list 'implies (list 'and (list 'cargo '?c)
+                                                (list 'not (list onto '?c 'T1))
+                                                (list 'not (list onto '?c 'T2)))
+                                 (list 'left_behind '?c)))
+                  'CxTrucks {:strength :monotonic})
+        (v/assert kb (list 'asp/atMostSum 5 '?w '?c (list 'and (list onto '?c '?t) (list 'tons '?c '?w)))
+                  'CxTrucks {:strength :monotonic})
+        (let [lab   (label-one kb 'CxTrucks)
+              tons  '{I1 4 I2 3 I3 2 I4 1}
+              rides (for [s (:true lab) :when (= onto (first s))] [(nth s 1) (nth s 2)])
+              per-t (reduce (fn [m [c t]] (update m t (fnil + 0) (tons c))) {} rides)]
+          (is (= '#{I1 I2 I3 I4} (set (map first rides))) "every item rides")
+          (is (every? #(<= % 5) (vals per-t)) "and no truck carries over 5 tons"))))))
+
+(deftest at-least-sum-forces-a-minimum-total
+  ;; Deploying costs 1 per unit, and units have strength 3, 2, 2 and 1: a floor of strength 4
+  ;; deploys two units reaching it, where a headcount floor of 4 would deploy all four.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [deploy]
+        (v/assert kb (list 'set/assumptionRule (list 'implies (list 'unit '?u) (list deploy '?u))) 'CxForce)
+        (v/assert kb (list 'set/softConstraint (list 'implies (list deploy '?u) (list 'costd '?u)))
+                  'CxForce {:strength :monotonic})
+        (let [power '{U1 3 U2 2 U3 2 U4 1}]
+          (doseq [[u w] power]
+            (v/assert kb (list 'unit u) 'CxForce {:strength :monotonic})
+            (v/assert kb (list 'power u w) 'CxForce {:strength :monotonic}))
+          (v/assert kb (list 'asp/atLeastSum 4 '?w '?u (list 'and (list deploy '?u) (list 'power '?u '?w)))
+                    'CxForce {:strength :monotonic})
+          (let [out (loaded (label-one kb 'CxForce) deploy)]
+            (is (= 2 (count out)))
+            (is (<= 4 (reduce + (map power out))))))))))
+
+(deftest soft-at-most-sum-is-tradeable
+  ;; Under a 5-ton cap, items of 5, 4, 3 and 2 tons leave two behind at best (cost 2), and
+  ;; breaching the soft cap costs 1, so the soft cap loads all four.
+  (when asp?
+    (letfn [(loaded-under [wrapper]
+              (tu/with-cleared-kb [kb tu/fresh]
+                (tu/with-terms [load]
+                  (install-cargo! kb 'CxSoftHold load '{I1 5 I2 4 I3 3 I4 2})
+                  (v/assert kb (list wrapper 5 '?w '?c (list 'and (list load '?c) (list 'tons '?c '?w)))
+                            'CxSoftHold {:strength :monotonic})
+                  (count (loaded (label-one kb 'CxSoftHold) load)))))]
+      (is (= 2 (loaded-under 'asp/atMostSum)))
+      (is (= 4 (loaded-under 'asp/softAtMostSum))))))
+
+(deftest a-weighted-bound-refuses-what-the-solver-cannot-encode
+  ;; A weight is data, so the solve that grounds it refuses a negative or non-integer one,
+  ;; and a body over two choice literals, which has no single head to weigh.
+  (when asp?
+    (doseq [[label tons bound]
+            [["a negative weight" '{I1 -2 I2 3} '(and (LOAD ?c) (tons ?c ?w))]
+             ["a non-integer weight" '{I1 2.5 I2 3} '(and (LOAD ?c) (tons ?c ?w))]
+             ["two choice literals" '{I1 2 I2 3} '(and (LOAD ?c) (LOAD ?d) (tons ?c ?w) (tons ?d ?x))]]]
+      (testing label
+        (tu/with-cleared-kb [kb tu/fresh]
+          (tu/with-terms [load]
+            (install-cargo! kb 'CxBad load tons)
+            (v/assert kb (list 'asp/atMostSum 4 '?w '?c (walk/postwalk-replace {'LOAD load} bound))
+                      'CxBad {:strength :monotonic})
+            (is (= :not-well-formed (refusal-type #(label-one kb 'CxBad))))))))))

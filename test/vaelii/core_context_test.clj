@@ -78,11 +78,12 @@
           (is (true? (v/ask? kb (list 'arg surveyRelation position tmpScore) 'CxUniverse))
               (str projection " concludes arg " position))
           (v/retract! kb h))))
-    (testing "a projection past the relation's arity is refused as arg is"
+    (testing "try-assert refuses a projection past the relation's arity as it refuses arg"
       (tu/with-terms [pairRelation]
         (v/assert kb (list 'binary_predicate pairRelation) 'CxUniverse)
         (doseq [projection '[arg4 arg5]]
-          (is (seq (v/check kb (list projection pairRelation 'integer) 'CxUniverse))
+          (is (= :arg-position
+                 (tu/try-violation kb (list projection pairRelation 'integer) 'CxUniverse))
               (str projection " of a binary predicate")))))))
 
 (tu/deftest-kb remaining-argument-metadata-accepts-relations

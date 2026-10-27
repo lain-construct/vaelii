@@ -245,8 +245,8 @@ the two taxonomy edge triggers).
 
 The question is asked at the placement context when the firing is made, in the network
 and through the excepts. Where it holds at the placement, the firing is stored with a guard
-defeat at the placement, whether its blockers rest on `:default` or `:monotonic` handles
-(design rulings 25 and 30). Where it holds only below the placement, the firing places a
+defeat at the placement, whether its blockers rest on `:default` or `:monotonic` handles.
+Where it holds only below the placement, the firing places a
 guard defeat there, and a reader at or below it does not believe the conclusion through
 that firing (decision 4 of [reference.md](reference.md#decisions)).
 

@@ -329,7 +329,7 @@
 
 ;; ---- the derivation path ---------------------------------------------------
 
-(tu/deftest-kb a-derived-mixed-application-is-recorded-not-thrown
+(tu/deftest-kb a-derived-mixed-application-is-held-not-thrown
   (let [{:keys [rel animal dogs plants]} (world kb)
         [a] dogs [p] plants
         trigger (tu/tmp-pred)]
@@ -340,17 +340,19 @@
                        (list 'implies (list trigger '?x '?y) (list rel '?x '?y)))
               'CxUniverse)
     (v/assert kb (list trigger a p) 'CxUniverse)
-    (is (some #(= :inter-arg-type (:violation %)) (v/violations kb))
-        "the conclusion is dropped into the ledger rather than aborting the fixpoint")
+    (is (some #(and (= :inert-argument (:violation %)) (= :inter-arg-type (:type (:detail %))))
+              (v/violations kb))
+        "the conclusion is stored and held rather than aborting the fixpoint")
+    (is (some? (v/handle-of kb (list rel a p) 'CxUniverse)))
     (is (empty? (v/sentexes-matching kb (list rel a p) 'CxUniverse)))))
 
-;; ---- a dropped firing, lifted one target at a time -------------------------
+;; ---- a held firing, lifted one target at a time ----------------------------
 
-(tu/deftest-kb a-firing-dropped-on-two-targets-is-placed-in-either-lifting-order
+(tu/deftest-kb a-firing-held-on-two-targets-is-believed-in-either-lifting-order
   ;; A rule concludes an application with two targets of a type disjoint from the
-  ;; declared one.  The drop is convicted on one target; retracting that target's
-  ;; membership leaves it convicted on the other, and the record has to watch the second
-  ;; from then on.  Both lifting orders reach the same belief, for the homogeneity form
+  ;; declared one.  The held conclusion is convicted on one target; retracting that
+  ;; target's membership leaves it convicted on the other, and the hold stays until the
+  ;; second is lifted too.  Both lifting orders reach the same belief, for the homogeneity form
   ;; and for a pair of interArg declarations whose targets differ.
   (let [placed
         (vec
@@ -372,13 +374,13 @@
              (let [held [(v/assert kb (list plant P) 'CxUniverse)
                          (v/assert kb (list plant Q) 'CxUniverse)]]
                (v/assert kb (list trig A P Q) 'CxUniverse)
-               (let [dropped? (not (v/ask? kb (list rel A P Q) 'CxUniverse))]
+               (let [out? (not (v/ask? kb (list rel A P Q) 'CxUniverse))]
                  (doseq [i lift-order] (v/retract! kb (held i)))
-                 [label lift-order dropped? (boolean (v/ask? kb (list rel A P Q) 'CxUniverse))])))))]
+                 [label lift-order out? (boolean (v/ask? kb (list rel A P Q) 'CxUniverse))])))))]
     (is (= [[:interArgs [0 1] true true] [:interArgs [1 0] true true]
             [:interArg-pair [0 1] true true] [:interArg-pair [1 0] true true]]
            placed)
-        "dropped while a target is a plant, placed once neither is")))
+        "held while a target is a plant, believed once neither is")))
 
 (tu/deftest-kb the-entailing-reading-derives-the-suffix-type
   ;; With a dog in the suffix, the entailing reading derives `animal` of the plant beside

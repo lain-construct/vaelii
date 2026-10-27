@@ -70,6 +70,16 @@ first rule with an existential head, so a rule that fires during its own assert 
 it. The witness's `nat/` symbol is `constant-for`'s digest of the NAT
 ([nat.md](nat.md)), so two KBs holding the same knowledge spell the same witness alike.
 
+## Termination
+
+A witness is an application of `SkolemFn` to its frontier values, so its nesting is one
+more than the deepest of them. A recursive head existential, `(implies (person ?x)
+(exists ?m (and (motherOf ?m ?x) (person ?m))))`, concludes `(person K)` with `K` one
+level deeper than the person it rests on, and the forward run cuts it at the term-nesting
+bound ([inference.md](inference.md#forward-chaining), `:max-term-depth`, 8 by default):
+from `(person Tom)` it mints 8 witnesses. The bound is read before the witness is minted
+(`skolem/witnesses`), so a cut firing mints nothing.
+
 ## Belief-following
 
 The witness `(Q a K)` is justified through the JTMS on `[antecedent-facts, rule]` like

@@ -17,6 +17,7 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide.argument :as argument]
             [vaelii.impl.disk.durability :as dur]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.recovery :as recovery]
@@ -249,6 +250,26 @@
     (v/recover kb2)
     (is (v/in? kb2 h))
     (is (not (v/disjoint? kb2 "Bob" t)))))
+
+(tu/deftest-kb a-stored-value-relation-mark-recovers-inert
+  (tu/with-terms [relatesTo]
+    (doseq [value ["f" nil #inst "2020-01-01"]
+            [sentence post! installed?]
+            [[(list 'transitive value) #(tax/mark-prop %1 :transitive value %2 'CxUniverse)
+              #(contains? (get-in % [:props :transitive]) value)]
+             [(list 'closedExtentForArg value 1 5)
+              #(tax/mark-prop %1 :closed-extent-arg value %2 'CxUniverse)
+              #(contains? (get-in % [:props :closed-extent-arg]) value)]
+             [(list 'inverse value relatesTo) #(tax/add-inverse %1 value relatesTo %2 'CxUniverse)
+              #(contains? (:inverse %) value)]
+             [(list 'genlInverse relatesTo value)
+              #(tax/add-genl-inverse %1 relatesTo value %2 'CxUniverse)
+              #(contains? (:genl-inverse-up %) relatesTo)]]]
+      (let [h   (store-as-older-writer! kb sentence post!)
+            kb2 (restart)]
+        (v/recover kb2)
+        (is (v/in? kb2 h) (pr-str sentence))
+        (is (not (installed? @(reasoning/taxonomy kb2))) (pr-str sentence))))))
 
 (tu/deftest-kb a-stored-value-argument-type-recovers-inert
   ;; the argument checks read the declaration through one reader, which skips it
@@ -657,13 +678,34 @@
         (is (v/in? kb2 h) "the firing is IN again after the rebuild")
         (let [reasons (into #{}
                             (comp (mapcat :because) (map :sentence))
-                            (:support (v/why kb2 h)))]
+                            (:support (tu/why-root kb2 h)))]
           (is (contains? reasons (list typeLargerThan dog_t cat_t)))
           (is (contains? reasons (list 'genl chihuahua_t dog_t)))
           (is (contains? reasons (list 'transitiveInArgInverse typeLargerThan 1 'genl))))
         (testing "a post-recover retraction of a reason still withdraws it"
           (v/retract! kb2 (v/handle-of kb2 (list 'genl chihuahua_t dog_t) 'CxUniverse))
           (is (not (v/in? kb2 h))))))))
+
+(tu/deftest-kb a-recover-in-session-or-after-a-restart-rebuilds-every-label-of-a-chain
+  ;; An in-session `recover` replays the store onto the network that already holds it, and
+  ;; a restart's onto an empty one; both end on the label map the chain was built with.
+  (tu/with-terms [linkTo reach_t CxRecChain]
+    (let [n   40
+          nd  #(symbol (str "RecChainN" %))
+          lbl (fn [k] (let [tms (reasoning/tms k)]
+                        (into {} (map (fn [h] [h [(jtms/in? tms h) (jtms/defeat-class tms h)]]))
+                              (p/sentex-ids (:records k)))))]
+      (v/assert-rule kb [(list linkTo '?x '?y) (list reach_t '?x)] (list reach_t '?y) CxRecChain
+                     {:direction :forward})
+      (v/bulk-assert-facts! kb (mapv #(list linkTo (nd %) (nd (inc %))) (range n)) CxRecChain)
+      (v/assert kb (list reach_t (nd 0)) CxRecChain)
+      (let [before (lbl kb)]
+        (is (v/in? kb (v/handle-of kb (list reach_t (nd n)) CxRecChain)))
+        (v/recover kb)
+        (is (= before (lbl kb)) "in session")
+        (let [kb2 (restart)]
+          (v/recover kb2)
+          (is (= before (lbl kb2)) "after a restart"))))))
 
 (tu/deftest-kb a-reopened-kb-reads-the-same-rules-off-the-index
   ;; The antecedent keys, the contexts stating a rule and the solve rules
@@ -732,7 +774,7 @@
       (v/recover kb2)
       (let [h (v/handle-of kb2 (list q1 Ind) 'CxUniverse)]
         (is (v/in? kb2 h) "the conclusion is believed again after the restart")
-        (is (seq (v/why kb2 h))
+        (is (seq (tu/why-root kb2 h))
             "and it is supported by the justification the rebuild rooted")))))
 
 (defn- stored-records
@@ -958,6 +1000,37 @@
         (let [kb2 (restart)]
           (v/recover kb2)
           (is (= {:n 0 :handles []} (v/unsupported kb2))))))))
+
+(tu/deftest-kb a-shutdown-stops-a-write-between-the-families-of-a-genlcx-move
+  ;; the four-argument `assert` settles inside its unit; the move's merge-and-mint row is
+  ;; slowed past the shutdown's wait, so the stop falls at the next row's boundary and the
+  ;; write is rolled back.  `edit!` settles past its unit, where a shutdown waits.
+  (tu/with-terms [CxStopL CxStopW stopRel]
+    (doseq [c [CxStopL CxStopW]]
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list stopRel 'StopA 'StopB) CxStopW)
+    (let [edge    (list 'genlCx CxStopL CxStopW)
+          fact    (list stopRel 'StopA 'StopB)
+          started (promise)
+          later   (atom 0)
+          orig    @#'special/note-moved-correspondences!]
+      (is (= [true {:type :shutdown-abort}]
+             (with-redefs-fn {#'special/note-moved-correspondences!
+                              (fn [& args] (when (and (realized? started) dur/*abortable?*) (swap! later inc)) (apply orig args))}
+               #(slowed #'special/reconcile-move 300 started
+                        (fn []
+                          (let [w (future (try (v/assert kb edge 'CxUniverse {}) :done
+                                               (catch clojure.lang.ExceptionInfo e
+                                                 (select-keys (ex-data e) [:type]))))]
+                            [(if (deref started 30000 false)
+                               (dur/quiesce-writes! {:wait-ms 50 :unwind-ms 10000 :release? true})
+                               ::not-started)
+                             @w]))))))
+      (is (zero? @later) "the write stopped before the move's next row")
+      (is (nil? (v/handle-of kb edge 'CxUniverse)))
+      (is (empty? (v/ask kb fact CxStopL)))
+      (v/assert kb edge 'CxUniverse)
+      (is (seq (v/ask kb fact CxStopL)) "and the next write moves the edge"))))
 
 ;; `(genl vmid vk)` moves two types, each with more specializations than a limit of 1.
 ;; The four-argument `assert` is the outermost write, its settle runs inside the write's

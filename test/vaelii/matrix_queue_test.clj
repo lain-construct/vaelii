@@ -55,6 +55,18 @@
      (assert (zero? exit) err)
      (str/trim out))))
 
+(def ^:private bash-path
+  "The absolute path of `tu/bash`, for a stub's `#!`: Termux has no `/usr/bin/env`."
+  (delay (:out (shell/sh tu/bash "-c" "printf %s \"$BASH\""))))
+
+(defn- live-holder
+  "A shell fragment that starts a process whose command line names `script` as `$h`, and
+  kills it on exit.  `exec -a` cannot rename `sleep`: a multi-call coreutils (Termux,
+  busybox) dispatches on argv[0]."
+  [^File dir script]
+  (spit (io/file dir script) "trap 'kill $! 2>/dev/null; exit' TERM\nsleep 300 &\nwait\n")
+  (str "{ \"$BASH\" " script " & h=$!; trap 'kill $h' EXIT; }"))
+
 (deftest a-queue-take-merges-the-requests-and-empties-the-queue
   (with-repo
     (fn [dir]
@@ -89,6 +101,14 @@
         (slots dir "printf 'live\\n' >|\"$(matrix_state_dir)/lock\"")
         (slots dir "lock_break_stale \"$(matrix_state_dir)/lock\" stale")
         (is (= "live" (lock)) "a lock taken since the read stays")
+        (slots dir "rm \"$(matrix_state_dir)/lock\" && : >\"$(matrix_state_dir)/lock\"")
+        (slots dir "lock_break_stale \"$(matrix_state_dir)/lock\" ''")
+        (is (true? (.exists (io/file dir ".git/vaelii-matrix/lock")))
+            "an empty lock under a minute old is a take in progress, and stays")
+        (slots dir "touch -t 202001010000 \"$(matrix_state_dir)/lock\"")
+        (slots dir "lock_break_stale \"$(matrix_state_dir)/lock\" ''")
+        (is (false? (.exists (io/file dir ".git/vaelii-matrix/lock")))
+            "an empty lock a minute old is a taker killed before its write, and is broken")
         (is (= "" (slots dir "ls \"$(matrix_state_dir)\" | grep -F .stale. || true"))
             "no renamed copy is left behind")))))
 
@@ -100,7 +120,7 @@
       (let [take-slot (fn [slot-2]
                         (run dir {"GATE_NO_WAIT" "1"} tu/bash "-c"
                              (str ". " (tu/posix-path checkout) "/scripts/lib/slots.sh"
-                                  " && { (exec -a gate.sh sleep 300) & h=$!; trap 'kill $h' EXIT; }"
+                                  " && " (live-holder dir "gate.sh")
                                   " && d=$(matrix_state_dir)"
                                   " && printf '%s\\n' \"$h abc 0 user:a lein gate\" >|\"$d/gate-lock.1\""
                                   " && printf '%s\\n' \"" slot-2 "\" >|\"$d/gate-lock.2\""
@@ -116,6 +136,33 @@
         (is (= "" (slots dir {"GATE_MAX_CONCURRENT" "0" "GATE_NO_WAIT" "1"}
                          "gate_slot_take lein gate && printf %s \"$GATE_SLOT\""))
             "a cap of 0 takes no slot")))))
+
+(deftest the-locks-take-and-restore-without-hard-links
+  (with-repo
+    (fn [^File dir]
+      ;; Android refuses link(2); this `ln` refuses every call the same way
+      (let [stub (io/file dir "nolink/ln")
+            env' {"PATH" (str (tu/posix-path (.getParentFile stub)) ":" (get env "PATH"))}]
+        (io/make-parents stub)
+        (spit stub (str "#!" @bash-path "\nexit 1\n"))
+        (.setExecutable stub true)
+        (slots dir env' "printf 'live\\n' >|\"$(matrix_state_dir)/lock\"")
+        (slots dir env' "lock_break_stale \"$(matrix_state_dir)/lock\" stale")
+        (is (= "live" (slots dir "cat \"$(matrix_state_dir)/lock\""))
+            "a lock taken since the read goes back")
+        (is (= "" (slots dir env' (str "matrix_lock_take abc /r"
+                                       " && [[ \"$(cut -d' ' -f2 \"$(matrix_state_dir)/lock\")\" == abc ]]"
+                                       " || printf refused")))
+            "the matrix lock breaks a dead holder's line and is taken")
+        ;; the take runs beside a watchdog, so a take that never succeeds fails in 20s
+        ;; rather than waiting forever on the dead holder it keeps breaking
+        (is (= "gate-lock"
+               (slots dir (assoc env' "GATE_MAX_CONCURRENT" "1")
+                      (str "printf '9999999 abc 0 user:c lein gate\\n' >|\"$(matrix_state_dir)/gate-lock\""
+                           " && { gate_slot_take lein gate && basename \"$GATE_SLOT\"; } & p=$!"
+                           "; { sleep 20; kill $p; } 2>/dev/null & w=$!"
+                           "; wait $p; kill $w 2>/dev/null; true")))
+            "a dead holder's slot is broken and taken")))))
 
 (deftest the-configurations-a-yield-stopped-are-listed-until-a-run-takes-them
   (with-repo
@@ -186,10 +233,10 @@
           (is (not (.exists (io/file dir ".git/vaelii-matrix/lock"))) "no lock was taken"))))))
 
 (def ^:private fake-lein
-  "A `lein` whose first call exits `$FAKE_FIRST` at once, whose second and third sleep
-  until killed, and whose later calls pass.  `mkdir` numbers the calls atomically."
-  (str "#!/usr/bin/env bash\n"
-       "k=1; until mkdir \"$FAKE/s$k\" 2>/dev/null; do k=$((k + 1)); done\n"
+  "The body of a `lein`, below its `#!`: its first call exits `$FAKE_FIRST` at once, its
+  second and third sleep until killed, and later calls pass.  `mkdir` numbers the calls
+  atomically."
+  (str "k=1; until mkdir \"$FAKE/s$k\" 2>/dev/null; do k=$((k + 1)); done\n"
        "(( k == 1 )) && exit \"${FAKE_FIRST:-0}\"\n"
        "(( k <= 3 )) && exec sleep 300\n"
        "exit 0\n"))
@@ -208,7 +255,7 @@
         lein (io/file fake "bin/lein")
         base (git! dir "rev-parse" "HEAD~1")]
     (io/make-parents lein)
-    (spit lein fake-lein)
+    (spit lein (str "#!" @bash-path "\n" fake-lein))
     (.setExecutable lein true)
     (slots dir (str "matrix_queue_add " base " :default session:waiting"))
     (run dir {"FAKE" (tu/posix-path fake) "FAKE_FIRST" (str first-exit) "MATRIX_JOBS" "3"

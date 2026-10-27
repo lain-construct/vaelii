@@ -139,10 +139,11 @@
   "The taxonomy keys an image leaves as the open made them: the six callbacks and the
   index store `kb/open-kb` installs with its `:raw?` flag, which belong to the KB, the
   three side caches, each keyed by a relation's own `:gen` or the change clock,
-  and the supporter cache, which fills from the index on a read."
+  the supporter cache, which fills from the index on a read, and the reach memo, which
+  the KB installs beside its callbacks and fills on a read (`kb/held-forward-reach`)."
   [:supporter-filter-active? :supporter-visible? :network-filter-active? :network-visible?
    :supporter-reaches? :supporter-sentence :index :raw? :closure-memo :closure-lru :rewrite-order
-   :supporters])
+   :supporters :supporter-reach])
 
 ;; ---- which KB ---------------------------------------------------------------
 

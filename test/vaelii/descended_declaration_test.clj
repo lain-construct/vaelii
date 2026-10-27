@@ -32,13 +32,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- ex-type
-  "The `:type` on the ex-info a thunk throws, or nil if it does not throw.  Named rather
-  than `(thrown? ExceptionInfo …)`: a descension collapsing into a naming or arity
-  refusal is exactly the regression a bare `thrown?` stays green through."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
-
 (defn- believed?
   "Is `sentence` a **stored, believed** sentex in `ctx`?  Deliberately not `ask` — a mint
   is about a record existing, which a prover's answer is not.
@@ -73,18 +66,19 @@
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (testing "the position the inherited length does not have is refused"
       (is (= :arg-position
-             (ex-type #(v/assert kb (list 'arg fatherOf 3 'thing) 'CxUniverse)))
+             (tu/try-violation kb (list 'arg fatherOf 3 'thing) 'CxUniverse))
           "fatherOf declares no length of its own, so a fatherOf tuple is a binary
            parentOf tuple and has no third argument to constrain"))
     (testing "and the message names the length it was held to, and where it came from"
       ;; Both routes reach this arm: a predicate carrying its own declaration is convicted
       ;; against its own number and told so (`arggenl-test`'s
-      ;; `a-constraint-on-a-position-the-predicate-lacks-is-refused`), which is why the
-      ;; message branches rather than saying one thing.  This asserts the branch the
-      ;; inherited route takes — "declared with 2 arguments" is false of fatherOf, which
-      ;; declares nothing, and would send an author looking for a declaration on it that
-      ;; does not exist
-      (let [m (:message (first (v/check kb (list 'arg fatherOf 3 'thing) 'CxUniverse)))]
+      ;; `a-constraint-on-a-position-the-predicate-lacks-is-refused-by-try-assert`), which
+      ;; is why the message branches rather than saying one thing.  This asserts the branch
+      ;; the inherited route takes — "declared with 2 arguments" is false of fatherOf,
+      ;; which declares nothing, and would send an author looking for a declaration on it
+      ;; that does not exist
+      (let [m (try (v/try-assert kb (list 'arg fatherOf 3 'thing) 'CxUniverse) nil
+                   (catch clojure.lang.ExceptionInfo e (ex-message e)))]
         (is (re-find (re-pattern (str "takes 2 arguments through " parentOf)) m))
         (is (not (re-find #"declared with" m)))))
     (testing "a position the inherited length does have is admitted"

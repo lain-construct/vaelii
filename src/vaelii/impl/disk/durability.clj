@@ -240,6 +240,13 @@
       (trove/log! {:level :error :msg (str "disk-durability fsync tick failed: "
                                            (.getName (class t)))}))))
 
+(defn fsync-registered!
+  "Force every registered store's writes to disk now, rather than at the next tick: a pass
+  that persists a resumption point calls it first, so the point never runs ahead of what
+  is on disk.  A store that fails to force is logged, as at a tick."
+  []
+  (doseq [entry (vals @registry)] (fsync-one-safely entry)))
+
 (def ^:private close-phases
   "The order `close-all!` closes registrants in, lowest first.
 
@@ -307,7 +314,8 @@
 (defn check-abort!
   "Throw `:shutdown-abort` when a shutdown has asked the running public write to stop and
   the write is inside `as-unit`.  Called at the write's clean points: after a rule firing,
-  at the start of a settle pass, and between the moved types and the declarations an
+  at the start of a settle pass, between the families a pass's `genlCx` moves run
+  (`special/drain-context-moves!`), and between the moved types and the declarations an
   argument-hold refresh reads before it writes a hold (`checks/refresh-argument-holds!`),
   where every record written so far has its premise mark or its justification."
   []
@@ -315,6 +323,12 @@
     (throw (ex-info (str "the process is shutting down, and this write stopped at a clean"
                          " point; its writes are rolled back as a unit")
                     {:type :shutdown-abort}))))
+
+(defn stop-requested?
+  "Has a shutdown asked the running public writes to stop?  A long pass that stops at its
+  own boundaries reads it there, beside `check-abort!`'s clean points."
+  []
+  (.get ^AtomicBoolean abort-requested))
 
 (def ^:private shutdown-wait-ms
   "How long a shutdown waits for the running public writes to end on their own before it

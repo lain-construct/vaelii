@@ -128,11 +128,13 @@
   "The public fns taking a KB first that are neither writes nor reads run against
   `kb/read-copy`.  `close!` stops the rebuild and releases the KB's own directory.
   `with-deferred-settle` is a macro.  `seal` writes the images of a KB with an operation
-  log, which a KB rebuilding behind an image never carries.  The rest read or set
-  subscriptions, caches, statistics or hazards rather than belief, or open another KB."
+  log, which a KB rebuilding behind an image never carries.  `request-stop!` sets the
+  flag a running pass reads from another thread, and so must not wait as a write does.
+  The rest read or set subscriptions, caches, statistics or hazards rather than belief,
+  or open another KB."
   #{#'v/close! #'v/with-deferred-settle #'v/watch #'v/unwatch #'v/watchers #'v/caches
     #'v/clear-caches #'v/reset-settle-stats! #'v/write-hazards #'v/rebuild-progress
-    #'v/fork #'v/load-foreign! #'v/seal})
+    #'v/fork #'v/load-foreign! #'v/seal #'v/request-stop!})
 
 (deftest every-public-fn-taking-a-kb-is-a-write-a-wrapped-read-or-unwrapped
   (let [takes-kb? (fn [v] (let [as (:arglists (meta v))]

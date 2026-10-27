@@ -110,7 +110,7 @@
   subject to a symbol that is not an individual — a functor is a symbol.  An argument
   *constraint* (`arg-constraint-problems`, `arg-preserving-problems`) is looser on
   purpose: a function has argument positions exactly as a predicate does, a function is
-  CapitalCamelCase and so is indistinguishable from an individual by spelling, and a relation may be denoted by a NAT
+  CapitalCamelCase and so satisfies `nm/individual?`, and a relation may be denoted by a NAT
   rather than named.  Collapsing the two refuses the conventional spelling and waves the
   exotic one through."
   #{:predicate                ; a symbol that is not an individual — refused by nm/individual?
@@ -505,7 +505,7 @@
      ['symmetric   (enforced (prop :symmetric :facets #{:answers})
                              (str "taxonomy prop :symmetric — canonical argument order, so both spellings"
                                   " are one sentex; also a binary_predicate type"))]
-     ['commutative (enforced (prop :commutative :facets #{:reach :answers}
+     ['commutative (enforced (prop :commutative :arg :relation :facets #{:reach :answers}
                                    :notes (str "the all-arguments spelling, and a queryable"
                                                " classification. Its arm installs the"
                                                " commuting group [:rest 1] beside the prop,"
@@ -516,6 +516,31 @@
                              (str "taxonomy prop :commutative, and the commuting group [:rest 1] its"
                                   " arm installs alongside; also a binary_predicate-free"
                                   " relation mark, since it holds at any arity"))]
+     ;; The term marks: each reshapes a ground application of the function it marks below
+     ;; the literal (`sentex/canonical-term`), and reaches the facts stored before it
+     ;; through `integrate/commute-existing`, as the commutativity marks do.
+     ['associative (enforced (prop :associative :arg :relation :facets #{:reach}
+                                   :notes (str "a canonicalization mark on the applications below"
+                                               " the literal: an argument applying the same"
+                                               " function is spliced into its parent's."))
+                             (str "sentex/canonical-term at the assert entry point, and"
+                                  " integrate/commute-existing for the facts already stored"))]
+     ['idempotent  (enforced (prop :idempotent :arg :relation :facets #{:reach}
+                                   :notes (str "a canonicalization mark on the applications below"
+                                               " the literal: a repeated argument is dropped, and"
+                                               " an application left with one argument is that"
+                                               " argument."))
+                             (str "sentex/canonical-term at the assert entry point, and"
+                                  " integrate/commute-existing for the facts already stored"))]
+     ['meetFunctionOf
+      (enforced (pair :meet :relation :facets #{:reach}
+                      :notes (str "an argument another argument lies below by the order's"
+                                  " registered comparator (datetime/order-comparators) is"
+                                  " dropped; a stored fact of the order is never read. The"
+                                  " commutative, associative and idempotent marks come from"
+                                  " core.txt's forward rules."))
+                (str "taxonomy/add-meet — read by sentex/canonical-term through res/meet-order,"
+                     " and integrate/commute-existing for the facts already stored"))]
      ['asymmetric  (enforced (assoc (prop :asymmetric :facets #{:reach :convicts :arbitrable
                                                                 :answers})
                                     :opposing-read
@@ -876,11 +901,10 @@
                                         " that must recognize one spelling set, and two"
                                         " spellings a rule cycle keeps believed under one check"
                                         " are not that. Exists so a positional constraint can"
-                                        " be the subject of a binary declaration such as"
-                                        " (predAllSpecified arg1 predicate).")}
+                                        " be the subject of a binary declaration.")}
                            (str "checks/declaration-problem — arg's own declaration arms at the"
-                                " projected position, so both spellings of one declaration"
-                                " refuse identically; the bridge rules derive each other, as"
+                                " projected position, so try-assert refuses both spellings of one"
+                                " declaration identically; the bridge rules derive each other, as"
                                 " arity and the predicate-type memberships do"))]
      ['arg2      (enforced {:shape {:args [:relation :type]} :storage [:none] :checked false
                             :family nil :facets #{:convicts :reach}
@@ -1058,11 +1082,13 @@
                                    " special/declaration-subjects and posts no re-check —"
                                    " quotedArg's reason at the covering arity.")}
                              :notes (str "the every-position instance twin of arg: one"
-                                         " declaration types the whole admitted tail, read"
-                                         " through the shared declaration reader so a"
-                                         " super-predicate's covering constraint binds a"
-                                         " sub-predicate's tuples."))
-                      "checks/covering-args-problem — every accepted position typed as an instance")]
+                                         " declaration types the whole admitted tail.  Sugar"
+                                         " for (argAndRest P 1 T), which core.txt's forward"
+                                         " rule stores beside it; the entry point reads that"
+                                         " twin, never args, so a super-predicate's covering"
+                                         " constraint binds a sub-predicate's tuples as"
+                                         " argAndRest's does."))
+                      "checks/covering-args-problem — every accepted position typed as an instance, through the argAndRest twin")]
      ['argsGenl (enforced (assoc (prop :declares-args-genl :arg :relation
                                        :facets #{:convicts :answers})
                                  :shape  {:args [:relation :type]}
@@ -1083,6 +1109,18 @@
                                                " and every later one, the prefix below the"
                                                " start excluded.  args is argAndRest at 1."))
                             "checks/covering-args-problem — position n onward typed as an instance")]
+     ['quotedArgAndRest (enforced (assoc (prop :declares-quoted-arg-and-rest :arg :relation
+                                               :facets #{:convicts :answers})
+                                         :shape  {:args [:relation :position :type]}
+                                         :family :argument-constraint
+                                         :stops-short
+                                         {:reach "the same as quotedArg, a tail from a start — see quotedArg."
+                                          :retriggers "the same as quotedArg — see quotedArg."}
+                                         :notes (str "the tail-from-a-start mention form: position"
+                                                     " and every later one taken as written, the"
+                                                     " prefix below the start excluded.  quotedArg"
+                                                     " at every position from the start."))
+                                  "checks/args-quoted-problem — position n onward typed as a term")]
      ['argAndRestGenl (enforced (assoc (prop :declares-arg-and-rest-genl :arg :relation
                                              :facets #{:convicts :answers})
                                        :shape  {:args [:relation :position :type]}
@@ -1468,13 +1506,13 @@
       (enforced (assoc (collection :facets #{:convicts})
                        :stops-short
                        {:reach
-                        (str "checks/declaration-problem refuses a genlArg on one at the entry point, and"
-                             " nothing sweeps for a genlArg already stored when the membership"
-                             " arrives. Unlike every other :convicts term what it convicts is a"
-                             " *declaration* rather than a fact, so whether the two arrival orders"
-                             " actually disagree is an open question, and what settles it is"
-                             " running them.")})
-                "checks/declaration-problem — an genlArg on one is refused")]
+                        (str "checks/declaration-problem convicts a genlArg on one, and assert"
+                             " stores the genlArg and the membership in either arrival order;"
+                             " try-assert refuses whichever arrives second"
+                             " (checks/relation-kind-conflict). Unlike every other :convicts term"
+                             " what it convicts is a *declaration* rather than a fact, so no"
+                             " stored fact is held inert and nothing sweeps.")})
+                "checks/declaration-problem — try-assert refuses a genlArg on one")]
      ['type_relation_predicate
       (enforced (assoc (collection :facets #{:convicts})
                        :stops-short
@@ -1766,15 +1804,43 @@
                   " the meaning, and this carries how the engine or the KB text implements it."
                   " Nothing infers from it."))]
 
-     ;; A reviewer's record that a rule-macro suggestion was read and declined.  It names
-     ;; the suggestion by content rather than the rule by handle, so a text export keeps it.
-     ['declined_rule_macro
-      (enforced {:shape {:args [:term]} :storage [:none] :checked false
+     ;; A reviewer's record that a kb-integrity finding was read and stays.  It names the
+     ;; finding by content rather than by handle, so a text export keeps it.
+     ['acknowledgedFinding
+      (enforced {:shape {:args [:term :term :term]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes (str "an ordinary fact over a quoted declaration, read by one pass of"
-                             " the integrity sweep and by no inference.")}
-                (str "integrity/rule-macro-findings — a rule-macro suggestion the rule's"
-                     " context declines is not reported"))]
+                 :notes (str "an ordinary fact over a category keyword, a quoted subject and"
+                             " a reason string, read by the rule-macro and rule-clash passes"
+                             " of the integrity sweep and by no inference.")}
+                (str "integrity/rule-macro-findings and integrity/rule-clash-findings — an"
+                     " acknowledged finding moves to its category's review-only bucket,"
+                     " carrying the reason"))]
+     ;; Sugar for acknowledgedFinding: core.txt's forward rule concludes the acknowledgment
+     ;; from the record, and no code path reads the record itself.
+     ['declined_rule_macro
+      (inert {:shape {:args [:term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "an ordinary fact over a quoted declaration; a core.txt forward"
+                          " rule concludes (acknowledgedFinding :rule-macro ...) from it.")}
+             (str "sugar the engine does not read: core.txt's forward rule concludes"
+                  " acknowledgedFinding from it, and the integrity sweep reads that"))]
+     ;; A rule-clash acknowledgment's subject: the two quoted rules of the pair, which
+     ;; core.txt's (commutative RulePairFn) stores in one order.
+     ['RulePairFn
+      (enforced {:shape {:args [:term :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "a commutative function term over two quoted rules, read by the"
+                             " rule-clash pass of the integrity sweep.")}
+                (str "integrity/rule-clash-findings — the subject of an acknowledgedFinding"
+                     " :rule-clash names its pair as (RulePairFn (Quote R1) (Quote R2))"))]
+     ;; RulePairFn's corresponding predicate: ontology_test requires every shipped function
+     ;; to declare one.
+     ['rulePairOf
+      (inert {:shape {:args [:term :term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes "the predicate form of RulePairFn; no code path reads it."}
+             (str "the corresponding predicate of RulePairFn, which ontology_test requires of"
+                  " every shipped function; nothing infers from it"))]
 
      ;; The three worked-example annotations quote their example sentence, (Quote S), and
      ;; name no sentex, so they carry no target_following_predicate mark and nothing tears
@@ -1855,7 +1921,7 @@
      ['predAllExists
       (enforced {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes (str "the whole Exists class derives nothing by ruling — a stored"
+                 :notes (str "the whole Exists class derives nothing — a stored"
                              " record plus a sanctioned per-cell placeholder functor for"
                              " authors, read by an on-demand audit.")}
                 (str "vaelii.core/exists-violations — the on-demand audit returns the ?indep"

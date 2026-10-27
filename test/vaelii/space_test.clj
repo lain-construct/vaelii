@@ -266,8 +266,9 @@
           (is (v/ask? kb (list q B A) C) "and the calculus answers the converse"))))))
 
 (tu/deftest-kb a-believed-inverse-of-a-spatial-predicate-shadows-its-prover
-  ;; The contrast the test above needs: the same goal, once a believed inverse names
-  ;; partOfRegion, is no longer the calculus prover's alone.
+  ;; The contrast the test above needs: the same goal, once a believed inverse pairs
+  ;; partOfRegion with a predicate outside the calculus, is no longer the calculus
+  ;; prover's alone.
   (tu/with-terms [A B containsRegion]
     (v/assert kb (list 'partOfRegion A B) C)
     (let [goal (list 'partOfRegion A B)
@@ -276,6 +277,25 @@
       (is (contains? (provers/shadowing-channels kb goal C) :inverse))
       (is (nil? (provers/sole-prover kb appl goal C)))
       (v/retract! kb h))))
+
+(tu/deftest-kb a-believed-inverse-the-converse-table-implies-leaves-the-prover-answering-alone
+  ;; The calculus reads both predicates of such a pair into its network and applies the
+  ;; converse itself, so the believed sentence names no source the prover misses.  The
+  ;; pair is written (inverse q p), a sentence space.txt does not hold, so the assertion
+  ;; stores a sentex of its own.
+  (doseq [[p q] stated-converses
+          [goal-pred partner] [[p q] [q p]]]
+    (tu/with-terms [A B CxPlace]
+      (v/assert kb (list 'genlCx CxPlace C) C)
+      (v/assert kb (list 'inverse q p) CxPlace)
+      (v/assert kb (list partner B A) CxPlace)
+      (let [goal (list goal-pred A B)
+            calc (qkb/calculus-for kb goal-pred)
+            appl (provers/applicable-provers kb (provers/registry kb) goal CxPlace)]
+        (is (empty? (provers/shadowing-channels kb goal CxPlace)) (str goal-pred))
+        (is (qkb/prover-for? (:name calc) (provers/sole-prover kb appl goal CxPlace))
+            (str goal-pred))
+        (is (v/ask? kb goal CxPlace) (str goal-pred))))))
 
 (tu/deftest-kb without-the-prover-the-facts-are-inert
   ;; the same KB, read through the default registry, isolates what registering adds
@@ -313,7 +333,7 @@
         (v/retract! kb (v/handle-of kb (list bd B D) CxInner))
         (is (not (v/ask? kb (list ad A D) CxInner)) "retracting a link breaks the chain")))))
 
-(tu/deftest-kb a-contradictory-network-answers-nothing
+(tu/deftest-kb a-contradictory-component-answers-nothing-and-a-term-outside-it-answers
   (doseq [[nm p q derived identity]
           [[:rcc8 'spatiallyDisconnected 'spatiallyEqual 'partOfRegion 'partOfRegion]
            [:cardinal 'northOf 'southOf 'northwardOf 'sameLocationAs]
@@ -330,10 +350,28 @@
         (is (not (v/ask? kb (list q A B) C)))
         (is (not (v/ask? kb (list derived A B) C)))
         (is (empty? (v/ask kb (list derived A '?y) C)))
-        (is (not (v/ask? kb (list identity D D) C)) "not even the diagonal")
+        (is (v/ask? kb (list identity D D) C) "D lies outside the unsatisfiable component")
         (v/retract! kb (v/handle-of kb (list q A B) C))
         (is (v/ask? kb (list p A B) C) "retracting one gives the other its answers back")
         (is (not (v/ask? kb (list q A B) C)))))))
+
+(tu/deftest-kb a-reflexive-region-predicate-agrees-on-both-routes-beside-a-contradiction
+  ;; a rule concluding `partOfRegion` sends its goals down the union path, where
+  ;; `ReflexiveProver` answers beside the calculus
+  (doseq [rule? [false true]]
+    (tu/with-terms [A B D marker]
+      (v/assert kb (list 'spatiallyDisconnected A B) C)
+      (v/assert kb (list 'spatiallyEqual A B) C)
+      (when rule?
+        (v/assert kb (list 'set/backwardRule
+                           (list 'implies (list marker '?x) (list 'partOfRegion '?x '?x)))
+                  C))
+      (testing (if rule? "union path" "sole-prover path")
+        (is (= (if rule? #{:rules} #{})
+               (provers/shadowing-channels kb (list 'partOfRegion D D) C)))
+        (is (v/ask? kb (list 'partOfRegion D D) C))
+        (is (not (v/ask? kb (list 'partOfRegion A A) C)))
+        (is (empty? (v/ask kb (list 'partOfRegion A '?y) C)))))))
 
 (tu/deftest-kb an-inconsistency-derived-through-a-chain-is-caught
   (doseq [[nm link clash] [[:rcc8 'nonTangentialProperPart 'spatiallyDisconnected]

@@ -702,8 +702,10 @@
     (is (= (count labels) (count (distinct labels))) "one heading per group"))
   (testing "a rule's two halves are two groups, the conclusion first"
     ;; `parentOf` is concluded about by one rule and read by others — what a rule *says*
-    ;; about a term outranks what it needs of it
-    (is (= ["Argument position 1" "Rule conclusion" "Rule condition"
+    ;; about a term outranks what it needs of it.  `inverse` is symmetric, so its
+    ;; arguments are stored in sorted order, (inverse childOf parentOf), which puts
+    ;; `parentOf` at argument position 2 as well
+    (is (= ["Argument position 1" "Argument position 2" "Rule conclusion" "Rule condition"
             "Nested elsewhere" "Predicate extent"]
            (group-labels (:body (GET "/term" "q=parentOf"))))))
   (testing "a term only ever read by a rule gets the condition group and not the other"
@@ -2897,6 +2899,38 @@
       (is (re-find #"<details" (:body r)))
       (is (re-find #"<summary" (:body r))))))
 
+(tu/deftest-kb the-why-page-expands-a-shared-node-once-and-links-back-to-it
+  ;; A three-rung ladder: two rules conclude each rung from the one below, so each derived
+  ;; rung has two justifications sharing the rung beneath.  The rungs above the premise
+  ;; expand once apiece, and the second justification of each of the top two links back.
+  (tu/with-terms [nextOf linkOf reached CxLadder]
+    (let [rungs (vec (repeatedly 4 #(tu/tmp-ind "Rung")))]
+      (doseq [link [nextOf linkOf]]
+        (v/assert-rule kb [(list link '?x '?y) (list reached '?x)] (list reached '?y) CxLadder
+                       {:direction :forward}))
+      (v/assert kb (list reached (rungs 0)) CxLadder)
+      (doseq [link [nextOf linkOf], i (range 3)]
+        (v/assert kb (list link (rungs i) (rungs (inc i))) CxLadder))
+      (let [h    (v/handle-of kb (list reached (rungs 3)) CxLadder)
+            body (:body (GET (str "/why/" h)))]
+        (is (= 3 (count (re-seq #"<details" body))) "one expansion per derived rung")
+        (is (= 2 (count (re-seq #">shown above</a>" body))) "and a link for each repeat")
+        (is (str/includes? body (str "href=\"#why-" (v/handle-of kb (list reached (rungs 2)) CxLadder) "\"")))))))
+
+(tu/deftest-kb the-why-page-of-a-deep-chain-continues-past-the-nesting-depth
+  (tu/with-terms [nextOf reached CxDeep]
+    (let [n     150
+          rungs (vec (repeatedly (inc n) #(tu/tmp-ind "Rung")))]
+      (v/assert-rule kb [(list nextOf '?x '?y) (list reached '?x)] (list reached '?y) CxDeep
+                     {:direction :forward})
+      (v/assert kb (list reached (rungs 0)) CxDeep)
+      (v/assert-many kb (for [i (range n)] (list nextOf (rungs i) (rungs (inc i)))) CxDeep
+                     {:max-depth (+ n 100)})
+      (let [body (:body (GET (str "/why/" (v/handle-of kb (list reached (rungs n)) CxDeep))))]
+        (is (= n (count (re-seq #"<details id=\"why-" body))) "every derived rung, once")
+        (is (= 2 (count (re-seq #">continued below</a>" body)))
+            "the rungs first reached at depth 64 and 128 continue in trees of their own")))))
+
 (tu/deftest-kb a-blocked-justification-is-not-labelled-supporting
   ;; A conclusion IN via one *valid* rule and one *blocked* rule whose arguments are all
   ;; IN.  The bird rule's negative antecedent is read under a closed-extent grant, and the
@@ -3192,7 +3226,7 @@
   "The removal noted for the test KB whose sentence mentions `term`."
   [kb term]
   (some #(when (str/includes? (:sentence %) (name term)) %)
-        (removed/entries (#'web/kb-name kb))))
+        (removed/entries (#'web/removed-owner kb))))
 
 (tu/deftest-kb a-retraction-is-noted-and-put-back-from-the-removed-list
   (tu/with-terms [aP X CxRemoved]
@@ -3228,6 +3262,24 @@
       (POST "/edit" {"handles" (str fa) "text" (edit-text CxRemoved (list aP Y))} same-origin)
       (is (nil? (v/sentex kb fa)))
       (is (= :edit (:via (noted-with kb X)))))))
+
+(tu/deftest-kb a-kb-s-removed-list-lists-no-removal-from-another-kb
+  ;; per row: a removal from `kb` is absent from the other KB's page, for two KBs no
+  ;; catalog entry holds and for two entries of one name
+  (let [other (v/open-kb tu/plain-memory-space)
+        page  #(:body ((web/app other) {:request-method :get :uri "/removed"}))]
+    (try
+      (doseq [row [:unregistered :one-name]]
+        (when (= :one-name row)
+          (cat/register! "rl-a" "One name" kb)
+          (cat/register! "rl-b" "One name" other))
+        (tu/with-terms [aP X CxRemoved]
+          (POST "/retract" {"handles" (str (v/assert kb (list aP X) CxRemoved))} same-origin)
+          (is (= [true false] [(some? (noted-with kb X)) (str/includes? (page) (name X))])
+              (name row))))
+      (finally
+        (cat/reset-registry!)
+        (v/clear! other)))))
 
 (tu/deftest-kb copy-seeds-the-assert-form-with-a-stored-sentex
   (tu/with-terms [aP X CxRemoved]

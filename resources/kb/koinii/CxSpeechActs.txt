@@ -107,7 +107,8 @@
 ;; ---- retraction: the engine operation, named for completeness ----
 
 (comment retracts
-         "(retracts ?agent ?target) names the move of ?agent withdrawing the claim ?target. DOCUMENTARY vocabulary: it is realized as the engine's retract! on the target handle (speech_acts/retract-move), not asserted as a sentex — retracting a claim is a real teardown, and it is exactly this teardown that the target_following_predicate response acts cascade with.")
+         "(retracts ?agent ?target) names the move of ?agent withdrawing the claim ?target.")
+(implementationNote retracts "DOCUMENTARY vocabulary: it is realized as the engine's retract! on the target handle (speech_acts/retract-move), not asserted as a sentex. Retracting a claim is a real teardown, and the target_following_predicate response acts cascade with this teardown.")
 (binary_predicate retracts)
 (set/monotonic (instance_relation_predicate retracts))
 (arg retracts 1 registered_agent)

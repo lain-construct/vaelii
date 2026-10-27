@@ -43,15 +43,23 @@
 ;; stored cycle an older or foreign writer left, past this check, and the taxonomy
 ;; condenses it.  See docs/contexts.md.
 
-(defn- type-problems
-  "One problem per occupant of `xs`, a run of positions that name a type, that cannot name
-  one: an individual, read off its spelling, and a value (`nm/value?`), which has no
-  instances.  A compound and a reified `nat/` constant pass.  `why` ends each message."
+(defn- name-problems
+  "One problem per occupant of `xs`, a run of positions that name a type, a predicate or a
+  function, that cannot name one: an individual, read off its spelling, and a value
+  (`nm/value?`), which denotes itself.  A compound and a reified `nat/` constant pass.
+  `why` ends each message."
   [why xs]
   (keep (fn [x]
           (cond (nm/individual? x) (str x " is an individual; " why)
                 (nm/value? x)      (str (pr-str x) " is a value; " why)))
         xs))
+
+(defn- relation-name-problems
+  "`name-problems` for positions that name a relation, a predicate or a function: a
+  `…Fn` symbol (`nm/function-spelled?`) passes, whether or not its declaration has
+  arrived.  A type slot keeps refusing one."
+  [why xs]
+  (name-problems why (remove nm/function-spelled? xs)))
 
 (defn genl-problems
   "The refusals of the `genl` sentence `s`.  The cycle test reads the unscoped closure
@@ -60,7 +68,7 @@
   [tax [_ sub super :as s] _context]
   (cond-> []
     (not= 3 (count s))     (conj "genl takes two arguments")
-    :always                (into (type-problems "genl relates types" [sub super]))
+    :always                (into (name-problems "genl relates types" [sub super]))
     (= sub super)          (conj (str sub " genl itself"))
     (and tax (not= sub super) (tax/genl?-global tax super sub))
     (conj (str "genl " sub " " super " creates a cycle (" super
@@ -90,7 +98,7 @@
 (defn disjoint-problems [_ [_ a b :as s] _context]
   (cond-> []
     (not= 3 (count s))  (conj "disjoint takes two arguments")
-    :always             (into (type-problems "disjoint relates types" [a b]))
+    :always             (into (name-problems "disjoint relates types" [a b]))
     (= a b)             (conj (str a " disjoint with itself"))))
 
 (defn covering-problems
@@ -117,7 +125,7 @@
     (conj (str f " takes a whole and at least two parts"))
 
     :always
-    (into (type-problems (str f " relates types") (cons whole parts)))
+    (into (name-problems (str f " relates types") (cons whole parts)))
 
     (not= (count parts) (count (distinct parts)))
     (conj (str f " names a part twice; each part covers a different piece of " whole))
@@ -132,12 +140,12 @@
 (defn disjoint-metatype-problems [_ [_ m :as s] _context]
   (cond-> []
     (not= 2 (count s)) (conj "disjoint_metatype takes one argument")
-    :always            (into (type-problems "disjoint_metatype marks a metatype" [m]))))
+    :always            (into (name-problems "disjoint_metatype marks a metatype" [m]))))
 
 (defn sibling-disjoint-problems [_ [_ c :as s] _context]
   (cond-> []
     (not= 2 (count s)) (conj "sibling_disjoint takes one argument")
-    :always            (into (type-problems "sibling_disjoint marks a collection" [c]))))
+    :always            (into (name-problems "sibling_disjoint marks a collection" [c]))))
 
 (defn type-pair-problems
   "`(orthogonal a b)` and `(siblingDisjointException a b)` — two arguments, neither an
@@ -147,7 +155,7 @@
   [_ [f a b :as s] _context]
   (cond-> []
     (not= 3 (count s)) (conj (str f " takes two arguments"))
-    :always            (into (type-problems (str f " relates types") [a b]))))
+    :always            (into (name-problems (str f " relates types") [a b]))))
 
 (defn arg-constraint-problems
   "`arg` and `genlArg` — the two argument constraints — are structurally identical:
@@ -178,7 +186,7 @@
     (conj (str f " constrains a relation, which is named by a symbol or denoted by a"
                " non-atomic term; " (pr-str pred) " is neither"))
     (not (and (integer? n) (pos? n))) (conj (str f " position must be a positive integer"))
-    :always (into (type-problems (str f " expects a type") [type]))))
+    :always (into (name-problems (str f " expects a type") [type]))))
 
 (defn inter-arg-constraint-problems
   "`interArg` — the conditional argument constraint: a predicate, a trigger position
@@ -203,7 +211,7 @@
     (conj (str f " trigger position must be a positive integer"))
     (not (and (integer? m) (pos? m)))
     (conj (str f " target position must be a positive integer"))
-    :always (into (type-problems (str f " expects a type") [type utype]))))
+    :always (into (name-problems (str f " expects a type") [type utype]))))
 
 (defn inter-arg-equal-constraint-problems
   "`interArgEqual` — a relation, a trigger position, the value that triggers it, and a
@@ -224,7 +232,7 @@
                " which no equality merge holds; " (pr-str v) " is none of those"))
     (not (and (integer? m) (pos? m)))
     (conj (str f " target position must be a positive integer"))
-    :always (into (type-problems (str f " expects a type") [utype]))))
+    :always (into (name-problems (str f " expects a type") [utype]))))
 
 (defn arg-arg-constraint-problems
   "`argArg` — a relation, the position it constrains, and the position whose argument
@@ -245,8 +253,8 @@
 
 (defn covering-constraint-problems
   "The covering argument constraints — `args` / `argsGenl` name a relation and a type,
-  `argAndRest` / `argAndRestGenl` a relation, a positive-integer start position, and a
-  type.  The same latitude on the constrained relation `arg-constraint-problems` argues
+  `argAndRest` / `argAndRestGenl` / `quotedArgAndRest` a relation, a positive-integer
+  start position, and a type.  The same latitude on the constrained relation `arg-constraint-problems` argues
   for, and the same position and type checks, differing only in whether a start position
   is present.  `args` is `argAndRest` at start 1, so one check reads both arities and
   takes the type from whichever position holds it.
@@ -254,7 +262,7 @@
   The homogeneity constraints `interArgs` / `interArgAndRest` have the same two shapes —
   a relation and a type, or a relation, a start and a type — and are read here too."
   [_ [f pred a b :as s] _context]
-  (let [tail? (contains? '#{argAndRest argAndRestGenl interArgAndRest} f)
+  (let [tail? (contains? '#{argAndRest argAndRestGenl quotedArgAndRest interArgAndRest} f)
         type  (if tail? b a)
         start a]
     (cond-> []
@@ -265,7 +273,7 @@
                  " non-atomic term; " (pr-str pred) " is neither"))
       (and tail? (not (and (integer? start) (pos? start))))
       (conj (str f " start position must be a positive integer"))
-      :always (into (type-problems (str f " expects a type") [type])))))
+      :always (into (name-problems (str f " expects a type") [type])))))
 
 (defn arg-preserving-problems
   "`transitiveInArg` / `transitiveInArgInverse` — a predicate, a positive-integer
@@ -305,12 +313,13 @@
                " name one of " (str/join " / " (sort inherit/virtual-relations))))))
 
 (defn- position-mark-problems
-  "The problems of a `(Mark P n)` declaration naming a predicate and one argument
-  position, the refusal saying the mark marks a `noun`."
-  [noun [f pred n :as s]]
+  "The problems of a `(Mark P n)` declaration naming a `:predicate` or a `:relation` (a
+  predicate or a function) and one argument position."
+  [kind [f pred n :as s]]
   (cond-> []
     (not= 3 (count s))    (conj (str f " takes two arguments"))
-    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a " noun))
+    :always               (into ((if (= :relation kind) relation-name-problems name-problems)
+                                 (str f " marks a " (name kind)) [pred]))
     (not (and (integer? n) (pos? n)))
     (conj (str f " position must be a positive integer"))))
 
@@ -336,7 +345,7 @@
   `arg-preserving-problems`' looser symbol-or-compound test: this mark is read off a
   sentence's functor, and a functor is a symbol."
   [_ s _context]
-  (position-mark-problems "predicate" s))
+  (position-mark-problems :predicate s))
 
 (defn commutative-in-arg-and-rest-problems
   "`commutativeInArgAndRest` — a predicate and a positive-integer position, and nothing
@@ -348,10 +357,10 @@
   `functionalInArg`'s is not.  The declaration may legitimately arrive before the arity
   does, so refusing it against a visible arity would make the KB depend on which of the
   two was written first — and a tail starting past the end simply forms no component, so
-  a literal at that arity is left alone (`sentex/commuting-components`).  The refusal
-  says the mark marks a relation, since a commuting mark may name a function."
+  a literal at that arity is left alone (`sentex/commuting-components`).  A commuting
+  mark may name a function, so the relation slot admits a `…Fn` symbol."
   [_ s _context]
-  (position-mark-problems "relation" s))
+  (position-mark-problems :relation s))
 
 (defn commutative-in-args-problems
   "`commutativeInArgs` — a predicate and at least two distinct positive-integer
@@ -373,7 +382,7 @@
   (let [ps (vec positions)]
     (cond-> []
       (< (count s) 4)       (conj (str f " takes a relation and at least two positions"))
-      (nm/individual? pred) (conj (str pred " is an individual; " f " marks a relation"))
+      :always               (into (relation-name-problems (str f " marks a relation") [pred]))
       (not-every? #(and (integer? %) (pos? %)) ps)
       (conj (str f " positions must be positive integers"))
       (and (every? integer? ps) (not= (count ps) (count (distinct ps))))
@@ -382,7 +391,24 @@
 (defn prop-problems [_ [f pred :as s] _context]
   (cond-> []
     (not= 2 (count s))    (conj (str f " takes one argument"))
-    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a predicate"))))
+    :always               (into (name-problems (str f " marks a predicate") [pred]))))
+
+(defn relation-prop-problems
+  "`prop-problems` for a one-place mark on a relation, a predicate or a function
+  (`commutative`): a `…Fn` symbol passes."
+  [_ [f rel :as s] _context]
+  (cond-> []
+    (not= 2 (count s))    (conj (str f " takes one argument"))
+    :always               (into (relation-name-problems (str f " marks a relation") [rel]))))
+
+(defn meet-function-problems
+  "`(meetFunctionOf F R)` — a function and the order it is the meet of, each a relation
+  name."
+  [_ [f fn order :as s] _context]
+  (cond-> []
+    (not= 3 (count s)) (conj (str f " takes two arguments"))
+    :always            (into (relation-name-problems (str f " relates a function to an order")
+                                                     [fn order]))))
 
 (defn closed-extent-for-arg-problems
   "`(closedExtentForArg P n v)` — a predicate, a positive-integer position, and the value
@@ -390,7 +416,7 @@
   [_ [f pred n :as s] _context]
   (cond-> []
     (not= 4 (count s))    (conj (str f " takes three arguments"))
-    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a predicate"))
+    :always               (into (name-problems (str f " marks a predicate") [pred]))
     (not (and (integer? n) (pos? n)))
     (conj (str f " position must be a positive integer"))))
 
@@ -439,9 +465,9 @@
 
 (defn function-decl-problems
   "`reifiable_function` / `unreifiable_function` declare a NAT function's kind.  Their
-  one argument is a *function name* — a `FruitFn`-shaped constant, which is indistinguishable from an
-  individual by the naming invariants, so `prop-problems` (which refuses an
-  individual) is the wrong check.  All that matters here is the arity and that the
+  one argument is a *function name* — a `FruitFn`-shaped constant, which `nm/individual?`
+  answers true for, so `prop-problems` (which refuses an individual) is the wrong
+  check.  All that matters here is the arity and that the
   name is a symbol."
   [_ [f fname :as s] _context]
   (cond-> []
@@ -577,8 +603,7 @@
 (defn inverse-problems [_ [_ p q :as s] _context]
   (cond-> []
     (not= 3 (count s)) (conj "inverse takes two arguments")
-    (nm/individual? p) (conj (str p " is an individual; inverse relates predicates"))
-    (nm/individual? q) (conj (str q " is an individual; inverse relates predicates"))))
+    :always            (into (name-problems "inverse relates predicates" [p q]))))
 
 (defn negates-problems
   "The argument count alone.  Whether an argument is a predicate, and of which length, is
@@ -590,8 +615,7 @@
 (defn genl-inverse-problems [_ [_ p q :as s] _context]
   (cond-> []
     (not= 3 (count s)) (conj "genlInverse takes two arguments")
-    (nm/individual? p) (conj (str p " is an individual; genlInverse relates predicates"))
-    (nm/individual? q) (conj (str q " is an individual; genlInverse relates predicates"))))
+    :always            (into (name-problems "genlInverse relates predicates" [p q]))))
 
 ;; (Per-functor well-formedness dispatch lives in the `:wff` column of the table in
 ;; `vaelii.impl.special`, read back through `special/wff-problems` — one enumeration

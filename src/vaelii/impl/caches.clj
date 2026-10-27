@@ -43,7 +43,8 @@
   (:require [taoensso.trove :as trove]
             [vaelii.impl.config :as config])
   (:import [com.sun.management GarbageCollectionNotificationInfo]
-           [java.lang.management ManagementFactory GarbageCollectorMXBean MemoryUsage]
+           [java.lang.management ManagementFactory GarbageCollectorMXBean MemoryNotificationInfo
+            MemoryPoolMXBean MemoryType MemoryUsage]
            [java.util.concurrent.atomic AtomicLongArray]
            [javax.management NotificationEmitter NotificationListener Notification]
            [javax.management.openmbean CompositeData]))
@@ -631,6 +632,10 @@
 ;; did not ask for.  The pure-heap caches are the guard's charge; the disk hot-record cache
 ;; stays on its own `vaelii.disk.cache` cap, since its records are re-thawable from disk and
 ;; its bound is set at store open.
+;;
+;; The heap mark (`arm-heap-mark!`) is separate from the guard: `open-kb` arms it, so a
+;; chaining run in a library embedding refuses over a nearly full old generation
+;; (`heap-critical?`) instead of running into an `OutOfMemoryError`.
 
 (def ^:private pressure-high
   "The old-generation fraction, measured after a collection, over which the guard shrinks.
@@ -642,6 +647,16 @@
   "The fraction under which the guard grows the caches back — held well below `pressure-high`
   so a reading bouncing around one mark does not shrink and grow on alternate collections."
   0.60)
+
+(def ^:private pressure-critical
+  "The fraction over which a chaining run refuses to go on (`heap-critical?`).  0.92 leaves
+  the rest of the old generation for the rollback the refusal runs."
+  0.92)
+
+(defonce ^:private critical
+  ;; whether a collection left the old generation over `pressure-critical`, as the guard's
+  ;; listener or the heap mark's threshold notification read it
+  (volatile! false))
 
 (def ^:private pressure-shrink-factor 0.5)
 (def ^:private pressure-grow-factor 1.5)
@@ -715,20 +730,122 @@
   []
   (set-pressure! (* (double (:pressure @the-profile)) pressure-grow-factor)))
 
+(defn- old-gen-name?
+  "Does pool name `nm` name an old generation?  The old generation is the heap pool whose
+  filling precedes an out-of-memory; among the pools a collector names, the one matched by
+  this name with a positive `getMax` and the largest `getMax` is the tenured space on every
+  collector the JVM ships a generational heap for.  A non-generational collector (Shenandoah,
+  Epsilon, ZGC before JDK 21's generational mode) names no such pool."
+  [nm]
+  (boolean (re-find #"(?i)old|tenured" (str nm))))
+
 (defn- old-gen-fraction
   "The fraction of the old generation left in use after a collection, read from a GC
   notification's after-collection usage map, or nil when no pool there is a collected old
-  generation.  The old generation is the heap pool whose filling precedes an out-of-memory;
-  among the pools a collector names, the one matched by name with a positive `getMax` and the
-  largest `getMax` is the tenured space on every collector the JVM ships a generational heap
-  for.  A non-generational collector names no such pool, and the guard then holds pressure."
+  generation (`old-gen-name?`); the guard then holds pressure."
   [^java.util.Map after]
   (let [cands (for [^java.util.Map$Entry e (.entrySet after)
-                    :let [^MemoryUsage u (.getValue e)
-                          nm (str (.getKey e))]
-                    :when (and u (pos? (.getMax u)) (re-find #"(?i)old|tenured" nm))]
+                    :let [^MemoryUsage u (.getValue e)]
+                    :when (and u (pos? (.getMax u)) (old-gen-name? (.getKey e)))]
                 [(.getMax u) (/ (double (.getUsed u)) (double (.getMax u)))])]
     (when (seq cands) (second (apply max-key first cands)))))
+
+;; ---- the heap mark ------------------------------------------------------
+
+(defonce ^:private heap-mark
+  ;; nil until `arm-heap-mark!` first runs, then `{:pool MemoryPoolMXBean-or-nil :max
+  ;; bytes}`.  A defonce so a namespace reload neither re-arms the JVM-wide threshold nor
+  ;; strands the listener attached to the memory bean.
+  (atom nil))
+
+(defn- old-gen-pool
+  "The `MemoryPoolMXBean` the guard's `old-gen-fraction` reads, when it supports a
+  collection-usage threshold, or nil."
+  ^MemoryPoolMXBean []
+  (let [cands (for [^MemoryPoolMXBean p (ManagementFactory/getMemoryPoolMXBeans)
+                    :let [mx (.getMax (.getUsage p))]
+                    :when (and (= MemoryType/HEAP (.getType p)) (pos? mx)
+                               (old-gen-name? (.getName p))
+                               (.isCollectionUsageThresholdSupported p))]
+                [mx p])]
+    (when (seq cands) (second (apply max-key first cands)))))
+
+(defn- armed-pool-name
+  "The name of the pool the heap mark armed, or nil."
+  []
+  (when-let [^MemoryPoolMXBean pool (:pool @heap-mark)] (.getName pool)))
+
+(defn- on-threshold
+  "The heap mark listener's body: a `MEMORY_COLLECTION_THRESHOLD_EXCEEDED` notification
+  for `pool-name`, the armed pool, sets `critical`.  Lifted out of the listener so a test
+  drives it without filling the heap."
+  [notif-type pool-name]
+  (when (and (= MemoryNotificationInfo/MEMORY_COLLECTION_THRESHOLD_EXCEEDED notif-type)
+             (some-> (armed-pool-name) (= pool-name)))
+    (vreset! critical true)))
+
+(defn- pool-fraction
+  "The lower of the armed pool's usage after its last collection and its usage now, as a
+  fraction of its max, or nil when the pool reports no collection usage.  The usage now
+  is under the collection usage once a young collection reclaims a dead humongous object
+  G1 counted in the old pool at its last concurrent cycle."
+  [^MemoryPoolMXBean pool max-bytes]
+  (when-let [u (.getCollectionUsage pool)]
+    (/ (double (min (.getUsed u) (.getUsed (.getUsage pool)))) (double max-bytes))))
+
+(defn arm-heap-mark!
+  "Set the old generation's collection-usage threshold at `pressure-critical` and attach a
+  listener that sets `heap-critical?` when a collection leaves the pool over it; answer
+  the armed pool's name, or nil.  `kb/open-kb` calls it unless `vaelii.heap.mark` is off.
+
+  Arms once per JVM and is never disarmed.  The pool is the one the guard reads
+  (`old-gen-name?`), so the guard's per-collection reset and the threshold agree on one
+  reading.  A JVM-wide threshold has one value per pool and the last writer sets it, so an
+  embedder that sets its own turns the mark off with `vaelii.heap.mark=false`.  A collector
+  with no old-generation pool arms nothing (docs/caches.md, \"The heap mark\").  `!`
+  because it sets a JVM-wide threshold."
+  []
+  (locking guard-lifecycle
+    (when-not @heap-mark
+      (reset! heap-mark {:pool nil :max 0})
+      (try
+        (when-let [pool (old-gen-pool)]
+          (let [mx (.getMax (.getUsage pool))]
+            (.setCollectionUsageThreshold pool (long (* (double pressure-critical) (double mx))))
+            (.addNotificationListener
+             ^NotificationEmitter (ManagementFactory/getMemoryMXBean)
+             (reify NotificationListener
+               (handleNotification [_ notif _]
+                 (let [ud (.getUserData ^Notification notif)]
+                   (when (instance? CompositeData ud)
+                     (on-threshold (.getType ^Notification notif)
+                                   (.getPoolName (MemoryNotificationInfo/from ^CompositeData ud)))))))
+             nil nil)
+            (reset! heap-mark {:pool pool :max mx})))
+        (catch Throwable t
+          (trove/log! {:level :warn :id ::heap-mark-failed :error t
+                       :msg (str "arming the heap mark failed, so a chaining run will not"
+                                 " refuse over a nearly full heap: " (ex-message t))})))))
+  (armed-pool-name))
+
+(defn heap-critical?
+  "Did the last collection read leave the old generation over `pressure-critical`?  Set by
+  the heap mark's threshold notification and by the memory guard's listener; false when
+  neither is armed (docs/caches.md, \"The heap mark\").
+
+  One volatile read while the flag is clear.  While it is set, the call reads the armed
+  pool (`pool-fraction`) and clears the flag when the reading is under the mark, under the
+  guard as without it.  The guard sets the flag from a young collection's after-usage,
+  which counts dead tenured objects, so the pool's own reading decides."
+  []
+  (boolean
+   (and @critical
+        (let [{:keys [pool] mx :max} @heap-mark]
+          (or (nil? pool)
+              (let [f (pool-fraction pool mx)]
+                (if (and f (< (double f) (double pressure-critical)))
+                  (vreset! critical false)
+                  true)))))))
 
 (defn- on-collection
   "Respond to one collection whose after-usage map is `after`: read the old-generation
@@ -736,17 +853,19 @@
   with a usage map rather than a real collection."
   [after]
   (when-let [frac (old-gen-fraction after)]
+    (vreset! critical (>= (double frac) pressure-critical))
     (case (pressure-response frac (double (:pressure @the-profile)))
       :shrink (shrink! ((:kbs @guard)))
       :grow   (grow!)
       :hold   nil)))
 
 (defn memory-guard
-  "Whether the guard is attached to the collectors, and the pressure it currently holds:
-  `{:installed? bool :pressure p}`.  Pressure below 1.0 says the guard has shrunk the caches
-  under a heap it is watching fill."
+  "Whether the guard is attached to the collectors, the pressure it currently holds, and the
+  pool the heap mark armed: `{:installed? bool :pressure p :heap-mark pool-name-or-nil}`.
+  Pressure below 1.0 says the guard has shrunk the caches under a heap it is watching fill."
   []
-  {:installed? (:installed? @guard) :pressure (:pressure @the-profile)})
+  {:installed? (:installed? @guard) :pressure (:pressure @the-profile)
+   :heap-mark  (armed-pool-name)})
 
 (defn install-memory-guard!
   "Attach a post-collection listener to the JVM's garbage collectors that moves the cache

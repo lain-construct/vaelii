@@ -150,14 +150,15 @@
 
 (defn search-args
   "The flags under which a solve's search is a function of its program alone: one
-   thread, clasp's own default seed (1) stated rather than assumed, and
-   `--solve-limit=N` for a positive `config/asp-solve-limit`.  The limit counts
+   thread, clasp's own default seed (1) stated rather than assumed, the
+   `config/asp-opt-strategy` optimization strategy, and `--solve-limit=N` for a positive
+   `config/asp-solve-limit`.  The limit counts
    conflicts, so it stops a search at the same point on any machine, where
    `--time-limit` stops it wherever the machine has got to.  In-process clingo's control
    takes the same flags (`vaelii.impl.asp.clingo`)."
   []
   (let [n (config/asp-solve-limit)]
-    (cond-> ["--parallel-mode=1" "--seed=1"]
+    (cond-> ["--parallel-mode=1" "--seed=1" (str "--opt-strategy=" (config/asp-opt-strategy))]
       (pos? n) (conj (str "--solve-limit=" n)))))
 
 (defn- optimum-costs

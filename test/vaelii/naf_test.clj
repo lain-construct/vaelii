@@ -1588,7 +1588,7 @@
           "CxB's guard covers G's firing there alone, and the network blocks neither firing")
       (is (= [true #{:guard :supports}]
              (guard-reading kb kind [:pp :qq-a :g :h]
-                            (fn [f _ _] (let [t (v/why kb f)]
+                            (fn [f _ _] (let [t (tu/why-root kb f)]
                                           [(:believed? t) (set (map :verdict (:support t)))]))))
           "with the blocker in F's own context, why names the covered firing"))))
 
@@ -1846,7 +1846,7 @@
       (v/assert kb (list 'except (list 'sentexHandle dj)) CxR)
       (let [f (v/handle-of kb (list cat Zed) CxA)
             d (v/handle-of kb (list 'defeat (list 'sentexHandle f)) CxD)]
-        (is (= 2 (count (:support (v/why kb d)))))
+        (is (= 2 (count (:support (tu/why-root kb d)))))
         (is (= [true false true] (mapv #(v/believed? kb f %) [CxA CxD CxR])))))))
 
 ;; ---- a guard a prover answers below the placement ---------------------------

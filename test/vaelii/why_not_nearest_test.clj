@@ -53,6 +53,26 @@
         (is (= v/default-nearest-depth (:max-depth (:nearest-search r))))
         (is (= v/default-nearest-ms (:max-ms (:nearest-search r))))))))
 
+(tu/deftest-kb antecedents-satisfied-under-different-bindings-of-an-open-variable-are-not-all-satisfied
+  ;; `?t` is shared by all three antecedents and the goal does not bind it.  Each
+  ;; antecedent holds for some `?t` on its own (Dover, Dover or Calais, Calais), and no one
+  ;; `?t` satisfies all three, so the rule does not fire for Ann.
+  (tu/with-terms [livesIn coastal_town ferryTo reachable_by_ferry Ann Bob Dover Calais CxTravel]
+    (v/assert kb (list 'genlCx CxTravel 'CxUniverse) 'CxUniverse)
+    (v/assert-rule kb [(list livesIn '?a '?t) (list coastal_town '?t) (list ferryTo Dover '?t)]
+                   (list reachable_by_ferry '?a) CxTravel)
+    (doseq [f [(list livesIn Ann Dover) (list livesIn Bob Calais) (list coastal_town Dover)
+               (list coastal_town Calais) (list ferryTo Dover Calais)]]
+      (v/assert kb f CxTravel))
+    (is (seq (v/query kb (list reachable_by_ferry Bob) CxTravel {:max-depth 1}))
+        "the control: Bob's ?t joins")
+    (let [near (first (:nearest (v/why-not kb (list reachable_by_ferry Ann) CxTravel {:nearest 1})))]
+      (is (= 2 (count (:satisfied near))))
+      (is (= 1 (count (:missing near))) "an antecedent is missing although each holds alone")
+      (is (seq (v/query kb (:satisfied near) CxTravel)) "the satisfied antecedents join")
+      (is (empty? (v/query kb (into (:satisfied near) (:missing near)) CxTravel))
+          "and the missing one breaks the join"))))
+
 (tu/deftest-kb the-rule-that-is-closest-is-reported-first
   ;; Two rules concluding one goal, one of them a step further from firing.  The ranking
   ;; is what makes the report readable — and it is on how much is satisfied, never on

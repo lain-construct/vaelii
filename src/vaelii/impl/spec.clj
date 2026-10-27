@@ -26,9 +26,9 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Twenty publics that take an option map are outside it**, and instrumenting says
+  **Twenty-one publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
-  `bulk-assert-facts!`), the fork and the two consequence readers over it (`fork`,
+  `bulk-assert-facts!`, `edit!`), the fork and the two consequence readers over it (`fork`,
   `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`,
   `export-text!`, and `load-foreign!`, whose options belong to the reader plugin),
   the two search-back reads (`search-tree`, `compare-tacticians`) and the truncation
@@ -83,19 +83,22 @@
 (s/def ::strength strength/assertable)
 (s/def ::chain? boolean?)
 (s/def ::max-depth (s/nilable nat-int?))
+(s/def ::max-term-depth (s/nilable nat-int?))
 (s/def ::max-derivations (s/nilable nat-int?))
 (s/def ::on-progress ifn?)
 (s/def ::progress-every-ms (s/nilable nat-int?))
 (s/def ::creator some?)
 (s/def ::provenance map?)
-(s/def ::opts (s/keys :opt-un [::strength ::chain? ::max-depth ::max-derivations
-                               ::on-progress ::progress-every-ms ::creator ::provenance]))
+(s/def ::stop? ifn?)
+(s/def ::opts (s/keys :opt-un [::strength ::chain? ::max-depth ::max-term-depth ::max-derivations
+                               ::max-ms ::stop? ::on-progress ::progress-every-ms ::creator
+                               ::provenance]))
 
 ;; ---- the rule-assertion option map (assert-rule adds :direction) --------
 
 (s/def ::direction #{:forward :backward :inert :both :forward-only})
-(s/def ::rule-opts (s/keys :opt-un [::strength ::chain? ::max-depth ::max-derivations
-                                    ::on-progress ::progress-every-ms ::creator
+(s/def ::rule-opts (s/keys :opt-un [::strength ::chain? ::max-depth ::max-term-depth ::max-derivations
+                                    ::max-ms ::stop? ::on-progress ::progress-every-ms ::creator
                                     ::provenance ::direction]))
 
 ;; ---- the anytime budget map ---------------------------------------------
@@ -203,6 +206,7 @@
 (s/def :vaelii.impl.spec.record-edit/direction (s/map-of ::handle-arg keyword?))
 (s/def :vaelii.impl.spec.record-edit/seeds (s/coll-of ::handle-arg))
 (s/def :vaelii.impl.spec.record-edit/arg-types? boolean?)
+(s/def :vaelii.impl.spec.record-edit/on-progress ifn?)
 
 (s/fdef vaelii.core/edit-records!
   :args (s/cat :kb ::kb
@@ -212,7 +216,24 @@
 (s/fdef vaelii.core/settle-record-edits!
   :args (s/cat :kb ::kb
                :opts (s/? (s/nilable (s/keys :opt-un [:vaelii.impl.spec.record-edit/seeds
-                                                      :vaelii.impl.spec.record-edit/arg-types?])))))
+                                                      :vaelii.impl.spec.record-edit/arg-types?
+                                                      :vaelii.impl.spec.record-edit/on-progress])))))
+
+;; the argument-type pass over a stored KB (docs/argtypes.md), under its own namespace
+(s/def :vaelii.impl.spec.arg-pass/resume? boolean?)
+(s/def :vaelii.impl.spec.arg-pass/budget-ms (s/nilable (s/and number? (complement neg?))))
+(s/def :vaelii.impl.spec.arg-pass/retry-deferred? boolean?)
+(s/def :vaelii.impl.spec.arg-pass/stop? ifn?)
+(s/def :vaelii.impl.spec.arg-pass/commit-every-ms (s/nilable nat-int?))
+
+(s/fdef vaelii.core/record-arg-types!
+  :args (s/cat :kb ::kb
+               :opts (s/? (s/nilable (s/keys :opt-un [:vaelii.impl.spec.arg-pass/resume?
+                                                      :vaelii.impl.spec.arg-pass/budget-ms
+                                                      :vaelii.impl.spec.arg-pass/retry-deferred?
+                                                      :vaelii.impl.spec.arg-pass/stop?
+                                                      :vaelii.impl.spec.arg-pass/commit-every-ms
+                                                      ::on-progress ::progress-every-ms])))))
 
 (s/fdef vaelii.core/add-provenance
   :args (s/cat :kb ::kb :handle ::handle-arg :m map?))
@@ -398,21 +419,16 @@
 (s/fdef vaelii.core/dependent-justifications  :args (s/cat :kb ::kb :handle ::handle-arg))
 (s/fdef vaelii.core/provenance   :args (s/cat :kb ::kb :handle ::handle-arg) :ret (s/nilable map?))
 
-;; `why` reads one option, `:max-depth`.  `s/keys` is open, so an unknown key is the
-;; fn's own key set to reject (`:unknown-option`), as with the assert opts above; the
-;; spec says what the key it does read may hold.
-(s/def ::why-opts (s/keys :opt-un [::max-depth]))
-
 (s/fdef vaelii.core/why
-  :args (s/cat :kb ::kb :handle ::handle-arg :opts (s/? (s/nilable ::why-opts)))
+  :args (s/cat :kb ::kb :handle ::handle-arg)
   :ret map?)
 
 ;; `why-not`'s sentence arity reads three: how many near misses to report, and the two
-;; bounds on the search that finds them.  `s/keys` is open here for `why`'s reason — the
-;; unknown key is the fn's own key set to refuse — and what the spec says is that a count
-;; is a count and a millisecond bound is not a string.  `::max-ms` and `::max-depth` are
-;; the specs the budget map above registered: one keyword names one spec in the registry,
-;; so re-`s/def`ing either here would silently retune the budget too.
+;; bounds on the search that finds them.  `s/keys` is open, so an unknown key is the fn's
+;; own key set to refuse (`:unknown-option`), as with the assert opts above.  The spec says
+;; that a count is a count and a millisecond bound is not a string.  `::max-ms` and
+;; `::max-depth` are the specs the budget map above registered: one keyword names one spec
+;; in the registry, so re-`s/def`ing either here would silently retune the budget too.
 (s/def ::nearest pos-int?)
 (s/def ::why-not-opts (s/keys :opt-un [::nearest ::max-depth ::max-ms]))
 
@@ -470,6 +486,7 @@
     vaelii.core/mark-inert!
     vaelii.core/edit-records!
     vaelii.core/settle-record-edits!
+    vaelii.core/record-arg-types!
     vaelii.core/add-provenance
     vaelii.core/add-prover
     vaelii.core/set-solver

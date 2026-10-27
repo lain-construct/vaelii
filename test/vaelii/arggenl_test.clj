@@ -104,10 +104,10 @@
                    (:message (first (v/check kb (list 'genlArg rel 0 'thing)
                                              'CxUniverse))))))))
 
-(tu/deftest-kb a-derived-genlArg-violation-is-recorded-not-thrown
-  ;; the constraint-only reading: the refusal is the subject
+(tu/deftest-kb a-derived-genlArg-violation-is-held-not-thrown
+  ;; the constraint-only reading: the conviction is the subject
   (tu/without-entailing
-   ;; the derivation path must not abort a fixpoint, so it drops and ledgers instead
+   ;; the derivation path must not abort a fixpoint, so it stores and holds instead
    (let [[rel _ other] (type-relation kb)
          trigger (tu/tmp-pred)]
      (v/clear-violations! kb)
@@ -115,19 +115,21 @@
                         (list 'implies (list trigger '?x) (list rel '?x other)))
                'CxUniverse)
      (v/assert kb (list trigger other) 'CxUniverse)
-     (is (some #(= :arg-genl (:violation %)) (v/violations kb))
-         "the conclusion is dropped into the ledger"))))
+     (is (some #(and (= :inert-argument (:violation %)) (= :arg-genl (:type (:detail %))))
+               (v/violations kb))
+         "the conclusion is held and reported"))))
 
 ;; ---- the constraint declarations, checked against each other -------------
 
-(tu/deftest-kb a-constraint-on-a-position-the-predicate-lacks-is-refused
+(tu/deftest-kb a-constraint-on-a-position-the-predicate-lacks-is-refused-by-try-assert
   (let [rel (tu/tmp-pred)]
     (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (testing "a declared position is fine"
       (is (v/assert kb (list 'arg rel 2 'thing) 'CxUniverse)))
-    (testing "one past the declared arity would never fire, so it is refused"
-      (is (= :arg-position (ex-type #(v/assert kb (list 'arg rel 5 'thing) 'CxUniverse))))
-      (is (= :arg-position (ex-type #(v/assert kb (list 'genlArg rel 5 'thing) 'CxUniverse)))))
+    (testing "one past the declared arity would never fire: try-assert refuses it, assert stores it"
+      (doseq [kind '[arg genlArg]]
+        (is (= :arg-position (tu/try-violation kb (list kind rel 5 'thing) 'CxUniverse)))
+        (is (nil? (ex-type #(v/assert kb (list kind rel 5 'thing) 'CxUniverse))))))
     (testing "open-world: an undeclared predicate takes any position"
       (is (v/assert kb (list 'arg (tu/tmp-pred) 9 'thing) 'CxUniverse)))))
 
@@ -168,10 +170,9 @@
     (v/assert kb (list 'type_relation_predicate typeRel) 'CxUniverse)
     (testing "an instance-level relation takes arg"
       (is (v/assert kb (list 'arg instRel 1 'thing) 'CxUniverse))
-      (try (v/assert kb (list 'genlArg instRel 2 'thing) 'CxUniverse)
-           (is false "genlArg on an instance_relation_predicate must refuse")
-           (catch clojure.lang.ExceptionInfo e
-             (is (= :arg-constraint-kind (:type (ex-data e)))))))
+      (is (= :arg-constraint-kind
+             (tu/try-violation kb (list 'genlArg instRel 2 'thing) 'CxUniverse))
+          "try-assert refuses genlArg on an instance_relation_predicate"))
     (testing "a type-level relation takes genlArg"
       (is (v/assert kb (list 'genlArg typeRel 1 'thing) 'CxUniverse)))
     (testing "and arg as well: the kinds it relates are themselves instances of a type"
@@ -335,7 +336,7 @@
      (v/assert kb (list 'disjoint a_type b_type) 'CxUniverse)
      (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
      (is (= :arg-position
-            (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
+            (tu/try-violation kb (list 'arg chainOf 3 a_type) 'CxUniverse))
          "binary and nothing else, so there is no third argument to constrain")
      (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
      (testing "the mark releases the declaration exactly as it releases the tuple"
@@ -359,7 +360,7 @@
     (v/assert kb (list 'binary_predicate chainOf) 'CxUniverse)
     (v/assert kb (list 'genl subChainOf chainOf) 'CxUniverse)
     (is (= :arg-position
-           (ex-type #(v/assert kb (list 'arg subChainOf 3 a_type) 'CxUniverse)))
+           (tu/try-violation kb (list 'arg subChainOf 3 a_type) 'CxUniverse))
         "subChainOf declares no length, so it takes two arguments through chainOf")
     (v/assert kb (list 'variable_arity subChainOf) 'CxUniverse)
     (testing "the mark on the sub releases what the super bound it to"
@@ -369,7 +370,7 @@
           "the same release the tuple already had"))
     (testing "and the super it inherits from keeps its own length"
       (is (= :arg-position
-             (ex-type #(v/assert kb (list 'arg chainOf 3 a_type) 'CxUniverse)))
+             (tu/try-violation kb (list 'arg chainOf 3 a_type) 'CxUniverse))
           "chainOf is binary, whatever mark its sub-predicates carry"))))
 
 ;; ---- the global/scoped split in the conviction ---------------------------

@@ -37,6 +37,7 @@
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
+            [vaelii.impl.argtype-pass :as argpass]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
             [vaelii.impl.decide.argument :as argument]
@@ -253,6 +254,18 @@
   [kb f]
   (try (let [h (f)] (when (integer? h) (-> (v/why-not kb h) :conviction :type)))
        (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(defn try-violation
+  "The clash kind `try-assert` refuses `sentence` in `context` with: the `:violation` of a
+  `:definitional-clash`, else the refusal's `:type`.  Nil when `try-assert` stores the
+  sentence; a sentence this call stored is retracted."
+  [kb sentence context]
+  (let [before (v/handle-of kb sentence context)]
+    (try (let [h (v/try-assert kb sentence context)]
+           (when (and h (nil? before)) (v/retract! kb h))
+           nil)
+         (catch clojure.lang.ExceptionInfo e
+           (let [d (ex-data e)] (or (:violation d) (:type d)))))))
 
 (defmacro with-shipped
   "`shipped-fixture` around one test rather than a namespace's fixture, for a file the
@@ -524,7 +537,16 @@
   ;; hands the KB back has to say so, or the next test's own asserts are refused against
   ;; a hazard declared for records it did not write.
   (kb/note-hazards! kb {:no-belief false :no-index false})
-  (some-> (reasoning/refused kb) (reset! {})))
+  (some-> (reasoning/refused kb) (reset! {}))
+  ;; the owed record names a position among the deleted records, as `v/clear!` drops it
+  (argpass/clear-owed! kb))
+
+(defn drop-space!
+  "Forget every RAM store held under `space`: its records, its index on any RAM backend and
+  a fork's bookkeeping.  `close!` keeps a KB's named space, which is its store, so a test
+  that opens one of its own drops it when it is done or holds it for the rest of the JVM."
+  [space]
+  (kb/release-engine-space! space))
 
 (defn- fresh-slot
   "An empty KB on slot `s` with `opts` merged into its opts.  Under the overlay arm the slot
@@ -767,6 +789,13 @@
   (v/import! kb (starter-dump) {:belief? true})
   kb)
 
+(def args-sugar-rule
+  "core.txt's forward rule storing the `(argAndRest P 1 T)` an `(args P T)` stands for.
+  The engine reads `args` only through that twin, so a test about the `args` spelling on
+  a KB that does not load core.txt asserts this first; a test that only needs a tail typed
+  from 1 states `argAndRest` instead."
+  '(set/forwardRule (implies (args ?relation ?type) (argAndRest ?relation 1 ?type))))
+
 ;; ---- the upper ontology, built once and copied --------------------------
 
 (def core-build-space
@@ -929,6 +958,7 @@
                     (gensym (str "tmp" n))))
     :predicate  (gensym (str "tmp" (str/lower-case (alnum base))))
     :individual (gensym (str "Tmp" (cap (alnum base))))
+    :function   (symbol (str (gensym (str "Tmp" (cap (alnum (str/replace (str base) #"Fn$" ""))))) "Fn"))
     :context    (symbol (str "Cx" (gensym (str "Tmp" (cap (alnum (str/replace (str base) #"^Cx" "")))))))))
 
 (defn term-role
@@ -938,6 +968,7 @@
   (let [n (name sym)]
     (cond
       (re-matches #"Cx[A-Z][A-Za-z0-9]*" n)      :context
+      (re-matches #"[A-Z][A-Za-z0-9]*Fn" n)      :function
       (re-matches #"[A-Z][A-Za-z0-9]*" n)        :individual
       (re-matches #"[a-z][a-z0-9_]*" n)          :type        ; all-lowercase => a type
       (re-matches #"[a-z][a-zA-Z0-9]*" n)        :predicate   ; camelCase => a predicate
@@ -951,6 +982,7 @@
       (v/assert kb (list dog Muffet) CxStory))
     ;; dog -> tmpdog17   Muffet -> TmpMuffet18
     ;; parentOf -> tmpparentof19   CxStory -> CxTmpStory20
+    ;; PairFn -> TmpPair21Fn
 
   So the test's terms keep the spelling of the ontology it is about, while every term stays unique and
   disposable (see the net-neutrality guarantee above).  A bare base like `dog` stays
@@ -1008,6 +1040,16 @@
     (into [] (distinct) (sort (keep #(:context (p/get-sentex (:records kb) %))
                                     (exc/defeats-of kb h ctx))))))
 
+(defn why-root
+  "The root node of `v/why`'s graph `w`, each `:support` entry's `:because` handles
+  replaced by the nodes they name, one level down.  `(why-root kb h)` asks `v/why` first."
+  ([w]
+   (let [nodes (:nodes w)
+         node  (get nodes (:root w))]
+     (cond-> node
+       (:support node) (update :support (partial mapv #(update % :because (partial mapv nodes)))))))
+  ([kb h] (why-root (v/why kb h))))
+
 (defn verdict-violations
   "Where the justification verdicts and belief disagree over the handles `hs` and the
   readers `ctxs`, as `[handle context kind]` rows.  `:belief`: the verdict reader's belief
@@ -1034,9 +1076,13 @@
                                           (not= expected believed?) :verdict)]
                      :when kind]
                  [h c kind]))
-          (for [h live
+          ;; one `why` graph answers for every handle it reaches, so a handle an earlier
+          ;; graph holds is read off it
+          (for [nodes [(volatile! {})]
+                h     live
                 :let [c (:context (p/get-sentex (:records kb) h))
-                      t (v/why kb h {:max-depth 1})]
+                      t (or (get @nodes h)
+                            (get (vswap! nodes merge (:nodes (v/why kb h))) h))]
                 :when (and (:believed? t) (not (:premise? t))
                            (not= (into {} (map (juxt :justification :verdict)) (:support t))
                                  (:verdicts (reader h c))))]

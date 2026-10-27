@@ -9,7 +9,7 @@
 
   | file | |
   |---|---|
-  | `store/` | an APFS clone (`cp -c`) of the store directory, its lock file left out |
+  | `store/` | a copy of the store directory (`copy-flags`), its lock file left out |
   | `records.dump` | `pg_dump --format=custom` of the schema |
   | `backup.edn` | where it came from, the seal, the time, and how to restore it |
 
@@ -30,6 +30,8 @@
             [vaelii.browser.jobs :as jobs]
             [vaelii.core :as v])
   (:import [java.io File]
+           [java.nio.file FileAlreadyExistsException Files]
+           [java.nio.file.attribute FileAttribute]
            [java.time LocalDateTime]
            [java.time.format DateTimeFormatter]
            [java.util.concurrent TimeUnit]))
@@ -61,6 +63,11 @@
    "--schema" (str schema) "--format=custom" "--compress=zstd:1" "--no-password"
    "--file" (str file)])
 
+(def ^:private copy-flags
+  "`cp`'s flags for the store copy: an APFS clone (`-cR`) on macOS, and a recursive copy
+  (`-R`) elsewhere, where GNU `cp` refuses `-c`.  Both keep a link as a link."
+  (if (str/starts-with? (System/getProperty "os.name") "Mac") "-cR" "-R"))
+
 (defn- run-process!
   "Run `argv` to completion, calling `(tick)` every two seconds while it runs; throw
   with its output when it exits non-zero.  `tick` throwing (a cancel) kills the
@@ -85,9 +92,24 @@
         (throw t))
       (finally (.delete log)))))
 
-(defn- delete-tree! [^File f]
-  (when (.isDirectory f) (run! delete-tree! (.listFiles f)))
+(defn- delete-tree!
+  "Delete `f` and, when it is a directory and not a link to one, what it holds: the clone
+  keeps a link as a link, and the link is deleted without what it names."
+  [^File f]
+  (when (and (.isDirectory f) (not (Files/isSymbolicLink (.toPath f))))
+    (run! delete-tree! (.listFiles f)))
   (.delete f))
+
+(defn- create-dir!
+  "Create the directory `out`, or `out-2`, `out-3`, … when a backup taken in the same
+  second holds that name, and answer the one created.  The parent must exist."
+  ^File [out]
+  (loop [n 1]
+    (let [f (io/file (cond-> (str out) (> n 1) (str "-" n)))]
+      (if (try (Files/createDirectory (.toPath f) (make-array FileAttribute 0)) true
+               (catch FileAlreadyExistsException _ false))
+        f
+        (recur (inc n))))))
 
 (defn- restore-steps
   "The commands that put this backup back, as strings for `backup.edn`."
@@ -96,7 +118,7 @@
    (str "psql -h " host " -p " port " -d " db " -c 'ALTER SCHEMA " schema " RENAME TO "
         schema "_replaced'")
    (str "pg_restore -h " host " -p " port " -d " db " " out "/records.dump")
-   (str "mv " dir " " dir ".replaced && cp -cR " out "/store " dir)
+   (str "mv " dir " " dir ".replaced && cp " copy-flags " " out "/store " dir)
    (str "load the store " dir " in the browser")])
 
 (defn refusal
@@ -121,24 +143,26 @@
                {:type :no-records-location :key key}))))
 
 (defn backup!
-  "Back up the `:pg-snapshot` KB `kb`, whose store directory is `dir`, into the new
-  directory `out` (see the namespace doc), reporting to `progress!`, and return what
-  `backup.edn` says.  The caller holds off writes for the whole call.  A backup that
-  fails or is cancelled deletes `out`, and touches nothing else."
+  "Back up the `:pg-snapshot` KB `kb`, whose store directory is `dir`, into a new
+  directory named `out` (see the namespace doc), reporting to `progress!`, and return what
+  `backup.edn` says, its `:dir` the directory written.  When `out` exists, the directory is
+  `out-2`, `out-3`, … (`create-dir!`).  The caller holds off writes for the whole call.
+  A backup that fails or is cancelled deletes the directory it created, and touches
+  nothing else."
   [kb dir out progress!]
-  (let [loc  (store-records dir)
-        dump (io/file out "records.dump")]
-    (try
-      (progress! {:phase :seal :note "sealing, so the images name the records as they stand"})
-      (let [seal (v/seal kb)
-            _    (when-not (:sealed seal)
-                   (throw (ex-info (str "the KB did not seal (" (:reason seal) "), so its"
-                                        " images may not match its records; no backup taken")
-                                   {:type :not-sealed :seal seal})))
-            t0   (System/currentTimeMillis)]
-        (progress! {:phase :directory :note (str "cloning " dir)})
-        (.mkdirs (io/file out))
-        (run-process! ["cp" "-cR" (str dir) (str (io/file out "store"))] (fn []))
+  (let [loc (store-records dir)]
+    (progress! {:phase :seal :note "sealing, so the images name the records as they stand"})
+    (let [seal (v/seal kb)
+          _    (when-not (:sealed seal)
+                 (throw (ex-info (str "the KB did not seal (" (:reason seal) "), so its"
+                                      " images may not match its records; no backup taken")
+                                 {:type :not-sealed :seal seal})))
+          t0   (System/currentTimeMillis)
+          out  (create-dir! out)
+          dump (io/file out "records.dump")]
+      (try
+        (progress! {:phase :directory :note (str "cloning " dir " into " out)})
+        (run-process! ["cp" copy-flags (str dir) (str (io/file out "store"))] (fn []))
         (.delete (io/file out "store" ".vaelii.lock"))
         (progress! {:phase :records :note (str "pg_dump of schema " (:schema loc))})
         (run-process! (pg-dump-command loc dump)
@@ -152,10 +176,10 @@
                     :ms         (- (System/currentTimeMillis) t0)
                     :restore    (restore-steps loc dir out)}]
           (spit (io/file out "backup.edn") (with-out-str (pprint/pprint info)))
-          (assoc info :dir (str out))))
-      (catch Throwable t
-        (delete-tree! (io/file out))
-        (throw t)))))
+          (assoc info :dir (str out)))
+        (catch Throwable t
+          (delete-tree! out)
+          (throw t))))))
 
 (defn backup-entry!
   "Back up the `:pg-snapshot` store in entry `key` as a `:backup` job (`backup!`) and
@@ -173,6 +197,6 @@
       :writes     kb
       :entry      key
       :result-url "/kbs"
-      :progress   {:phase :starting :done 0 :note (str "backing up to " out)}}
+      :progress   {:phase :starting :done 0 :note (str "backing up " dir)}}
      (fn [progress!]
        (run-in #(assoc (backup! kb dir out progress!) :result-url "/kbs"))))))

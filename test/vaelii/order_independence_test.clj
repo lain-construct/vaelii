@@ -2498,7 +2498,7 @@
                   {:mirrored (boolean (seq (v/sentexes-matching kb '(alsoOwns Bob Rex) 'CxUniverse)))
                    ;; `mapv`: the extent readers are lazy over live state, and this map
                    ;; outlives the KB the ordering walk built it from
-                   :supports (mapv #(count (:support (v/why kb (:id %))))
+                   :supports (mapv #(count (:support (tu/why-root kb (:id %))))
                                    (v/sentexes-matching kb '(alsoOwns ?o ?b) 'CxUniverse))
                    :conflicts (count (v/conflicts kb))})
         result  (one-outcome-necessarily! "symmetric antecedent" ops observe)]
@@ -2538,7 +2538,7 @@
                   (let [cs (v/sentexes-matching kb '(gAlsoOwns ?o ?b) 'CxUniverse)]
                     {:conclusions (set (map :sentence cs))
                      ;; sorted: the extent readers promise the set, not the order
-                     :supports    (vec (sort (map #(count (:support (v/why kb (:id %)))) cs)))
+                     :supports    (vec (sort (map #(count (:support (tu/why-root kb (:id %)))) cs)))
                      :conflicts   (count (v/conflicts kb))}))
         result  (one-outcome-necessarily! "symmetric under a super-predicate" ops observe)]
     (testing "and the one outcome is the mirrored pair, derived once"
@@ -2568,7 +2568,7 @@
         observe (fn [kb]
                   (let [cs (v/sentexes-matching kb '(mSpans ?o ?c) 'CxUniverse)]
                     {:conclusions (set (map :sentence cs))
-                     :supports    (vec (sort (map #(count (:support (v/why kb (:id %)))) cs)))
+                     :supports    (vec (sort (map #(count (:support (tu/why-root kb (:id %)))) cs)))
                      :conflicts   (count (v/conflicts kb))}))
         result  (one-outcome-necessarily! "symmetric mid-chain" ops observe)]
     (testing "and the one outcome is the chain the mirror closes, derived once"
@@ -2877,6 +2877,55 @@
 
 (deftest ^:slow every-ordering-of-a-retracted-permuting-mark-leaves-each-spelling-as-written
   (a-retracted-permuting-mark-hands-back-the-spellings nil))
+
+;; The same claims for a compound below the literal: `(sn_holds (SnPairFn Bea Ada))` under
+;; `(commutative SnPairFn)` is stored as `(sn_holds (SnPairFn Ada Bea))`.
+
+(def ^:private nested-spelled-shapes
+  "`spelled-shapes` with the permuted application one level below the literal."
+  {:one-spelling  [#(v/assert % '(sn_holds (SnPairFn Bea Ada)) 'CxUniverse)]
+   :two-spellings [#(v/assert % '(sn_holds (SnPairFn Bea Ada)) 'CxUniverse)
+                   #(v/assert % '(sn_holds (SnPairFn Ada Bea)) 'CxUniverse {:strength :monotonic})]
+   :a-firing      [#(v/assert % '(snClaim Ada Bea) 'CxUniverse)]})
+
+(defn- nested-spelled-ops
+  "`spelled-ops` over `sn_holds`, whose argument is an application of `SnPairFn`, and the
+  `commutative` mark of `SnPairFn` when `mark?`."
+  [facts mark? h]
+  (cond-> (into [#(do (v/assert % '(binary_function SnPairFn) 'CxUniverse)
+                      (v/assert % '(implies (sn_holds ?p) (sn_noted ?p)) 'CxUniverse
+                                {:direction :forward})
+                      (v/assert % '(implies (snClaim ?x ?y) (sn_holds (SnPairFn ?y ?x))) 'CxUniverse
+                                {:direction :forward}))]
+                facts)
+    mark? (conj #(reset! h (v/assert % '(commutative SnPairFn) 'CxUniverse)))))
+
+(defn- nested-spelled-reading
+  "`spelled-reading` over `sn_holds`."
+  [kb]
+  {:rows    (set (map :sentence (v/sentexes-matching kb '(sn_holds ?p) 'CxUniverse)))
+   :written (vec (for [g '[(sn_holds (SnPairFn Bea Ada)) (sn_holds (SnPairFn Ada Bea))]
+                       :let [h (v/handle-of kb g 'CxUniverse)]]
+                   [(v/ask? kb g 'CxUniverse) (boolean (and h (v/premise? kb h)))
+                    (when h (v/defeat-class kb h))]))
+   :drawn   (mapv #(v/ask? kb % 'CxUniverse)
+                  '[(sn_noted (SnPairFn Bea Ada)) (sn_noted (SnPairFn Ada Bea))])})
+
+(deftest a-mark-on-a-function-below-the-literal-folds-and-hands-back-in-every-order
+  (doseq [[shape facts] nested-spelled-shapes]
+    (testing (str shape)
+      (let [h       (atom nil)
+            never   (one-outcome! (str shape ", never stated")
+                                  (nested-spelled-ops facts false h) nested-spelled-reading)
+            held    (one-outcome! (str shape ", held")
+                                  (nested-spelled-ops facts true h) nested-spelled-reading)
+            retract (one-outcome! (str shape ", retracted")
+                                  (nested-spelled-ops facts true h)
+                                  (fn [kb] (v/retract! kb @h) (nested-spelled-reading kb)))]
+        (is (= 1 (count (:rows held))) "the mark holds the pair as one row")
+        (is (every? true? (:drawn held)) "and both spellings of it are drawn from")
+        (is (= never retract) "retracting it leaves what a KB that never held it holds"))))
+  (tu/clear-kb! (tu/test-kb)))
 
 (deftest a-defeated-permuting-mark-leaves-each-spelling-as-written
   ;; The mark's other way of going: a known-true denial defeats it, which relabels

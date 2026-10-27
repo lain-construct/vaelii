@@ -421,6 +421,34 @@
      [:irreflexive        [(list likes A A) (list likes A B)]      (list 'irreflexive likes)           d :irreflexive 1]
      [:irreflexive-below  [(list adores A A) (list 'genl adores likes)] (list 'irreflexive likes)      d :irreflexive 1]]))
 
+(deftest try-assert-refuses-a-clash-a-genl-edge-below-the-writer-s-context-forms-in-either-order
+  ;; per row: `[a b]` and `[b a]`, each the first written by `assert` and the second by
+  ;; `try-assert`, refuse the second.  The `genl` edge putting the tuple's predicate under
+  ;; the declared one is stated in CxLow alone: below the declaration (`:arg`,
+  ;; `:irreflexive`, `:rule`) or below the fact, beside the declaration (`:arg-below`)
+  (doseq [row [:arg :irreflexive :arg-below :rule]]
+    (tu/with-kb [kb]
+      (tu/with-terms [dog_t cat_t likesDog likesPet likesCat Rex Tom CxLow]
+        (let [U     'CxUniverse
+              setup [[(list 'genlCx CxLow U) U] [(list 'binary_predicate likesDog) U]
+                     [(list 'binary_predicate likesPet) U] [(list 'disjoint dog_t cat_t) U]
+                     [(list cat_t Tom) U] [(list 'genl likesPet likesDog) CxLow]
+                     [(list 'binary_predicate likesCat) U] [(list 'arg likesCat 2 cat_t) U]]
+              [a b] (case row
+                      :arg         [[(list 'arg likesDog 2 dog_t) U] [(list likesPet Rex Tom) CxLow]]
+                      :irreflexive [[(list 'irreflexive likesDog) U] [(list likesPet Rex Rex) CxLow]]
+                      :arg-below   [[(list 'arg likesDog 2 dog_t) CxLow] [(list likesPet Rex Tom) U]]
+                      :rule        [[(list 'arg likesDog 2 dog_t) U]
+                                    [(list 'implies (list likesPet '?x '?y) (list likesCat '?x '?y)) CxLow]])
+              run   (fn [[s1 c1] [s2 c2]]
+                      (let [h (v/assert kb s1 c1)
+                            r (try (v/retract! kb (v/try-assert kb s2 c2)) :stored
+                                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))]
+                        (v/retract! kb h)
+                        r))]
+          (run! #(apply v/assert kb %) setup)
+          (is (= [:definitional-clash :definitional-clash] [(run a b) (run b a)]) (name row)))))))
+
 (deftest try-assert-refuses-a-declaration-that-convicts-stored-tuples
   ;; per row: the stored tuples first, then `try-assert` of the declaration is refused with
   ;; the shapes and their counts (arity) or the self tuples (irreflexive), and `assert`
@@ -445,6 +473,21 @@
                   (is (not (v/in? kb (first hs))) "assert stores it and the tuple is not believed"))
               (do (is (= :stored e))
                   (is (v/in? kb (first hs)) "a :default metatype route binds nothing")))))))))
+
+(deftest try-assert-of-a-length-binding-counts-only-believed-tuples
+  ;; a `:monotonic` denial defeats the three-argument tuple: stored and not believed
+  (doseq [denied? [true false]]
+    (tu/with-kb [kb]
+      (tu/with-terms [likes A B C]
+        (v/assert kb (list likes A B C) 'CxUniverse)
+        (when denied?
+          (v/assert kb (list 'not (list likes A B C)) 'CxUniverse {:strength :monotonic}))
+        (let [e (try (v/retract! kb (v/try-assert kb (list 'binary_predicate likes) 'CxUniverse))
+                     :stored
+                     (catch clojure.lang.ExceptionInfo e
+                       [(:violation (ex-data e)) (get-in (ex-data e) [:detail :shapes])]))]
+          (is (= (if denied? :stored [:arity [{:relation likes :arguments 3 :count 1}]]) e)
+              (str "denied " denied?)))))))
 
 (tu/deftest-kb try-assert-refuses-an-except-of-a-length-binding
   ;; `assert` stores the except, and the length stays bound at every context, so the

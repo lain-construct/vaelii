@@ -412,33 +412,94 @@
   [kb base]
   (filter rules/cardinality-of (program-rules kb base)))
 
+(defn- check-sum-weights
+  "Throw `:not-well-formed` unless every weight in `weights`, bound by the weighted bound
+  `rsx`, is a non-negative integer and, with `total?`, their total fits the solver's
+  32-bit range: a weight body's bound and weights are int32, and a negative weight has no
+  ASPIF spelling."
+  [rsx weights total?]
+  (let [bad   (first (remove #(and (integer? %) (<= 0 % Integer/MAX_VALUE)) weights))
+        total (when (and total? (nil? bad)) (reduce + 0 weights))]
+    (when (or (some? bad) (and total (< Integer/MAX_VALUE total)))
+      (let [surface (rules/rewrap (sx/sentence-of rsx) nil nil nil (rules/constraint-of rsx))]
+        (throw (ex-info (str "a weighted bound's weights must be non-negative integers whose "
+                             "total per group fits the solver's 32-bit range; "
+                             (if (some? bad)
+                               (str "a background fact bound " (pr-str bad))
+                               (str "one group's weights total " total))
+                             " in " (pr-str surface))
+                        {:type :not-well-formed :sentence surface :weight bad}))))))
+
+(defn- sum-groups
+  "The weighted bound `rsx`'s groups: `{gkey {id weight}}`, its body grounded as a
+  constraint body (`ground-constraint-body`) over the atoms of `head->id`, each distinct
+  binding of the weight, counted and group variables adding its weight to the one
+  program atom it names, summed per atom as `#sum` sums distinct tuples.  Throws
+  `:not-well-formed` for a body naming other than one positive program literal."
+  [kb base rsx head->id idx]
+  (let [{:keys [counted weight]} (rules/cardinality-of rsx)
+        body       (vec (:antecedent rsx))
+        preds      (into #{} (map first) (keys head->id))
+        prog       (filter #(and (sequential? %) (preds (first %))) body)
+        group-vars (vec (remove #{counted weight} (distinct (sx/form-vars body))))]
+    (when-not (and (= 1 (count prog)) (not-any? #(neg-choice-lit? preds %) body))
+      (throw (ex-info (str "a weighted bound's body names exactly one positive choice or "
+                           "derived literal, the head each weight counts toward; got "
+                           (pr-str (rules/rewrap (sx/sentence-of rsx) nil nil nil
+                                                 (rules/constraint-of rsx))))
+                      {:type :not-well-formed :sentence (sx/sentence-of rsx)})))
+    (let [rows (distinct (ground-constraint-body kb base body (list* 'sumKey weight counted group-vars)
+                                                 preds head->id idx (registry-bounds kb base)))
+          _    (check-sum-weights rsx (map (fn [[_ _ [_ w]]] w) rows) false)
+          grouped (group-by (fn [[_ _ [_ _ _ & g]]] (zipmap group-vars g)) rows)]
+      (if (and (empty? rows) (empty? group-vars))
+        {{} {}}
+        (into {}
+              (map (fn [[gkey gs]]
+                     (let [ws (reduce (fn [m [ids _ [_ w]]] (update m (first ids) (fnil + 0) w)) {} gs)]
+                       (check-sum-weights rsx (vals ws) true)
+                       [gkey ws])))
+              grouped)))))
+
 (defn- cardinality-constraints
   "Ground every cardinality rule visible from `base` into `solve/Program` cardinality
   entries: its single antecedent matched against the atoms of `head->id`, the matches
   grouped by the bindings of its variables other than the counted one, one entry per
   group.  `(build ?c transport)` counted over `?c` is one group; `(ferry ?a ?t)` counted
-  over `?a` is one per `?t`.  A global bound with no match is one empty group."
+  over `?a` is one per `?t`.  A global bound with no match is one empty group.  A weighted
+  bound's entry adds `:weights {id w}` (`sum-groups`)."
   [kb base head->id]
   (let [idx (choice-arg-index (keys head->id))]
     (for [rsx (cardinality-rules kb base)
-          :let [{:keys [op k counted]} (rules/cardinality-of rsx)
+          :let [{:keys [op k counted weight]} (rules/cardinality-of rsx)
                 hard?      (= :hard (rules/constraint-of rsx))
                 pattern    (first (:antecedent rsx))
                 group-vars (remove #{counted}
                                    (distinct (sx/form-vars pattern)))
-                matches    (for [head (literal-heads idx pattern)
-                                 :let  [b (res/unify pattern head {})]
-                                 :when b]
-                             [(dissoc b counted) (head->id head)])
-                groups     (if (and (empty? matches) (empty? group-vars))
-                             {{} []}
-                             (group-by first matches))]
+                matches    (when-not weight
+                             (for [head (literal-heads idx pattern)
+                                   :let  [b (res/unify pattern head {})]
+                                   :when b]
+                               [(dissoc b counted) (head->id head)]))
+                groups     (cond
+                             weight (sum-groups kb base rsx head->id idx)
+                             (and (empty? matches) (empty? group-vars)) {{} []}
+                             :else (group-by first matches))]
           [gkey members] groups]
-      {:op op :k k
-       :members  (into #{} (map second) members)
-       :hard     hard?
-       :priority 1
-       :sentence (list 'cardinalityBound op k (res/substitute pattern gkey))})))
+      (if weight
+        (let [body (:antecedent rsx)]
+          {:op op :k k
+           :members  (set (keys members))
+           :weights  members
+           :hard     hard?
+           :priority 1
+           :sentence (list 'sumBound op k (res/substitute (if (next body) (cons 'and body) (first body))
+                                                          gkey))})
+        {:op op :k k
+         :members  (into #{} (map second) members)
+         :hard     hard?
+         :priority 1
+         :sentence (list 'cardinalityBound op k (res/substitute pattern gkey))}))))
 
 ;; ---- solve rules: the normal rules a solve grounds ------------------------
 ;; A body splits by predicate as a constraint's does; grounding is a semi-naive fixpoint
@@ -606,7 +667,8 @@
   Returns `{:program p :head->id {sentence id} :derived->id {sentence id}}`, or nil with no
   choice head.  The ids are program-local, numbered over the heads sorted by
   `nm/print-key`, then the derived atoms in the same order; `edge/translate` orders the
-  encoding by them.  Throws `:choice-head-not-positive` for a negated head."
+  encoding by them.  Eager, so `provers/with-unenumerated` around it sees every join.
+  Throws `:choice-head-not-positive` for a negated head."
   [kb base]
   (let [heads (nm/sort-by-content-key nm/print-key compare (ground-heads kb base))]
     ;; a negated head would read back from `(not head)` with its polarity flipped
@@ -637,9 +699,9 @@
                                  (distinct))
                            insts)
             content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) atom->id)
-            ngoods   (concat (nogoods kb base head->id)
-                             (constraint-nogoods kb base atom->id dpreds))
-            cards    (cardinality-constraints kb base atom->id)
+            ngoods   (into [] cat [(nogoods kb base head->id)
+                                   (constraint-nogoods kb base atom->id dpreds)])
+            cards    (vec (cardinality-constraints kb base atom->id))
             program  (solve/program (set (vals head->id)) ngoods content cards derivs)]
         {:program program :head->id head->id :derived->id (apply dissoc atom->id heads)}))))
 
@@ -678,8 +740,10 @@
   with no backend leaves the previous run standing.
 
   Returns `{:base :into :choices [..] :derived [..] :labelings [{:context :true [..]
-  :false [..]}] :count n :ground-ms :translate-ms :solve-ms}`, `:context` nil under
-  `:one` / `:sat`, `:best-effort? true` when a stopped solve held a model.  `:count 0`
+  :false [..]}] :count n :unenumerated [..] :unenumerated-in-guards [..] :ground-ms
+  :translate-ms :solve-ms}`, `:context` nil under `:one` / `:sat`, `:best-effort? true`
+  when a stopped solve held a model.  `:unenumerated` names each transitive predicate the
+  grounding read with both arguments open (`provers/*unenumerated*`).  `:count 0`
   carries a `:reason`: `:no-choices`, `:no-backend`, or `:unsatisfiable` under `:one` /
   `:sat`.  See docs/solving.md, \"`(do/label Base Into [mode])`\"."
   ([kb base into-cx] (label kb base into-cx :all))
@@ -687,7 +751,7 @@
    (let [single? (contains? #{:one :sat} mode)
          _       (when-not single? (refuse-blocked-run! kb base into-cx))
          t0      (System/nanoTime)
-         built   (build kb base)
+         [built unenumerated] (provers/with-unenumerated #(build kb base))
          t1      (System/nanoTime)]
      (if-let [{:keys [program head->id derived->id]} built]
        (let [atom->id (merge head->id derived->id)
@@ -702,7 +766,8 @@
                (one-optimum program (= mode :one))     ; :sat ⇒ keep-belief off (plain SAT)
                (let [ta (System/nanoTime), o (edge/enumerate-optima program)]
                  {:optima o :solve-ms (/ (- (System/nanoTime) ta) 1e6)}))
-             timing   {:ground-ms (/ (- t1 t0) 1e6) :translate-ms translate-ms :solve-ms solve-ms}
+             timing   (merge unenumerated
+                             {:ground-ms (/ (- t1 t0) 1e6) :translate-ms translate-ms :solve-ms solve-ms})
              labeling (fn [chosen] {:true  (into [] (map id->head) chosen)
                                     :false (into [] (map id->head) (remove (set chosen) all-ids))})]
          (cond
@@ -743,8 +808,9 @@
                              optima))}
                       timing)))))
        (do (when-not single? (clear-run! kb base into-cx))
-           {:base base :into into-cx :count 0 :choices []
-            :reason :no-choices :labelings []})))))
+           (merge {:base base :into into-cx :count 0 :choices []
+                   :reason :no-choices :labelings []}
+                  unenumerated))))))
 
 ;; ---- do/classify: gather brave/cautious over the labelings ---------------
 

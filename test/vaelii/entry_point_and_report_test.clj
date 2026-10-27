@@ -312,8 +312,11 @@
              :type    :arg-type}
             ;; the covering forms type every position a sentence has, or every one from a
             ;; start, with `arg`'s per-argument conviction, so they take its reach
+            ;; `args` read through the `argAndRest` twin core.txt's forward rule stores,
+            ;; a rule this KB does not load
             {:row     "args, the declaration arriving last"
              :fact    (list parentOf Rock Mary)
+             :extra   [tu/args-sugar-rule]
              :closing (list 'args parentOf person_t)
              :next    (list parentOf Pebble Mary)
              :type    :arg-type}
@@ -363,32 +366,186 @@
              (is (= type (:type (tu/write-conviction kb next 'CxUniverse)))
                  "and the identical claim one line later is held alike"))))))))
 
-(deftest a-stranded-declaration-is-a-census-finding-and-the-census-says-what-the-entry-point-says
-  ;; The other documented absence, and the one whose retroactive half lives somewhere else
-  ;; entirely.  `(arg fatherOf 3 person)` is admitted while nothing binds `fatherOf`'s
-  ;; length; when a length arrives the declaration constrains a position the predicate
-  ;; provably lacks, and the entry point refuses the identical sentence one line later.  It is not
-  ;; refused retroactively — that would make the binding's arrival order decide — and not
-  ;; filed in the ledger either, because a stranded declaration is inert and reads the same
-  ;; an hour later, so there is no *newly* for a settle to report.  `kb-quality` names it,
-  ;; and this is the row that keeps the census reading in the entry point's vocabulary.
+(defn- refusal-data
+  "The `ex-data` of the refusal `(try-assert kb sentence context opts)` throws, or nil when
+  it stores the sentence."
+  [kb sentence context opts]
+  (try (v/try-assert kb sentence context opts) nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest a-stranded-declaration-is-a-census-finding-and-the-census-says-what-try-assert-says
+  ;; `(arg fatherOf 3 person)` is stored whatever binds `fatherOf`'s length, and a bound
+  ;; length strands it: it constrains a position the predicate does not have.  It is not
+  ;; filed in the ledger, because a stranded declaration is inert and reads the same an
+  ;; hour later, so there is no *newly* for a settle to report.  `kb-quality` names it,
+  ;; and this is the row that keeps the census reading in `try-assert`'s vocabulary.
   (tu/with-terms [parentOf fatherOf a_type]
     (tu/with-cleared-kb [kb tu/fresh]
       (doseq [s [(list 'genl a_type 'thing)
-                 (list 'arg fatherOf 3 a_type)
                  (list 'binary_predicate parentOf)
-                 (list 'genl fatherOf parentOf)]]
+                 (list 'genl fatherOf parentOf)
+                 (list 'arg fatherOf 3 a_type)]]
         (v/assert kb s 'CxUniverse))
       (is (empty? (v/violations kb)) "the settle files nothing")
       (let [e (first (:stranded (:declarations (v/kb-quality kb))))
-            d (first (v/check kb (list 'arg fatherOf 3 a_type) 'CxUniverse))]
-        (is (= :arg-position (:type d)) "the entry point refuses the identical sentence")
+            r (refusal-data kb (list 'arg fatherOf 3 a_type) 'CxUniverse nil)
+            d (:detail r)]
+        (is (= [:definitional-clash :arg-position] [(:type r) (:violation r)])
+            "try-assert refuses the identical sentence")
         (testing "and the census names the same predicate, position and binding"
           (is (= fatherOf (:predicate e) (:predicate d)))
           (is (= 3 (:position e) (:position d)))
           (is (= 2 (:arity e) (:arity d)))
           (is (= parentOf (:via e) (:via d))
               "the length came through the super, and both halves say so"))))))
+
+(deftest a-declaration-past-a-bound-length-is-stored-and-stranded-in-both-orders
+  ;; One row per declaration kind, binding route and arrival order, each read before and
+  ;; after `recover`.  `assert` stores the declaration and the binding in both orders, the
+  ;; length stays bound, and the census lists the declaration.  The stranded declaration
+  ;; does not enter the arity reading as a lower bound: `admitsArgnum` denies position 5
+  ;; and a five-place tuple stays inert.  It mints nothing over a two-place tuple.
+  ;; `try-assert` refuses whichever of the two writes arrives second.
+  (let [m        {:strength :monotonic}
+        readings
+        (into #{}
+              (for [kind        '[arg genlArg]
+                    route       [:own :metatype]
+                    decl-first? [true false]]
+                (tu/with-terms [pairOf rel_kind a_type A B C D E]
+                  (tu/with-neutral-kb [kb tu/isolated-fresh]
+                    (let [decl     (list kind pairOf 5 a_type)
+                          [bind o] (case route
+                                     :own      [(list 'binary_predicate pairOf) nil]
+                                     :metatype [(list rel_kind pairOf) m])
+                          writes   (if decl-first? [[decl nil] [bind o]] [[bind o] [decl nil]])
+                          pair     (list pairOf A B)
+                          five     (list pairOf A B C D E)
+                          read     (fn [k]
+                                     (let [h (v/handle-of k decl 'CxUniverse)]
+                                       [(some? h)
+                                        (boolean (and h (v/believed? k h 'CxUniverse)))
+                                        (v/relation-arity k pairOf)
+                                        (v/ask? k (list 'admitsArgnum pairOf 5) 'CxUniverse)
+                                        (v/ask? k pair 'CxUniverse)
+                                        (v/ask? k five 'CxUniverse)
+                                        (v/ask? k (list a_type A) 'CxUniverse)
+                                        (into [] (comp (filter #(= pairOf (:predicate %)))
+                                                       (map (juxt :position :arity)))
+                                              (:stranded (:declarations (v/kb-quality k))))
+                                        (v/check k decl 'CxUniverse)]))]
+                      (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+                      (v/assert kb (list 'genl rel_kind 'binary_predicate) 'CxUniverse m)
+                      (let [[s so] (first writes)] (v/assert kb s 'CxUniverse so))
+                      (let [[s so] (second writes)
+                            r      (refusal-data kb s 'CxUniverse so)]
+                        (is (= [:definitional-clash :arg-position] [(:type r) (:violation r)])
+                            (str "try-assert refuses the second write: " kind " " route
+                                 (if decl-first? ", declaration first" ", binding first")))
+                        (is (nil? (v/handle-of kb s 'CxUniverse)) "and stores nothing")
+                        (v/assert kb s 'CxUniverse so))
+                      (v/assert kb pair 'CxUniverse)
+                      (v/assert kb five 'CxUniverse)
+                      (let [before (read kb)]
+                        (v/recover kb)
+                        [before (read kb)]))))))]
+    (is (= #{[[true true 2 false true false false [[5 2]] []]
+              [true true 2 false true false false [[5 2]] []]]}
+           readings)
+        "every row stores both, binds the length and lists the declaration, before and after recover")))
+
+(deftest a-genlArg-on-an-instance-relation-is-stored-in-both-orders
+  ;; The relation-kind arm reads the stored membership, so it is held to the same rule:
+  ;; `assert` stores the declaration and the membership in both orders, and `try-assert`
+  ;; refuses whichever arrives second.
+  (let [readings
+        (into #{}
+              (for [decl-first? [true false]]
+                (tu/with-terms [instRel a_type]
+                  (tu/with-neutral-kb [kb tu/isolated-fresh]
+                    (let [decl   (list 'genlArg instRel 2 a_type)
+                          kind   (list 'instance_relation_predicate instRel)
+                          [w1 w2] (if decl-first? [decl kind] [kind decl])
+                          read   (fn [k] (mapv #(let [h (v/handle-of k % 'CxUniverse)]
+                                                  (boolean (and h (v/believed? k h 'CxUniverse))))
+                                               [decl kind]))]
+                      (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+                      (v/assert kb w1 'CxUniverse)
+                      (let [r (refusal-data kb w2 'CxUniverse nil)]
+                        (is (= [:definitional-clash :arg-constraint-kind] [(:type r) (:violation r)])
+                            (if decl-first? "declaration first" "membership first"))
+                        (is (= instRel (:predicate (:detail r)))))
+                      (v/assert kb w2 'CxUniverse)
+                      (let [before (read kb)]
+                        (v/recover kb)
+                        [before (read kb)]))))))]
+    (is (= #{[[true true] [true true]]} readings))))
+
+(deftest a-genlArg-on-an-instance-relation-through-an-edge-is-refused-last-in-every-order-and-context
+  ;; The declaration, a membership in `rel_kind` and the edge putting `rel_kind` under
+  ;; `instance_relation_predicate` form the clash together.  Each row places the
+  ;; declaration and the membership in CxUniverse or in a context below it, and in each of
+  ;; the six arrival orders `try-assert` refuses the third write.
+  (let [verdicts
+        (into {}
+              (for [[dc mc] [[:root :root] [:root :sub] [:sub :root] [:sub :sub]]
+                    order   [[:decl :member :edge] [:decl :edge :member] [:member :decl :edge]
+                             [:member :edge :decl] [:edge :decl :member] [:edge :member :decl]]]
+                (tu/with-terms [instRel rel_kind a_type CxSub]
+                  (tu/with-neutral-kb [kb tu/isolated-fresh]
+                    (let [cx {:root 'CxUniverse :sub CxSub}
+                          w  {:decl   [(list 'genlArg instRel 1 a_type) (cx dc)]
+                              :member [(list rel_kind instRel) (cx mc)]
+                              :edge   [(list 'genl rel_kind 'instance_relation_predicate) 'CxUniverse]}]
+                      (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+                      (v/assert kb (list 'genlCx CxSub 'CxUniverse) 'CxUniverse {:strength :monotonic})
+                      (doseq [k (butlast order)] (apply v/assert kb (w k)))
+                      (let [[s c] (w (last order))
+                            r     (refusal-data kb s c nil)]
+                        [[dc mc order]
+                         [(:type r) (:violation r) (= instRel (:predicate (:detail r)))]]))))))]
+    (is (= 24 (count verdicts)))
+    (is (= {} (into {} (remove #(= [:definitional-clash :arg-constraint-kind true] (val %))) verdicts))
+        "no row stores the third write")))
+
+(deftest a-relation-kind-edge-below-the-pair-is-refused-only-when-it-arrives-last
+  ;; The declaration and the membership sit in CxUniverse and the edge in CxSub below
+  ;; them.  The check reads the edges in the context that sees the pair, so a membership
+  ;; or declaration arriving after the edge is stored (docs/taxonomy.md).
+  (let [verdicts
+        (into {}
+              (for [order [[:decl :member :edge] [:decl :edge :member] [:member :edge :decl]]]
+                (tu/with-terms [instRel rel_kind a_type CxSub]
+                  (tu/with-neutral-kb [kb tu/isolated-fresh]
+                    (let [w {:decl   [(list 'genlArg instRel 1 a_type) 'CxUniverse]
+                             :member [(list rel_kind instRel) 'CxUniverse]
+                             :edge   [(list 'genl rel_kind 'instance_relation_predicate) CxSub]}]
+                      (v/assert kb (list 'genl a_type 'thing) 'CxUniverse)
+                      (v/assert kb (list 'genlCx CxSub 'CxUniverse) 'CxUniverse {:strength :monotonic})
+                      (doseq [k (butlast order)] (apply v/assert kb (w k)))
+                      (let [[s c] (w (last order))]
+                        [(last order) (:violation (refusal-data kb s c nil))]))))))]
+    (is (= {:edge :arg-constraint-kind :member nil :decl nil} verdicts))))
+
+(deftest a-stranded-declaration-starts-no-work-on-its-predicate-s-tuples
+  ;; A believed stranded declaration marks its predicate in `tax/arg-declaration-props`,
+  ;; and a tuple of that predicate adds what a tuple of an undeclared predicate adds: its
+  ;; own sentex and nothing derived from the declaration.
+  (tu/with-terms [pairOf otherOf a_type A B]
+    (tu/with-neutral-kb [kb tu/isolated-fresh]
+      (doseq [s [(list 'genl a_type 'thing)
+                 (list 'binary_predicate pairOf)
+                 (list 'binary_predicate otherOf)
+                 (list 'arg pairOf 3 a_type)
+                 (list 'arg pairOf 1 'thing)]]
+        (v/assert kb s 'CxUniverse))
+      (let [added (fn [s]
+                    (let [sx (tu/sentex-ids kb) js (tu/justification-ids kb)]
+                      (v/assert kb s 'CxUniverse)
+                      [(count (remove sx (tu/sentex-ids kb)))
+                       (count (remove js (tu/justification-ids kb)))]))]
+        (is (= (added (list otherOf A B)) (added (list pairOf A B))))
+        (is (empty? (v/violations kb)))))))
 
 (deftest two-declared-arities-across-one-edge-read-the-same-whichever-arrives-last
   ;; The pair is a nogood of the two declarations (a hard clash under CxUniverse, whose

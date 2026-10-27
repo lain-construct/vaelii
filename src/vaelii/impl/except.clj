@@ -234,7 +234,7 @@
 ;; (`::open`).  A defeat met again while open answers false and lowers the read's mark
 ;; (`::open-low`) to that index, and a value that met an index below its own start is
 ;; provisional and is not kept.  The defeats left provisional when the first of them
-;; closes form a cycle, which `close-cycle` breaks (design ruling 18).  See docs/nmtms.md,
+;; closes form a cycle, which `close-cycle` breaks in content order.  See docs/nmtms.md,
 ;; "A defeat-dependency cycle".
 
 (def ^:private no-low Long/MAX_VALUE)
@@ -516,36 +516,47 @@
 
 (defn- rerouted
   "`{justification-id #{handle}}`: for each justification of a handle of `region` that rests
-  on a handle of `forced`, the forced handles it reads at their label, when the firing
-  stands at the reader another way.  A rule firing stands when the backward search finds
-  each goal it matched through a reach reached by a claim the reader believes, over edges
-  it believes, and with `with-excepts?` a claim and edges it also sees (`firing-stands?`).
-  Any other justification stands when every forced handle is a witness edge on a path its
-  antecedents name and the reader reaches both ends of each such path
-  (`route-reaches?`).  A read inside the search reads its own second routes the same way.
+  on a handle of `forced`, or on a `genl` or `genlCx` edge whose support reaches one and
+  which a second supporter in `up` states with no forced handle in its support, those
+  handles read at their label, when the firing stands at the reader another way.  A rule
+  firing stands when the backward search finds each goal it matched through a reach
+  reached by a claim the reader believes, over edges it believes, and with
+  `with-excepts?` a claim and edges it also sees (`firing-stands?`).
+  Any other justification stands when every such handle is a witness edge on a path its
+  antecedents name and the reader reaches both ends of each path holding one
+  (`route-reaches?`), since `tax/supporters` lists a second supporter the reader may not
+  believe.  A read inside the search reads its own second routes the same way.
   Nothing is re-derived (docs/nmtms.md, \"Where the layer stops\").  Asks only of a
   justification a forced handle reaches."
-  [{:keys [tms recs] :as st} region forced with-excepts?]
-  (into {}
-        (keep (fn [j]
-                (let [gone (filterv #(contains? forced %) (:antecedents j))]
-                  (when (seq gone)
-                    (let [stands (firing-stands? st with-excepts? j (set gone))]
-                      (if (some? stands)
-                        (when stands [(:id j) (set gone)])
-                        (let [sentences (into {} (keep (fn [h] (when-let [s (p/get-sentex recs h)]
-                                                                 [h (:sentence s)])))
-                                              (:antecedents j))
-                              paths     (witness-paths sentences)
-                              on-path   (into #{} (mapcat :edges) paths)]
-                          (when (and (every? #(contains? on-path %) gone)
-                                     (every? (fn [{:keys [rel a b edges]}]
-                                               (or (not-any? #(contains? forced %) edges)
-                                                   (route-reaches? st with-excepts? rel a b)))
-                                             paths))
-                            [(:id j) (set gone)]))))))))
-        (into [] (comp (mapcat #(jtms/supports tms %)) (distinct) (keep #(jtms/justification tms %)))
-              region)))
+  [{:keys [tms recs tax up] :as st} region forced with-excepts?]
+  (let [clear?     #(not-any? forced (support tms % (constantly false)))
+        edge-gone? (memoize
+                    (fn [h]
+                      (let [[f a b] (some-> (p/get-sentex recs h) :sentence)]
+                        (and (contains? #{'genl 'genlCx} f)
+                             (not (clear? h))
+                             (boolean (some (fn [[s c]] (and (not= s h) (contains? up c) (clear? s)))
+                                            (tax/supporters tax [(keyword f) a b])))))))]
+    (into {}
+          (keep (fn [j]
+                  (let [gone (into #{} (filter #(or (contains? forced %) (edge-gone? %))) (:antecedents j))]
+                    (when (seq gone)
+                      (let [stands (firing-stands? st with-excepts? j gone)]
+                        (if (some? stands)
+                          (when stands [(:id j) gone])
+                          (let [sentences (into {} (keep (fn [h] (when-let [s (p/get-sentex recs h)]
+                                                                   [h (:sentence s)])))
+                                                (:antecedents j))
+                                paths     (witness-paths sentences)
+                                on-path   (into #{} (mapcat :edges) paths)]
+                            (when (and (every? #(contains? on-path %) gone)
+                                       (every? (fn [{:keys [rel a b edges]}]
+                                                 (or (not-any? gone edges)
+                                                     (route-reaches? st with-excepts? rel a b)))
+                                               paths))
+                              [(:id j) gone]))))))))
+          (into [] (comp (mapcat #(jtms/supports tms %)) (distinct) (keep #(jtms/justification tms %)))
+                region))))
 
 (defn- with-routes
   "`belief-only` with the forced handles `routes` names for a justification
@@ -836,21 +847,62 @@
                       (and (seq (reads/as-stored-rules-by-consequent-in idx p/var-consequent-key up))
                            (some sees? declared))))}))))
 
+(defonce ^:private ^java.util.concurrent.atomic.AtomicLong yield-writes
+  (java.util.concurrent.atomic.AtomicLong.))
+
+(defonce ^:private yield-stores
+  ;; `{:base n :fs [f …]}`: the functors of the forced-monotonic facts stored, `fs`'s i-th
+  ;; the (base + i + 1)-th such store; the oldest 128 are dropped past 256
+  (atom {:base 0 :fs []}))
+
+(defn- opposed-forced?
+  "Is a body of a predicate of the forced-monotonic set stored in both polarities, read
+  whole: one or two counts per predicate of the set (`reads/stores-opposed-with-functor?`,
+  `reads/stores-opposed-between?`), whatever the number of opposed bodies."
+  [kb tax]
+  (let [idx (:index kb)]
+    (boolean
+     (or (some (partial reads/stores-opposed-with-functor? idx)
+               (decide/forced-predicates tax :forced-monotonic))
+         (some (partial reads/stores-opposed-between? idx)
+               (decide/forced-predicates tax :forced-between-predicates))))))
+
+(defn- opposed-functor?
+  "`opposed-forced?` for the one functor `f`."
+  [tax idx f]
+  (or (and (decide/forced-monotonic? tax :forced-monotonic f)
+           (reads/stores-opposed-with-functor? idx f))
+      (and (decide/forced-monotonic? tax :forced-between-predicates f)
+           (reads/stores-opposed-between? idx f))))
+
 (defn- yielding-reads?
   "Can a defeat name a `:monotonic` handle: a body stored in both polarities is a
   forced-monotonic literal over every reader (`decide/forced-literal?`), and
-  `decide/verdict` defeats its denial at any class.  Read off the opposed bodies by
-  functor, one or two counts per predicate of the forced-monotonic set
-  (`reads/stores-opposed-with-functor?`, `reads/stores-opposed-between?`), whatever the
-  number of opposed bodies.  Held for one stretch of the change clock."
+  `decide/verdict` defeats its denial at any class (`opposed-forced?`).  Held in the
+  taxonomy's closure memo across writes while no forced-monotonic fact leaves the index
+  (`yield-writes`) and the index and the KB-wide forced-monotonic sets stand: the answer
+  is one for every reader.  A store adds an opposed body and removes none, so a held true
+  stays true and a held false asks only the functors stored since (`yield-stores`)."
   [kb tax]
-  (tax/clock-held tax ::yielding :global
-                  #(let [idx (:index kb)]
-                     (boolean
-                      (or (some (partial reads/stores-opposed-with-functor? idx)
-                                (decide/forced-predicates tax :forced-monotonic))
-                          (some (partial reads/stores-opposed-between? idx)
-                                (decide/forced-predicates tax :forced-between-predicates)))))))
+  (let [memo  (:closure-memo @tax)
+        idx   (:index kb)
+        ;; both counters are read before the index, so a store this read misses is one
+        ;; the next read asks
+        at    [(.get yield-writes) idx
+               (tax/props tax :forced-monotonic) (tax/props tax :forced-between-predicates)]
+        {:keys [base fs]} @yield-stores
+        top   (+ (long base) (count fs))
+        prev  (some-> memo deref ::yielding)
+        same? (and prev (= at (:at prev)))
+        since (when (and same? (>= (long (:seen prev)) (long base)))
+                (subvec fs (- (long (:seen prev)) (long base))))
+        y     (cond
+                (nil? since)      (opposed-forced? kb tax)
+                (:yielding? prev) true
+                :else             (boolean (some #(opposed-functor? tax idx %) (distinct since))))]
+    (when (and memo (not (and same? (= top (:seen prev)))))
+      (swap! memo assoc ::yielding {:at at :seen top :yielding? y}))
+    y))
 
 (defn- reader-frame
   "What the walk reads at `ctx` that only a move `frames-hold?` reads can change: the
@@ -911,13 +963,12 @@
 (defonce ^:private ^java.util.concurrent.atomic.AtomicLong frame-writes
   (java.util.concurrent.atomic.AtomicLong.))
 
-(defonce ^:private ^java.util.concurrent.atomic.AtomicLong yield-writes
-  (java.util.concurrent.atomic.AtomicLong.))
-
-(defonce ^:private yield-stores
-  ;; `{:base n :fs [f …]}`: the functors of the forced-monotonic facts stored, `fs`'s i-th
-  ;; the (base + i + 1)-th such store; the oldest 128 are dropped past 256
-  (atom {:base 0 :fs []}))
+(defn frame-write-count
+  "How many times a rule or a fact of `frame-functors` has entered or left an index
+  (`note-stored!`): a count that moves whenever the stored `except`s and `defeat`s, and
+  so the targets they name, can have moved."
+  []
+  (.get frame-writes))
 
 (defn- forced-functor?
   "Is `f` forced-monotonic over every reader as either kind `yielding-reads?` reads."
@@ -930,7 +981,7 @@
   "Count `sx` entering (`stored?`) or leaving the index of `kb` when a reader frame reads
   it by storage (a rule, or a fact whose functor, under one `not`, is in
   `frame-functors`).  A fact whose functor is forced-monotonic (`forced-functor?`) is
-  counted leaving and logged by functor entering, which `held-yield` reads.  `kb` is nil
+  counted leaving and logged by functor entering, which `yielding-reads?` reads.  `kb` is nil
   for a write with no KB at hand, which counts every fact as leaving.  Called at each
   index write of a record: `kb/create-sentex`, `kb/respell-sentex!`,
   `integrate/sentex-removed!`, `reindex/index-one!` and `reindex/unindex-one!`."
@@ -1009,29 +1060,6 @@
       (when (every? #(= (contains? in %) (jtms/in? tms %)) labels)
         (assoc w :mark mark)))))
 
-(defn- held-yield
-  "`yielding-reads?` at `kb` as `{:at :seen :yielding?}`, from `prev`, the one a pass last
-  read under the watch `w`, when no forced-monotonic fact left and nothing in
-  `frame-inputs` moved since: a store leaves true as it was, and a false is read again only
-  for the functors stored since (`yield-stores`).  Read whole otherwise."
-  [kb tax w prev]
-  (let [at              [(.get yield-writes) (:inputs w)]
-        {:keys [base fs]} @yield-stores
-        top             (+ (long base) (count fs))
-        since           (when (and prev (= at (:at prev)) (>= (long (:seen prev)) (long base)))
-                          (subvec fs (- (long (:seen prev)) (long base))))
-        idx             (:index kb)
-        opposed?        (fn [f]
-                          (or (and (decide/forced-monotonic? tax :forced-monotonic f)
-                                   (reads/stores-opposed-with-functor? idx f))
-                              (and (decide/forced-monotonic? tax :forced-between-predicates f)
-                                   (reads/stores-opposed-between? idx f))))]
-    {:at at :seen top
-     :yielding? (cond
-                  (nil? since)        (yielding-reads? kb tax)
-                  (:yielding? prev)   true
-                  :else               (boolean (some opposed? (distinct since))))}))
-
 (def ^:dynamic *reader-states*
   "A volatile a pass that reads many handles binds (`with-reader-states`), holding per KB
   each context's reader frame while `frames-hold?` and its reader state for one value of
@@ -1074,7 +1102,7 @@
                 v0
                 (if-let [w (and v0 (frames-hold? kb (:watch v0)))]
                   (assoc v0 :watch w :clock now :states {})
-                  (assoc (select-keys v0 [:yield]) :clock now :watch nil :frames {} :states {})))
+                  {:clock now :watch nil :frames {} :states {}}))
           k   [ctx tax/*search*]]
       (if-let [e (find (:states v) k)]
         (do (when-not (identical? v v0) (vswap! m keep-kb-states kb v))
@@ -1082,13 +1110,11 @@
         (let [w  (or (:watch v) (frame-watch kb))
               fe (find (:frames v) k)
               fr (if fe (val fe) (reader-frame kb ctx))
-              y  (when fr (held-yield kb (:tax fr) w (:yield v)))
-              st (with-read-memo fr (:yielding? y))]
+              st (when fr (with-read-memo fr (yielding-reads? kb (:tax fr))))]
           (vswap! m keep-kb-states kb
-                  (cond-> (-> (assoc v :watch w)
-                              (assoc-in [:frames k] fr)
-                              (assoc-in [:states k] st))
-                    fr (assoc :yield y)))
+                  (-> (assoc v :watch w)
+                      (assoc-in [:frames k] fr)
+                      (assoc-in [:states k] st)))
           st)))
     (build-reader-state kb ctx)))
 
@@ -1312,8 +1338,7 @@
   the read's memo (`kept`).  The exemptions read the reader's bindings and equality
   supporters through it (`decide/exempt-at?`)."
   [{:keys [tms memo] :as st}]
-  (fn [h] (kept memo [::unseen h] #(not (and (or (jtms/in? tms h) (jtms/superseded? tms h))
-                                             (believed-in st h true))))))
+  (fn [h] (kept memo [::unseen h] #(not (and (jtms/raw-in? tms h) (believed-in st h true))))))
 
 (defn- in-force?
   "Is the defeat at `d` in force at the reader: IN, no except in force hiding it, and IN
@@ -1437,16 +1462,21 @@
   whose mark route a `siblingDisjointException` the reader sees exempts, whose two fillers
   the reader reads as one class, or whose binding the reader does not read as binding the
   functor.  A defeat several nogoods share loses only the justifications of the exempt
-  ones (`member-sets`)."
+  ones (`member-sets`).
+
+  Both read only `nogood` justifications, so a handle with none is answered off the
+  network before its record is read: the read walk asks this of every handle of a
+  support, and on a postgres store each record read is a round trip per handle per
+  membership a mint reads."
   [{:keys [kb tms recs up] :as st} x]
-  (let [s       (:sentence (p/get-sentex recs x))
-        exempt? #(decide/exempt-at? kb % up (unseen-fn st))]
-    (if (and (seq? s) (= 'contradicts (first s)))
-      (let [js (nogood-justifications tms x)]
-        (when (and (seq js) (exempt? (into #{} (map sx/handle-id) (rest s))))
-          (into #{} (map :id) js)))
-      (when-let [l (defeat-target* s)]
-        (into #{} (keep (fn [[j ms]] (when (exempt? ms) (:id j)))) (member-sets st x l))))))
+  (when-let [js (seq (nogood-justifications tms x))]
+    (let [s       (:sentence (p/get-sentex recs x))
+          exempt? #(decide/exempt-at? kb % up (unseen-fn st))]
+      (if (and (seq? s) (= 'contradicts (first s)))
+        (when (exempt? (into #{} (map sx/handle-id) (rest s)))
+          (into #{} (map :id) js))
+        (when-let [l (defeat-target* s)]
+          (into #{} (keep (fn [[j ms]] (when (exempt? ms) (:id j)))) (member-sets st x l)))))))
 
 (defn guard-owners
   "The ids of the justifications among `js` the `guard` justification `g` belongs to: of

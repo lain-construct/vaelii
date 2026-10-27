@@ -107,3 +107,44 @@
     (is (not (v/genl? kb "Bob" dog 'CxUniverse)))
     (is (= [[:not-well-formed (list 'genl "Bob" dog)]]
            (mapv (juxt :violation :sentence) (v/violations kb))))))
+
+(def ^:private relation-slots
+  "One sentence builder per position that names a predicate or a function, taking the
+  occupant `x`, a predicate `p` and a type `t`."
+  (concat
+   (for [mark '[transitive symmetric asymmetric reflexive functional irreflexive
+                anti_symmetric anti_transitive commutative decontextualized_predicate
+                forced_decontextualized_predicate forced_monotonic_predicate
+                forced_monotonic_between_predicates target_following_predicate
+                abducible_predicate closed_extent_predicate modal_predicate
+                reifiable_function unreifiable_function]]
+     (fn [x _ _] (list mark x)))
+   [(fn [x _ _] (list 'closedExtentForArg x 1 5))
+    (fn [x _ _] (list 'functionalInArg x 1))
+    (fn [x _ _] (list 'commutativeInArgAndRest x 1))
+    (fn [x _ _] (list 'commutativeInArgs x 1 2))
+    (fn [x p _] (list 'inverse x p))       (fn [x p _] (list 'inverse p x))
+    (fn [x p _] (list 'genlInverse x p))   (fn [x p _] (list 'genlInverse p x))
+    (fn [x _ t] (list 'arg x 1 t))         (fn [x _ t] (list 'interArg x 1 t 2 t))
+    (fn [x _ _] (list 'argArg x 1 2))      (fn [x _ t] (list 'interArgEqual x 1 3 2 t))
+    (fn [x _ t] (list 'argAndRest x 1 t))
+    (fn [x _ _] (list 'transitiveInArg x 1 'genl))
+    (fn [x p _] (list 'transitiveInArg p 1 x))
+    (fn [x p _] (list 'contextArgSubrelation x 1 p))
+    (fn [x p _] (list 'functionCorrespondingPredicate x p))
+    (fn [x _ _] (list 'functionCorrespondingPredicate 'MotherFn x))]))
+
+(tu/deftest-kb a-value-in-a-relation-position-is-not-well-formed
+  ;; a value denotes itself, so it names no predicate and no function
+  (tu/with-terms [relatesTo dog]
+    (doseq [value ["f" 5 2.5 1N :f true \f nil #inst "2020-01-01"
+                   #uuid "00000000-0000-0000-0000-000000000001"]
+            slot  relation-slots
+            :let  [sentence (slot value relatesTo dog)]]
+      (is (= [:not-well-formed] (mapv :type (v/check kb sentence 'CxUniverse)))
+          (pr-str sentence)))
+    (testing "a symbol and a compound name a relation"
+      (doseq [x [relatesTo (list 'TmpRelFn relatesTo)]
+              :let [sentence (list 'transitive x)]]
+        (is (not-any? #{:not-well-formed} (map :type (v/check kb sentence 'CxUniverse)))
+            (pr-str sentence))))))

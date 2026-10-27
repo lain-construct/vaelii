@@ -61,20 +61,22 @@
                    (.getBytes ^String s "UTF-8"))]
     (apply str (map #(format "%02x" %) d))))
 
+(defn witnesses
+  "`[[var expr]…]`, `free` sorted: the NAT `(SkolemFn <rule-digest> i <frontier-values…>)`
+  the i-th still-unbound (existential) variable of a rule's conclusion names under
+  `bindings`, before anything is minted."
+  [rule bindings free]
+  (let [rh   (rule-digest rule)
+        args (mapv #(res/substitute % bindings) (frontier-vars rule))]
+    (into [] (map-indexed (fn [idx e] [e (list* skolem-function rh idx args)])) (sort free))))
+
 (defn skolemize-conclusion
-  "Replace each still-unbound (existential) variable `free` in a rule's substituted
-  conclusion `raw` with its skolem constant, the NAT `(SkolemFn <rule-digest> i
-  <frontier-values…>)` for the i-th of `free` sorted, and return the ground conclusion."
-  [kb rule raw bindings free]
+  "Mint the skolem constant of each of `witnesses` (`witnesses` above) and return the
+  rule's substituted conclusion `raw` with each variable replaced by its constant."
+  [kb raw witnesses]
   (ensure-skolem-function kb)
-  (let [rh       (rule-digest rule)
-        args     (mapv #(res/substitute % bindings) (frontier-vars rule))
-        ;; One binding around the whole fold rather than one per mint: `into` is eager, so
-        ;; every mint runs inside it.
-        subs     (binding [wiring/*defer-settle?* true]
-                   (into {}
-                         (map-indexed
-                          (fn [idx e]
-                            [e (nat/reify-or-mint-nat kb (list* skolem-function rh idx args))]))
-                         (sort free)))]
+  ;; One binding around the whole fold rather than one per mint: `into` is eager, so
+  ;; every mint runs inside it.
+  (let [subs (binding [wiring/*defer-settle?* true]
+               (into {} (map (fn [[v e]] [v (nat/reify-or-mint-nat kb e)])) witnesses))]
     (res/substitute raw subs)))

@@ -651,18 +651,27 @@
 ;; because k and the operator ride the stored consequent, so none of them need a new arm.
 ;; Only `solve-context` reads the marker back (`cardinality-of`) and grounds it to ONE
 ;; solver cardinality atom rather than the `C(n, k+1)` subset nogoods a hand-written
-;; encoding needs (docs/solving.md).
+;; encoding needs (docs/solving.md).  A weighted bound `(asp/atMostSum k ?w ?v body)`
+;; rides `(sumAtMost k ?w ?v)` the same way, its body a conjunction like a minimize's.
+
+(def ^:private sum-markers
+  "The consequent-marker functors a normalized weighted bound carries."
+  '#{sumAtMost sumAtLeast})
 
 (def cardinality-markers
-  "The consequent-marker functors a normalized cardinality rule carries."
-  '#{cardAtMost cardAtLeast})
+  "The consequent-marker functors a normalized cardinality rule carries, weighted or not."
+  (into '#{cardAtMost cardAtLeast} sum-markers))
 
 (def ^:private cardinality-wrappers
-  "The four surface wrappers → `[marker constraint-class]`."
-  '{asp/atMost      [cardAtMost  :hard]
-    asp/atLeast     [cardAtLeast :hard]
-    asp/softAtMost  [cardAtMost  :soft]
-    asp/softAtLeast [cardAtLeast :soft]})
+  "The eight surface wrappers → `[marker constraint-class]`."
+  '{asp/atMost         [cardAtMost  :hard]
+    asp/atLeast        [cardAtLeast :hard]
+    asp/softAtMost     [cardAtMost  :soft]
+    asp/softAtLeast    [cardAtLeast :soft]
+    asp/atMostSum      [sumAtMost   :hard]
+    asp/atLeastSum     [sumAtLeast  :hard]
+    asp/softAtMostSum  [sumAtMost   :soft]
+    asp/softAtLeastSum [sumAtLeast  :soft]})
 
 (def ^:private cardinality-rewrap
   "The inverse of `cardinality-wrappers`: `[marker constraint-class]` → surface wrapper,
@@ -720,23 +729,33 @@
 
 (defn normalize-cardinality
   "Rewrite a `(asp/atMost k ?v pattern)` surface form into the internal constraint rule
-  `(set/hardConstraint (implies pattern (cardAtMost k ?v)))` — the soft twins into
-  `set/softConstraint`.  The identity on anything else, so `assert` and `check` apply it
-  to every sentence.
+  `(set/hardConstraint (implies pattern (cardAtMost k ?v)))`, and a weighted
+  `(asp/atMostSum k ?w ?v body)` into `(set/hardConstraint (implies body (sumAtMost k ?w
+  ?v)))` — the soft twins into `set/softConstraint`.  The identity on anything else, so
+  `assert` and `check` apply it to every sentence.
 
   Refuses a malformed bound here, at the entry point, before storage: `k` a non-negative
-  integer, `?v` a variable the pattern binds, `pattern` a literal.  The range check that
-  runs on the rewritten rule then holds `?v` to the pattern for free — the counted
-  variable is the consequent marker's only variable, and it comes from the antecedent."
+  integer, `?v` (and `?w`, distinct from it) a variable the pattern binds, `pattern` a
+  literal or, for a weighted bound, a conjunction.  The range check that runs on the
+  rewritten rule then holds the marker's variables to the antecedent."
   [sentence]
   (if-not (cardinality-surface? sentence)
     sentence
-    (let [[wrapper k v pattern] sentence
-          [marker klass]        (cardinality-wrappers wrapper)]
-      (when-not (= 4 (count sentence))
-        (throw (ex-info (str "a cardinality bound is (" wrapper " k ?counted pattern); got "
-                             (pr-str sentence))
+    (let [[marker klass] (cardinality-wrappers (first sentence))
+          sum?           (contains? sum-markers marker)
+          [wrapper k & more] sentence
+          [w v pattern]  (if sum? more (cons nil more))]
+      (when-not (= (if sum? 5 4) (count sentence))
+        (throw (ex-info (str "a cardinality bound is (" wrapper
+                             (if sum? " k ?weight ?counted body" " k ?counted pattern")
+                             "); got " (pr-str sentence))
                         {:type :not-well-formed :sentence sentence})))
+      (when (and sum? (not (and (sx/variable? w) (not= w v)
+                                (sequential? pattern) (some #{w} (sx/form-vars pattern)))))
+        (throw (ex-info (str "a weighted bound's weight slot must be a variable the body binds,"
+                             " distinct from the counted one; got " (pr-str w) " in "
+                             (pr-str sentence))
+                        {:type :not-well-formed :sentence sentence :weight w})))
       (when-not (and (integer? k) (not (neg? k)))
         (throw (ex-info (str "a cardinality bound's count must be a non-negative integer; got "
                              (pr-str k) " in " (pr-str sentence))
@@ -751,7 +770,9 @@
                              " must appear in the pattern " (pr-str pattern))
                         {:type :not-well-formed :sentence sentence :counted v :pattern pattern})))
       (list (get {:hard 'set/hardConstraint :soft 'set/softConstraint} klass)
-            (sx/rule-sentence [pattern] (list marker k v))))))
+            (if sum?
+              (list 'implies pattern (list marker k w v))
+              (sx/rule-sentence [pattern] (list marker k v)))))))
 
 (defn normalize-soft-priority
   "Rewrite a priority-tagged `(set/softConstraint P (implies body C))` into the internal
@@ -826,6 +847,8 @@
   "The surface form to write in place of each internal marker, for the refusal message."
   '{cardAtMost   "(asp/atMost k ?counted pattern) or (asp/softAtMost …)"
     cardAtLeast  "(asp/atLeast k ?counted pattern) or (asp/softAtLeast …)"
+    sumAtMost    "(asp/atMostSum k ?weight ?counted body) or (asp/softAtMostSum …)"
+    sumAtLeast   "(asp/atLeastSum k ?weight ?counted body) or (asp/softAtLeastSum …)"
     minimizeCost "(asp/minimize priority ?weight body)"
     softPriority "(set/softConstraint priority (implies body marker))"})
 
@@ -876,13 +899,19 @@
 (defn cardinality-of
   "The cardinality bound a stored constraint rule expresses — `{:op :at-most|:at-least
   :k int :counted ?v}` — read off the consequent marker `(cardAtMost k ?v)` /
-  `(cardAtLeast k ?v)`, or nil for an ordinary constraint rule."
+  `(cardAtLeast k ?v)`, plus `:weight ?w` off a weighted `(sumAtMost k ?w ?v)` /
+  `(sumAtLeast k ?w ?v)`, or nil for an ordinary constraint rule."
   [sentex]
   (let [c (:consequent sentex)]
     (when (and (sequential? c) (contains? cardinality-markers (first c)))
-      {:op      (if (= 'cardAtMost (first c)) :at-most :at-least)
-       :k       (second c)
-       :counted (nth c 2)})))
+      (if (contains? sum-markers (first c))
+        {:op      (if (= 'sumAtMost (first c)) :at-most :at-least)
+         :k       (nth c 1)
+         :weight  (nth c 2)
+         :counted (nth c 3)}
+        {:op      (if (= 'cardAtMost (first c)) :at-most :at-least)
+         :k       (second c)
+         :counted (nth c 2)}))))
 
 (defn soft-cost-of
   "Read the objective level and per-head weight a **ground** soft-constraint marker
@@ -940,6 +969,11 @@
        (and constraint (= soft-priority-marker cf))
        (let [[_ p m] conseq]
          (list 'set/softConstraint p (list 'implies (second sentence) m)))
+       ;; a weighted bound restores `(asp/atMostSum k ?w ?v body)`, the whole antecedent
+       ;; form its body, as a minimize does
+       (and constraint (contains? sum-markers cf))
+       (let [[marker k w v] conseq]
+         (list (cardinality-rewrap [marker constraint]) k w v (second sentence)))
        ;; a cardinality bound restores its authored surface (`normalize-cardinality`)
        (and constraint (contains? cardinality-markers cf))
        (let [[marker k v] conseq]
@@ -1635,7 +1669,7 @@
   rule that can actually conclude reaches `:var-pred`.
 
   One spelling for all three writers — `special/index-rule-sentex`, its unindex twin, and
-  `reindex/index-rule-entry` — so a rebuilt index files the key a live one does."
+  `reindex/index-one!` — so a rebuilt index files the key a live one does."
   [rule-sentex]
   (let [c (consequent-key (:consequent rule-sentex))]
     (if (and (sx/variable? c) (chains? rule-sentex))

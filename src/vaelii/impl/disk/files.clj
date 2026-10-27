@@ -744,7 +744,7 @@
 (defonce ^:private ^java.util.concurrent.atomic.AtomicBoolean dir-fsync-warned
   (java.util.concurrent.atomic.AtomicBoolean. false))
 
-(defn- fsync-dir!
+(defn fsync-dir!
   "Best-effort fsync of the directory holding `path`, so a file's creation/deletion
   is durable.  Swallowed on filesystems that reject directory fsync — `FileChannel/open`
   on a directory is not portable.

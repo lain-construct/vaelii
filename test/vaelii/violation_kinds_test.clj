@@ -210,8 +210,7 @@
   a sixth one is a failing test, and its kinds have to be named here before the tables
   cover that site."
   {"checks/constraint-admission"
-   {:kinds #{:arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :disjoint}
+   {:kinds #{:arg-type :inter-arg-type :arg-genl :disjoint}
     :why   (str "relabels `(:type p)` off `constraint-problem`, minus the arbitrable "
                 "kinds — a firing places one of those and lets `settle` weigh the pair. "
                 "`:disjoint` is the application a firing has not minted yet, read under "
@@ -219,8 +218,7 @@
                 "second sentex stands for the pair to weigh")}
 
    "checks/derivation-violation"
-   {:kinds #{:arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :disjoint}
+   {:kinds #{:arg-type :inter-arg-type :arg-genl :disjoint}
     :why   (str "`constraint-admission`'s relabel for the argument-type mint, which "
                 "places an arbitrable clash as a firing does")}
 
@@ -246,11 +244,18 @@
   undocumented one to hide — a caller branching on `:violation` meets it whether or not
   anybody wrote it down.  A kind belongs here only when a row would misdescribe the ledger
   rather than describe it, and it carries the sentence saying which."
-  (into {}
-        (for [k [:functional :asymmetric :anti-transitive]]
-          [k (str "only `checks/constraint-violation` relabels it, and that value decides "
-                  "abduction and a computed `genlCx` edge without reaching the ledger; "
-                  "every stored path admits the clash and each reader decides it")])))
+  (merge
+   (into {}
+         (for [k [:functional :asymmetric :anti-transitive]]
+           [k (str "only `checks/constraint-violation` relabels it, and that value decides "
+                   "abduction and a computed `genlCx` edge without reaching the ledger; "
+                   "every stored path admits the clash and each reader decides it")]))
+   (into {}
+         (for [k [:arg-position :arg-constraint-kind]]
+           [k (str "only `checks/constraint-violation` relabels it, and that value decides "
+                   "abduction and a computed `genlCx` edge without reaching the ledger; "
+                   "every stored path stores the declaration, and `kb-quality` lists a "
+                   "stranded one")]))))
 
 (def ^:private detail-not-scannable
   "Kinds whose `:detail` keys no reader of the written-out entry can see, each with why.  The

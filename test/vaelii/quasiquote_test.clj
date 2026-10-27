@@ -1,7 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.quasiquote-test
-  "Quasiquotation — the metalinguistic constructor (docs/nat.md, the plan).
+  "Quasiquotation — the metalinguistic constructor (docs/nat.md; docs/inference.md, \"Quoted forms
+  in unification\").
 
   `(Quasiquote T)` builds the syntactic term `T` with each `(Unquote v)` hole filled and
   names the result as syntax — a `Quote` mention reified to a constant.  A ground template

@@ -10,7 +10,6 @@
             [vaelii.impl.caches :as caches]
             [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
-            [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
@@ -248,7 +247,7 @@
   "The unsatisfiable sources a narrowing of `calc` read in `context`, each
   `{:source kw :pairs [[p q] …] :support #{handle} :stand-in #{[a b]}}`, a `:metric` source
   adding `:cycle [instant …]`, or naming `:dimensions [dimension …]` in place of both when
-  its problem is refused.  `:stand-in` is the pair of this network the narrowing
+  its problem is refused.  `:stand-in` is the pairs of this network the narrowing
   emptied for the source and no stored fact emptied.  nil when no source is unsatisfiable."
   [kb calc context]
   (:unsatisfiable-sources (read-network kb calc context)))
@@ -310,8 +309,9 @@
                  :sentence  nil
                  :detail    (cond-> {:message (str "the " (name (:name calc))
                                                    " network visible from " context
-                                                   " is unsatisfiable, so no goal of that"
-                                                   " calculus is answered there")
+                                                   " is unsatisfiable, so no goal naming a"
+                                                   " node of an unsatisfiable component is"
+                                                   " answered there")
                                      ;; a node may be a NAT and a pair always is a vector,
                                      ;; so both are keyed through the guarded printer
                                      :nodes (nm/by-print-key (nodes net))}
@@ -363,20 +363,81 @@
       (report-inconsistency! kb calc context net))
     result))
 
+(defn- component-pass
+  "`pass` over `net` with no resident entry in front, memoized in the calculus's
+  `:pc-cache` on the network value alone."
+  [{:keys [algebra pc-cache]} net]
+  (caches/read-through pc-cache (caches/limit-of :path-consistency pc-cache-limit) net
+                       #(qcn/path-consistent net (nodes net) algebra)))
+
+(defn- split
+  "nil when `net`, a network of `calc` as `network` reads it, is satisfiable.  Else
+  `{:bad [#{node} …] :blocked #{node} :net …}`: the connected components whose pass is
+  unsatisfiable (`qcn/components`), their nodes, and `net` less them.  When the remainder
+  is unsatisfiable as one network, which an algebra whose universe composes to less than
+  itself allows, the whole network is one bad component.  Resident on the KB under the
+  change clock beside `net` (`resident-pass`).  See docs/qcn.md, \"Unsatisfiability is per
+  component\"."
+  [kb calc context net]
+  (when (= :inconsistent (tighten kb calc context net nil))
+    (resident-pass
+     kb [(:name calc) context ::split] net
+     (fn [_stale]
+       (let [bad  (filterv #(= :inconsistent (component-pass calc (qcn/select-nodes net %)))
+                           (qcn/components net))
+             gone (into #{} cat bad)
+             rest (qcn/drop-nodes net gone)]
+         (if (and (seq bad) (map? (component-pass calc rest)))
+           {:bad bad :blocked gone :net rest}
+           {:bad [(nodes net)] :blocked (nodes net) :net {}}))))))
+
+(defn blocked-nodes
+  "The nodes of the unsatisfiable components of the network of `calc` visible from
+  `context` (`split`): no goal naming one is answered there.  `#{}` when the network is
+  satisfiable, and for a variable `context`."
+  [calc kb context]
+  (if (pvar? context)
+    #{}
+    (or (:blocked (split kb calc context (network kb calc context))) #{})))
+
+(defn unsatisfiable-components
+  "Each unsatisfiable component of the network of `calc` visible from `context`, as
+  `{:nodes #{node} :pairs #{[a b]} :culprits #{handle}}`: its nodes, its pairs
+  unsatisfiable as written, and the handles a support-carrying pass over it blames
+  (`qcn/path-consistent-with-support`).  nil when the network is satisfiable."
+  [calc kb context]
+  (let [{:keys [net support]} (read-network kb calc context)
+        algebra (:algebra calc)]
+    (when-let [{:keys [bad]} (split kb calc context net)]
+      (mapv (fn [ns]
+              (let [sub (qcn/select-nodes net ns)]
+                {:nodes    ns
+                 :pairs    (qcn/unsatisfiable-pairs sub algebra)
+                 :culprits (:culprits (qcn/path-consistent-with-support
+                                       sub (qcn/select-nodes support ns) ns algebra))}))
+            bad))))
+
 (defn- tighten-for-goal
-  "`[net closed extended?]` for a goal naming the nodes `extra` in `context`: the network
-  with the goal's nodes (`with-goal-nodes`), its pass, and whether the goal's nodes added
-  anything.  The network as read goes through `tighten` first, and an unsatisfiable one is
-  answered unextended; the extended one goes through `pass`, which does not report.  A
-  goal node cannot make a satisfiable network unsatisfiable: a moment is inserted into a
-  consistent calendar chain, and a point is constrained only by its own thing's order."
+  "`[net closed extended? blocked]` for a goal naming the nodes `extra` in `context`: the
+  network with the goal's nodes (`with-goal-nodes`), its pass, whether the goal's nodes
+  added anything, and the nodes of its unsatisfiable components.  The network as read goes
+  through `tighten` first; an unsatisfiable one is answered as its satisfiable components
+  (`split`), which a goal naming a blocked node does not extend.  The extended one goes
+  through `pass`, which does not report.  A goal node cannot make a satisfiable network
+  unsatisfiable: a moment is inserted into a consistent calendar chain, and a point is
+  constrained only by its own thing's order."
   [kb calc context extra]
-  (let [base (network kb calc context)
-        pc   (tighten kb calc context base extra)
-        net  (if (= :inconsistent pc) base (with-goal-nodes calc base extra))]
-    (if (identical? net base)
-      [net pc false]
-      [net (pass kb calc context net extra) true])))
+  (let [base    (network kb calc context)
+        pc      (tighten kb calc context base extra)
+        {:keys [blocked] sat :net} (when (= :inconsistent pc) (split kb calc context base))
+        read    (or sat base)
+        pc      (if sat (pass kb calc context sat extra) pc)
+        net     (if (or (= :inconsistent pc) (some #(contains? blocked %) extra))
+                  read
+                  (with-goal-nodes calc read extra))]
+    (if (identical? net read)
+      [net pc false blocked]
+      [net (pass kb calc context net extra) true blocked])))
 
 (defn constraint
   "The constraint set on `[i j]` in `net`: the identity on the diagonal, the recorded
@@ -386,10 +447,12 @@
 
 (defn possible
   "The base relations still possible between `a` and `b` given everything believed in
-  `context` — `#{}` when the network is inconsistent."
+  `context` — `#{}` when either lies in an unsatisfiable component of the network."
   [calc kb context a b]
-  (let [[_ pc _] (tighten-for-goal kb calc context [a b])]
-    (if (= pc :inconsistent) #{} (constraint calc pc a b))))
+  (let [[_ pc _ blocked] (tighten-for-goal kb calc context [a b])]
+    (if (or (= pc :inconsistent) (contains? blocked a) (contains? blocked b))
+      #{}
+      (constraint calc pc a b))))
 
 (defn definite
   "The single base relation between `a` and `b` when path consistency determines it;
@@ -438,11 +501,15 @@
       #(qcn/path-consistent-with-support net support (into (nodes net) extra) algebra)))))
 
 (defn- resolved
-  "The support-carrying pass over the network of `calc` visible from `context`, with
-  `extra` folded into the node set."
+  "The support-carrying pass over the satisfiable components of the network of `calc`
+  visible from `context` (`split`), with `extra` folded into the node set."
   [calc kb context extra]
-  (let [{:keys [net support]} (read-network kb calc context)]
-    (tighten-with-support kb calc context (with-goal-nodes calc net extra) support extra)))
+  (let [{:keys [net support]} (read-network kb calc context)
+        {:keys [blocked] sat :net} (split kb calc context net)
+        net     (or sat net)
+        support (qcn/drop-nodes support blocked)]
+    (tighten-with-support kb calc context (with-goal-nodes calc net (remove #(contains? blocked %) extra))
+                          support extra)))
 
 ;; ---- what has moved since a caller last joined over this network ---------
 ;; docs/qcn.md, "The re-join is semi-naive, over the pairs that moved".
@@ -495,8 +562,8 @@
 (defn support
   "The handles of the stored sentexes the relation between `a` and `b` rests on: the
   facts intersected into that pair, plus the facts behind every composition that narrowed
-  it, for one derivation.  `#{}` when the pair is unconstrained or the network is
-  inconsistent."
+  it, for one derivation.  `#{}` when the pair is unconstrained or either node lies in an
+  unsatisfiable component."
   [calc kb context a b]
   (let [r (resolved calc kb context [a b])]
     (if (:inconsistent r) #{} (get (:support r) [a b] #{}))))
@@ -506,16 +573,28 @@
   constraint emptied and the sentexes behind it, or nil when the network is satisfiable.
   Which pair is blamed depends on the driver's order (docs/qcn.md, \"Support\")."
   [calc kb context]
-  (let [r (resolved calc kb context nil)]
+  (let [{:keys [net support]} (read-network kb calc context)
+        r (tighten-with-support kb calc context net support nil)]
     (when-let [pair (:inconsistent r)]
       {:pair pair :support (:culprits r)})))
 
 (defn closure-with-support
-  "The support-carrying pass over the network of `calc` visible from `context`, every pair
-  at once: `{:network … :support …}`, or `{:inconsistent [i j] :culprits #{handle}}`.  A
-  caller reading many pairs reads them here; `support` walks every pair per call."
+  "The support-carrying pass over the satisfiable components of the network of `calc`
+  visible from `context`, every pair at once: `{:network … :support …}`.  A caller reading
+  many pairs reads them here; `support` walks every pair per call."
   [calc kb context]
   (resolved calc kb context nil))
+
+(defn closed-network
+  "The pass over the satisfiable components of the network of `calc` visible from
+  `context`: `tighten` of the network as read when it is satisfiable, else `pass` of what
+  `split` leaves."
+  [calc kb context]
+  (let [net (network kb calc context)
+        pc  (tighten kb calc context net nil)]
+    (if-let [sat (:net (split kb calc context net))]
+      (pass kb calc context sat nil)
+      pc)))
 
 ;; ---- the prover ----------------------------------------------------------
 
@@ -535,50 +614,22 @@
                (contains? (:predicates calc) (first lit)))
       lit)))
 
-(defn- declared-arg-types
-  "`[types1 types2]`: the types the `arg` declarations `context` sees bind `pred`'s two
-  positions to, `pred`'s own and its visible super-predicates' — the reader `assert`'s
-  argument check uses (`res/constraining-predicates`)."
-  [kb pred context]
-  (let [ps (res/constraining-predicates kb 'arg pred context)]
-    (mapv (fn [n]
-            (into #{}
-                  (for [p     ps
-                        [_ b] (res/matches-visible kb (list 'arg p n '?t) context)
-                        :let  [t (get b '?t)]
-                        :when (and (symbol? t) (not (pvar? t)))]
-                    t)))
-          [1 2])))
-
-(defn- admits-fn
-  "A predicate `(fn [x position] …)`: does every type `types` names for `position` (0 or
-  1) admit node `x`?  A type admits a node unless the node holds a type `context` sees as
-  disjoint from it, so an untyped node is admitted, as `assert` admits it.  Each node's
-  types are read once per call."
-  [kb types context]
-  (let [tax  (reasoning/taxonomy kb)
-        held (memoize (fn [x] (vec (kb/types-of kb x context))))]
-    (fn [x position]
-      (let [hs (held x)]
-        (not-any? (fn [t] (some #(tax/disjoint? tax % t context) hs))
-                  (nth types position))))))
-
 (defn typed-admits?
   "Do the types `context` sees declared of `pred`'s two positions admit `x` and `y`
-  (`admits-fn`)?  True for a `pred` that `calc` does not name `:typed`.  The admission
-  `solve-goal` asks of a positive goal, for a caller re-deciding one answer."
+  (`res/arg-admits-fn`)?  True for a `pred` that `calc` does not name `:typed`.  The
+  admission `solve-goal` asks of a positive goal, for a caller re-deciding one answer."
   [calc kb pred x y context]
   (or (not (contains? (:typed calc) pred))
-      (let [admits? (admits-fn kb (declared-arg-types kb pred context) context)]
+      (let [admits? (res/arg-admits-fn kb pred context)]
         (and (admits? x 0) (admits? y 1)))))
 
 (defn- solve-goal
   "Solutions for a goal `(P a b)` or `(not (P a b))` in `context`, read off the
   path-consistent network: entailment `possible ⊆ denotation(P)` for the positive,
-  refutation `possible ∩ denotation(P) = ∅` for the negative, nothing when the network is
-  unsatisfiable.  A positive goal on a `:typed` predicate also needs each argument
-  admitted by its declared types (`admits-fn`).  The four goal shapes are docs/qcn.md's,
-  \"Reading out\".
+  refutation `possible ∩ denotation(P) = ∅` for the negative, nothing for a goal naming a
+  node of an unsatisfiable component, whose nodes no variable binds (`split`).  A positive goal on a `:typed` predicate also needs each argument
+  admitted by its declared types (`res/arg-admits-fn`).  The four goal shapes are
+  docs/qcn.md's, \"Reading out\".
 
   `pairs`, when given, enumerates those pairs in place of the nodes; only a caller that
   has acted on the answers it leaves out (`join-delta`) passes it.  `pairs` is ignored when
@@ -589,11 +640,11 @@
          [pred a b] (claimed-literal calc goal)
          denot ((:denotation calc) pred)
          extra (remove pvar? [a b])
-         [net pc extended?] (tighten-for-goal kb calc context extra)
+         [net pc extended? blocked] (tighten-for-goal kb calc context extra)
          pairs (when-not extended? pairs)]
-     (when-not (= pc :inconsistent)
+     (when-not (or (= pc :inconsistent) (some #(contains? blocked %) extra))
        (let [admits? (when (and (not neg?) (contains? (:typed calc) pred))
-                       (admits-fn kb (declared-arg-types kb pred context) context))
+                       (res/arg-admits-fn kb pred context))
              holds?  (fn [x y]
                        (let [poss (constraint calc pc x y)]
                          (and (seq poss)
@@ -634,8 +685,9 @@
 (defn- lifted-predicates
   "The calculus predicates `goal`'s predicate sits above by `genl`, as `context` sees the
   edges, when `goal` is a positive binary literal on a predicate the calculus does not
-  answer; else nil.  `(genl subintervalOf partOf)` makes every `subintervalOf` tuple a
-  `partOf` tuple, so a `partOf` goal lifts to `subintervalOf`."
+  answer; else nil.  `(genl subintervalOf subtimeOf)` and `(genl subtimeOf partOf)` make
+  every `subintervalOf` tuple a `subtimeOf` and a `partOf` tuple, so a goal on either
+  lifts to `subintervalOf`."
   [calc kb goal context]
   (when (and (sequential? goal) (= 3 (count goal)))
     (let [q (first goal)]
@@ -725,6 +777,16 @@
   to one calculus.  A predicate that only moves a network is `calculi-triggered-by`'s."
   [kb pred]
   (first (filter #(contains? (:predicates %) pred) (registered-calculi kb))))
+
+(defn converse-entailed?
+  "Does `calc`'s network entail `(p a b)` from every believed `(q b a)`: does `calc` own
+  `p` and `q`, with the algebra's converse of `q`'s denotation inside `p`'s?  A believed
+  `(inverse p q)` the converse table implies is then a source the network already reads
+  (`provers/shadowing-channels`)."
+  [calc p q]
+  (let [den (:denotation calc)]
+    (boolean (and (contains? den p) (contains? den q)
+                  (set/subset? ((:converse (:algebra calc)) (den q)) (den p))))))
 
 (defn calculi-triggered-by
   "Every registered calculus one of whose `:trigger-predicates` is `pred` or a

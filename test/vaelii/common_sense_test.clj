@@ -473,9 +473,9 @@
 ;; ---- where a thing is ---------------------------------------------------
 
 (tu/deftest-kb a-part-is-wherever-its-whole-is
-  ;; Two theories meeting: mereology carries location down parthood, and locatedIn is
-  ;; transitive, so the piston is in the house through four facts and neither of them
-  ;; is about pistons or houses.
+  ;; Two theories meeting: the test world's join rule carries location down parthood,
+  ;; and locatedIn is transitive, so the piston is in the house through four facts and
+  ;; neither of them is about pistons or houses.
   (testing "the rule fires down one level and stores what it concluded"
     (is (seq (v/sentexes-matching kb '(locatedIn Engine1 Garage1) N))))
   (testing "and the chain answers further than anything stored reaches"
@@ -613,7 +613,7 @@
             "and the whole-KB sweep reaches the same declaration")))))
 
 (tu/deftest-kb per-instant-functionality-does-not-fault-values-at-different-instants
-  ;; the negative control the B ruling exists for: the first value is clipped before the
+  ;; The negative control: the first value is clipped before the
   ;; second begins, so no moment carries both and there is no clash — two truthful
   ;; snapshots at different instants must not be faulted.
   (tu/with-terms [HostStateFn Svc BoxA BoxB SwapA SwapB Stop]

@@ -267,6 +267,28 @@
           (is (#{:optimum :sat} (:status (solve cover :label))))
           (is (= :unsat (:status (solve (pigeonhole 6) :sat)))))))))
 
+(deftest core-guided-optimization-proves-what-branch-and-bound-stops-short-of
+  ;; On the 90-vertex cover clasp 3.4.0's branch-and-bound proves the optimum in 830,546
+  ;; conflicts and `usc,k,0,stratify` in 7,376, so a limit of 10,000 separates the two.
+  ;; The two strategies agree on the cost of a cover both prove, and a core-guided search
+  ;; the limit stops stops at the same point on every run, as a branch-and-bound one does.
+  (let [usc   (config/asp-opt-strategies "usc")
+        c60   (weighted-cover 60)
+        c90   (weighted-cover 90)]
+    (doseq [[nm solve] (backends)]
+      (let [run (fn [strategy limit program]
+                  (with-redefs [config/asp-opt-strategy (constantly strategy)
+                                config/asp-solve-limit  (constantly limit)]
+                    (select-keys (solve program :label) [:status :atoms :cost])))]
+        (testing (str nm ": both strategies prove one optimum cost on the 60-vertex cover")
+          (is (= [:optimum :optimum] (mapv #(:status (run % 100000 c60)) ["bb" usc])))
+          (is (= (:cost (run "bb" 100000 c60)) (:cost (run usc 100000 c60)))))
+        (testing (str nm ": at 10,000 conflicts on the 90-vertex cover, only core-guided proves")
+          (is (= :best-effort (:status (run "bb" 10000 c90))))
+          (is (= :optimum (:status (run usc 10000 c90)))))
+        (testing (str nm ": a core-guided search the limit stops is repeatable")
+          (is (= 1 (count (distinct (repeatedly 3 #(run usc 2000 c90)))))))))))
+
 ;; Each program with the modes it is solved in.  The enumerations answer the same on
 ;; any solver version.  `:label` and `:sat` return one model the search reaches first,
 ;; so they run only on a program with one model or one optimum.

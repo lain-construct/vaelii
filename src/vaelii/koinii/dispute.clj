@@ -171,8 +171,8 @@
   "Load koinii's `CxDisputes` seed (`resources/kb/koinii/CxDisputes.txt`) into `kb` unless it
   is already stored there.  The seed places `CxDisputes` under `CxUniverse` and declares the two
   marks and the `DisputeFn` term they carry, so the arity check reads a declaration where
-  every mark is stored.  Called by the two writes, which is the first time a KB needs the
-  context: a deployment that never marks a dispute never loads it."
+  every mark is stored.  `identity/load-registry` and `speech-acts/load-speech-acts` load
+  the seed as well; the two writes call this for a KB that ran neither."
   [kb]
   (when-not (v/handle-of kb state-declaration state-context)
     (id/load-seed-context kb state-context)))

@@ -134,9 +134,10 @@
 ;; combined kind.  `CxDenial` denies `only_kind`'s edge at `:monotonic`, so a member of
 ;; `only_kind` is a member of neither part there.  `probe_kind` is declared disjoint from
 ;; the combined kind, and `Probe` is stated in both parts at `:monotonic` and in
-;; `probe_kind` at `:default`.  The membership rule is bare, so the combined membership
-;; of a thing stated in both parts at `:monotonic` is `:monotonic`, and the clash takes
-;; the `:default` `probe_kind` membership OUT.
+;; `probe_kind` at `:default`.  The intersection is asserted `:monotonic` and the membership
+;; rule is bare, so the combined membership of a thing stated in both parts at
+;; `:monotonic` is `:monotonic`, and the clash takes the `:default` `probe_kind`
+;; membership OUT.
 
 (defn- ix-world
   "The content steps of the world above over the terms `t`, `{step [[sentence context
@@ -147,7 +148,7 @@
   (let [mono {:strength :monotonic}]
     {:types     [[(list 'genl part-a 'thing) base] [(list 'genl part-b 'thing) base]
                  [(list 'genl probe 'thing) base]]
-     :ix        [[(list 'intersection comb part-a part-b) base]]
+     :ix        [[(list 'intersection comb part-a part-b) base mono]]
      :only-edge [[(list 'genl only comb) base]]
      :both-edge [[(list 'genl both comb) base]]
      :bypass    [[(list 'genl both side-a) base] [(list 'genl side-a part-a) base]

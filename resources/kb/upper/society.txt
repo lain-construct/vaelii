@@ -39,7 +39,8 @@
 (arg memberOf 2 organization)
 
 (comment owns
-         "(owns ?person ?object) means that ?person owns ?object. The second argument is a physical object; ownership distributes over its parts by a joined rule, so owning a whole entails owning each part and a great many owns facts are derived rather than asserted. Legal ownership rather than possession: nothing here says who is holding the thing.")
+         "(owns ?person ?object) means that ?person owns ?object. The second argument is a physical object, and CxMereology states that owning a whole is owning each of its parts. Legal ownership rather than possession: nothing here says who is holding the thing.")
+(implementationNote owns "CxMereology states (transitiveInArgInverse owns 2 tangiblePartOf), so a goal about who owns a part is answered at query time from the owner of its whole, and no owns fact about the part is stored.")
 (set/monotonic (instance_relation_predicate owns))
 (set/monotonic (time_varying_relation owns))
 (arg owns 1 person)

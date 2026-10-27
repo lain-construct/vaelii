@@ -96,9 +96,9 @@
               (for [k generate/knobs] (assoc k :type :slider))
               [{:key :seed :type :number :label "Seed" :default 1 :min 0 :max 1000000}
                {:key :chain? :type :flag :label "Forward-chain after loading" :default false}
-               {:key :max-derivations :type :number :label "Derivation cap" :default 100000
-                :min 1000 :max 100000000 :step 1000
-                :help "chaining is by far the longest phase of a chained load — this is what bounds it (a run overshoots by the last datum's fan-out)"}])}])
+               {:key :max-derivations :type :number :label "Derivation cap"
+                :min 1000 :max 100000000 :step 1000 :placeholder "generator default"
+                :help "chaining is by far the longest phase of a chained load; left empty, the generator's own default applies (`vaelii.host.io.generate/defaults`)"}])}])
 
 (def ^:private corpus-options
   [{:key :profile :type :choice :label "Profile" :default "ontology"
@@ -107,12 +107,10 @@
               ["full" "Full (everything, including natural language)"]]}
    {:key :bulk? :type :flag :label "Bulk load (skip the per-fact checks)" :default false}
    {:key :chain? :type :flag :label "Forward-chain after loading" :default false}
-   ;; Bounded for the reason the generator's is, and harder: a generated KB's layer count
-   ;; bounds its own chain, and a corpus of a million assertions has nothing playing that
-   ;; part, so the cap is the whole bound.
-   {:key :max-derivations :type :number :label "Derivation cap" :default 100000
-    :min 1000 :max 100000000 :step 1000
-    :help "chaining a corpus is by far the longest thing a load can do — this is what bounds it, and a run that hits it is reported as truncated"}])
+   ;; no default: a load chains to its fixpoint unless the reader sets a cap
+   {:key :max-derivations :type :number :label "Derivation cap"
+    :min 1000 :max 100000000 :step 1000 :placeholder "to a fixpoint"
+    :help "chaining a corpus is by far the longest thing a load can do; left empty, it runs to its fixpoint, and a run that hits a cap is reported as truncated"}])
 
 ;; `recover` rebuilds two things, not one — the JTMS *and* the cached taxonomy — so
 ;; skipping it costs more than belief.  A dump loaded without it has no genl or
@@ -592,18 +590,23 @@
   []
   (v/install-memory-guard! {:kbs live-kbs}))
 
+(defn entry-of
+  "The entry holding `kb`, or nil for a KB this registry never heard of.  By identity,
+  like `exporting-kb?` and `write-blocked?`."
+  [kb]
+  (when kb
+    (let [{:keys [entries order]} @state]
+      (some #(let [e (get entries %)] (when (identical? kb (:kb e)) e)) order))))
+
 (defn name-of
-  "What to call `kb` — the name of the entry holding it, or nil for a KB this registry
-  never heard of.  By identity, like `exporting-kb?` and `write-blocked?`.
+  "What to call `kb` — the name of the entry holding it (`entry-of`), or nil.
 
   A page that has *resolved* a KB and judged it asks this rather than `active-entry`:
   `activate` re-points the holder at any moment and takes no monitor, so the active entry
   a moment later can be a different KB — and a refusal that named it would name the KB it
   did not judge."
   [kb]
-  (when kb
-    (let [{:keys [entries order]} @state]
-      (some #(let [e (get entries %)] (when (identical? kb (:kb e)) (:name e))) order))))
+  (:name (entry-of kb)))
 
 (defn loading?
   "Is a load running?  One runs at a time: a load claims this process's writer, and two at
@@ -707,7 +710,7 @@
 
   The `:tms` figure is the **dense** network's, since that is the default (the reference
   map costs ~467 B/sentex — ~3.8× more — and is the comparison baseline).  It is a second
-  shape term: the dense JTMS is `18 B/node + 166 B/justification` (bench-scale, item 09),
+  shape term: the dense JTMS is `18 B/node + 166 B/justification` (bench-scale),
   so per *stored* sentex it is 18 + (j/n)·166 — ~101 at a moderate j/n≈0.5, the basis the
   467 was taken on.  A justification-heavy KB (j/n≈1) reads low here for the same reason a
   fat-sentence corpus reads low above; the single coefficient trades that error for an
@@ -827,7 +830,8 @@
   The corpus loader asserts with `:chain? false`, and this is the pass at the end
   (docs/catalog.md, \"A chained load chains once, at the end\").  The phase reports no
   total, since a fixpoint's agenda grows as it derives.  `:max-derivations` bounds it,
-  and a truncated run says so in the summary."
+  and a truncated run says so in the summary.  The run is called with `:on-stop :keep`,
+  so a cancel or the cap leaves what it placed for `unload!` to release."
   [kb params progress! summary]
   (if-not (:chain? params)
     summary
@@ -836,7 +840,8 @@
                                "forward chaining to a fixpoint"))
           _    (progress! {:phase :chaining :done 0 :total nil :note (note nil)})
           r    (v/forward-chain
-                kb (cond-> {:on-progress (fn [{:keys [derived pending]}]
+                kb (cond-> {:on-stop     :keep
+                            :on-progress (fn [{:keys [derived pending]}]
                                            (progress! {:phase :chaining :total nil
                                                        :done (or derived 0)
                                                        :note (note pending)}))}

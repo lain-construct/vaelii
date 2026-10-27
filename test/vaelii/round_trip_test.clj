@@ -1034,8 +1034,8 @@
             (is (not (v/in? kb2 end))
                 "nor the conclusion, which had nothing left to rest on"))
           (testing "so belief and the record agree: the handle reads absent either way"
-            (is (nil? (:sentence (v/why kb2 mid))))
-            (is (false? (:stored? (v/why kb2 mid))))))))))
+            (is (nil? (:sentence (tu/why-root kb2 mid))))
+            (is (false? (:stored? (tu/why-root kb2 mid))))))))))
 
 (deftest the-catalog-offers-a-dump-we-wrote-and-says-whose-it-is
   ;; `classify` keys on `meta.edn`, and ours carries both the keys it looks for — but a

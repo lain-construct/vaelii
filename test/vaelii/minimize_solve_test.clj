@@ -183,7 +183,7 @@
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))))))
 
 (deftest a-hand-written-internal-marker-is-refused
-  ;; The four consequent markers the solve surfaces normalize into are not an authored
+  ;; The six consequent markers the solve surfaces normalize into are not an authored
   ;; spelling.  A hand-written one skips its surface's operand checks, so the rule is refused
   ;; at assert and reported by check, whether the marker is the whole consequent, one conjunct
   ;; of it, or the consequent of a priority-tagged soft.
@@ -196,6 +196,10 @@
                           cardAtMost]
                          [(set/softConstraint (implies (pickCity ?a ?c) (cardAtLeast 1 ?c)))
                           cardAtLeast]
+                         [(set/hardConstraint (implies (pickCity ?a ?c) (sumAtMost ?a ?c ?c)))
+                          sumAtMost]
+                         [(set/softConstraint (implies (pickCity ?a ?c) (sumAtLeast 1 ?c ?a)))
+                          sumAtLeast]
                          [(set/softConstraint (implies (unmatched A1) (and (idleArmy A1) (minimizeCost 1 3))))
                           minimizeCost]
                          [(set/softConstraint 2 (implies (unmatched A1) (cardAtMost 1 A1)))

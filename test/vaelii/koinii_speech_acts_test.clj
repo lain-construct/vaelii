@@ -147,7 +147,7 @@
       (is (some? (v/sentex kb mh))
           "an unmarked meta orphans harmlessly (core.clj:1667 / meta_sentex_test)"))))
 
-;; ---- item 7: error acts name the received edge, in the refuser's context --
+;; ---- error acts name the received edge, in the refuser's context ---------
 
 (tu/deftest-kb error-acts-name-the-received-edge-in-the-refusers-context
   (sa/speaker-context kb 'CxDeploy 'AgentAtlas)

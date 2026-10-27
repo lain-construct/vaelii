@@ -185,7 +185,7 @@
     (is (empty? (v/violations kb)))
     (is (empty? (v/contradictions kb)))))
 
-(tu/deftest-kb a-position-the-predicate-does-not-have-is-refused
+(tu/deftest-kb try-assert-refuses-a-position-the-predicate-does-not-have
   ;; Both positions, since `interArg` names two and each is the same mistake: a
   ;; constraint that can never fire reads as enforced while enforcing nothing.
   (tu/with-terms [carnivore_t meat_t biteOf]
@@ -194,10 +194,7 @@
     (v/assert kb (list 'arity biteOf 2) 'CxUniverse)
     (doseq [bad [(list 'interArg biteOf 1 carnivore_t 5 meat_t)
                  (list 'interArg biteOf 5 carnivore_t 1 meat_t)]]
-      (is (= :arg-position
-             (:type (try (v/assert kb bad 'CxUniverse) nil
-                         (catch clojure.lang.ExceptionInfo x (ex-data x)))))
-          (str bad)))))
+      (is (= :arg-position (tu/try-violation kb bad 'CxUniverse)) (str bad)))))
 
 (tu/deftest-kb a-structurally-malformed-conditional-declaration-is-refused
   (tu/with-terms [carnivore_t meat_t someOf Muffet]
@@ -222,7 +219,7 @@
         (v/assert kb (list carnivore Rex) 'CxUniverse)
         (v/assert kb (list eats Rex Chunk) 'CxUniverse)
         (is (v/ask? kb (list meat Chunk) 'CxUniverse))
-        (let [w (v/why kb (v/handle-of kb (list meat Chunk) 'CxUniverse))
+        (let [w (tu/why-root kb (v/handle-of kb (list meat Chunk) 'CxUniverse))
               j (first (:support w))]
           (is (= 1 (count (:support w))) "one justification, not one per settle")
           (is (= 'interArg (:informant j)))
@@ -271,13 +268,12 @@
       (is (not (v/ask? kb (list meat_t Chunk) 'CxUniverse))
           "retracting the declaration withdraws what it entailed"))))
 
-(tu/deftest-kb a-derived-conclusion-violating-a-conditional-constraint-is-dropped
-  ;; the constraint-only reading: the refusal is the subject
+(tu/deftest-kb a-derived-conclusion-violating-a-conditional-constraint-is-held
+  ;; the constraint-only reading: the conviction is the subject
   (tu/without-entailing
-   ;; The derivation path cannot throw — a fixpoint that aborted mid-run would make belief
-   ;; depend on firing order — so an argument-constraint violation there is dropped and
-   ;; reported, exactly as `arg`'s is.  `interArg` joins that path or a rule becomes
-   ;; a way around the check.
+   ;; The derivation path cannot throw, so an argument-constraint violation there is
+   ;; stored, held OUT and reported, exactly as `arg`'s is.  `interArg` joins that path
+   ;; or a rule becomes a way around the check.
    (tu/with-terms [carnivore_t meat_t grass_t eatsOf feedsOf Rex Hay]
      (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
                 (list 'genl grass_t 'thing) (list 'disjoint grass_t meat_t)
@@ -287,7 +283,9 @@
                                                          (list eatsOf '?a '?b)))]]
        (v/assert kb s 'CxUniverse))
      (v/assert kb (list feedsOf Rex Hay) 'CxUniverse)
-     (is (nil? (v/handle-of kb (list eatsOf Rex Hay) 'CxUniverse))
-         "the violating conclusion is not stored")
-     (is (some #{:inter-arg-type} (map :violation (v/violations kb)))
+     (is (some? (v/handle-of kb (list eatsOf Rex Hay) 'CxUniverse))
+         "the violating conclusion is stored")
+     (is (not (v/ask? kb (list eatsOf Rex Hay) 'CxUniverse)) "and not believed")
+     (is (some #(and (= :inert-argument (:violation %)) (= :inter-arg-type (:type (:detail %))))
+               (v/violations kb))
          "and it is reported rather than silently lost"))))

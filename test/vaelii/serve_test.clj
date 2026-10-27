@@ -115,12 +115,12 @@
           (is (:ok r))
           (is (some #(= Muffet (get % '?x)) (:result r))
               "specificity: (dog Muffet) answers the (animal ?x) goal")))
-      (testing "why returns a proof-tree map"
+      (testing "why returns the justification graph"
         (let [h (v/handle-of kb (list dog Muffet) CxServe)
               r (post-op handler :why [h])]
           (is (:ok r))
-          (is (map? (:result r)))
-          (is (= (list dog Muffet) (:sentence (:result r))))))
+          (is (= h (:root (:result r))))
+          (is (= (list dog Muffet) (:sentence (get (:nodes (:result r)) h))))))
       (testing "contextual belief and its status dispatch as EDN-clean reads"
         (let [h (v/handle-of kb (list dog Muffet) CxServe)
               believed-r (post-op handler :believed? [h CxServe])
@@ -484,9 +484,10 @@
 (defn- status-type [r] [(:status r) (:type r)])
 
 (tu/deftest-kb a-table-grant-bounds-every-write-op-and-no-read
-  (tu/with-terms [dog animal Rex Fido CxA CxB]
+  (tu/with-terms [dog animal Rex Fido CxA CxB parentOf ownerOf]
     (let [h       (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}
                                                "tok-b" {:principal 'AgentB :writes #{CxB}}}})
+          _       (v/assert kb (list 'forced_decontextualized_predicate ownerOf))
           b-claim (:result (as h "tok-b" :assert (list dog Fido) CxB))
           a-claim (:result (as h "tok-a" :assert (list dog Rex) CxA))]
       (testing "a token outside the table is answered 401, as a wrong shared token is"
@@ -503,6 +504,14 @@
                          ["an ist under set/monotonic" (as h "tok-a" :assert (list 'set/monotonic (list 'ist CxB (list dog Rex))) CxA)]
                          ["assert-rule" (as h "tok-a" :assert-rule [(list dog '?x)] (list animal '?x) CxB)]
                          ["assert-many with one ist sentence" (as h "tok-a" :assert-many [(list animal Rex) (list 'ist CxB (list animal Rex))] CxA)]
+                         ["assert-many with a set" (as h "tok-a" :assert-many #{(list dog Rex)} CxB)]
+                         ["a set holding an ist sentence" (as h "tok-a" :assert-many #{(list 'ist CxB (list dog Rex))} CxA)]
+                         ["a fact the store places in CxUniverse" (as h "tok-a" :assert (list ownerOf Rex Fido) CxA)]
+                         ["a mark the store lifts into CxUniverse" (as h "tok-a" :assert (list 'symmetric parentOf) CxA)]
+                         ["a forced_decontextualized_predicate declaration" (as h "tok-a" :assert (list 'forced_decontextualized_predicate parentOf) CxA)]
+                         ["a decontextualized_predicate declaration" (as h "tok-a" :assert (list 'decontextualized_predicate parentOf) CxA)]
+                         ["a rule concluding a variable functor" (as h "tok-a" :assert (list 'implies (list parentOf '?p '?x) (list '?p '?x)) CxA)]
+                         ["export" (as h "tok-a" :export "dump")]
                          ["retract" (as h "tok-a" :retract b-claim)]
                          ["an edit removing" (as h "tok-a" :edit {:remove [b-claim]})]
                          ["an edit adding" (as h "tok-a" :edit {:add [[(list animal Rex) CxA] [(list dog Rex) CxB]]})]
@@ -515,6 +524,10 @@
         (is (nil? (v/handle-of kb (list animal Rex) CxA)) "a refused batch applied nothing")
         (is (nil? (v/handle-of kb (list dog Rex) CxB)))
         (is (nil? (:note (v/provenance kb b-claim)))))
+      (testing "a rule concluding an (ist Ctx S) is refused 400 by the engine"
+        (doseq [[why r] [["a rule concluding into the other context" (as h "tok-a" :assert (list 'implies (list dog '?x) (list 'ist CxB (list animal '?x))) CxA)]
+                         ["assert-rule concluding into the other context" (as h "tok-a" :assert-rule [(list dog '?x)] (list 'ist CxB (list animal '?x)) CxA)]]]
+          (is (= [400 :not-well-formed] (status-type r)) why)))
       (testing "a write naming an identity its grant does not hold is refused 403 :creator-mismatch"
         (doseq [[why r] [["a :creator" (as h "tok-a" :assert (list animal Rex) CxA {:creator 'AgentB})]
                          ["a provenance :creator" (as h "tok-a" :assert (list animal Rex) CxA {:provenance {:creator 'AgentB}})]
@@ -529,6 +542,181 @@
         (is (= 'AgentA (:principal (v/provenance kb (v/handle-of kb (list animal Fido) CxA))))))
       (testing "reads stay open: one principal reads the other's context"
         (is (true? (:result (as h "tok-a" :query? (list dog Fido) CxB))))))))
+
+(tu/deftest-kb a-grant-widens-the-ancestor-set-of-no-context-outside-it
+  (tu/with-terms [dog Fido CxA CxB]
+    (let [h       (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA 'CxUniverse}}
+                                               "tok-b" {:principal 'AgentB :writes #{CxB}}}})
+          b-claim (:result (as h "tok-b" :assert (list dog Fido) CxB))]
+      (testing "a genlCx edge whose lower context the grant does not name is refused,
+                as a fact or as a rule's conclusion"
+        (is (= [403 :forbidden-context] (status-type (as h "tok-a" :assert (list 'genlCx CxB CxA) CxA))))
+        (is (= [403 :forbidden-context]
+               (status-type (as h "tok-a" :assert (list 'implies (list dog '?x) (list 'genlCx CxB CxA)) CxA))))
+        (is (not (v/sees? kb CxB CxA))))
+      (testing "so a monotonic denial in the grant's context leaves the other principal's fact believed"
+        (is (:ok (as h "tok-a" :assert (list 'not (list dog Fido)) CxA {:strength :monotonic})))
+        (is (v/in? kb b-claim)))
+      (testing "an edge widening a context the grant names is stored"
+        (is (:ok (as h "tok-a" :assert (list 'genlCx CxA CxB) CxA)))
+        (is (v/sees? kb CxA CxB))))))
+
+(tu/deftest-kb a-grant-bounds-every-rule-its-fact-makes-the-engine-write
+  (tu/with-terms [pet animal relayKind lovesOf Ann Bob CxA CxB]
+    (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}
+                                         "tok-b" {:principal 'AgentB :writes #{CxB}}}})]
+      ;; a generator stated in CxUniverse: (relayKind P) makes the engine write (implies (pet ?x) (P ?x))
+      (v/assert kb (list 'implies (list relayKind '?p)
+                         (list 'set/forwardRule (list 'implies (list pet '?x) (list '?p '?x)))))
+      (testing "a defn* fact, or a fact a stored generator fires on, is refused 403 when the
+                rule the engine writes for it concludes outside the grant"
+        (doseq [[why r] [["defnNecessary concluding a placement declaration" (as h "tok-a" :assert (list 'defnNecessary pet (list 'forced_decontextualized_predicate '?x)) CxA)]
+                         ["defnSufficient concluding a mark the store lifts" (as h "tok-a" :assert (list 'defnSufficient 'symmetric (list pet '?x)) CxA)]
+                         ["defnIff concluding a mark the store lifts" (as h "tok-a" :assert (list 'defnIff 'symmetric (list pet '?x)) CxA)]
+                         ["a generator's trigger fact" (as h "tok-a" :assert (list relayKind 'symmetric) CxA)]
+                         ["a rule concluding a generator's trigger" (as h "tok-a" :assert (list 'implies (list animal '?y) (list relayKind 'symmetric)) CxA)]]]
+          (is (= [403 :forbidden-context] (status-type r)) why)))
+      (testing "so the other principal's writes on a member of the collection stay in its own context"
+        (is (:ok (as h "tok-a" :assert (list pet lovesOf) CxA)))
+        (is (:ok (as h "tok-b" :assert (list lovesOf Ann Bob) CxB)))
+        (is (not (v/has-prop? kb :forced-decontextualized lovesOf))))
+      (testing "a generated rule, or a negated conclusion, inside the grant is stored"
+        (doseq [[why r] [["defnNecessary" (as h "tok-a" :assert (list 'defnNecessary pet (list animal '?x)) CxA)]
+                         ["a generator's trigger fact" (as h "tok-a" :assert (list relayKind animal) CxA)]
+                         ["a rule concluding a negated mark" (as h "tok-a" :assert (list 'implies (list pet '?p) (list 'not (list 'symmetric '?p))) CxA)]
+                         ["a rule concluding a negated genlCx edge" (as h "tok-a" :assert (list 'implies (list pet '?c) (list 'not (list 'genlCx '?c CxB))) CxA)]]]
+          (is (:ok r) why))))))
+
+(tu/deftest-kb a-grants-fact-is-refused-and-rolled-back-when-a-stored-forward-rule-concludes-outside-the-grant
+  (tu/with-terms [likes famous admires liked Ann Bob Cy Dee Gus Hal CxA]
+    (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}}})]
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse {:strength :monotonic})
+      ;; an admin's rule concluding a fact the store also lifts into CxUniverse
+      (v/assert kb (list 'decontextualized_predicate famous) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'set/forwardRule (list 'implies (list likes '?x '?y) (list famous '?y))))
+      (v/assert kb (list 'set/forwardRule (list 'implies (list admires '?x '?y) (list liked '?y))))
+      (v/assert kb (list famous Gus))
+      (testing "the fact whose firing stores outside the grant is refused 403, and the
+                write is taken back"
+        (doseq [[why r] [["assert" (as h "tok-a" :assert (list likes Ann Bob) CxA)]
+                         ["assert-many" (as h "tok-a" :assert-many [(list likes Ann Bob)] CxA)]
+                         ["an edit adding" (as h "tok-a" :edit {:add [[(list likes Ann Bob) CxA]]})]
+                         ["a conclusion already stored in CxUniverse" (as h "tok-a" :assert (list likes Hal Gus) CxA)]]]
+          (is (= [403 :forbidden-context] (status-type r)) why))
+        (is (nil? (v/handle-of kb (list likes Ann Bob) CxA)))
+        (is (nil? (v/handle-of kb (list famous Bob) CxA)))
+        (is (nil? (v/handle-of kb (list famous Bob) 'CxUniverse)))
+        (is (nil? (v/handle-of kb (list likes Hal Gus) CxA))))
+      (testing "a firing that stores inside the grant lands"
+        (is (:ok (as h "tok-a" :assert (list admires Cy Dee) CxA)))
+        (is (v/in? kb (v/handle-of kb (list liked Dee) CxA)))))))
+
+(tu/deftest-kb a-grants-generator-verdict-is-the-same-whichever-of-fact-and-genl-edge-arrives-last
+  (let [;; (A P) for the antecedent A makes the engine write (implies (pet ?x) (P ?x))
+        gen   (fn [pet a] (list 'implies a (list 'set/forwardRule (list 'implies (list pet '?x) (list '?p '?x)))))
+        world (fn [rows order]
+                (tu/with-terms [pet relay_kind other_kind hatesOf relOf kinOf Marker CxA]
+                  (let [h      (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}}})
+                        w      (rows {:relay relay_kind :other other_kind :rel relOf :kin kinOf :marker Marker})
+                        writes (assoc w :pet (list pet hatesOf))]
+                    (v/assert kb (list 'genlCx CxA 'CxUniverse))
+                    (doseq [a (:antecedents w)] (v/assert kb (gen pet a)))
+                    [order
+                     (into {} (map (fn [k] [k (:status (as h "tok-a" :assert (writes k) CxA))])) order)
+                     (mapv :context (v/sentexes-matching kb (list 'symmetric hatesOf) '?c))])))
+        ;; the later of the trigger fact and the edge completes the firing, and is refused
+        expected (fn [order] (let [[a b] (filter #{:trigger :edge} order)]
+                               [order {a 200 b 403 :pet 200} []]))
+        both     (fn [relay] [(list relay '?p) (list 'not (list relay '?p))])]
+    (doseq [[why rows] [["a positive fact on a spec meets an antecedent on its genl"
+                         (fn [{:keys [relay other]}]
+                           {:antecedents (both relay)
+                            :trigger (list other 'symmetric) :edge (list 'genl other relay)})]
+                        ["a negative fact on a genl meets a negated antecedent on its spec"
+                         (fn [{:keys [relay other]}]
+                           {:antecedents (both relay)
+                            :trigger (list 'not (list other 'symmetric)) :edge (list 'genl relay other)})]
+                        ["a fact on a genlInverse spec meets an antecedent with its arguments exchanged"
+                         (fn [{:keys [rel kin marker]}]
+                           {:antecedents [(list rel '?p marker)]
+                            :trigger (list kin marker 'symmetric) :edge (list 'genlInverse kin rel)})]]]
+      (let [orders (fn orders [xs] (if (empty? xs) [[]] (for [x xs o (orders (remove #{x} xs))] (cons x o))))
+            seen   (mapv #(world rows %) (orders [:trigger :edge :pet]))]
+        (is (= (mapv (comp expected first) seen) seen) why)))
+    (testing "a genlInverse edge exchanges the arguments only of a fact on a predicate it reaches"
+      (tu/with-terms [pet relOf fooOf barOf Marker hatesOf CxA]
+        (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}}})]
+          (v/assert kb (list 'genlCx CxA 'CxUniverse))
+          (v/assert kb (list 'genlInverse fooOf barOf))
+          (v/assert kb (gen pet (list relOf '?p Marker)))
+          (is (= [200 200] (mapv #(:status (as h "tok-a" :assert % CxA))
+                                 [(list relOf Marker 'symmetric) (list pet hatesOf)]))))))
+    (testing "a fact in a context that sees no context of the edge fires nothing over it, in either order"
+      (doseq [order [[:fact :edge] [:edge :fact]]]
+        (tu/with-terms [pet relay_kind other_kind CxA CxB]
+          (let [h      (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}
+                                                    "tok-b" {:principal 'AgentB :writes #{CxB}}}})
+                writes {:fact ["tok-b" (list other_kind 'symmetric) CxB]
+                        :edge ["tok-a" (list 'genl other_kind relay_kind) CxA]}]
+            (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse)))
+            (v/assert kb (gen pet (list relay_kind '?p)))
+            (is (= [200 200] (mapv #(let [[t s c] (writes %)] (:status (as h t :assert s c))) order))
+                (pr-str order))))))
+    (testing "a fact in a context above the edge's places its generated rule in the edge's context"
+      (tu/with-terms [pet relay_kind other_kind CxA]
+        (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}}})]
+          (v/assert kb (list 'genlCx CxA 'CxUniverse))
+          (v/assert kb (gen pet (list relay_kind '?p)))
+          (v/assert kb (list other_kind 'symmetric) 'CxUniverse)
+          (is (= [403 :forbidden-context]
+                 (status-type (as h "tok-a" :assert (list 'genl other_kind relay_kind) CxA)))))))
+    (testing "a grant's edge restating an admin's edge from a sibling context places the rule in the grant's context"
+      (doseq [[why row] [["straight" (fn [{:keys [relay other]}]
+                                       {:antecedent (list relay '?p) :fact (list other 'symmetric)
+                                        :edge (list 'genl other relay)})]
+                         ["exchanged" (fn [{:keys [rel kin marker]}]
+                                        {:antecedent (list rel '?p marker) :fact (list kin marker 'symmetric)
+                                         :edge (list 'genlInverse kin rel)})]]]
+        (tu/with-terms [pet relay_kind other_kind relOf kinOf Marker CxA CxB]
+          (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}}})
+                w (row {:relay relay_kind :other other_kind :rel relOf :kin kinOf :marker Marker})]
+            (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse)))
+            (v/assert kb (gen pet (:antecedent w)))
+            (v/assert kb (:fact w) 'CxUniverse)
+            (v/assert kb (:edge w) CxB)
+            (is (= [403 :forbidden-context] (status-type (as h "tok-a" :assert (:edge w) CxA))) why)))))
+    (testing "two routes in unrelated contexts place the rule below each, whichever write arrives last"
+      (let [orders (fn orders [xs] (if (empty? xs) [[]] (for [x xs o (orders (remove #{x} xs))] (cons x o))))
+            seen   (for [order (orders [:trigger :r1 :r2])]
+                     (tu/with-terms [pet relay_kind other_kind foo_kind CxA CxB CxE CxF CxG]
+                       (let [h      (serve/app kb {:token-table {"tok-a" {:principal 'AgentA
+                                                                          :writes #{CxA CxB CxF CxG}}}})
+                             writes {:trigger [(list other_kind foo_kind) CxA]
+                                     :r1      [(list 'genl other_kind relay_kind) CxB]
+                                     :r2      [(list 'genl other_kind relay_kind) CxG]}]
+                         (doseq [[a b] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxG 'CxUniverse]
+                                        [CxF CxA] [CxF CxB] [CxE CxF] [CxE CxG]]]
+                           (v/assert kb (list 'genlCx a b)))
+                         (v/assert kb (gen pet (list relay_kind '?p)))
+                         [order
+                          (into {} (map (fn [k] (let [[s c] (writes k)] [k (:status (as h "tok-a" :assert s c))])))
+                                order)
+                          (some #(= CxE (:context %))
+                                (v/sentexes-matching kb (list 'implies (list pet '?x) (list foo_kind '?x)) '?c))])))
+            ;; the route through CxG places the rule in CxE, which the grant does not write
+            expected (fn [order] (let [[a b] (filter #{:trigger :r2} order)]
+                                   [order {a 200 b 403 :r1 200} nil]))]
+        (is (= (map (comp expected first) seen) seen))))
+    (testing "a rule concluding a genl edge onto a generator's type, from any lower term, is refused"
+      (tu/with-terms [foo relay_kind pet CxA]
+        (let [h (serve/app kb {:token-table {"tok-a" {:principal 'AgentA :writes #{CxA}}}})]
+          (v/assert kb (list 'implies (list relay_kind '?p)
+                             (list 'set/forwardRule (list 'implies (list pet '?x) (list '?p '?x)))))
+          (is (= [403 :forbidden-context]
+                 (status-type (as h "tok-a" :assert (list 'set/forwardRule
+                                                          (list 'implies (list foo '?x)
+                                                                (list 'genl '?x relay_kind)))
+                                  CxA)))))))))
 
 (tu/deftest-kb an-admin-grant-writes-every-context-and-may-name-the-creator
   (tu/with-terms [dog Rex CxA]
@@ -716,15 +904,12 @@
           (is (false? (:ok r)))
           (is (= :over-ceiling (:type r)))
           (is (= 400 (:status r)) "a caller's request, so a client error")))
-      (testing "and a depth past it, at the two entry points that expand rules"
-        (let [r (post-op handler :prove [(list dog '?x) CxServe
-                                         {:max-depth (inc (config/max-query-depth))}])]
-          (is (false? (:ok r)))
-          (is (= :over-ceiling (:type r))))
-        (let [r (post-op handler :provable? [(list dog '?x) CxServe
-                                             {:max-depth (inc (config/max-query-depth))}])]
-          (is (false? (:ok r)))
-          (is (= :over-ceiling (:type r)))))
+      (testing "and a depth past the depth ceiling answers at the two entry points that
+                expand rules, since the clock holds them"
+        (doseq [op [:prove :provable?]]
+          (is (true? (:ok (post-op handler op [(list dog '?x) CxServe
+                                               {:max-depth (inc (config/max-query-depth))}])))
+              (str op))))
       (testing "a request that names no option map is padded out to the arity that has
                 one, so the ceiling's clock reaches a short call too"
         (is (true? (:ok (post-op handler :ask [(list dog '?x) CxServe]))))
@@ -741,6 +926,12 @@
           (is (false? (:ok r)))
           (is (= :budget-exhausted (:type r)))
           (is (= 400 (:status r))))))))
+
+(deftest a-depth-ceiling-holds-only-a-read-that-takes-no-clock
+  (let [depth (set (keep (fn [[op ks]] (when (:max-depth ks) op)) serve/search-bounds))]
+    (is (= #{:query :query? :query-status :argue} depth))
+    (is (not-any? #(:max-ms (serve/search-bounds %)) depth))
+    (is (not (contains? serve/search-bounds :why)) "why reads no bound")))
 
 (def ^:private chain-bounded-writes
   "The seven writes that read a forward-chaining bound — `:max-depth` and
@@ -780,6 +971,24 @@
                   :let [spelled (str "`" op "`")]]
             (is (str/includes? docstring spelled) (str "search-bounds' docstring: " op))
             (is (str/includes? bullet spelled) (str "operations.md: " op))))))))
+
+(tu/deftest-kb a-write-ceiling-the-operator-sets-holds-every-chaining-write
+  ;; `(cnt ?n)` → `(cnt ?n+1)` ends at no default bound, so only the ceiling's clock,
+  ;; filled into a request that names none, ends the `:assert` below.
+  (tu/with-terms [cnt dog Muffet CxServe]
+    (let [handler (open-app kb)]
+      (with-redefs [config/max-write-ms (constantly 200)]
+        (testing "a clock past the ceiling is refused by name"
+          (let [r (post-op handler :assert [(list dog Muffet) CxServe {:max-ms 201}])]
+            (is (= [false :over-ceiling 400] [(:ok r) (:type r) (:status r)]))))
+        (is (true? (:ok (post-op handler :assert-rule
+                                 [[(list cnt '?n) (list 'evaluate '?m (list '+ '?n 1))]
+                                  (list cnt '?m) CxServe {:direction :forward}]))))
+        (testing "a write naming no clock is given the ceiling, and rolled back at it"
+          (let [r (post-op handler :assert [(list cnt 0) CxServe])]
+            (is (= [false :interrupted 400] [(:ok r) (:type r) (:status r)]))
+            (is (zero? (v/count-with-functor kb cnt)))))))
+    (is (zero? (config/max-write-ms)) "off by default")))
 
 (tu/deftest-kb a-write-whose-caller-stopped-listening-runs-to-the-end
   ;; docs/operations.md, "An op runs to completion whether or not its caller is still
@@ -974,13 +1183,20 @@
           (let [local    (v/kb-integrity kb #{7} CxServe nil)
                 omitted (:result (post-op handler :kb-integrity [#{7} CxServe]))
                 explicit (:result (post-op handler :kb-integrity [#{7} CxServe nil]))]
-            (is (= local omitted explicit))))
+            (is (apply = (map #(dissoc % :work :elapsed-ms) [local omitted explicit])))))
         (testing "a call short of the context is the op's arity refusal, not a padded one"
           (let [r (post-op handler :kb-integrity [#{7}])]
             (is (= 400 (:status r)))
             (is (= :bad-args (:type r)))))
-        (with-redefs [serve/integrity-max-work 1000
-                      serve/integrity-max-results 20]
+        (testing "0 on either ceiling lifts it"
+          (with-redefs [config/integrity-max-work    (constantly 0)
+                        config/integrity-max-results (constantly 0)]
+            (let [r (post-op handler :kb-integrity
+                             [#{7} CxServe {:max-work 1000000 :max-results 1000000}])]
+              (is (:ok r))
+              (is (not= :truncated (get-in r [:result :status]))))))
+        (with-redefs [config/integrity-max-work    (constantly 1000)
+                      config/integrity-max-results (constantly 20)]
           (testing "a caller may lower but not raise either daemon-owned ceiling"
             (doseq [[option value] [[:max-work 1001] [:max-results 21]]]
               (let [r (post-op handler :kb-integrity
@@ -1077,28 +1293,14 @@
             (let [rs (client/sentexes-matching conn (list bird '?x) CxWire)]
               (is (= (list bird Tweety) (:sentence (first rs))))))
           (testing "explicit nil integrity options match local and daemon defaults"
-            (is (= (v/kb-integrity kb #{} CxWire nil)
-                   (client/kb-integrity conn #{} CxWire nil))))
+            (is (= (dissoc (v/kb-integrity kb #{} CxWire nil) :work :elapsed-ms)
+                   (dissoc (client/kb-integrity conn #{} CxWire nil) :work :elapsed-ms))))
           (testing "a forward rule fires server-side and the derived fact is asked back"
             (client/assert-rule conn [(list bird '?b)] (list flies '?b) CxWire {:direction :forward})
             (is (client/ask? conn (list flies Tweety) CxWire)))
-          (testing "why over the wire returns a proof tree"
+          (testing "why over the wire returns the graph the in-process call does"
             (let [h (client/handle-of conn (list flies Tweety) CxWire)]
-              (is (map? (client/why conn h)))))
-          (testing "and a truncated one is re-askable deeper, which is what the opts
-                    arity is for: the bound clips a branch to `{:truncated? true}`, and a
-                    remote reader with no way to raise it sees that a proof was clipped
-                    and never sees the rest of it"
-            (let [h     (client/handle-of conn (list flies Tweety) CxWire)
-                  clipped? (fn clipped? [node]
-                             (boolean (or (:truncated? node)
-                                          (some (fn [j] (some clipped? (:because j)))
-                                                (:support node)))))]
-              (is (clipped? (client/why conn h {:max-depth 1})))
-              (is (not (clipped? (client/why conn h {:max-depth 32}))))
-              (is (thrown? clojure.lang.ExceptionInfo (client/why conn h {:max-dpeth 32}))
-                  "and the daemon holds the opts to the same key set the in-process entry point
-                   does, rather than taking a default in silence")))
+              (is (= (v/why kb h) (client/why conn h)))))
           (testing "a remote refusal surfaces as an ex-info carrying the daemon error"
             (is (thrown? clojure.lang.ExceptionInfo
                          (client/assert conn (list bird '?anything) CxWire))))

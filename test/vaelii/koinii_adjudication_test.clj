@@ -5,14 +5,21 @@
   open->notified->resolved(+stale) lifecycle with a timeout sweep, and reversible arbiter
   escalation.  A client wrapper over the dispute reads — it changes belief only through ordinary
   asserts/retracts and never touches settle."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.serve :as serve]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.adjudication :as adj]
+            [vaelii.koinii.deref :as deref]
             [vaelii.koinii.dispute :as d]
             [vaelii.koinii.identity :as id]
             [vaelii.koinii.speech-acts :as sa]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu])
+  (:import [java.io ByteArrayInputStream]
+           [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
 
 (defn- adj-kb [] (tu/load-core! (tu/fresh)))
 
@@ -167,7 +174,7 @@
       (is (= :true (:verdict (v/argue kb P 'CxDeploy))))
       (is (not (v/ask? kb not-P 'CxDeploy)) "the losing side is defeated, not deleted"))
     (testing "why explains the adjudication, and who-ruled reads it off the ruling's provenance"
-      (let [w (v/why kb rh)]
+      (let [w (tu/why-root kb rh)]
         (is (:believed? w))
         (is (= :monotonic (:defeat-class w))))
       ;; `:dispute-ids` is a set: one sentex is the standing ruling of every dispute
@@ -353,9 +360,8 @@
   ;; handle pair and the handles differ between the runs.
   ;; Each run gets a KB of its own, since clearing the fixture's would undo its baseline.
   (let [run (fn [order]
-              (let [kb (doto (v/open-kb (update tu/plain-memory-space :space conj ::interleave
-                                                (hash order)))
-                         (tu/clear-kb!) (tu/load-core!))
+              (let [opts (update tu/plain-memory-space :space conj ::interleave (hash order))
+                    kb (doto (v/open-kb opts) (tu/clear-kb!) (tu/load-core!))
                     edge! (fn [a] (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a))
                                             'CxUniverse {:strength :monotonic}))
                     ph (atom nil)
@@ -367,13 +373,15 @@
                           :vote-b #(ballot! kb 'AgentBoreas @ph :against)
                           :vote-c #(ballot! kb 'AgentCiel @ph :for)}]
                 (run! #((move %)) order)
-                (let [ds (d/disputes-in kb 'CxDeploy)
-                      r  (adj/resolve-by-majority kb (:dispute-id (first ds)) @ph 'CxDeploy)]
-                  {:disputes (set (for [x ds] (set (map #(:sentence (v/sentex kb %)) (:handles x)))))
-                   :tally    (adj/tally kb @ph)
-                   :outcome  (select-keys r [:for :against :outcome])
-                   :verdict  (:verdict (v/argue kb P 'CxDeploy))
-                   :open?    (d/disputed? kb P 'CxDeploy)})))
+                (try
+                  (let [ds (d/disputes-in kb 'CxDeploy)
+                        r  (adj/resolve-by-majority kb (:dispute-id (first ds)) @ph 'CxDeploy)]
+                    {:disputes (set (for [x ds] (set (map #(:sentence (v/sentex kb %)) (:handles x)))))
+                     :tally    (adj/tally kb @ph)
+                     :outcome  (select-keys r [:for :against :outcome])
+                     :verdict  (:verdict (v/argue kb P 'CxDeploy))
+                     :open?    (d/disputed? kb P 'CxDeploy)})
+                  (finally (tu/drop-space! (:space opts))))))
         a (run [:atlas :boreas :edges :vote-a :vote-b :vote-c])
         b (run [:boreas :ciel-edge :atlas :vote-c :vote-b :edges :vote-a])]
     (is (= #{#{P not-P}} (:disputes a)))
@@ -914,3 +922,86 @@
         (binding [id/*attest-key* (apply str (repeat 32 "k"))]
           (is (nil? (id/attested-by kb ha)))
           (is (= #{ha} (refused))))))))
+
+;; ---- the daemon-recorded principal: only this KB's daemon, only the voter's context ----
+
+(defn- house!
+  "Atlas holds P and Boreas holds ¬P, both seen from CxDeploy.  Returns P's handle."
+  [kb]
+  (let [ph (holds! kb 'AgentAtlas P)]
+    (holds! kb 'AgentBoreas not-P)
+    (doseq [a '[AgentAtlas AgentBoreas]]
+      (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic}))
+    ph))
+
+(defn- unattested
+  "The ballots `resolve-by-majority` refuses on the claim at `ph` in CxDeploy, or #{}
+  when it rules."
+  [kb ph]
+  (try (adj/resolve-by-majority kb (:dispute-id (first (d/disputes-in kb 'CxDeploy))) ph 'CxDeploy)
+       #{}
+       (catch clojure.lang.ExceptionInfo e (:unattested (ex-data e)))))
+
+(defn- wire-ballot!
+  "Atlas's `:for` ballot on the claim at `ph`, asserted into `ctx` through a daemon whose
+  token table grants Atlas CxAtlas and CxDeploy.  Returns the ballot's handle."
+  [kb ph ctx]
+  (let [app  (serve/app kb {:token-table {"tok-atlas" {:principal 'AgentAtlas
+                                                       :writes #{'CxAtlas 'CxDeploy}}}})
+        body (pr-str {:op :assert :args [(list 'votesFor 'AgentAtlas (sx/sentex-handle ph)) ctx]})
+        resp (app {:request-method :post :uri "/op"
+                   :headers {"content-type" "application/edn" "authorization" "Bearer tok-atlas"}
+                   :body (ByteArrayInputStream. (.getBytes body "UTF-8"))})]
+    (:result (edn/read-string (:body resp)))))
+
+(tu/deftest-kb a-daemon-recorded-ballot-in-its-voters-own-context-proves-its-voter
+  (let [ph (house! kb)
+        bh (wire-ballot! kb ph 'CxAtlas)]
+    (is (= 'AgentAtlas (:principal (v/provenance kb bh))))
+    (is (= #{} (unattested kb ph)))))
+
+(tu/deftest-kb a-ballot-outside-its-voters-own-context-proves-no-voter
+  (let [ph (house! kb)
+        bh (wire-ballot! kb ph 'CxDeploy)]
+    (is (= 'AgentAtlas (:principal (v/provenance kb bh))) "the daemon recorded the principal")
+    (is (= #{bh} (unattested kb ph)))))
+
+(defn- imported-ballot
+  "Export a KB holding the house and Atlas's `:for` ballot in CxAtlas, stored with the
+  `:principal` a daemon records, read the dump into a second KB with `(land! kb dir)`, and
+  return `{:provenance :unattested}` for the ballot there.  Both KBs are bare in-RAM KBs
+  beside the fixture's, so the dump holds the house and the ballot and nothing else."
+  [land!]
+  (let [beside #(doto (v/open-kb (assoc tu/plain-memory-space
+                                        :space [% (second (:space tu/plain-memory-space))]))
+                  (tu/clear-kb!))
+        src (beside ::ballot-source)
+        dst (beside ::ballot-import)
+        ph  (house! src)
+        _   (v/assert src (list 'votesFor 'AgentAtlas (sx/sentex-handle ph)) 'CxAtlas
+                      {:creator 'AgentAtlas :provenance {:principal 'AgentAtlas}})
+        tmp (.toFile (Files/createTempDirectory "vaelii-ballot-" (into-array FileAttribute [])))
+        dir (str (io/file tmp "dump"))]
+    (try
+      (v/export! src dir)
+      (land! dst dir)
+      (let [ph2 (:id (tu/sentex-matching dst P 'CxAtlas))
+            b2  (:id (tu/sentex-matching dst (list 'votesFor 'AgentAtlas (sx/sentex-handle ph2))
+                                         'CxAtlas))]
+        {:ballot b2 :provenance (v/provenance dst b2) :unattested (unattested dst ph2)})
+      (finally
+        (doseq [k [src dst]] (tu/clear-kb! k) (v/close! k))
+        (doseq [^java.io.File f (reverse (file-seq tmp))] (.delete f))))))
+
+(tu/deftest-kb an-imported-principal-proves-no-voter
+  ;; `pull!` opens a peer's commit, and no daemon of this seat recorded the peer's principals.
+  (let [{:keys [ballot provenance unattested]} (imported-ballot deref/pull!)]
+    (is (= 'AgentAtlas (:creator provenance)) "the rest of the provenance lands")
+    (is (nil? (:principal provenance)))
+    (is (= #{ballot} unattested))))
+
+(tu/deftest-kb a-plain-import-keeps-the-principal-and-it-proves-the-voter
+  ;; `import!` without `:drop-principal?` is the backup and the move between stores.
+  (let [{:keys [provenance unattested]} (imported-ballot v/import!)]
+    (is (= 'AgentAtlas (:principal provenance)))
+    (is (= #{} unattested))))

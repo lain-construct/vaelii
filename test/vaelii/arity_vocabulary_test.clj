@@ -2,7 +2,8 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.arity-vocabulary-test
   "The relation-wide exact/variable arity partition and its documentary floor vocabulary."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
@@ -653,13 +654,11 @@
     (testing "a position within the arity: the census admits the constraint, the query proves it"
       (is (v/assert kb (list 'arg censusRel 3 'thing) 'CxUniverse))
       (is (v/ask? kb (list 'admitsArgnum censusRel 3) 'CxUniverse)))
-    (testing "a position past the arity: the census refuses the constraint, the query denies it"
-      (let [e (try (v/assert kb (list 'arg censusRel 4 'thing) 'CxUniverse) nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :arg-position (:type (ex-data e)))
-            "the constraint census refuses argument 4 of a ternary relation")
-        (is (not (v/ask? kb (list 'admitsArgnum censusRel 4) 'CxUniverse))
-            "and admitsArgnum does not prove the position it refused")))))
+    (testing "a position past the arity: the census convicts the constraint, the query denies it"
+      (is (= :arg-position (tu/try-violation kb (list 'arg censusRel 4 'thing) 'CxUniverse))
+          "try-assert refuses argument 4 of a ternary relation")
+      (is (not (v/ask? kb (list 'admitsArgnum censusRel 4) 'CxUniverse))
+          "and admitsArgnum does not prove the position it refused"))))
 
 (tu/deftest-kb admits-argnum-parity-for-functions
   ;; a variable-arity function admits every positive position, like the predicate case; a
@@ -773,8 +772,8 @@
           (is (= want (class-support kb 'binary_predicate likesRel)) "after a recover")
           (is (= #{m edge}
                  (into #{} (comp (mapcat :because) (map :sentence))
-                       (:support (v/why kb (v/handle-of kb (list 'binary_predicate likesRel)
-                                                        'CxUniverse)))))
+                       (:support (tu/why-root kb (v/handle-of kb (list 'binary_predicate likesRel)
+                                                              'CxUniverse)))))
               "why names the membership and the edge")
           (v/retract! kb (peek hs))
           (is (not (v/ask? kb (list 'binary_predicate likesRel) 'CxUniverse))
@@ -864,9 +863,7 @@
   ;; `:monotonic` edges by at_least_metatype, so the position check refuses a second argument
   (doseq [t '[type_type_by_order stuff_type_by_state_of_matter stuff_type_by_substance]]
     (is (= 1 (v/relation-arity kb t)) (str t)))
-  (is (= :arg-position
-         (:type (ex-data (try (v/assert kb '(arg type_type_by_order 2 thing) 'CxUniverse) nil
-                              (catch clojure.lang.ExceptionInfo e e)))))))
+  (is (= :arg-position (tu/try-violation kb '(arg type_type_by_order 2 thing) 'CxUniverse))))
 
 (tu/deftest-kb the-ternary-floor-derives-and-withdraws-with-its-minimum
   ;; No shipped relation states a minimum above two, so the `at_least_ternary`
@@ -1538,3 +1535,28 @@
                  (some->> (v/check (assoc kb :naming :off) s 'CxUniverse) seq (mapv :type)))
               "the spelling half reads the naming policy"))))))
 
+(defn- missing-args
+  "The `:missing-arg` findings as `context` reads the starter, as a set of
+  `[predicate missing-positions]`."
+  [kb context]
+  (into #{} (map (juxt :predicate :missing))
+        (:missing-arg (v/kb-integrity kb #{} context {:categories #{:missing-arg}
+                                                      :max-results 10000}))))
+
+(def ^:private open-positions
+  "The starter's argument positions no declaration types: the quoted example of the three example predicates.  ontology_test's
+  undeclared-positions gives the reason they stay open."
+  '#{[positiveExample [2]] [negativeExample [2]] [borderlineExample [2]]})
+
+(tu/deftest-kb every-starter-position-is-typed-but-the-open-ones
+  ;; A middle context's relation and type carry their arity mark in CxUniverse, while the
+  ;; declarations typing them stay in the context that states them.  The audit reads them
+  ;; from there, so CxUniverse reports what CxTra and CxSocialExtension, which between
+  ;; them see every middle context that declares one, both still report: the positions no
+  ;; declaration types.
+  (let [universe (missing-args kb 'CxUniverse)
+        open     (set/intersection (missing-args kb 'CxTra)
+                                   (missing-args kb 'CxSocialExtension))]
+    (is (= open-positions open))
+    (is (= open-positions universe)
+        "no middle-context relation or type is reported from CxUniverse")))

@@ -148,7 +148,8 @@ search than the limit stops deciding on every machine: the 90-vertex cover prove
 optimum in 1.37 million conflicts, so at the default the edge solver decides nothing on
 it and `do/label :one` returns its best model as best-effort. Raise the limit for such a
 program, and raise `VAELII_ASP_TIME_LIMIT` with it when the solve would then run near
-60 seconds on the slowest machine that runs it.
+60 seconds on the slowest machine that runs it. The core-guided strategy below proves a
+weighted cover of that shape in fewer conflicts than the default does.
 
 A search the limit stops reads as one the time limit stops: `:interrupted`, or
 `:best-effort` for a `:label` solve holding a model. Neither backend flags it. clasp
@@ -162,6 +163,35 @@ accessors), so their searches differ, and a program near the limit can finish on
 not the other. Which backend solves is configuration, not speed — `VAELII_ASP_SOLVER`,
 and in auto mode the program's size and whether libclingo loads — so two installations
 that must agree on such a program set `VAELII_ASP_SOLVER`.
+
+### The optimization strategy
+
+`VAELII_ASP_OPT_STRATEGY` picks how **every solve** optimizes, on both backends:
+`bb`, clasp's model-guided branch-and-bound and the default, or `usc`, core-guided
+optimization, which `clasp/search-args` passes as `--opt-strategy=usc,k,0,stratify`
+beside the solve limit. Branch-and-bound finds a model and descends from its cost.
+Core-guided optimization raises a lower bound from unsatisfiable cores, so its first model
+comes later and is closer to the optimum. A strategy is a search flag like the seed, so a
+solve stops at the same point on every machine under either
+(`asp_aspif_test/core-guided-optimization-proves-what-branch-and-bound-stops-short-of`).
+
+Measured on clasp 3.4.0, one thread, seed 1, the `:label` mode, over `asp_aspif_test`'s
+`weighted-cover` graphs and the 30-city cap `cardinality_solve_test` stops at the limit:
+
+| program | ASPIF | `bb` at 100,000 conflicts | `usc` at 100,000 conflicts |
+|---|---|---|---|
+| 60-vertex cover | 5 KB | optimum 149, 8,924 conflicts | optimum 149, 539 conflicts |
+| 90-vertex cover | 11 KB | best-effort 261 (optimum in 830,546) | optimum 260, 7,376 conflicts |
+| 30-city cap, `C(30, 10)` tied optima | 5 KB | best-effort | best-effort, same cost |
+| 600-vertex cover | 437 KB | best-effort 2,728 | best-effort 2,706 |
+
+The enumerating modes return the same optima and the same brave and cautious sets under
+both, and the 90-vertex cover's cautious enumeration spends 8,773 conflicts under `usc`
+against 2,351,976 under `bb`. The stratified `k` relaxation is the variant passed because
+the plain `usc` relaxation holds **no model** of the 600-vertex cover at the limit, where
+an interrupted search with no model decides nothing. The default stays `bb` because a change of strategy changes which model
+a `:label` solve that meets the limit returns, on every installation that does not set
+the variable.
 
 ### The time limit
 
@@ -446,8 +476,8 @@ what comes back. There is no multi-context classification and no multi-shot solv
 solve is one program, built from one region, answered once.
 
 A `do/label` program carries one thing a dilemma program does not: **cardinality bounds**.
-A `asp/atMost` / `asp/atLeast` rule ([solving.md](solving.md)) grounds to a `Program`
-`:cardinalities` entry, and `edge/translate` renders each as one ASPIF weight-body
+A `asp/atMost` / `asp/atLeast` rule, or a weighted `asp/atMostSum` / `asp/atLeastSum`
+([solving.md](solving.md)), grounds to a `Program` `:cardinalities` entry, and `edge/translate` renders each as one ASPIF weight-body
 statement (`aspif/weight-constraint` for a hard bound, `aspif/weight-rule` plus a minimize
 for a soft one) rather than the `C(n, k+1)` subset nogoods a hand-written bound needs.
 `label/dilemma-program` builds no cardinalities, so `local-solver`, which sees a dilemma

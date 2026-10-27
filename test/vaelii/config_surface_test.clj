@@ -293,6 +293,7 @@
    "PERF_TOLERANCE"    "scripts/gate.sh, passed through to `lein perf --tolerance`"
    "GATE_MAX_CONCURRENT" "scripts/lib/slots.sh, how many `lein gate` test stages run at once"
    "GATE_NO_WAIT"      "scripts/lib/slots.sh, exit 75 rather than wait for a gate slot"
+   "TEST_MIN_JOBS"     "scripts/test-parallel.sh, the fewest shards its default count starts"
    "PERF_NO_WAIT"      "scripts/lib/slots.sh, exit 75 rather than wait for the perf lock"
    "TEST_BACKENDS_OUT" "scripts/test-backends.sh, its log directory"
    "TEST_SWEEPS_OUT"   "scripts/test-sweeps.sh, its log directory"
@@ -306,7 +307,7 @@
    "TEST_MATRIX_SEED"  "scripts/test-matrix.sh, the seed its launch order is shuffled with"
    "MATRIX_HEARTBEAT"  "scripts/test-matrix.sh, seconds between its progress lines"
    "MATRIX_SLOTS_EVERY" "scripts/test-matrix.sh, seconds between re-reads of its slot count"
-   "ALLOW_WORKTREE_RUN" "scripts/lib/slots.sh, lets a matrix, sweep or perf run in a worktree"})
+   "ALLOW_WORKTREE_RUN" "scripts/lib/slots.sh, release lets the release agent's matrix, sweep or perf run in a worktree"})
 
 (deftest a-script-only-switch-is-read-by-the-script-it-names
   ;; The hatch is a hand-kept list that the ghost-row check reads as *real* — `real` is

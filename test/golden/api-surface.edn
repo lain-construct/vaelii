@@ -61,7 +61,7 @@
   direct-specs "[[conn t] [conn t context]]",
   disjoint-metatypes "[[conn]]",
   disjoint? "[[conn a b] [conn a b context]]",
-  edit! "[[conn batch]]",
+  edit! "[[conn batch] [conn batch opts]]",
   edit-with-consequences! "[[conn batch] [conn batch opts]]",
   equiv-class "[[conn term] [conn term context]]",
   escalate
@@ -159,7 +159,7 @@
   vocabulary-audit "[[conn]]",
   watch "[[conn] [conn goal context]]",
   watchers "[[conn]]",
-  why "[[conn handle] [conn handle opts]]",
+  why "[[conn handle]]",
   why-not
   "[[conn handle] [conn sentence context] [conn sentence context opts]]"},
  vaelii.core
@@ -179,6 +179,7 @@
   agent-of-context "[[ctx]]",
   all-functional-at-instant-violations "[[kb context]]",
   all-specified-violations "[[kb context]]",
+  arg-types-owed "[[kb]]",
   argue "[[kb asent context] [kb asent context opts]]",
   ask "[[kb goal] [kb goal context] [kb goal context opts]]",
   ask-opt-keys [:max-ms],
@@ -194,9 +195,12 @@
    :direction
    :max-depth
    :max-derivations
+   :max-ms
+   :max-term-depth
    :on-progress
    :progress-every-ms
    :provenance
+   :stop?
    :strength],
   assert-rule
   "[[kb antecedents consequent] [kb antecedents consequent context] [kb antecedents consequent context opts]]",
@@ -236,7 +240,7 @@
   count-with-arg "[[kb pos term]]",
   count-with-functor "[[kb pred]]",
   covers-of "[[kb whole]]",
-  default-chain-opts [:max-depth :max-derivations],
+  default-chain-opts [:max-term-depth],
   default-describe-limit :var,
   default-nearest-depth :var,
   default-nearest-ms :var,
@@ -250,8 +254,9 @@
   disjoint-metatypes "[[kb]]",
   disjoint? "[[kb a b] [kb a b context]]",
   disjointness-audit "[[kb] [kb context]]",
-  edit! "[[kb batch]]",
+  edit! "[[kb batch] [kb batch opts]]",
   edit-batch-keys [:add :remove],
+  edit-opt-keys [:max-ms :progress-every-ms :stop?],
   edit-records! "[[kb batch]]",
   edit-with-consequences! "[[kb batch] [kb batch opts]]",
   equiv-class "[[kb term] [kb term context]]",
@@ -334,6 +339,7 @@
   reasoners "[[]]",
   rebuild-progress "[[kb]]",
   record-arg-types "[[kb]]",
+  record-arg-types! "[[kb] [kb opts]]",
   recover "[[kb]]",
   register-modal-predicate "[[kb pred] [kb pred context]]",
   reified-term? "[[term]]",
@@ -343,6 +349,7 @@
   release-withheld! "[[kb]]",
   remove-unsupported! "[[kb opts]]",
   representative "[[kb term] [kb term context]]",
+  request-stop! "[[kb]]",
   reset-settle-stats! "[[kb]]",
   rests-on "[[j]]",
   resume "[[partial budget]]",
@@ -394,7 +401,7 @@
   vocabulary-audit "[[kb]]",
   watch "[[kb f] [kb goal context f]]",
   watchers "[[kb]]",
-  why "[[kb handle] [kb handle opts]]",
+  why "[[kb handle]]",
   why-not
   "[[kb handle] [kb sentence context] [kb sentence context opts]]",
   why-not-opt-keys [:max-depth :max-ms :nearest],

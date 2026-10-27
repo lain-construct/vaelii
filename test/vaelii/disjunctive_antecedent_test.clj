@@ -159,7 +159,7 @@
   (tu/with-terms [dog cat fed Muffet CxPets]
     (v/assert kb (fed-if-dog-or-cat dog cat fed) CxPets)
     (v/assert kb (list dog Muffet) CxPets)
-    (let [tree  (v/why kb (v/handle-of kb (list fed Muffet) CxPets))
+    (let [tree  (tu/why-root kb (v/handle-of kb (list fed Muffet) CxPets))
           rules (into #{} (map :rule) (:support tree))]
       (testing "the rule named is the dog alternative, with no or left in it"
         (is (= #{(list 'implies (list dog '?p) (list fed '?p))} rules)))

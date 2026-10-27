@@ -131,6 +131,43 @@
        (catch clojure.lang.ExceptionInfo e
          (if (contains? (ex-data e) ::deadline) ::interrupted (throw e)))))
 
+;; ---- one unit of a long write pass ---------------------------------------
+;; A pass over many facts that writes as it goes gives each fact a budget, and a fact
+;; past it is set aside whole rather than decided by the clock: the check below throws,
+;; and the pass catches the throw at the fact and records the fact as owed.  Only the
+;; read-only part of a unit binds the deadline, so the throw never lands inside a write.
+
+(def ^:dynamic *unit-deadline*
+  "The `now` instant past which `check-unit!` throws, or nil for none.  Bound by a pass
+  around the read-only checks of one unit (`special/record-arg-types!`), never around a
+  write."
+  nil)
+
+(def ^:dynamic *unit-phase*
+  "nil, or a volatile naming the part of a unit's checks running now (`unit-phase!`),
+  which `check-unit!`'s signal carries."
+  nil)
+
+(defn unit-phase!
+  "Name the part of the unit's checks that runs from here, when a pass is watching."
+  [k]
+  (when-let [p *unit-phase*] (vreset! p k))
+  nil)
+
+(defn check-unit!
+  "Throw the signal `unit-over?` reads when the unit's deadline has passed.  Free when no
+  pass bound one."
+  []
+  (when-let [dl *unit-deadline*]
+    (when (>= (long (now)) (long dl))
+      (throw (ex-info "the unit's budget passed inside its checks"
+                      {::unit-over dl :phase (some-> *unit-phase* deref)})))))
+
+(defn unit-over?
+  "Was `t` thrown by `check-unit!`?"
+  [t]
+  (contains? (ex-data t) ::unit-over))
+
 (defn- pull
   "`(seq xs)` under the `*deadline*` `collect` bound, or `::interrupted`."
   [xs]

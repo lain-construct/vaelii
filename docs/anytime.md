@@ -199,6 +199,7 @@ its search that runs eagerly:
 | the DFS arm of `prove-within` and its `resume` | one collector the continuation closure carries, bound around each `res/prove-from` step |
 | `ask-within` and its `resume` | one collector bound around each pull of the lazy stream (`provers/collecting-seq`), including the stream a `:timeout` continuation rebuilds |
 | `query-status` without a depth, `explain-levels`, `escalate` | `provers/with-unenumerated` around a realized read: per level for `explain-levels`, the stopping level's probe for `escalate` |
+| `do/label` | `provers/with-unenumerated` around the grounding (`solve-context/build`), which is eager ([solving.md](solving.md#dolabel-base-into-mode)) |
 
 `compare-tacticians` reads a row `:incomplete` under the same rule. Every tactician runs
 the same goals, so the rows' `:unenumerated` sets are equal, as their answer sets are.

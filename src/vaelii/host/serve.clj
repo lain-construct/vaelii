@@ -70,7 +70,14 @@
             [vaelii.impl.assert-entry :as entry]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.config :as config]
-            [vaelii.impl.sentex :as sx])
+            [vaelii.impl.naming :as nm]
+            [vaelii.impl.reads :as reads]
+            [vaelii.impl.resolution :as res]
+            [vaelii.impl.rules :as rules]
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.util.concurrent ExecutionException]
            [org.eclipse.jetty.server Server ServerConnector]
            [org.eclipse.jetty.util.component LifeCycle$Listener]))
@@ -129,58 +136,51 @@
   "Which of the two ceilings apply to which op, and under which key the op reads it.
 
   A read that expands rules runs on the daemon's **single write monitor**, so its cost
-  is not the caller's alone: every other request queues behind it.  The two dials a
-  caller sets are the two ceilings — `:max-ms` (`config/max-query-ms`) and `:max-depth`
-  (`config/max-query-depth`) — and this table says which entry point reads which, because the
-  accepted option keys differ (`query-opt-keys` has no `:max-ms` to fill in, `search-tree`'s
-  has both, an anytime budget map is `:max-ms` and takes no default of its own).
+  is not the caller's alone: every other request queues behind it.  The clock ceiling,
+  `:max-ms` (`config/max-query-ms`), bounds that cost at every entry point that takes a
+  clock, and such a row names no depth: a depth ceiling there would refuse a complete
+  answer the clock already bounds.  `:query`, `:query?`, `:query-status` and `:argue` take
+  no clock (`query-opt-keys` has no `:max-ms`), so the depth ceiling, `:max-depth`
+  (`config/max-query-depth`), is their bound.  An anytime budget map is `:max-ms` and takes
+  no default of its own.
 
   **The table holds the search bounds of reads, and no write's bound.** A read with no
   dial of its own is not on it: `:sentexes-matching` has nothing to raise, so there is
   nothing to clamp. The four backward-search entry points do have one
-  (`core/ask-opt-keys`, `core/prove-opt-keys`), and are held to the ceiling like the rest
-  — `:ask` and `:ask?` to the clock alone, since nothing in the prover registry expands
-  a rule.
+  (`core/ask-opt-keys`, `core/prove-opt-keys`), and are held to the clock ceiling.
 
   **Eight writes name a bound this table does not hold.** `:assert`, `:try-assert`,
-  `:assert-many`, `:assert-rule` and `:forward-chain` read `:max-depth` and `:max-derivations`
-  (`core/assert-opt-keys`, `forward-chain`'s accepted keys), and `:edit`,
-  `:edit-with-consequences` and `:preview` read the same two keys off each batch entry's
-  opts. Both bound the chaining fixpoint (`chain/default-chain-opts`, 64 and 100,000 when
-  the request names neither), which runs on the same monitor for its whole length, and a
-  request may name either at any size. `:preview` also takes no clock. docs/operations.md
-  states the same absence beside the ceilings."
+  `:assert-many`, `:assert-rule` and `:forward-chain` read `:max-depth`, `:max-term-depth`
+  and `:max-derivations` (`core/assert-opt-keys`, `forward-chain`'s accepted keys), and
+  `:edit`, `:edit-with-consequences` and `:preview` read the same three keys off each batch
+  entry's opts. All three bound the chaining fixpoint (`chain/default-chain-opts`: a
+  term-nesting bound of 8 and no other when the request names none), which runs on the
+  same monitor for its whole length, and a request may name any of them at any size. Every
+  one but `:forward-chain` and `:preview` also reads `:max-ms`, which `write-bounds` holds
+  to the write ceiling. `:forward-chain` reads `:max-ms` and no ceiling fills it in;
+  `:preview` takes no clock. docs/operations.md states the same beside the ceilings."
   {:query              #{:max-depth}
    :query?             #{:max-depth}
    :query-status       #{:max-depth}
    :argue              #{:max-depth}
-   :why                #{:max-depth}
-   :why-not            #{:max-depth :max-ms}
-   :search-tree        #{:max-depth :max-ms}
-   :compare-tacticians #{:max-depth :max-ms}
+   :why-not            #{:max-ms}
+   :search-tree        #{:max-ms}
+   :compare-tacticians #{:max-ms}
    :ask                #{:max-ms}
    :ask?               #{:max-ms}
-   :prove              #{:max-depth :max-ms}
-   :provable?          #{:max-depth :max-ms}
+   :prove              #{:max-ms}
+   :provable?          #{:max-ms}
    :ask-within         #{:max-ms}
-   :prove-within       #{:max-depth :max-ms}
+   :prove-within       #{:max-ms}
    :kb-integrity       #{:max-ms :max-work :max-results}})
-
-(def integrity-max-work
-  "The most cooperative query units one daemon integrity request may spend."
-  10000)
-
-(def integrity-max-results
-  "The most findings one daemon integrity response may carry."
-  1000)
 
 (def ^:private clock-fill
   "The ops whose ceiling has to reach a caller who sent **no option map at all**, and the
   arguments to fill in between what they sent and the map.
 
   A `:max-depth` op needs nothing here: absent there is a *smaller* question than the
-  ceiling — no rule expansion at `query`'s entry point, the shipped guard at `prove-within`'s —
-  so a call with no map is already inside the bound. Absent `:max-ms` is the opposite: it
+  ceiling — no rule expansion at `query`'s entry point — so a call with no map is already
+  inside the bound. Absent `:max-ms` is the opposite: it
   is **no clock**, and an unbounded backward search on the daemon's single write monitor
   is the exposure the ceiling exists for. So a short call to one of these is padded out to
   the arity that has a map, with `vaelii.core`'s own default for each argument in
@@ -217,8 +217,8 @@
   (let [n (case k
             :max-ms    (config/max-query-ms)
             :max-depth (config/max-query-depth)
-            :max-work integrity-max-work
-            :max-results integrity-max-results)]
+            :max-work    (config/integrity-max-work)
+            :max-results (config/integrity-max-results))]
     (when (pos? n) n)))
 
 (defn- under-ceiling
@@ -234,8 +234,8 @@
   the daemon already gives every other read.
 
   An absent `:max-depth` is left alone: absent is not unbounded there, it is the
-  no-rule-expansion answer at `query`'s entry point and the shipped guard at `prove-within`'s,
-  both of which are *smaller* questions than the ceiling rather than larger ones."
+  no-rule-expansion answer at `query`'s entry point, a *smaller* question than the
+  ceiling rather than a larger one."
   [op ks opts]
   (reduce
    (fn [m k]
@@ -276,6 +276,67 @@
           (f kb (if (map? (peek args))
                   (conj (vec (butlast args)) (under-ceiling op ks (peek args)))
                   args)))))
+    f))
+
+;; ---- the write ceiling: a clock a request may lower and not raise --------
+
+(def write-bounds
+  "The chaining writes the daemon holds to `config/max-write-ms`, and where each one's
+  option map sits: `:option-arity` is the argument count that ends in the map, and `:fill`
+  the `vaelii.core` defaults between the last argument a caller may send and the map.
+
+  A chaining write runs on the daemon's single write monitor, so an operator may hold it
+  to a clock as the reads `search-bounds` names are: a request may name a smaller
+  `:max-ms` and is refused (`:over-ceiling`) for a larger one, and an absent one is the
+  ceiling.  A write the clock ends is rolled back (docs/inference.md, \"Stopping a run\")."
+  {:assert                 {:fill ['CxUniverse] :option-arity 3}
+   :try-assert             {:fill ['CxUniverse] :option-arity 3}
+   :assert-rule            {:fill ['CxUniverse] :option-arity 4}
+   :assert-many            {:fill [] :option-arity 3}
+   :edit                   {:fill [] :option-arity 2}
+   :edit-with-consequences {:fill [] :option-arity 2}})
+
+(defn- with-write-opts
+  "`args` padded out to `option-arity` with `fill`'s defaults and an empty map, or as sent
+  when the call is short of an argument `fill` has no default for or already names the
+  map.  The map is told by position: `:edit`'s batch is a map too."
+  [args {:keys [fill option-arity]}]
+  (let [n          (count args)
+        first-fill (- (long option-arity) 1 (count fill))]
+    (cond
+      (or (< n first-fill) (> n option-arity)) args
+      (= n option-arity) (cond-> args (nil? (peek args)) (assoc (dec n) {}))
+      :else              (conj (into args (subvec fill (- n first-fill))) {}))))
+
+(defn- under-write-ceiling
+  "`opts` with its `:max-ms` held under `ceiling`: refused (`:over-ceiling`) when larger,
+  the ceiling when absent, as sent otherwise."
+  [op ceiling opts]
+  (let [v (:max-ms opts)]
+    (cond
+      (and (number? v) (> v ceiling))
+      (throw (ex-info (str "op " op " :max-ms " v " is over this daemon's write ceiling of "
+                           ceiling " — a request may name a smaller bound and not a larger"
+                           " one, since a write holds the single writer for its whole run")
+                      {:type :over-ceiling :op op :option :max-ms :requested v
+                       :ceiling ceiling}))
+      (nil? v) (assoc opts :max-ms ceiling)
+      :else    opts)))
+
+(defn- write-bounded
+  "Wrap a chaining write's `(fn [kb args])` so its option map is held under
+  `config/max-write-ms` (`write-bounds`) when the operator set one, or return `f` for any
+  other op."
+  [op f]
+  (if-let [at (write-bounds op)]
+    (fn [kb args]
+      (let [ceiling (config/max-write-ms)]
+        (if (pos? ceiling)
+          (let [args (with-write-opts (vec args) at)]
+            (f kb (if (= (count args) (:option-arity at))
+                    (update args (dec (count args)) #(under-write-ceiling op ceiling %))
+                    args)))
+          (f kb args))))
     f))
 
 (def ^:dynamic *served-kbs*
@@ -329,10 +390,10 @@
   that grows with the KB.  `serve_parity_test` fails on a fn that is in neither.
 
   Every entry is wrapped by `bounded`, which is a no-op for an op `search-bounds` does
-  not name."
+  not name, and by `write-bounded`, a no-op for an op `write-bounds` does not name."
   (into
    {}
-   (map (fn [[op f]] [op (bounded op f)]))
+   (map (fn [[op f]] [op (bounded op (write-bounded op f))]))
    {:assert       (op v/assert)
     :try-assert   (op v/try-assert)
     :assert-rule  (op v/assert-rule)
@@ -754,24 +815,28 @@
     :unknown-subscription :bad-cursor :too-many-subscriptions :too-many-waiters
     ;; a `{:keep? true}` abduction past the kept-context cap: the caller holds the
     ;; contexts and frees one with `:abduce-discard`, as with a subscription
-    :too-many-kept})
+    :too-many-kept
+    ;; a write the caller's own bound ended, rolled back: the caller chose the bound and
+    ;; decides whether to send the write again with a larger one
+    :interrupted})
 
 ;; ---- the write boundary: what a token-table grant may write ---------------
 
 (def write-ops
-  "The ops that store, remove or annotate a sentex a request names, which a token-table
-  grant bounds (`bound-write`).  The other ops read, store nothing (`:check`,
-  `:check-edit`, `:preview`), or store what the request does not name: `:forward-chain`
-  what the rules derive, `:abduce` its hypotheses in a scratch context
-  (docs/operations.md, \"The token table\")."
+  "The ops that store, remove or annotate a sentex a request names, and `:export`, which
+  writes the whole KB to the server's host: a token-table grant bounds them
+  (`bound-write`).  The other ops read, store nothing (`:check`, `:check-edit`,
+  `:preview`), or store what the request does not name: `:forward-chain` what the rules
+  derive, `:abduce` its hypotheses in a scratch context (docs/operations.md, \"The token
+  table\")."
   #{:assert :try-assert :assert-rule :assert-many :retract :edit :edit-with-consequences
-    :add-provenance})
+    :add-provenance :export})
 
 (defn- forbidden-context!
-  "Throw `:forbidden-context` (403): `principal` may not write `context`."
-  [op principal context why]
-  (throw (ex-info (str "op " (pr-str op) ": " principal " may not write "
-                       (pr-str context) " — " why)
+  "Throw `:forbidden-context` (403): `principal` may not write `context`, nil for a write
+  no context bounds.  The message names the refused write as `what`, and says `why`."
+  [op principal context what why]
+  (throw (ex-info (str "op " (pr-str op) ": " principal " may not write " what " — " why)
                   {:type :forbidden-context :op op :principal principal :context context
                    ::status 403})))
 
@@ -809,36 +874,316 @@
         (assoc :provenance (assoc (:provenance opts) :principal principal)))
     opts))
 
-(defn- placement
-  "The context `sentence` is stored in when asserted into `context`, as `assert` reads it:
-  a `(set/monotonic …)` wrapper is looked through, and an `(ist Ctx S)` names its own
-  context, which wins.  `::imperative` for a `do/` form, which stores nothing of its own
-  and writes wherever its action does."
-  [sentence context]
+(def ^:private placement-declarations
+  "The declarations that place every `(P …)` the KB holds, in any context, in CxUniverse:
+  `forced_decontextualized_predicate` moves each there and `decontextualized_predicate`
+  copies each there (docs/contexts.md)."
+  '#{forced_decontextualized_predicate decontextualized_predicate})
+
+(defn- apart
+  "`lit` with every variable renamed to a primed spelling, which no stored rule's
+  canonical variable (`?varN`) takes, so unifying the two binds neither's variable to the
+  other's by name."
+  [lit]
+  (walk/postwalk #(if (sx/variable? %) (symbol (str % "'")) %) lit))
+
+(defn- generators-on
+  "The stored generators with an antecedent on one of the antecedent keys `ks`, as
+  `[handle sentex]` pairs in content order.  Each key's antecedent posting is intersected
+  with the `implies`-consequent posting before a record is decoded, so only a generator
+  is.  Every stored generator is read, in whatever context it is stated, since a `genlCx`
+  edge stored later would make it visible to the grant's context."
+  [kb ks]
+  (let [idx  (:index kb)
+        gens (when (seq ks) (set (reads/as-stored-rules-by-consequent-global idx sx/rule-functor)))]
+    (when (seq gens)
+      (->> (into #{} (comp (mapcat #(reads/as-stored-rules-by-antecedent-global idx %))
+                           (filter gens))
+                 ks)
+           (keep #(let [g (v/sentex kb %)] (when (rules/generator-sentex? g) [% g])))
+           (nm/sort-by-content-key (fn [[_ g]] [(sx/sentence-of g) (:context g)]))))))
+
+(defn- link-routes
+  "The `[handle ctx]` supporter routes, read unscoped, by which a literal on `lo` reaches
+  one on `hi` with its first two arguments exchanged under `swapped?`: `[[]]` for `lo`
+  = `hi` read straight, each route no other covers over `genl` edges
+  (`tax/general-reach-supports`), else the one route `tax/signed-reach-support` names
+  across `genlInverse` edges, and `[[]]` when neither names one."
+  [tax lo hi swapped?]
+  (or (when-not swapped?
+        (if (= lo hi) [[]] (not-empty (tax/general-reach-supports tax :genl lo hi nil))))
+      (some-> (tax/signed-reach-support tax lo hi swapped? nil nil) vector)
+      [[]]))
+
+(defn- key-predicate
+  "The predicate of antecedent key `k`: `k`, or the body's for a `[:not p]` key."
+  [k]
+  (if (vector? k) (second k) k))
+
+(defn- parities
+  "The parities `hi` is in the signed closure `[straight swapped]` with: false for
+  straight, true for swapped (`tax/signed-closure`)."
+  [[st sw] hi]
+  (cond-> #{} (contains? st hi) (conj false) (contains? sw hi) (conj true)))
+
+(defn- firing-contexts
+  "The contexts a generator firing over a fact stated in `fc` is placed in, the fact
+  reaching the antecedent over one of the `[handle ctx]` routes `routes`, in content
+  order: `fc` when `fc` sees every context of some route, else per route the maximal
+  common descendants of `fc` and the route's contexts.  This is the engine's placement
+  (`chain/placements-over`) with the generator's own context left out, as
+  `generators-on` reads every generator."
+  [tax fc routes]
+  (let [cs   (into #{} (mapcat #(tax/maximal-common-descendant-contexts tax (into [fc] (keep second) %)))
+                   routes)
+        base (filter cs (tax/maximal-common-descendant-contexts tax [fc]))]
+    (nm/sort-by-content-key nm/name-key compare (if (seq base) base cs))))
+
+(defn- placed-rules
+  "The `[generator rule context]` triples for each of the `[handle sentex]` generators
+  `gens` outside `seen` with an antecedent literal `lit`, stated in `fc`, matches: its
+  handle, the rule it generates under that match's bindings, and each context of
+  `(place fc routes)`.  `modes` maps an antecedent key to `{swapped? routes}`: the
+  parities `lit` reaches it with, and the routes of each, as `place` reads them.  A
+  swapped match reads `lit` with its first two arguments exchanged, as a fact reached
+  over an odd number of `genlInverse` edges is read.  `lit` nil matches each antecedent
+  `modes` keys with no binding."
+  [gens modes lit fc seen place]
+  (let [args #(if (vector? (rules/antecedent-key %)) (rest (second %)) (rest %))
+        l    (when lit (args (apart lit)))]
+    (for [[h g] gens
+          :when (not (seen h))
+          a (:antecedent g)
+          [sw? rs] (sort-by first (modes (rules/antecedent-key a)))
+          :when (or (nil? lit) (not sw?) (next l))
+          b (if lit
+              (some-> (res/unify-args (args a) (if sw? (list* (second l) (first l) (nnext l)) l))
+                      vector)
+              [res/no-bindings])
+          c (place fc rs)]
+      [h (res/substitute (rules/generated-rule (:consequent g)) b) c])))
+
+(defn- generated-rules
+  "The `[generator rule context]` triples storing literal `lit` in context `c` makes the
+  engine write: a `defn*` fact's companion rules (`sx/defn-companion-rules`, generator
+  nil) in `c`, and the `placed-rules` of each stored generator with an antecedent `lit`
+  triggers (`rules/trigger-keys`), read through the signed closure of `lit`'s predicate."
+  [kb lit c seen]
+  (let [tax  (reasoning/taxonomy kb)
+        ks   (set (rules/trigger-keys tax lit (:index kb)))
+        k    (rules/antecedent-key lit)
+        p    (key-predicate k)
+        reach (tax/signed-closure tax (if (vector? k) :down :up) p nil)
+        modes (fn [ak]
+                (when (contains? ks ak)
+                  (let [q (key-predicate ak)]
+                    (into {} (map (fn [sw?] [sw? (if (vector? k) (link-routes tax q p sw?) (link-routes tax p q sw?))]))
+                          (parities reach q)))))]
+    (concat
+     (when (sx/defn-sentence? lit) (map #(vector nil % c) (sx/defn-companion-rules lit)))
+     (placed-rules (generators-on kb ks) modes lit c seen (partial firing-contexts tax)))))
+
+(def ^:private edge-functors
+  "The taxonomy edges `rules/trigger-keys` reads: storing `(genl Sub Super)` or
+  `(genlInverse Sub Super)` makes a fact on a spec of Sub trigger an antecedent on a genl
+  of Super."
+  '#{genl genlInverse})
+
+(defn- edge-generated-rules
+  "The `[generator rule context]` triples storing the edge `(f sub super)` (`edge-functors`)
+  in `context` makes the engine write: for each stored fact the edge connects to a stored
+  generator's antecedent, each `placed-rules` triple that `generated-rules` reads of the
+  fact once the edge is stored and did not read before it.  A positive fact on a spec `lo`
+  of `sub` meets an antecedent on a genl `hi` of `super`; a negative fact on a genl `hi` of
+  `super` meets a negated antecedent on a spec `lo` of `sub`.  A new route is a route from
+  `lo` to `sub`, the edge in `context`, and a route from `super` to `hi`; the routes once
+  the edge is stored are the new routes and the fact's stored ones that no other covers
+  (`tax/uncovered`).  A variable `sub` or `super` may meet any fact, so each antecedent on
+  a key the edge could reach is matched with no binding, placed in `context`."
+  [kb [f sub super] context seen]
+  (let [tax   (reasoning/taxonomy kb)
+        idx   (:index kb)
+        keyed (fn [k] (if (vector? k) (list sx/not-functor (list (second k))) (list k)))
+        trig  (memoize (fn [k] (set (rules/trigger-keys tax (keyed k) idx))))
+        rule-keys (delay (reads/as-stored-rule-keys idx))
+        up    (if (sx/variable? super) (set (filter symbol? @rule-keys)) (trig super))
+        down  (if (sx/variable? sub) (set (filter vector? @rule-keys)) (trig [:not sub]))
+        gens  (generators-on kb (into up down))
+        reads? (fn [ks] (some (fn [[_ g]] (some #(ks (rules/antecedent-key %)) (:antecedent g))) gens))
+        closure (memoize (fn [dir p] (tax/signed-closure tax dir p nil)))
+        floor (fn [r] [nil (tax/context-floor tax (map second r))])
+        ;; {swapped? [routes-after routes-before]} for each parity `lo` reaches `hi` with
+        ;; over the edge
+        link  (memoize
+               (fn [lo hi]
+                 (let [old (parities (closure :up lo) hi)
+                       new (reduce (fn [m [sw? rs]] (update m sw? (fnil into []) rs)) {}
+                                   (for [p1 (parities (closure :down sub) lo)
+                                         p2 (parities (closure :up super) hi)
+                                         :let [sw? (not= (not= p1 (= 'genlInverse f)) p2)]]
+                                     [sw? (for [r1 (link-routes tax lo sub p1) r2 (link-routes tax super hi p2)]
+                                            (concat r1 [[nil context]] r2))]))]
+                   (into {} (map (fn [[sw? rs]]
+                                   (let [pre (when (contains? old sw?) (link-routes tax lo hi sw?))]
+                                     [sw? [(tax/uncovered tax floor (concat pre rs)) pre]])))
+                         new))))
+        place (memoize (fn [fc [after before]]
+                         (remove (set (firing-contexts tax fc before)) (firing-contexts tax fc after))))
+        met   (fn [preds negative? ks]
+                (for [s (->> (mapcat #(reads/as-stored-with-functor idx %) preds)
+                             (keep #(v/sentex kb %))
+                             (filter #(= negative? (vector? (rules/antecedent-key (:sentence %)))))
+                             (nm/sort-by-content-key (juxt :sentence :context)))
+                      :let [fp    (key-predicate (rules/antecedent-key (:sentence s)))
+                            modes (fn [ak] (when (contains? ks ak)
+                                             (let [q (key-predicate ak)]
+                                               (if negative? (link q fp) (link fp q)))))]
+                      t (placed-rules gens modes (:sentence s) (:context s) seen place)]
+                  t))
+        reach (fn [[st sw]] (into st sw))]
+    (cond
+      (empty? gens) []
+      (or (sx/variable? sub) (sx/variable? super))
+      (placed-rules gens #(when (contains? (into up down) %) {false [[]]}) nil context seen
+                    (partial firing-contexts tax))
+      :else
+      (concat (when (reads? up) (met (reach (closure :down sub)) false up))
+              (when (reads? down) (met (reach (closure :up super)) true down))))))
+
+;; literal-reach and rule-placements call each other: a rule's conclusion is a literal,
+;; and a literal that triggers a generator makes the engine write a rule.  `seen` holds
+;; the generators already expanded on the path, so the descent ends.
+(declare rule-placements)
+
+(defn- literal-reach
+  "The `[context why what]` triples storing literal `lit` in `context` writes: the context
+  `assert` stores it in (`entry/storage-context`), CxUniverse beside it for a literal the
+  store also lifts there (`special/lifts-to-universe?`), for a `genlCx` edge its lower
+  context, whose ancestor set the edge widens, and the `rule-placements` of every rule
+  storing it makes the engine write, in the context it is placed in (`generated-rules`,
+  `edge-generated-rules`).  `::admin-only` for a
+  literal no grant's contexts bound, `what` naming it: a placement declaration, a variable
+  functor and a variable in place of a literal."
+  [kb lit context seen]
+  (let [f (when (sequential? lit) (first lit))]
+    (cond
+      (or (sx/variable? lit) (sx/variable? f))
+      [[::admin-only "it may conclude any predicate" "a literal with a variable functor"]]
+      (placement-declarations f)
+      [[::admin-only "it places every (P …) the KB holds, in any context, in CxUniverse"
+        (str "a " f " declaration")]]
+      (nil? f)
+      []
+      :else
+      (let [c (entry/storage-context kb f context)]
+        (cond-> [[c nil]]
+          (special/lifts-to-universe? kb f)
+          (conj [sx/root-context (str "the store also deduces a (" f " …) into CxUniverse")])
+          (and (= 'genlCx f) (= 3 (count lit)))
+          (conj [(second lit) "a genlCx edge widens its lower context's ancestor set"])
+          :always
+          (into (mapcat (fn [[g r c']]
+                          (rule-placements kb (sx/rule-consequent (rules/inner-rule r)) c'
+                                           (cond-> seen g (conj g)))))
+                (concat (generated-rules kb lit c seen)
+                        (when (and (edge-functors f) (= 3 (count lit)))
+                          (edge-generated-rules kb lit c seen)))))))))
+
+(defn- conclusions
+  "The `[literal context]` pairs a rule stored in `context` concludes from `consequent`:
+  a conjunction, an existential head and a generated rule's consequent are descended, and
+  a negation is the literal it is, as `entry/storage-context` and the lift read it."
+  [consequent context]
+  (cond
+    (sx/variable? consequent)      [[consequent context]]
+    (not (sequential? consequent)) []
+    (= sx/and-functor (first consequent)) (mapcat #(conclusions % context) (rest consequent))
+    (sx/head-exists? consequent)   (conclusions (sx/head-exists-body consequent) context)
+    (sx/implies? consequent)       (conclusions (sx/rule-consequent consequent) context)
+    :else                          [[consequent context]]))
+
+(defn- rule-placements
+  "The `[context why what]` triples a rule stored in `context` writes: `context`, and the
+  `literal-reach` of every literal its `consequent` concludes."
+  ([kb consequent context] (rule-placements kb consequent context #{}))
+  ([kb consequent context seen]
+   (into [[context nil]]
+         (mapcat (fn [[lit c]] (literal-reach kb lit c seen)))
+         (conclusions consequent context))))
+
+(defn- placements
+  "The `[context why what]` triples asserting `sentence` into `context` writes, as `assert`
+  reads it: a `(set/monotonic …)` wrapper is looked through, an `(ist Ctx S)` names its
+  own context, which wins, a rule is held to `rule-placements` and a fact to
+  `literal-reach`.  `::admin-only` for a `do/` form, which stores nothing of its own and
+  writes wherever its action does."
+  [kb sentence context]
   (loop [s sentence, c context]
     (let [s (try (first (sx/peel-strength s nil))
                  (catch clojure.lang.ExceptionInfo _ s))]
       (cond
-        (sx/do-form? s)              ::imperative
-        (entry/ist-parts s)          (let [[c' s'] (entry/ist-parts s)] (recur s' c'))
-        :else                        c))))
+        (sx/do-form? s)
+        [[::admin-only "it writes where its action does" "a do/ imperative"]]
+        (entry/ist-parts s) (let [[c' s'] (entry/ist-parts s)] (recur s' c'))
+        :else
+        (let [s (try (rules/inner-rule s) (catch Exception _ s))]
+          (if (sx/implies? s)
+            (rule-placements kb (sx/rule-consequent s) c)
+            (literal-reach kb s c #{})))))))
 
 (defn- check-context!
-  "Throw unless `grant` may store a sentence in context `c`, as `placement` answers it."
-  [op {:keys [principal writes admin?]} c]
+  "Throw unless `grant` may write the `[c why what]` triple `placements` answers: `c` is
+  in its `:writes`, or the grant is an admin's.  `why` says why the write reaches `c`; for
+  `::admin-only`, `what` names what only an admin grant writes."
+  [op {:keys [principal writes admin?]} [c why what]]
   (cond
     admin? nil
-    (= ::imperative c)
-    (forbidden-context! op principal nil
-                        (str "the sentence is a do/ imperative, which writes where its"
-                             " action does, and only an admin grant runs one"))
+    (= ::admin-only c)
+    (forbidden-context! op principal nil what (str why ", and only an admin grant writes it"))
     (not (contains? writes c))
-    (forbidden-context! op principal c "the token's grant does not name it")))
+    (forbidden-context! op principal c (pr-str c)
+                        (str (some-> why (str ", and ")) "the token's grant does not name it"))))
+
+(defn- stored-placements
+  "The `[context why what]` triples the stored sentex `s` writes, read as `literal-reach`
+  reads a literal: its context, CxUniverse beside it for a sentence the store also lifts
+  there, `Sub` for a `(genlCx Sub Super)` edge, and `::admin-only` for a placement
+  declaration."
+  [kb s]
+  (let [sentence (sx/sentence-of s)
+        f        (when (sequential? sentence) (first sentence))
+        why      (str "a rule the write fires concludes " (pr-str sentence))]
+    (cond-> [[(:context s) (str why " there")]]
+      (special/lifts-to-universe? kb f)
+      (conj [sx/root-context (str why ", which the store also deduces into CxUniverse")])
+      (and (= 'genlCx f) (= 3 (count sentence)))
+      (conj [(second sentence) (str why ", which widens its lower context's ancestor set")])
+      (placement-declarations f)
+      (conj [::admin-only "it places every (P …) the KB holds, in any context, in CxUniverse"
+             (str "a " f " declaration")]))))
+
+(defn- write-check
+  "The `entry/*write-check*` a write op runs under for `grant`, nil for no grant and for an
+  admin's: a fn of the KB and the handles the write's rule firings concluded that throws
+  `:forbidden-context` for the first, in content order, whose `stored-placements` names a
+  context outside `:writes`.  `placements` does not predict those conclusions, and the
+  throw takes the write back (docs/operations.md, \"The token table\")."
+  [op {:keys [writes admin?] :as grant}]
+  (when (and grant (not admin?))
+    (fn [kb handles]
+      (when-let [[_ t] (->> (for [h handles
+                                  :let [s (v/sentex kb h)]
+                                  :when s
+                                  t (stored-placements kb s)
+                                  :when (not (contains? writes (first t)))]
+                              [s t])
+                            (nm/min-by-content-key (fn [[s [c]]] [(sx/sentence-of s) (:context s) (nm/name-key c)])))]
+        (check-context! op grant t)))))
 
 (defn- check-placement!
   "Throw unless `grant` may store `sentence` asserted into `context`."
-  [op grant sentence context]
-  (check-context! op grant (placement sentence context)))
+  [kb op grant sentence context]
+  (run! #(check-context! op grant %) (placements kb sentence context)))
 
 (defn- check-removal!
   "Throw unless `grant` may remove or annotate the sentex at `handle`.  A handle naming no
@@ -850,9 +1195,10 @@
       admin? nil
       (nil? sx) (when-not absent-ok?
                   (forbidden-context! op principal nil
-                                      (str "handle " (pr-str handle) " names no stored sentex")))
+                                      (str "provenance on handle " (pr-str handle))
+                                      "the handle names no stored sentex"))
       (not (contains? writes (:context sx)))
-      (forbidden-context! op principal (:context sx)
+      (forbidden-context! op principal (:context sx) (pr-str (:context sx))
                           (str "handle " (pr-str handle) " is stored there, and the token's"
                                " grant does not name it")))))
 
@@ -875,15 +1221,16 @@
                                    (let [[s c o] entry
                                          o' (with-identity op grant o)]
                                      (if grant
-                                       (do (check-placement! op grant s c) [s c o'])
+                                       (do (check-placement! kb op grant s c) [s c o'])
                                        entry))
                                    entry))
                                adds)))))))
 
 (defn- bound-write
   "`args` for write op `op`, held to `grant` — a token-table grant, or nil when the request
-  presented none.  Under a grant every sentence's context, and every removed or annotated
-  handle's stored context, must be one the grant writes (`:forbidden-context`), and the
+  presented none.  Under a grant every context a sentence's storage writes (`placements`),
+  and every removed or annotated handle's stored context, must be one the grant writes
+  (`:forbidden-context`), `:export` runs only under an admin grant, and the
   write records the provenance `:principal` and, unless an admin grant names another,
   the `:creator` as the grant's principal (`with-identity`; `:creator-mismatch` for a
   request naming an identity the grant does not hold).  Under no grant only a named
@@ -893,7 +1240,7 @@
   [kb grant op args]
   (let [n   (count args)
         ctx (fn [i] (if (> n i) (nth args i) 'CxUniverse))
-        put (fn [s c] (when grant (check-placement! op grant s c)))]
+        put (fn [s c] (when grant (check-placement! kb op grant s c)))]
     (case op
       (:assert :try-assert)
       (if (<= 1 n 3)
@@ -905,7 +1252,8 @@
 
       :assert-rule
       (if (<= 2 n 4)
-        (do (when grant (check-context! op grant (ctx 2)))
+        (do (when grant
+              (run! #(check-context! op grant %) (rule-placements kb (nth args 1) (ctx 2))))
             (if (or grant (= n 4))
               [(nth args 0) (nth args 1) (ctx 2) (with-identity op grant (get args 3))]
               args))
@@ -913,7 +1261,7 @@
 
       :assert-many
       (if (<= 2 n 3)
-        (do (when (sequential? (nth args 0))
+        (do (when (coll? (nth args 0))
               (doseq [s (nth args 0)] (put s (nth args 1))))
             (if (or grant (= n 3))
               [(nth args 0) (nth args 1) (with-identity op grant (get args 2))]
@@ -936,7 +1284,14 @@
       (:edit :edit-with-consequences)
       (if (<= 1 n 2)
         (assoc args 0 (bounded-batch kb op grant (nth args 0)))
-        args))))
+        args)
+
+      :export
+      (do (when grant
+            (check-context! op grant [::admin-only (str "op :export writes it to a directory"
+                                                        " on the server's host")
+                                      "the whole KB"]))
+          args))))
 
 (defn- off-worker
   "Run `thunk` on a `future` thread and wait for its value on this one, rethrowing what
@@ -1056,8 +1411,10 @@
                                 #(locking monitor
                                    (admit! admit)
                                    (wire-safe
-                                    (f kb (cond->> (vec args)
-                                            (write-ops op) (bound-write kb grant op))))))
+                                    (binding [entry/*write-check* (when (write-ops op)
+                                                                    (write-check op grant))]
+                                      (f kb (cond->> (vec args)
+                                              (write-ops op) (bound-write kb grant op)))))))
                                (catch clojure.lang.ArityException t
                                  (if (entry-arity-error? f t)
                                    (throw (ex-info (str "wrong number of arguments for op "

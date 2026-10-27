@@ -145,11 +145,10 @@
   (c/blocked-justifications conn))
 
 (defn why
-  "Why the sentex `handle` names is believed — its supporting justifications, as data.
-  `opts` is `core/why`'s `{:max-depth n}`, which is how a `{:truncated? true}` branch is
-  re-asked whole."
-  ([conn handle] (c/why conn handle))
-  ([conn handle opts] (c/why conn handle opts)))
+  "Why the sentex `handle` names is believed — the justification graph down to its
+  premises, as data (`core/why`)."
+  [conn handle]
+  (c/why conn handle))
 
 (defn why-not
   "Why a sentence is *not* believed, by handle or by sentence and context; `opts` takes
@@ -486,8 +485,8 @@
 
 (defn edit!
   "Apply a batch of assertions and retractions in **one settle**."
-  [conn batch]
-  (c/edit! conn batch))
+  ([conn batch] (c/edit! conn batch))
+  ([conn batch opts] (c/edit! conn batch opts)))
 
 (defn edit-with-consequences!
   "`edit`, plus what the batch turned out to **mean** — the belief it added and the belief
@@ -937,13 +936,17 @@
   stored, believed rule so, which names the rule in `:clashes-with`; a fact whose length
   breaks its relation's length binding, or a length binding, `genl` edge or `:monotonic`
   metatype membership or edge that would break the length of stored tuples, or an `except`
-  of a binding (`:arity`); a self tuple of an `irreflexive` relation, or an `irreflexive`
-  mark over stored ones (`:irreflexive`), or the converse of a believed tuple of an
-  `anti_symmetric` one (`:anti-symmetric`), where the relation is marked or below a marked
-  one through `genl`; and a literal whose complement (`(not S)` for `S`, `S` for `(not
-  S)`) a read from `context` answers `:monotonic` through `:monotonic` edges alone
-  (`:complement`), a forced-monotonic complement at either written strength, unless the
-  literal is itself a forced-monotonic positive."
+  of a binding (`:arity`); an argument declaration naming a position past its predicate's
+  bound length, or a length binding, `genl` edge or `:monotonic` metatype membership or
+  edge that would strand a stored, believed one so (`:arg-position`); a `genlArg` on an
+  `instance_relation_predicate`, or a membership stating a predicate one over a stored,
+  believed `genlArg` on it (`:arg-constraint-kind`); a self tuple of an `irreflexive`
+  relation, or an `irreflexive` mark over stored ones (`:irreflexive`), or the converse of
+  a believed tuple of an `anti_symmetric` one (`:anti-symmetric`), where the relation is
+  marked or below a marked one through `genl`; and a literal whose complement (`(not S)`
+  for `S`, `S` for `(not S)`) a read from `context` answers `:monotonic` through
+  `:monotonic` edges alone (`:complement`), a forced-monotonic complement at either
+  written strength, unless the literal is itself a forced-monotonic positive."
   ([conn sentence] (c/try-assert conn sentence))
   ([conn sentence context] (c/try-assert conn sentence context))
   ([conn sentence context opts] (c/try-assert conn sentence context opts)))

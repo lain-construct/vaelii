@@ -133,7 +133,7 @@
       (is (false? (v/in? kb nil)))
       (is (false? (v/premise? kb nil)))
       (is (nil? (v/provenance kb nil)))
-      (is (false? (:stored? (v/why kb nil))))
+      (is (false? (:stored? (tu/why-root kb nil))))
       (is (nil? (v/sentex kb nil)))
       (is (nil? (v/justification kb nil)))
       (is (nil? (v/defeat-class kb nil)))

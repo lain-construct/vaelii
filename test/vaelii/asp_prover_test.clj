@@ -273,7 +273,7 @@
         (is (true? (v/in? kb ethical)))
         (is (v/ask? kb ethical-form 'CxUniverse)))
       (testing "why explains it, deriving it from both dilemma sides"
-        (let [tree  (v/why kb ethical)
+        (let [tree  (tu/why-root kb ethical)
               antes (into #{} (mapcat #(map :handle (:because %))) (:support tree))]
           (is (:believed? tree))
           (is (= 2 (count (:support tree))) "one justification per side")

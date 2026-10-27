@@ -509,22 +509,27 @@
 (defn- refresh-shapes!
   "Move the stored tuples of `q` into or out of the `:out` forced set for each length
   whose `shape-breaks?` answer differs from what `::out` records, or that `check` names,
-  and record the answers.  Any other shape reads no tuple."
+  and record the answers.  Any other shape reads no tuple.  Answers the tuples taken out
+  of `:out`."
   [kb tax q check]
   (let [idx   (:index kb)
         tms   (reasoning/tms kb)
         cands (reasoning/nogood-candidates kb)
         was   (get-in @cands [::out q] #{})
-        now   (into #{} (filter #(shape-breaks? kb tax q %)) (reads/as-stored-shape-lengths idx q))]
-    (doseq [n (sort (into check (remove #(= (contains? was %) (contains? now %))) (into was now)))
-            :let [on? (contains? now n)]]
-      (let [hs (into [] (remove #(or (= on? (jtms/forced? tms :out %))
-                                     ;; a fact the argument family holds stays OUT
-                                     (and (not on?) (argument/held? kb %))))
-                     (reads/as-stored-shape-tuples-global idx q n))]
-        (when (seq hs) (jtms/set-forced tms :out hs on?))))
+        now   (into #{} (filter #(shape-breaks? kb tax q %)) (reads/as-stored-shape-lengths idx q))
+        released (reduce (fn [acc n]
+                           (let [on? (contains? now n)
+                                 hs  (into [] (remove #(or (= on? (jtms/forced? tms :out %))
+                                                           ;; a fact the argument family holds stays OUT
+                                                           (and (not on?) (argument/held? kb %))))
+                                           (reads/as-stored-shape-tuples-global idx q n))]
+                             (when (seq hs) (jtms/set-forced tms :out hs on?))
+                             (cond-> acc (not on?) (into hs))))
+                         []
+                         (sort (into check (remove #(= (contains? was %) (contains? now %))) (into was now))))]
     (when (not= was now)
-      (swap! cands #(if (seq now) (assoc-in % [::out q] now) (update % ::out dissoc q))))))
+      (swap! cands #(if (seq now) (assoc-in % [::out q] now) (update % ::out dissoc q))))
+    released))
 
 (defn- queue-bound!
   "Queue the bindings `bs` (`[p kind value]`, `binding-of`) that moved under `::bound`,
@@ -692,7 +697,8 @@
 
 (defn drain!
   "Refresh the inert shapes (`refresh-shapes!`) of every functor whose length can have
-  moved since the last call, and answer `{:pairs {p dirs} :moved ts :bound qs}`.  `:pairs`
+  moved since the last call, and answer `{:pairs {p dirs} :moved ts :bound qs :released
+  hs}`, `:released` the tuples the refresh took out of `:out`.  `:pairs`
   holds the predicates whose arity pairs the settle places again (`pair-sets`): `:both`
   for a queued predicate and those below it, whose own binding or whose lengths above
   moved, and `:up` for an exact-bound predicate at or below the lower end of a `genl`
@@ -734,11 +740,11 @@
                        {} (jtms/forced-members (reasoning/tms kb) :out)))))
     ;; a whole refresh reads every tuple of each recorded shape: a recorded shape can
     ;; hold a tuple stored before the answer it records
-    (doseq [f (sort-by nm/print-key fs)]
-      (refresh-shapes! kb tax f (if whole?
-                                  (get-in @(reasoning/nogood-candidates kb) [::out f] #{})
-                                  (get-in old [::fresh f] #{}))))
-    {:pairs ps :moved (if whole? :all fs) :bound (::bound old {})}))
+    {:pairs    ps :moved (if whole? :all fs) :bound (::bound old {})
+     :released (into [] (mapcat #(refresh-shapes! kb tax % (if whole?
+                                                             (get-in @(reasoning/nogood-candidates kb) [::out %] #{})
+                                                             (get-in old [::fresh %] #{}))))
+                     (sort-by nm/print-key fs))}))
 
 ;; ---- a write not yet stored -------------------------------------------------------
 ;;
@@ -746,7 +752,7 @@
 ;; (`checks/length-declaration-conflict`).  `write-breaks` reads, for each functor whose
 ;; length the write can move, the length `relation-length` gives it with the write beside
 ;; the stored bindings, against the lengths its tuples are stored at: one shape-length
-;; read and one count read per functor and shape, no tuple read.
+;; read per functor, and a belief read of each tuple stored at a length the write breaks.
 
 (defn class-route-ok?
   "Does the `genl` edge supporter `[h ctx]` carry a metatype route: IN at `:monotonic`?"
@@ -830,27 +836,38 @@
          (when-let [ns (seq (lengths t))]
            (class-writes kb tax [x] (vec ns))))))))
 
+(defn write-lengths
+  "`[[f binding] …]` in name order: each functor `keep?` accepts whose length the
+  sentence `s`, written at `:monotonic` when `mono?` and not yet stored, can move
+  (`write-targets`), with the length `relation-length` gives it with the write, where one
+  binds it.  A functor with an engine shape takes its length from the shape, which no
+  write moves, so it is left out."
+  [kb s mono? keep?]
+  (let [tax (reasoning/taxonomy kb)]
+    (for [[f write] (sort-by (comp nm/name-key key) (write-targets kb tax s mono?))
+          :when (and (symbol? f) (not (predicates/shape-of f)) (keep? f))
+          :let  [b (relation-length kb f false write)]
+          :when b]
+      [f b])))
+
 (defn write-breaks
   "The stored shapes the sentence `s`, written at `:monotonic` when `mono?` and not yet
   stored, would hold inert: `[{:relation f :arguments n :count c} …]` for each functor
-  whose length it can move (`write-targets`) and each length `n` its positive facts are
-  stored at that the length `relation-length` gives with the write breaks and the stored
-  length does not (`shape-breaks?`), `c` the count of those facts in every context, in
-  content order: a relation's length is read the same at every context, so a tuple in
-  any context is held inert.  A functor with an engine shape takes its length from the shape, which
-  no write moves.  Empty when the write moves no length."
-  [kb s mono?]
+  whose length it moves (`write-lengths`) and each length `n` its positive facts are
+  stored at that the length the write gives breaks and the stored length does not
+  (`shape-breaks?`), `c` the count of those facts in every context that `believed?`
+  accepts, in content order, a shape with none believed left out: a relation's length
+  is read the same at every context, so a tuple in any context is held inert.  Empty
+  when the write moves no length."
+  [kb s mono? believed?]
   (let [tax (reasoning/taxonomy kb)
         idx (:index kb)]
-    (vec (for [[f write] (sort-by (comp nm/name-key key) (write-targets kb tax s mono?))
-               :when (and (symbol? f) (not (predicates/shape-of f)))
-               :let  [ls (reads/as-stored-shape-lengths idx f)]
-               :when (seq ls)
-               :let  [b (relation-length kb f false write)]
-               :when b
-               n     (sort ls)
-               :when (and (breaks? b n) (not (shape-breaks? kb tax f n)))]
-           {:relation f :arguments n :count (reads/stored-count-shape-tuples-global idx f n)}))))
+    (vec (for [[f b] (write-lengths kb s mono? #(seq (reads/as-stored-shape-lengths idx %)))
+               n     (sort (reads/as-stored-shape-lengths idx f))
+               :when (and (breaks? b n) (not (shape-breaks? kb tax f n)))
+               :let  [c (count (filter believed? (reads/as-stored-shape-tuples-global idx f n)))]
+               :when (pos? c)]
+           {:relation f :arguments n :count c}))))
 
 ;; ---- the pairs ---------------------------------------------------------------
 

@@ -35,25 +35,27 @@
   (list 'cardinality (or sentence (list op k)) :involved (mapv (fn [h] [:sentex h]) (sort members))))
 
 (defn- card-encoding
-  "The weight body a cardinality entry over `member-atoms` (sorted atom ids) becomes,
-  or a keyword for the two degenerate cases.  Returns
+  "The weight body a cardinality entry over `weighted` (`[atom weight]` pairs sorted by
+  atom, every weight positive) becomes, or a keyword for the two degenerate cases.
+  Returns
 
       [lower-bound weighted-literals]   a weight body of that bound
       :vacuous                          every model meets the bound — emit nothing
       :infeasible                       no model meets the bound — a model is impossible
 
-  at-most-`k` forbids the count reaching `k+1`, over the positive literals; `k >= n`
-  cannot be reached, so it is vacuous.  at-least-`k` forbids `n-k+1` of them being absent,
-  over the default-negated literals; `k <= 0` is met by every model, `k > n` (or an empty
-  member set with `k >= 1`) by none."
-  [op k member-atoms]
-  (let [n (count member-atoms)]
+  With `n` the total weight: at-most-`k` forbids the sum reaching `k+1`, over the positive
+  literals; `k >= n` cannot be reached, so it is vacuous.  at-least-`k` forbids the absent
+  members' weight reaching `n-k+1`, over the default-negated literals; `k <= 0` is met by
+  every model, `k > n` (or an empty member set with `k >= 1`) by none.  An unweighted
+  bound is the case of every weight 1."
+  [op k weighted]
+  (let [n (reduce + 0 (map second weighted))]
     (case op
       :at-most  (if (>= k n) :vacuous
-                    [(inc k) (mapv (fn [a] [a 1]) member-atoms)])
+                    [(inc k) (vec weighted)])
       :at-least (cond (<= k 0) :vacuous
                       (> k n)  :infeasible
-                      :else    [(- (inc n) k) (mapv (fn [a] [(- a) 1]) member-atoms)]))))
+                      :else    [(- (inc n) k) (mapv (fn [[a w]] [(- a) w]) weighted)]))))
 
 (defn translate
   "Render `program` to ASPIF.  Returns
@@ -92,7 +94,8 @@
                               (map (fn [c]
                                      [[(vec (sort (map ck (:members c))))
                                        (name (:op c)) (:k c)
-                                       (boolean (:hard c)) (:priority c 1)]
+                                       (boolean (:hard c)) (:priority c 1)
+                                       (vec (sort (map (fn [[m w]] [(ck m) w]) (:weights c))))]
                                       c]))
                               (sort-by first)
                               (mapv second)))
@@ -118,8 +121,13 @@
          soft-live (remove :hard live)
          card-specs (into []
                           (keep (fn [c]
-                                  (let [member-atoms (vec (sort (keep atom-of (:members c))))
-                                        enc (card-encoding (:op c) (:k c) member-atoms)]
+                                  (let [weighted (->> (:members c)
+                                                      (keep (fn [m]
+                                                              (when-let [a (atom-of m)]
+                                                                [a (get (:weights c) m 1)])))
+                                                      (filter (comp pos? second))
+                                                      (sort-by first))
+                                        enc (card-encoding (:op c) (:k c) weighted)]
                                     (when-not (= :vacuous enc) (assoc c :enc enc)))))
                           cardinalities)
          hard-cards (filter :hard card-specs)

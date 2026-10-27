@@ -151,6 +151,24 @@
         (is (number? elapsed-ms))
         (is (pos? facts-per-sec) "a rate, not a duration — comparable across corpus sizes")))))
 
+(tu/deftest-kb an-interrupted-bulk-load-keeps-the-facts-before-the-stop
+  ;; The bound is read between facts, and it is reached once 5,000 of the 10,000 facts are
+  ;; stored.
+  (tu/with-terms [ratedAs Grade CxBulkStop]
+    (let [facts  (mapv #(list ratedAs (tu/tmp-ind (str "Bs" %)) Grade) (range 10000))
+          before (tu/sentex-ids kb)
+          e      (try (v/bulk-assert-facts! kb facts CxBulkStop
+                                            {:progress-every-ms 0
+                                             :stop? #(>= (v/count-with-functor kb ratedAs) 5000)})
+                      (catch clojure.lang.ExceptionInfo e e))
+          stored (:stored (ex-data e))]
+      (is (= {:type :interrupted :bound :stop?} (select-keys (ex-data e) [:type :bound])))
+      (is (#{4999 5000} (count stored)))
+      (is (= stored (mapv #(v/handle-of kb % CxBulkStop) (take (count stored) facts)))
+          "the stored handles are the facts before the stop, in input order")
+      (is (= (into before stored) (tu/sentex-ids kb)) "no other record")
+      (is (every? #(v/in? kb %) stored) "the closing settle ran over what the load kept"))))
+
 ;; ---- nesting composes: only the outermost settles ------------------------
 
 (tu/deftest-kb nested-deferred-settle-composes

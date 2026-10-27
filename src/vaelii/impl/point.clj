@@ -80,7 +80,7 @@
 
 (defn possible-point-relations
   "The base relations still possible between instants `i1` and `i2` given everything
-  believed in `context` — `#{}` when the network is inconsistent."
+  believed in `context` — `#{}` when either lies in an unsatisfiable component."
   [kb context i1 i2]
   (qkb/possible instants kb context i1 i2))
 

@@ -328,7 +328,7 @@
 (deftest a-half-thawed-index-writes-its-sections-out-of-the-mapping
   (tu/with-snapshot-platform
     ;; `index-rule` writes the rule index and touches no trie path (the rule *sentex* does
-    ;; that separately — this is the half `reindex/index-rule-entry` posts on its own).  So
+    ;; that separately — this is the half `reindex/index-one!` posts for a rule).  So
     ;; it thaws the roots and leaves the trie mapped, and the next image is written with its
     ;; leaf sections read **straight out of the live mapping** — the one write path with no
     ;; heap array to copy from, and one the `:unchanged` skip above keeps an ordinary close

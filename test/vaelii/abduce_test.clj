@@ -155,8 +155,8 @@
           (is (v/in? kb h))
           (is (v/premise? kb h))
           (is (= :default (v/defeat-class kb h)))
-          (is (true? (:premise? (v/why kb h))))
-          (is (empty? (:support (v/why kb h)))))
+          (is (true? (:premise? (tu/why-root kb h))))
+          (is (empty? (:support (tu/why-root kb h)))))
         (testing "its provenance says it was assumed, and for what"
           (let [pv (v/provenance kb h)]
             (is (true? (:abduced pv)))
@@ -165,9 +165,9 @@
         (testing "the rule fired over it, placement put the conclusion in the scratch
                   context, and `why` names the hypothesis as its support"
           (is (v/in? kb c))
-          (is (false? (:premise? (v/why kb c))))
+          (is (false? (:premise? (tu/why-root kb c))))
           (is (some (fn [s] (some #(= (list wabPremise N) (:sentence %)) (:because s)))
-                    (:support (v/why kb c)))))
+                    (:support (tu/why-root kb c)))))
         (testing "nothing that existed before can see any of it"
           (is (nil? (v/handle-of kb (list wabPremise N) CxTheory)))
           (is (empty? (v/sentexes-matching kb (list wabGoal N) CxTheory))))

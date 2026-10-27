@@ -369,6 +369,16 @@ context
 that states them, and every list is truncated, carrying its own `:total` / `:exact?` /
 `:sorted?`. The browser's term page renders it. See [api.md](api.md).
 
+**Diagonal** ![inference](../.github/badges/cat-inference.svg): The pairs `(a, a)` of a
+binary relation, where both arguments are one term. `ReflexiveProver` answers a reflexive
+predicate's diagonal, `(P a a)` and `(P a ?y)` with `?y` bound to `a`, for a term P's
+argument types admit. A QCN's `constraint` returns the algebra's identity on the diagonal
+whatever is recorded there, and an STP's closed distance matrix reports a negative cycle
+as a negative `d[p][p]`. Inheritance drops the diagonal of the reflexive `witness-terms`:
+a claim stated at the very tuple a goal asks about licenses nothing. See
+[inference.md](inference.md), [qcn.md](qcn.md), [stp.md](stp.md),
+[inherit.md](inherit.md).
+
 **`different`** ![kb](../.github/badges/cat-kb.svg): Provable exactly when no two
 arguments share an equivalence class — negation as failure over the equality
 closure, keeping the unique-name assumption. Variable-arity, ground-only, and
@@ -650,6 +660,8 @@ said about reaching every member of its range. Derives `(functional P)` and
 the `arg` declarations, audited on demand. See [taxonomy.md](taxonomy.md).
 
 **`intangible`** ![kb](../.github/badges/cat-kb.svg): An entity with no mass — a region, a shadow, a number, a relation, a time. The complement of `tangible`, the two partitioning `thing`. An intangible entity may have a location: a region of space is `spatiotemporal` and intangible both. `aspatial` and `atemporal` are below it. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
+
+**`intangiblePartOf`** ![kb](../.github/badges/cat-kb.svg): `(intangiblePartOf ?part ?whole)` says that one intangible is a component of another, e.g. a chapter of a book's text. `intangiblePartOf` is transitive, reflexive and below `partOf`, the twin of `tangiblePartOf` for things without mass; a part and whole of mixed kinds stay plain `partOf`.
 
 **`ist`** ![kb](../.github/badges/cat-kb.svg): "Is true in" — `(ist Ctx S)`
 finds-or-creates `S` in `Ctx` and returns its handle, and given to a read it asks `S`
@@ -1067,7 +1079,8 @@ named by a hash of its expression. Its **bookkeeping** is its `natFormula` map p
 the mint wrote about it: the materialized result types, the `genlResult` edges and the
 correspondence projection.
 A **placeholder** is a constant minted for an application whose corresponding predicate
-names no value yet. A constant is an **orphan** when every stored sentex naming it is its
+names no `:monotonic` value. Beside a `:default` value its uses take **copies**, derived
+restatements with the value in its place. A constant is an **orphan** when every stored sentex naming it is its
 own bookkeeping or a record the argument-type entailment derives off that bookkeeping
 alone, and the orphan sweep then retracts it. See [nat.md](nat.md).
 
@@ -1478,7 +1491,8 @@ checks `assert` runs before storing — that `genl`/`genlCx`, `disjoint`,
 stratification. See [naming.md](naming.md).
 
 **`why` / `why-not`** ![tms](../.github/badges/cat-tms.svg): Introspection.
-`why` returns the proof tree of a believed handle down to premises; `why-not`
+`why` returns the justification graph of a believed handle down to premises, each
+handle once; `why-not`
 explains a stored datum its own context does not believe (`:defeated` / `:withdrawn` /
 `:superseded` / `:unsupported`)
 or a blocked conclusion. `why-not`'s `{:nearest n}` answers the one case with nothing

@@ -119,6 +119,12 @@
   []
   (.incrementAndGet clock))
 
+(def ^:dynamic *fired-sink*
+  "Nil, or a `java.util.Set` that `jtms/add-justification` adds the consequence of each
+  rule firing's justification to (an integer informant, the rule's handle).
+  `core/undoing-refusal` binds it while `assert-entry/*write-check*` is bound."
+  nil)
+
 ;; ---- the write record -------------------------------------------------------------
 ;;
 ;; A write that owes a report records, at each choke point, what the structure it moves

@@ -218,7 +218,7 @@ Four parts, all reusing machinery that already exists:
    and `(rr Aa)` is not believed in any of the 24 orders.
 
    An argument-type mint ([argtypes.md](argtypes.md)) is drawn over a superseded
-   spelling, and the mint is spelled at the retired term. `special/restate-retired-mint`
+   spelling, and the mint is spelled at the retired term. `special/restate-retired`
    restates the mint as it is stored, as `assert` restates a fact naming a retired term,
    so the mint is superseded and its twin is believed at the elected name. A merge that
    arrives after the mint migrates the mint with the fact, and every order believes the
@@ -386,10 +386,12 @@ sees `context-up(super)`: a reader, a fact and a merge form a new triple only if
 reader newly reached one of the two, which puts that one in `super`'s ancestor set and the
 reader in `sub`'s descendant set — a merge above meeting the facts the widened readers
 already saw, and a fact above meeting the merges they already saw. It is **enumerated
-from the merges**, not from the ancestor set: the candidates are the stored sentexes naming a
+from the merges**, not from the ancestor set: the merges are the believed equalities stated
+in a context some reader under `sub` sees, and the candidates are the stored sentexes naming a
 term one of those merges displaces, which the inverted term index answers in one lookup
-per term, so the cost is proportional to the standing merges and to what they reach
-rather than to how much ontology the ancestor set holds. A KB that has merged nothing pays one
+per term. The cost is proportional to the merges the readers see and to what they reach,
+not to the merges stated elsewhere or to how much ontology the ancestor set holds
+(`lein perf`'s `genlcx-edge-beside-distant-merges`). A KB that has merged nothing pays one
 set-empty test, and each half runs only when the other side holds a merge the reader can
 see, so wiring a context under one whose merges it already inherits enumerates nothing.
 A **derived** edge runs the same arm from `chain/place-fact-conclusion`, so which
@@ -508,13 +510,20 @@ stands at or above `super`, and
 `special/equate-under-context-edge` is the fourth: a `genlCx` edge meeting both, over the
 *context* ancestor set rather than the predicate one. It has no subtree of its own to sweep — a
 context edge changes no predicate and no fact, only which contexts see one another — so
-what it sweeps is the **ancestor set the edge widens**: every context the readers of `sub` can
-see once the edge integrates, which is the same reachability `migrate-under-context-edge`
-computes for the same trigger. It keeps the stored facts there whose functor a mark
+what it sweeps is the **part of the widened ancestor set `super` does not see**: the
+contexts a reader under `sub` sees and `super`'s ancestor set does not hold
+(`context-move`'s `:under` and `:below`). `super` sees every context of its own ancestor
+set, so a pair whose facts, mark and `genl` edges all lie there was merged at `super` when
+the last of them arrived, and the readers see that merge through the edge. When a context
+of the swept part states a cached relation (a mark, a `genl` edge, an equality) or an
+`except`, a pair stored above can clash at a reader and not at `super`, and the sweep
+reads every context the readers see instead (`special/below-sweep-side`; `lein
+perf`'s `genlcx-edge-beside-seen-functional-facts`). It keeps the stored facts there whose functor a mark
 could reach, up to `tax/*exposure-instance-budget*` candidates (below), and hands each
 to `special/derive-functional-equalities` **at its own storage context**, which sweeps
 every reader below that context (`context-down`), the joining context the edge connected
-among them. Two blind sibling contexts
+among them. The readers are swept most general first (`special/merge-readers`), so a reader
+below one that holds the merge sees it and skips the pair. Two blind sibling contexts
 each holding one of two clashing fillers derive nothing until *both* of the edges wiring
 some context under both of them have landed — visibility is the union of every edge that
 grants it, not the effect of the latest one alone. Written the
@@ -562,6 +571,27 @@ collapses to one class rather than to the first pair walked. The sweep reads wha
 **stored** rather than what is believed, for `entail-existing`'s reason: an equality
 derived off a defeated fact rests on that fact and is defeated with it, where skipping it
 would leave the merge missing when the fact revives.
+
+**A merge copy that a more general merge covers is dropped.** A reader that sees a pair in
+one class derives no merge of it, and the readers are swept most general first, so a
+merge stored first in a context holds no copy below it. A merge placed later in a more
+general context, or a `genlCx` edge that puts a copy's context under a context holding the
+merge, leaves a copy that the other arrival order never stores. The settle drops the
+copy's collision justifications, as it drops a mint placement a `genlCx` edge displaced
+([argtypes.md](argtypes.md#where-a-mint-is-placed)), and the twins restated under the copy
+go with it (`special/covered-merges`). A copy at context `c` is covered when `c` sees its
+pair in one class over the equality supporters stored in a context `c` sees and that does
+not see `c`: the reader's own skip test (`res/same-class-in?`), so a class joined by
+several merges or a stated equality covers a copy as a literal copy does, and a supporter
+an `except` or a placed defeat hides from `c`, directly or through an antecedent, covers
+nothing there. The candidates are the merges in each class the equality partition moved
+since the settle's last pass, and the merges stored in the contexts where a `genlCx` move
+can displace a placement (`tax/context-move`'s `:displaced`). A `recover` replays every
+equality supporter into the partition, so its settle asks every class. So an `except` of
+the more general merge hides the pair below it in every order
+(`genlcx_move_gain_test/a-merge-below-a-more-general-one-is-retired-in-every-order`), and
+an `except` of a `genlCx` edge the more general merge rests on lets the reader below
+derive and keep its own copy (`a-merge-whose-cover-an-except-hides-is-derived-again-in-every-order`).
 
 **A mark that revives runs its arrival sweep again.** A defeat of the declaration or of a
 `genl` edge the merge descended through takes every merge it licensed OUT through the

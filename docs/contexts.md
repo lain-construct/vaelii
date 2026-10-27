@@ -112,7 +112,8 @@ Data hangs below CxWell.
   CxUniverse and seen by CxWell:
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
-    owning its parts.
+    owning its parts. Both are `transitiveInArgInverse` declarations along
+    `tangiblePartOf`.
   - `CxBiology` — birds fly by default except penguins; organisms are mortal;
     flight enables travel.
   - `CxChange` — a simple event calculus: a state persists until an event ends it,
@@ -142,7 +143,7 @@ Data hangs below CxWell.
   CxWell does **not** see. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds two vocabularies:
+  none of its relations or kinds. CxTra holds three vocabularies:
   - **computing** — ten relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -150,6 +151,21 @@ Data hangs below CxWell.
     its `genl` edges and its disjointness. The computing relations state no rule.
     `(functional toolName)` is a decontextualized mark, so every context that sees
     CxUniverse reads that mark.
+  - **content and carriers** — `information` is content apart from its medium, and
+    `conceptual_work` is information composed as one work. `(carries ?carrier ?info)`
+    types position 1 `temporal` and position 2 `information`, so a tangible paper copy
+    and an intangible event, e.g. a bird's chirp, are both accepted; not functional in
+    position 2, so one carrier holds more than one piece of information.
+    `subInformationOf` specializes the upper ontology's `intangiblePartOf`,
+    `tangiblePartOf`'s twin for things without mass, for a chapter in a book or a frame
+    in a video.
+    `(agentClaims ?agent (sentexHandle H))` says that `?agent` presents sentex H as
+    true; no rule concludes it from `carries`. `(dataContent ?info ?string)` is
+    functional over the exact symbol sequence `?info` holds, and
+    `(propositionalContent ?info ?proposition)` is not functional over the existing
+    `proposition` type; neither is derived from an information's author, encoding or
+    context. `agentClaims` is `target_following_predicate`, so retracting H retracts
+    the claims that name it.
   - **perception** — `perceives` is the general relation and `sees` specializes it.
     `seeImage` and `watchVideo` conclude `sees` by a rule guarded by its `spatial`
     second argument, since an image or a video need not be located.
@@ -450,9 +466,11 @@ knowledge, so it either agrees with a more general one or refines it. **Fewer th
 contexts closes immediately**, which is every KB that has not divided the knowledge in
 question between contexts: there is nothing for a second to meet.
 
-The starter's owns-parts rule shows both outcomes. The rule `(implies (and (owns ?p
-?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`CxMereology`,
-seen by every data context below Well), and the test-world cast supplies the facts. It
+The test world's owns-parts rule shows both outcomes. The forward rule `(implies (and
+(owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is stored in CxWell, which
+every data context sees, and the test-world cast supplies the facts. The starter states the
+same reach as `(transitiveInArgInverse owns 2 tangiblePartOf)` in `CxMereology`, which
+answers at query time and stores no conclusion to place ([inherit.md](inherit.md)). The rule
 derives `(owns Tom Roof1)`: both `(owns Tom House1)` and `(tangiblePartOf Roof1 House1)` sit in
 CxSocialWorld, so the intersection is non-empty and the conclusion lands there.
 But `(owns Tom Engine1)` is **not** derived — `(owns Tom Car1)` is in CxSocialWorld
@@ -604,11 +622,30 @@ touched set holds, the removed edges `integrate/sentex-removed!` queued (Q8), an
 active edges the excepts that moved this pass reach (Q3). The rows are the excepted rules
 whose firings lie under `sub`, the excepts stated in the raw stratum (and the excepts those
 name), the facts the effective stratum makes matchable, the restatements, merges and
-argument-type mints a shown edge owes, and the mints a hidden edge gives back. The
+argument-type mints a shown edge owes, the mints a hidden edge gives back, and the rules a
+correspondence declaration meets differently once a declaration or a rule is in the
+effective stratum. The
 placement families and the inherited clashes read the moves' reach: `:under`, the contexts
 at or below a moved lower end, and `:below`, what those see that an active edge's upper end
 does not. The `genlCx` integrate arms update the taxonomy alone, so an asserted,
 rule-concluded, computed or relabelled edge reaches the families by one path.
+
+A move that shows contexts is also split by what each reader gains (`:gains`): per
+reader under `sub`, the contexts it sees after the move and did not see without every edge
+the drain moves, the readers grouped by that set. A pair, a meeting or a verdict the move
+makes new at a reader holds an ingredient stored in its gain, so when the gain states
+facts alone (no cached relation, `except`, `defeat` or definition) and the readers see no
+`except` (`checks/plain-gain?`), the merge, argument-type and mint-withdrawal sweeps and
+the argument holds read what the gain's facts meet in place of everything the readers saw,
+and a group whose gain is empty reads nothing. Otherwise a group reads its own `below`, as
+the whole move did. The merge sweep derives a group's candidates at its own readers and at
+the readers of other groups above them, so a pair two groups gain is merged at the more
+general reader only
+(`genlcx_move_gain_test/a-merge-lands-at-the-most-general-reader-in-every-order`). So
+adding an edge over an empty or small context to a context holding
+millions of facts costs what the new context holds (`lein perf`'s
+`genlcx-edge-over-a-small-context-under-a-large-one`); `genlcx_move_gain_test` holds the
+split against the whole sweep (`checks/*whole-move-sweeps?*`).
 
 An except stated in a context a reader sees only through a hidden edge is still in force
 there: with `(genlCx CxSup CxTop)` excepted at CxSup and an except of `(ff Aa)` stated in
@@ -784,10 +821,10 @@ is therefore decontextualized in turn: if `(edgeTo A B)` holds everywhere, so do
 universal rule concludes from it. The cost is **two stored sentexes for one conclusion**,
 and the rule fires twice.
 
-The fixpoint still terminates for the ordinary reason — re-deriving a sentence already
-stored adds a justification, not a handle, so the agenda drains — and each copy carries
-`1 + max` antecedent depth, so the `:max-depth` guard bounds a chain of lifts exactly as
-it bounds a chain of rules.
+The fixpoint still terminates for the ordinary reason: re-deriving a sentence already
+stored adds a justification, not a handle, so the agenda drains. Each copy carries
+`1 + max` antecedent depth, so a `:max-depth` bounds a chain of lifts exactly as it
+bounds a chain of rules.
 
 **A copy merges what it licenses, as any new content does.** A `functional` or
 `anti_symmetric` mark derives its equalities where the mark is visible, and the copy is
@@ -811,8 +848,8 @@ Two boundaries, both deliberate:
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
 `functional`, `functionalInArg`, `inverse`, `reflexive`, `irreflexive`, `symmetric`, `commutative`,
-`commutativeInArgs`, `commutativeInArgAndRest`, `anti_symmetric`, `asymmetric`,
-`transitive`, `anti_transitive`, `equivalence_relation`, `injection`, `surjection` and
+`commutativeInArgs`, `commutativeInArgAndRest`, `associative`, `idempotent`,
+`meetFunctionOf`, `anti_symmetric`, `asymmetric`, `transitive`, `anti_transitive`, `equivalence_relation`, `injection`, `surjection` and
 `bijection` carry the mark — so a `(symmetric P)` stated in one theory is the KB's
 claim about `P` and not that theory's — and `genlCx` carries the forced variant below.
 The fourteen length bindings (`sx/arity-binding-functors`: `arity`, `arityMin`, the nine
@@ -1171,7 +1208,7 @@ just as well when the feature is broken outright.
   **It is enumerated from the rules, and each half is conditional on where a rule is stated**
   ([why](defenses.md#the-visibility-seeds-are-read-off-the-rule-index)). Two reads of the
   rule index give the seeds: the antecedent keys some stored rule takes
-  (`reads/as-stored-rule-keys`), and the contexts a rule is stated in (the rule extent,
+  (`reads/as-stored-rule-keys-deferred`), and the contexts a rule is stated in (the rule extent,
   `reads/stores-rule-in?`). The seeding walks those predicates' extents and keeps what falls
   in the sets to seed, or walks those sets' own contents when they hold fewer postings
   (`special/seeds-in`). `fresh` is seeded when a rule is stated in `seen`, and `seen` when
@@ -1204,9 +1241,10 @@ just as well when the feature is broken outright.
   antecedents nothing. The seeding builds the fan only when the contexts it reads hold
   more postings than there are antecedent keys (`special/key-fan`). Below that count,
   each fact's functor is walked up its genl closure to a positive key, so an edge from an
-  empty context reads no closure at all. `perf`'s
+  empty context reads no closure, and of the rule-key set its count alone. `perf`'s
   `genlcx-edge-to-an-empty-context-under-a-rule-fan` holds that cost flat in the size of
-  the hierarchy under a rule antecedent.
+  the hierarchy under a rule antecedent, and `visibility-seeds-beside-rule-keys` in the
+  key count.
 
   **The extents read include the functors that move what an antecedent answers without
   being on it** (`special/licensing-functors`), one per re-join family of

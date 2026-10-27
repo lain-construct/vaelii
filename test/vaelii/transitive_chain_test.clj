@@ -46,7 +46,7 @@
               "nothing stored the far pair — it is the closure that reached it"))
         (testing "the firing rests on the edges it crossed"
           (let [h     (v/handle-of kb (list traceable Spark Alarm) W)
-                named (set (tree-seq coll? seq (v/why kb h)))]
+                named (set (keys (:nodes (v/why kb h))))]
             (is (contains? named second-hop)
                 "the second hop is named, so retracting it can reach the conclusion")))
         (testing "and the middle hop going takes the far conclusion and not the near one"
@@ -122,7 +122,7 @@
             "the one stored hop needs no declaration"))
       (testing "resting on the declaration it was walked under"
         (let [h     (v/handle-of kb (list traced Alarm) CxBoth)
-              named (set (tree-seq coll? seq (v/why kb h)))]
+              named (set (keys (:nodes (v/why kb h))))]
           (is (contains? named decl))))
       (testing "and withdrawn with it"
         (v/retract! kb decl)
@@ -144,7 +144,7 @@
       (is (seq (v/sentexes-matching kb (list causes Spark Alarm) W))))
     (testing "resting on the two hops the rule joined"
       (let [h     (v/handle-of kb (list causes Spark Alarm) W)
-            named (set (tree-seq coll? seq (v/why kb h)))]
+            named (set (keys (:nodes (v/why kb h))))]
         (is (contains? named (v/handle-of kb (list causes Fire Alarm) W)))))))
 
 (tu/deftest-kb a-rule-concluding-a-more-general-predicate-still-walks-the-closure

@@ -260,12 +260,14 @@ still allows, and keeps the Allen relations whose endpoint signature fits
 read on its own, so the reading is sound but not sharp, as the metric one is. All of them
 are read off one closed point network and one support-carrying pass
 ([defenses.md](defenses.md#the-point-narrowing-reads-one-closed-network-not-a-goal-per-comparison)).
-An unsatisfiable point network makes the interval network unsatisfiable too, supported by the
-point network's culprits, so a cycle of instants anywhere in a context withdraws the Allen
-firings the points licensed there. `qualitative-network` over `:allen` names the clash as a
-`:point` source, with the point pairs unsatisfiable as written and those culprits. With two
-or more things in the point network, no Allen goal is answered there until the cycle is
-retracted.
+An unsatisfiable component of the point network makes the interval network unsatisfiable
+too, supported by that component's culprits. The intervals whose endpoints lie in the
+component join one unsatisfiable Allen component, so the Allen firings over those intervals
+are withdrawn and no Allen goal naming one of them is answered until the cycle is
+retracted. `qualitative-network` over `:allen` names the clash as a `:point` source, with
+the component's point pairs and those culprits. A cycle of instants that bounds no interval
+leaves the Allen network satisfiable
+([qcn.md](qcn.md#unsatisfiability-is-per-component)).
 
 What it does not do:
 
@@ -313,6 +315,101 @@ A calendar term's **endpoints** are computed rather than stated: `(YearFn 2000)`
 `startOf` / `endOf` from the fields with nothing stored ([The calendar
 clock](#the-calendar-clock)). An ordinary interval such as `Breakfast` has no fields to
 read, so its endpoints are the facts somebody states.
+
+A **range** that no calendar unit names, such as January through June 2000, is
+`(DatetimeRangeFn "2000-01" "2000-06")`: two reduced-precision ISO strings, beginning when
+the first one's interval begins and ending when the second one's ends. Calendar units nest
+or are disjoint, so a range is how two stretches that partially overlap are written as
+terms. It is `unreifiable_function` like `DatetimeFn`, and two backward rules in `time.txt`
+give it its endpoints from the two `DatetimeFn` intervals, so `startOf` and `endOf` answer
+for a range wherever the calendar clock answers for a `DatetimeFn` term. Nothing yet reads
+a range's strings as fields, so the interval relations and the context ordering do not see
+it the way they see a calendar term.
+
+The time **before** and the time **after** a moment W are `(IntervalBeforeFn W)` and
+`(IntervalAfterFn W)`. Every interval includes its start and excludes its end, so
+`(IntervalBeforeFn W)` is every moment before W and excludes W, and `(IntervalAfterFn W)`
+is W and every moment after it. The two meet at W: they share no moment and leave no gap
+between them, and W belongs to the after side alone. Each is an `unreifiable_function` from
+a `time_point` to a `time_interval`, with `intervalBeforeOf` and `intervalAfterOf` as the
+corresponding predicates, and each has one bound: a backward rule in `time.txt` gives
+`(endOf (IntervalBeforeFn W) W)` and `(startOf (IntervalAfterFn W) W)` when W is a
+`time_point`. The rule reads a believed `(time_point W)`, which a symbol stated to be a
+`time_point` has and an `(InstantFn …)` term does not: `InstantFn`'s result type is
+checked at assert time and is not answered by a query, so for an `InstantFn` moment the
+bound is stated.
+
+## A context at a time: `CxTimeFn` and the monad
+
+A context has two parts: its **monad**, the world, story or theory it is a context of,
+and its **time**. `(CxTimeFn CxStory (YearFn 2000))` is the year 2000 of `CxStory`.
+`time.txt` declares it as [context-nat.md](context-nat.md) describes: `(result CxTimeFn
+context)`, so an application written in a sentex's context slot reifies to a `cx/`
+constant, and `(contextArgSubrelation CxTimeFn 2 subintervalOf)`, so the application at
+the narrower time is a subcontext of the one at the wider time with the same monad.
+`(contextArgSubrelation CxTimeFn 1 genlMonad)` orders the other way round: with
+`(genlMonad CxSubStory CxStory)` stated, the application along `CxSubStory` is a
+subcontext of the one along `CxStory` at the same time. Two applications that differ in
+both arguments are ordered only through a third that differs from each in one argument,
+and only once that third context exists (a fact has been written into it).
+
+Every application is a `time_slice_context`: `(result CxTimeFn time_slice_context)`
+classifies each slice, and `(genl time_slice_context context)`. `CxTimeFn`'s first argument
+is any `context`, so a slice can be sliced, and its second is a `time`. A `monad_context`
+is a context that is not a slice, such as `CxStory` taken over all of its time. No
+declaration types `CxTimeFn`'s first argument by it, and `(not (arg CxTimeFn 1
+monad_context))` says so: a declared argument type entails membership, so that
+declaration would make every context written in the first argument a `monad_context`.
+Nothing derives `monad_context`, since "not a slice" is negation as failure, so a KB
+states it of its monads. `CxMonadOfFn` and `CxTimeOfFn` take a context apart, with
+`cxMonadOf` and `cxTimeOf` as their corresponding predicates: the monad of `(CxTimeFn
+CxStory (YearFn 2000))` is `CxStory` and its time is `(YearFn 2000)`. `genlMonad` orders
+two contexts by their monads alone, as `subintervalOf` orders times alone. A stated
+`genlMonad` orders `CxTimeFn` applications, as above, and not the two contexts
+themselves.
+
+`Forever` is the time interval that contains every time, and the time of every
+`monad_context`. Backward rules answer `(subintervalOf ?interval Forever)` for each
+`time_interval`, `(includesInstant Forever ?instant)` for each `time_point`, and
+`(cxTimeOf ?monad Forever)` for each `monad_context`. They are answered on demand rather
+than stored, so the qualitative network and open enumerations over it list `Forever` only
+when a stated fact relates something to it.
+
+### A slice of a slice
+
+`(CxTimeFn (CxTimeFn CxStory A) B)` is the slice of `CxStory` at the time `A` and `B`
+have in common, `(TimeIntersectionFn A B)`. `subtimeOf` relates one time to another it
+lies within, whatever the two kinds of time: an interval inside an interval, an instant
+inside an interval, a piece of an intermittent time inside the whole. It is reflexive,
+`(genl subtimeOf partOf)` and `(genl subintervalOf subtimeOf)` place it, and a backward
+rule makes an instant a time includes a subtime of it. `TimeIntersectionFn` is the meet
+over `subtimeOf`: an `unreifiable_function` from two times to a time, with
+`timeIntersectionOf` as its corresponding predicate. Two times that share no time have no
+intersection. Backward rules make the intersection a `subtimeOf` each argument when both
+are believed times, and a `subintervalOf` each when both are believed `time_interval`s. A
+query asks and gets that answer; the genlCx producer reads only a comparator or a stored
+fact
+([context-nat.md](context-nat.md#the-bounded-r-oracle--no-proof-inside-the-relabel-loop)),
+so the slice at an intersection is not ordered under the slice at each argument.
+
+Backward rules over `cxMonadOf` and `cxTimeOf` state the slice's two parts:
+
+```clojure
+(cxMonadOf ?monad ?monad)            ; a monad_context is its own monad
+(cxMonadOf ?slice ?monad)            ; a slice has the monad of the context it slices
+(cxTimeOf ?slice ?time)              ; a slice of a monad_context covers its own time
+(cxTimeOf ?slice (TimeIntersectionFn ?outer ?time))
+                                     ; a slice of a slice: the inner time and its own
+```
+
+Each rule reads the `natFormula` of the slice's `cx/` constant. A slice written with the
+inner slice's `cx/` constant, `(CxTimeFn S B)` where `S` names `(CxTimeFn CxStory A)`,
+answers through them: a depth-6 `query (cxTimeOf K ?t)` gives `(TimeIntersectionFn A B)`.
+An inner slice spelled as a `CxTimeFn` application is a term inside the `natFormula`,
+not a constant, and answers nothing. A further backward rule states that `(CxTimeFn
+(CxTimeFn C A) B)` equals `(CxTimeFn C (TimeIntersectionFn A B))`; it concludes about two
+applications, so it answers no goal ([nat.md](nat.md#a-rule-or-a-goal-that-names-an-open-application)),
+and the two spellings reify to two `cx/` constants that no reader equates.
 
 ## Change over time: events, fluents, and inertia
 
@@ -419,9 +516,12 @@ narrative writes down the consecutive links and `clipped` sees the order they im
 o'clock before six follows from three-before-four, four-before-five and five-before-six,
 and the derived `clipped` rests on those three edges.
 
-`clipped` does not see an ordering **no stored edge carries**. The walk crosses believed
-stored `instantBefore` edges and the spellings `genl` and `inverse` make equivalent; a pair
-the constraint network narrowed to `:before` is a prover answer, not an edge.
+An ordering **no stored edge carries** reaches `clipped` only through the point prover. The
+walk crosses believed stored `instantBefore` edges and the spellings `genl` and `inverse`
+make equivalent. With `:point` registered, the prover answers the join's `instantBefore`
+antecedent from the network with support, so `clipped` fires through an `instantEqual`
+(`temporal_capability_test/clipped-reads-an-order-the-point-prover-entails-once-it-is-registered`).
+Without it, a pair the network narrowed to `:before` reaches no rule.
 
 A calendar moment is the same case. A narrative may be written at computed instants:
 `(happens RexSleeps (InstantFn 2000 1 15 15 0 0))` is an ordinary `happens`, `(InstantFn

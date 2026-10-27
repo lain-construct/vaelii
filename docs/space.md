@@ -63,7 +63,8 @@ and `(properPartOfRegion ?x ?x)` none.
 
 `core/possible-relations kb :rcc8 ctx a b` exposes the network directly — the base
 relations still allowed between two regions, a singleton when path consistency determined
-one, the whole universe when nothing is known, `#{}` when the network is unsatisfiable.
+one, the whole universe when nothing is known, `#{}` when either region lies in an
+unsatisfiable component of the network.
 `core/qualitative-network kb :rcc8 ctx` hands back the whole tightened network with its
 node list and `:consistent?` verdict.
 

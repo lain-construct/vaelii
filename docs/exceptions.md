@@ -36,8 +36,8 @@ An exception belongs on the rule it excepts:
 binding supports nothing, and no nogood arbitrates it. Under forward chaining the
 conclusion is stored with a guard defeat resting on the facts the exception holds
 through, whether those facts are `:default` or `:monotonic`, and a reader that does not
-believe them believes the conclusion (design rulings 25 and 30,
-[naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). An exception that holds
+believe them believes the conclusion
+([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). An exception that holds
 through no stored fact (a prover answer, such as an `argIsa` or a symmetric reading)
 places the defeat on the exception's own handle.
 Under backward chaining the argument is constructed and then reported as excepted, so
@@ -220,6 +220,11 @@ leaves a conclusion believed that the exception blocks. A predicate reachable on
 through a *subterm* is not indexed; the `genl` and equality edge triggers cover the
 conditions that move without one.
 
+`reindex` and the importer's inline load post each stored rule and `exceptWhen` under the
+keys a write posts (`special/rule-recheck-keys`, `special/exception-recheck-predicates`)
+once every record is in, read against the scratch taxonomy of every stored declaration
+([indexing.md](indexing.md)).
+
 - The **`:rules` set is written unconditionally**, even for an exception that mentions
   no indexable predicate, because the taxonomy trigger enumerates that set.
 - **Retraction recomputes the keys from the stored sentex**, not from what the caller
@@ -314,8 +319,9 @@ goals it moves, and `:all` would re-decide every firing the rule has made on eve
 arrival, quadratic over a load. Each posts a **marker** instead, with its own test
 (`recheck/exception-candidates`):
 
-- **`::entailment`.** A firing is withdrawn only while a network its rule joins on is
-  unsatisfiable at the firing's placement context. The *governing* contexts are those
+- **`::entailment`.** A firing is withdrawn only while its calculus antecedent names a
+  node of an unsatisfiable component of that calculus's network at the firing's placement
+  context ([qcn.md](qcn.md#unsatisfiability-is-per-component)). The *governing* contexts are those
   holding a fact the network reads, or a `genl` edge into a sub-predicate it reads,
   closed under meets; every context sees the sentences one of them at or above it sees,
   less what a defeat or an `except` withdraws below it, and a network over fewer facts is
@@ -415,30 +421,32 @@ withdraws the defeat when the blocker goes OUT.
 | the settle blocks a placed firing, and the sweep deletes it | yes, by `chain/record-swept-firing!` | the conclusion is gone from the store, so the record is what a trigger lifting the block re-derives it from, as for a firing refused at its placement |
 | a visibility `except` hides an antecedent | no | an `except` arriving or leaving, or a `genlCx` edge moving which contexts see it, re-joins from its target's consequence closure and the antecedents of the justifications resting on it (`special/drain-except-moves!`), and the refusal is re-derived there. An entry would be one nothing reads |
 
-The record holds two more kinds of entry, neither of them a refusal by an exception. Each
-is kept because later content can lift what refused it:
+A firing whose conclusion an argument conviction convicts is not a refusal and has no
+entry: the conclusion is stored with its justification and held OUT by the argument hold,
+as the same sentence asserted is ([argtypes.md](argtypes.md#an-argument-that-fails-its-declared-type-is-held-inert)).
+
+The record holds one more kind of entry, not a refusal by an exception. It is kept because
+later content can lift what refused it:
 
 | entry | kept under | refused because | re-asked when |
 |---|---|---|---|
-| `:constraint` | the rule | `place-fact-conclusion` dropped the conclusion on an `arg` / `genlArg` / `interArg` / `interArgs` / `interArgAndRest` / `quotedArg` conviction: the argument holds a type the taxonomy separates from the declared one, or for `quotedArg` its kind has no path to it | a `genl` or `genlCx` generation or a separation (`tax/separation-inputs`) moved since the entry was decided, or a settle relabelled or removed a sentex naming the convicted term (`integrate/*removed-sink*`) |
-| `:lift` | the source fact | a `decontextualized_predicate` copy from a context that does not see CxUniverse failed the same argument check there | the same two |
+| `:lift` | the source fact | a `decontextualized_predicate` copy from a context that does not see CxUniverse failed the argument check there: the argument holds a type the taxonomy separates from the declared one, or for `quotedArg` its kind has no path to it | a `genl` or `genlCx` generation or a separation (`tax/separation-inputs`) moved since the entry was decided, or a settle relabelled or removed a sentex naming the convicted term (`integrate/*removed-sink*`) |
 
-The generations an entry is decided under (`:read-under`) carry the taxonomy's rebuild epoch
-(`special/taxonomy-generations`; `special/conviction-generations` adds the separations for
-a `:constraint` or `:lift` entry). A `recover` restarts each generation at 0 and replays
+The generations a `:lift` entry is decided under carry the taxonomy's rebuild epoch
+(`special/taxonomy-generations`, with the separations added by
+`special/conviction-generations`). A `recover` restarts each generation at 0 and replays
 the stored edges, so a generation can return to a number it held under another hierarchy.
 The recover moves the epoch, so generations read before the recover never compare equal
 after it.
 
-`settle` re-asks them each pass (`released-constraint-refusals`, `released-lifts`). A
-re-ask releases what the moved generations admit: a conclusion now admissible is placed
-from the entry, a copy lifted, and what each creates goes on the agenda. A `:constraint` or `:lift` entry re-asked and still convicted is
-re-recorded under the current generations and with the term the conviction names **now**
-(`checks/conviction-watch`). An application can be convicted on more than one argument,
-and the conviction names the first; once that argument is lifted it names the next, so an
-entry that kept its first term would never be re-asked when the last one is lifted, and
-the order the arguments were lifted in would decide whether the conclusion is placed.
-Placed, a `:constraint` or `:lift` entry withdraws the ledger entry its drop filed
+`settle` re-asks the entries each pass (`released-lifts`). A re-ask lifts the copy the
+moved generations admit, and what it creates goes on the agenda. An entry re-asked and
+still convicted is re-recorded under the current generations and with the term the
+conviction names **now** (`checks/conviction-watch`). An application can be convicted on
+more than one argument, and the conviction names the first; once that argument is lifted
+it names the next, so an entry that kept its first term would never be re-asked when the
+last one is lifted, and the order the arguments were lifted in would decide whether the
+copy is placed. Placed, an entry withdraws the ledger entry its drop filed
 (`violations/withdraw!`), since the order that brought the type first filed none. A mint
 withheld because the KB says it more specifically is the opposite case, a derivation
 withheld for something the KB has, and it has no entry: the settle re-derives it when that
@@ -449,8 +457,8 @@ reads the declarations naming a type when that type's own bindings move
 declarations does not grow with n (perf checks `write-after-rolled-back-preview` and
 `genl-write-beside-waiting-declarations`).
 
-A pass finds the two kinds through the record's **kind index**: its `:kinds` key names,
-per kind, the handles holding at least one entry of that kind, and every writer of such an
+A pass finds the `:lift` entries through the record's **kind index**: its `:kinds` key
+names, per kind, the handles holding at least one entry of that kind, and every writer of such an
 entry keeps it (`special/note-kind`, `drop-kinds`, `forget-kinds`). The pass reads only
 those handles' sets (`special/kind-entries`), so the rules' own refusals, up to 4096 per
 rule, are read only when a trigger queues their rule. The kind index sits in the record's own
@@ -458,10 +466,7 @@ map, so the batch rollback's snapshot, the reasoning image and a wipe carry it w
 entries. `lein perf`'s `assert-beside-naf-refusals` bounds an unrelated assert beside
 32,000 `unknown` refusals.
 
-`recover` rebuilds the `:lift` entries (`special/rebuild-pending!`); the `:constraint`
-ones are not rebuilt, since that would mean re-firing every forward rule over the store,
-so a KB restarted with a standing constraint drop re-derives it only when its rule next
-fires.
+`recover` rebuilds the `:lift` entries (`special/rebuild-pending!`).
 
 Both unrecorded reasons are covered by a **re-join** rather than by nothing, and that is
 what makes the record an efficiency structure rather than a completeness one. The same
@@ -496,7 +501,9 @@ forward rule (enumerated `O(rules)` off the antecedent index, never the fact ext
 for each reports what it placed — `jtms/dependents` on the rule handle is its firings —
 against what this record says it refused and why, re-deciding each entry through
 `refusal-state` so a reason shown is one that still holds. `:void` counts the firings the
-forced-monotonic set holds void, which `:placed` leaves out. A rule that placed, voided
+forced-monotonic set holds void, which `:placed` leaves out. A firing whose conclusion the
+argument hold keeps OUT is left out of `:placed` too, and the conclusion is listed once
+among `:refusals` as `:blocked` with reason `:constraint`. A rule that placed, voided
 and refused nothing completed no antecedent set, or had every conclusion dropped for a
 violation, which `violations` names by the rule's handle. That is the per-rule breakdown the
 browser draws at `/funnel` ([web.md](web.md)), and it needs no per-run counter: the ledger
@@ -508,10 +515,10 @@ blocking, by re-deciding rather than by reading: `chain/rerecord-refusals!` re-f
 every rule that can refuse, after the settle that establishes belief, and the refusals
 re-record. A firing that is placeable is placed and deduped by `has-justification?`.
 
-That re-fire runs at the **default** depth bound, not the bound each original run set: a
-run's `:max-depth` is session config no store holds, and `recover` resets derivation
-depths to 0 as well. A KB chained under a smaller bound and then recovered can therefore
-release a refusal whose re-derivation depth exceeded that bound.
+That re-fire runs under the **default** bounds, not the bounds each original run set: a
+run's `:max-depth` and `:max-term-depth` are session config no store holds, and `recover`
+resets derivation depths to 0 as well. A KB chained under a `:max-depth` and then
+recovered can therefore release a refusal whose re-derivation depth exceeded that bound.
 
 **The record is capped at `chain/max-refusals-per-rule` = 4096 entries per rule.** The
 blocked set is bounded by what a rule derived; the record holds one entry per refused
@@ -652,6 +659,16 @@ another.
   blind: what a released condition owes a re-derivation to includes the firings the
   block already swept, and the refusal record holds those only where no except hid an
   antecedent (`chain/record-swept-firing!`).
+
+  A rule whose only re-checked condition is a `different` guard takes less than that
+  (`special/different-only-rule?`: no `unknown`, no aggregate, no closed-extent negative,
+  no stored exception). The merge queues it with the class, not the blanket, and the
+  settle re-decides the guard on the firings and refusals binding a term of the class and
+  re-joins nothing. A guard over two terms outside the class reads the same partition
+  before and after the merge, so no other row can move. A fact on one of the guard's
+  other flip predicates narrows the same way, to the classes of the terms it names; a
+  `genl` edge keeps the blanket, since the terms it moves are the members of a type
+  rather than the ones it names.
 
 - **Composition, where a calculus answers the exception.** A registered calculus answers
   `(spatiallyDisconnected Canary Room)` from `(spatiallyDisconnected Cage Room)` and

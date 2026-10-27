@@ -242,6 +242,22 @@
       (is (contains? (answers kb (list 'subintervalOf '?x T2) '?x) T1))
       (is (= #{T2} (answers kb (list 'properSubintervalOf T1 '?y) '?y))))))
 
+(tu/deftest-kb a-depth-bounded-query-reaches-forever
+  ;; Forever's containment is a backward rule.  The registry alone (ask, or query with
+  ;; no depth) expands no rule, so it neither lists Forever nor stores anything for it;
+  ;; a query given a depth expands the rule, ground and open.
+  (tu/with-terms [T1 T2]
+    (v/assert kb (list 'time_interval T1) C)
+    (v/assert kb (list 'time_interval T2) C)
+    (v/assert kb (list 'during T1 T2) C)
+    (testing "the registry alone does not expand the rule"
+      (is (not (v/ask? kb (list 'subintervalOf T1 'Forever) C)))
+      (is (= #{T1 T2} (answers kb (list 'subintervalOf T1 '?y) '?y))))
+    (testing "a depth-bounded query reaches Forever, ground and open"
+      (is (seq (v/query kb (list 'subintervalOf T1 'Forever) C {:max-depth 1})))
+      (is (contains? (set (map '?y (v/query kb (list 'subintervalOf T1 '?y) C {:max-depth 1})))
+                     'Forever)))))
+
 (defn- orderings
   "Every ordering of `coll`."
   [coll]
@@ -331,24 +347,94 @@
 
 ;; ---- inconsistency -------------------------------------------------------
 
-(tu/deftest-kb a-contradictory-network-answers-nothing
-  (tu/with-terms [A B D]
+(tu/deftest-kb a-contradictory-component-answers-nothing-and-a-term-outside-it-answers
+  ;; a rule concluding `subintervalOf` sends its goals down the union path, where
+  ;; `ReflexiveProver` answers beside the calculus
+  (doseq [rule? [false true]]
+    (tu/with-terms [A B D marker]
+      (v/assert kb (list 'before A B) C)
+      (v/assert kb (list 'after A B) C)
+      (when rule?
+        (v/assert kb (list 'set/backwardRule
+                           (list 'implies (list marker '?x) (list 'subintervalOf '?x '?x)))
+                  C))
+      (testing (if rule? "union path" "sole-prover path")
+        (testing "before and after are disjoint base relations, so their pair empties"
+          (is (= #{} (iv/possible-allen-relations kb C A B)))
+          (is (= :inconsistent (qkb/definite iv/allen kb C A B))))
+        (testing "no goal over a term of the unsatisfiable component is answered"
+          (is (not (v/ask? kb (list 'before A B) C)))
+          (is (not (v/ask? kb (list 'after A B) C)))
+          (is (not (v/ask? kb (list 'temporallyDisjoint A B) C)))
+          (is (empty? (v/ask kb (list 'precedes A '?y) C)))
+          (is (not (v/ask? kb (list 'subintervalOf A A) C)))
+          (is (not-any? #{{'?x A} {'?x B}} (v/ask kb (list 'subintervalOf '?x '?x) C))))
+        (testing "a term outside that component answers as in a coherent network"
+          (is (v/ask? kb (list 'subintervalOf D D) C))
+          (is (= {:verdict :true :for [{}]
+                  :for-derivation [{:goal (list 'subintervalOf D D) :via :leaf}]}
+                 (v/argue kb (list 'subintervalOf D D) C {:max-depth 2})))
+          (is (= {:verdict :unknown} (v/argue kb (list 'subintervalOf A A) C {:max-depth 2})))
+          (is (= #{:equal} (iv/possible-allen-relations kb C D D))))
+        (testing "retracting one of the two gives the other its answers back"
+          (v/retract! kb (v/handle-of kb (list 'after A B) C))
+          (is (v/ask? kb (list 'before A B) C))
+          (is (not (v/ask? kb (list 'after A B) C))))))))
+
+(tu/deftest-kb a-contradictory-component-leaves-another-component-answering
+  (tu/with-terms [A B D E F]
     (v/assert kb (list 'before A B) C)
     (v/assert kb (list 'after A B) C)
-    (testing "before and after are disjoint base relations, so their pair empties"
-      (is (= #{} (iv/possible-allen-relations kb C A B)))
-      (is (= :inconsistent (qkb/definite iv/allen kb C A B))))
-    (testing "and an inconsistent theory is not mined for conclusions — anywhere"
-      (is (not (v/ask? kb (list 'before A B) C)))
-      (is (not (v/ask? kb (list 'after A B) C)))
-      (is (not (v/ask? kb (list 'temporallyDisjoint A B) C)))
-      (is (empty? (v/ask kb (list 'precedes A '?y) C)))
-      (is (not (v/ask? kb (list 'subintervalOf D D) C))
-          "not even the diagonal, which holds of any interval in a coherent network"))
-    (testing "retracting one of the two gives the other its answers back"
-      (v/retract! kb (v/handle-of kb (list 'after A B) C))
-      (is (v/ask? kb (list 'before A B) C))
-      (is (not (v/ask? kb (list 'after A B) C))))))
+    (v/assert kb (list 'before D E) C)
+    (v/assert kb (list 'before E F) C)
+    (is (= #{:before} (iv/possible-allen-relations kb C D F)))
+    (is (v/ask? kb (list 'before D F) C))
+    (is (= #{{'?y E} {'?y F}} (set (v/ask kb (list 'precedes D '?y) C))))
+    (is (not (v/ask? kb (list 'before A F) C)) "A lies in the unsatisfiable component")
+    (is (false? (:consistent? (v/qualitative-network kb :allen C))))))
+
+(def ^:private shipped-subinterval-rules
+  "The shipped rules concluding `subintervalOf` (time.txt): Forever's containment rule and
+  TimeIntersectionFn's two subinterval rules."
+  ['(implies (time_interval ?interval) (subintervalOf ?interval Forever))
+   '(implies (and (time_interval ?interval1) (time_interval ?interval2))
+             (subintervalOf (TimeIntersectionFn ?interval1 ?interval2) ?interval1))
+   '(implies (and (time_interval ?interval1) (time_interval ?interval2))
+             (subintervalOf (TimeIntersectionFn ?interval1 ?interval2) ?interval2))])
+
+(tu/deftest-kb the-diagonal-of-a-typed-allen-predicate-agrees-on-both-dispatch-routes
+  ;; a rule concluding `subintervalOf` sends the goal down the union path, where
+  ;; `ReflexiveProver` answers beside the calculus.  The sole-prover path runs on a KB of
+  ;; its own with the shipped rules retracted: `res/concludes?` reads every stored rule, so
+  ;; an `except` would leave the `:rules` channel open, and `v/fork` refuses a fork of the
+  ;; overlay arm's KB (`:stacked-fork`).
+  (doseq [rule? [false true]]
+    (let [k (if rule?
+              kb
+              (let [own (doto (v/open-kb {:backend :memory :space [::sole-prover] :recover? false})
+                          (tu/clear-kb!)
+                          (tu/load-core!)
+                          (v/add-prover (iv/allen-prover)))]
+                (doseq [r shipped-subinterval-rules]
+                  (v/retract! own (v/handle-of own (list 'set/backwardRule r) C)))
+                own))]
+      (try
+        (tu/with-terms [A B E person marker]
+          (v/assert k (list 'before A B) C)
+          (v/assert k (list 'disjoint person 'time_interval) C)
+          (v/assert k (list person E) C)
+          (when rule?
+            (v/assert k (list 'set/backwardRule
+                              (list 'implies (list marker '?x) (list 'subintervalOf '?x '?x)))
+                      C))
+          (testing (if rule? "union path" "sole-prover path")
+            (is (= (if rule? #{:rules} #{})
+                   (provers/shadowing-channels k (list 'subintervalOf E E) C)))
+            (is (v/ask? k (list 'subintervalOf A A) C))
+            (is (not (v/ask? k (list 'subintervalOf E E) C))
+                "E holds a type disjoint from subintervalOf's declared time_interval")
+            (is (empty? (v/ask k (list 'subintervalOf E '?y) C)))))
+        (finally (when-not rule? (tu/drop-space! [::sole-prover])))))))
 
 (tu/deftest-kb an-inconsistency-derived-through-a-chain-is-caught
   (tu/with-terms [A B D]
@@ -361,15 +447,23 @@
         "the whole network is unsatisfiable, so no pair of it is answered")))
 
 (tu/deftest-kb an-unsatisfiable-point-network-withdraws-the-allen-firings-it-licensed
-  (tu/with-terms [A B X Y finishedFirst]
+  (tu/with-terms [A B X Y Z finishedFirst]
     (v/assert kb (list 'arg finishedFirst 1 'thing) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'instantBefore (list 'EndFn A) (list 'StartFn B)) C)
     (v/assert-rule kb [(list 'before '?x B)] (list finishedFirst '?x) C {:direction :forward})
     (testing "the rule fires on a relation only the point network entails"
       (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
-    ;; the cycle names neither A nor B
-    (let [h  (v/assert kb (list 'instantBefore X Y) C)
-          h2 (v/assert kb (list 'instantBefore Y X) C)]
+    (testing "a cycle over instants that bound no interval leaves the interval network satisfiable"
+      (let [hs [(v/assert kb (list 'instantBefore Y Z) C)
+                (v/assert kb (list 'instantBefore Z Y) C)]]
+        (is (true? (:consistent? (v/qualitative-network kb :allen C))))
+        (is (v/ask? kb (list 'before A B) C))
+        (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx)))
+        (run! #(v/retract! kb %) hs)))
+    ;; the cycle runs through B's start, which A's end precedes, so one component of the
+    ;; point network holds both intervals' points
+    (let [h  (v/assert kb (list 'instantBefore (list 'StartFn B) X) C)
+          h2 (v/assert kb (list 'instantBefore X (list 'StartFn B)) C)]
       (testing "an instant cycle makes the interval network that reads the points unsatisfiable"
         (is (false? (:consistent? (v/qualitative-network kb :allen C))))
         (is (not (v/ask? kb (list 'before A B) C))))
@@ -377,7 +471,7 @@
         (let [net (v/qualitative-network kb :allen C)]
           (is (empty? (:unsatisfiable net)))
           (is (= [{:source  :point
-                   :pairs   (nm/by-print-key #{[X Y] [Y X]})
+                   :pairs   (nm/by-print-key #{[(list 'StartFn B) X] [X (list 'StartFn B)]})
                    :support (vec (sort [h h2]))}]
                  (:unsatisfiable-sources net)))
           (let [entry (last (filter #(and (= :qualitative-inconsistency (:violation %))

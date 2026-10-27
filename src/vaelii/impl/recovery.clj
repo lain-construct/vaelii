@@ -100,11 +100,21 @@
   belief rebuild binds it (`rebuild-reporter`); a recover with none bound logs its steps."
   nil)
 
+(def ^:dynamic *on-recover-step*
+  "nil, or a function a caller watching a recover binds: called with `{:step k :label s
+  :done i :total n}` as each step of `recover-steps` begins, `:done` the steps before it,
+  and with `{:done n :total n}` once the last has ended.  While a step runs, it is called
+  again with the step's map and `:sub`, `{:id :label :done :total}` of the step's loop
+  that ticked (`progress/*observer*`), at most once a second a loop; a throw out of such
+  a call is logged and dropped.  Beside the log line, not in place of it."
+  nil)
+
 (defn- minutes [ms] (/ (double ms) 60000.0))
 
 (defn- step-marker
   "A function that marks the start of a recover step when given its key, and the end of
-  the last step when given nil.  Each start goes to `*on-step*`, or is logged when none is
+  the last step when given nil, and answers the map `*on-recover-step*` was last given
+  when given no argument.  Each start goes to `*on-step*`, or is logged when none is
   bound: at `:info` over a store of `logged-recover-size` sentexes or more, else at
   `:debug`.  The end files the step durations in `kb`'s `:unrecovered` atom as
   `:last-recover` `{:ms total :steps {key ms}}`, which the reasoning image's manifest
@@ -117,24 +127,46 @@
                     :debug))
         t0      (System/nanoTime)
         marks   (volatile! [])
+        current (volatile! nil)
         ms      (fn [a b] (quot (- (long b) (long a)) 1000000))]
-    (fn [k]
-      (let [now (System/nanoTime)]
-        (vswap! marks conj [k now])
-        (cond
-          (nil? k)
-          (swap! (:unrecovered kb) assoc :last-recover
-                 {:ms    (ms t0 now)
-                  :steps (into {} (map (fn [[[k a] [_ b]]] [k (ms a b)])) (partition 2 1 @marks))})
+    (fn
+      ([] @current)
+      ([k]
+       (let [now (System/nanoTime)
+             n   (count recover-steps)
+             m   (when k {:step k :label (step-label k) :done (min n (long (step-index k))) :total n})]
+         (vswap! marks conj [k now])
+         (vreset! current m)
+         (when-let [f *on-recover-step*]
+           (f (or m {:done n :total n})))
+         (cond
+           (nil? k)
+           (swap! (:unrecovered kb) assoc :last-recover
+                  {:ms    (ms t0 now)
+                   :steps (into {} (map (fn [[[k a] [_ b]]] [k (ms a b)])) (partition 2 1 @marks))})
 
-          on-step (on-step k)
+           on-step (on-step k)
 
-          :else
-          (trove/log! {:level level :id ::recover-step
-                       :msg (format "recover of %s: step %d/%d, %s (%.1f min in)"
-                                    (or (:snapshot-dir kb) "an in-memory KB")
-                                    (inc (long (step-index k))) (count recover-steps)
-                                    (step-label k) (minutes (ms t0 now)))}))))))
+           :else
+           (trove/log! {:level level :id ::recover-step
+                        :msg (format "recover of %s: step %d/%d, %s (%.1f min in)"
+                                     (or (:snapshot-dir kb) "an in-memory KB")
+                                     (inc (long (step-index k))) (count recover-steps)
+                                     (step-label k) (minutes (ms t0 now)))})))))))
+
+(defn- step-observer
+  "The `progress/*observer*` a recover binds: hand `*on-recover-step*`, when bound, the
+  map of the step `step!` (`step-marker`) marked last with `:sub`, the loop that ticked.
+  nil when none is bound.  A throw out of the call is logged and dropped, since the call
+  lands inside the step's loop."
+  [step!]
+  (when-let [f *on-recover-step*]
+    (fn [sub]
+      (when-let [m (step!)]
+        (try (f (assoc m :sub sub))
+             (catch Throwable t
+               (trove/log! {:level :warn :id ::recover-sub-step :error t
+                            :msg "recover: the step watcher threw on a loop's progress"})))))))
 
 (defn- rebuild-reporter
   "The `*on-step*` a belief rebuild of `kb` binds: file the step under `:rebuild` in `kb`'s
@@ -368,99 +400,104 @@
   ;; the upper types every walk passes — and evicts the cold ones, rather than holding
   ;; every closure it walks, which on a large import is a set per type and fills the heap.
   (let [step! (step-marker kb)]
-    (step! :network)
-    (rebuild-tms kb)
-    (check-abandoned!)
-    ;; The rebuild installs every believed `genl` / `genlCx` edge, so it is a bulk load
-    ;; and pays what one pays: repairing the depth potential per edge costs that edge's
-    ;; descendants.  Defer it and repair once, exactly as `with-deferred-settle` does —
-    ;; and repair *here* rather than leaning on the settle below, so the intervening
-    ;; rebuilds never read a loose relation.  The reconcile shares that one repair, which
-    ;; is why it sits inside the same deferral: dropping an edge can dissolve a component.
-    ;; `*defer-cycle-scc?*` extends the same deferral to a cycle-closing edge, which
-    ;; `activate` otherwise repairs eagerly per edge (O(V+E) each) for a `placement-rep`
-    ;; reader no recovery step runs before `restore-depths`; the single repair below
-    ;; computes `:scc` for the whole replay instead (see the var).
-    (binding [tax/*defer-depths?*    true
-              tax/*defer-cycle-scc?* true]
-      (step! :taxonomy)
-      (special/rebuild-taxonomy kb)
-      ;; The rebuild installed the forced-monotonic properties, and the network replayed
-      ;; above holds every premise at the strength it was written at: the forced
-      ;; memberships the forced-monotonic set gives the stored content go in now, before
-      ;; anything reads belief
-      ;; (docs/nmtms.md, "The forced-monotonic set").
-      (checks/force-stored! kb)
-      ;; Now reconcile the caches with belief again, and **unconditionally**: the forced
-      ;; memberships just written move labels, and no settle event records them.  The
-      ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved; recovery
-      ;; is the caller holding no region that the `nil` arm exists for, and it costs one
-      ;; belief lookup per stored supporter — what the rebuild above just paid.
-      ;; Before the settle rather than after it, so everything the settle reads — nogoods,
-      ;; placement, exception queries — reads a taxonomy that already agrees with belief;
-      ;; the settle's own reconcile then keeps the two together across whatever it moves.
-      (tax/refresh-beliefs (reasoning/taxonomy kb) (partial jtms/in? (reasoning/tms kb))))
-    (step! :depths)
-    (tax/restore-depths (reasoning/taxonomy kb))
-    ;; Nothing about an exception is stored, so blocking cannot be read back: recovery lands
-    ;; unblocked (a fresh network holds no blocks, and the settle below re-derives them) and the
-    ;; interval in between believes an excepted conclusion.  Queue every exception-bearing rule so the settle
-    ;; below re-evaluates and withdraws them.  This is recovery, not a store mutation,
-    ;; so it is a deliberate explicit trigger rather than the choke-point extension point: no
-    ;; sentence arrived or left — the whole in-memory blocking state did.
-    (step! :derived-sets)
-    (special/recheck-every-exception kb)
-    ;; ...and the same for supersession, which is derived from the equality closure and
-    ;; is likewise not readable back from the store.  Seeded before the settle, since
-    ;; `refresh-supersessions` only re-examines the entries it already holds.
-    (special/refresh-supersessions kb (recovered-supersessions kb) nil)
-    ;; ...and the candidates of the nogood families the settle places, which no store
-    ;; holds either (`vaelii.impl.decide`)
-    (decide/rebuild-candidates! kb)
-    ;; ...and the inherited-clash memo, so the settle's first discovery asks the whole
-    ;; store's questions (`discovery/*whole-store-region?*`)
-    (reset! (reasoning/preserved-clashes kb) {})
-    ;; The first cache reconcile ran before the visibility `except` set existed, so it
-    ;; could narrow only against JTMS belief. Re-run through the common transition
-    ;; boundary now that recovery can also answer which declarations are excepted.
-    (special/reconcile-belief-change kb)
-    ;; the last point a background rebuild can stop at before the settle below, which can
-    ;; place a conclusion; a background rebuild's records refuse that write
-    (check-abandoned!)
-    ;; ...and the settle that finishes the rebuild is told it *is* one, so the passes that
-    ;; report or re-derive what a change moved stay out of it: a restore changes nothing
-    ;; (`settle/*rebuilding?*`).
-    (binding [settle/*rebuilding?* true]
-      ;; `rebuild-tms` made a node for every stored sentex but an inert one and nothing
-      ;; has cleared the touched set since, so this settle's region is the whole store and
-      ;; its retroactive sweeps add no candidate (`discovery/*whole-store-region?*`).  The
-      ;; re-fire's settle below is not bound: its region is only what the re-fire moved.
-      (step! :settle)
-      (binding [discovery/*whole-store-region?* true]
-        (settle/settle kb))
-      ;; The **refusal** record is the other in-memory state no store holds: a firing
-      ;; refused at derive time left no justification, so replaying the stored ones cannot
-      ;; put it back, and a KB restarted with refusals standing would answer a later
-      ;; release differently from one that never restarted.  Re-firing the rules that can
-      ;; refuse re-records what they refuse, and it runs after the settle above because a
-      ;; refusal is a claim about what the KB *believes*.  A re-fire that placed something
-      ;; the narrowed re-chain had not owes a second settle.
-      (step! :refusals)
-      (let [{:keys [derived]} (chain/rerecord-refusals! kb)
-            ;; ...and the class memberships a metatype route derives, which a store
-            ;; written with no belief holds no justification for
-            classes? (chain/resync-arity-classes! kb)]
-        ;; ...and the lifts an argument conviction still refuses, which that
-        ;; re-fire does not reach
-        (special/rebuild-pending! kb)
-        (when (or classes? (pos? (long (or derived 0)))) (settle/settle kb))))
-    ;; the settle above places the inherited clashes and stands aside from the other
-    ;; families, and a store written with no belief holds none placed: the nogoods the
-    ;; rebuilt index queued are placed where they stand (`chain/place-nogoods!`)
-    (step! :placement)
-    (when (chain/placement-queued? kb) (settle/settle kb))
-    (step! nil)
-    kb))
+    (binding [progress/*observer* (step-observer step!)]
+      (step! :network)
+      (rebuild-tms kb)
+      (check-abandoned!)
+      ;; The rebuild installs every believed `genl` / `genlCx` edge, so it is a bulk load
+      ;; and pays what one pays: repairing the depth potential per edge costs that edge's
+      ;; descendants.  Defer it and repair once, exactly as `with-deferred-settle` does —
+      ;; and repair *here* rather than leaning on the settle below, so the intervening
+      ;; rebuilds never read a loose relation.  The reconcile shares that one repair, which
+      ;; is why it sits inside the same deferral: dropping an edge can dissolve a component.
+      ;; `*defer-cycle-scc?*` extends the same deferral to a cycle-closing edge, which
+      ;; `activate` otherwise repairs eagerly per edge (O(V+E) each) for a `placement-rep`
+      ;; reader no recovery step runs before `restore-depths`; the single repair below
+      ;; computes `:scc` for the whole replay instead (see the var).
+      (binding [tax/*defer-depths?*    true
+                tax/*defer-cycle-scc?* true]
+        (step! :taxonomy)
+        (special/rebuild-taxonomy kb)
+        ;; The rebuild installed the forced-monotonic properties, and the network replayed
+        ;; above holds every premise at the strength it was written at: the forced
+        ;; memberships the forced-monotonic set gives the stored content go in now, before
+        ;; anything reads belief
+        ;; (docs/nmtms.md, "The forced-monotonic set").
+        (checks/force-stored! kb)
+        ;; Now reconcile the caches with belief again, and **unconditionally**: the forced
+        ;; memberships just written move labels, and no settle event records them.  The
+        ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved; recovery
+        ;; is the caller holding no region that the `nil` arm exists for, and it costs one
+        ;; belief lookup per stored supporter — what the rebuild above just paid.
+        ;; Before the settle rather than after it, so everything the settle reads — nogoods,
+        ;; placement, exception queries — reads a taxonomy that already agrees with belief;
+        ;; the settle's own reconcile then keeps the two together across whatever it moves.
+        (tax/refresh-beliefs (reasoning/taxonomy kb) (partial jtms/in? (reasoning/tms kb))))
+      (step! :depths)
+      (tax/restore-depths (reasoning/taxonomy kb))
+      ;; Nothing about an exception is stored, so blocking cannot be read back: recovery lands
+      ;; unblocked (a fresh network holds no blocks, and the settle below re-derives them) and the
+      ;; interval in between believes an excepted conclusion.  Queue every exception-bearing rule so the settle
+      ;; below re-evaluates and withdraws them.  This is recovery, not a store mutation,
+      ;; so it is a deliberate explicit trigger rather than the choke-point extension point: no
+      ;; sentence arrived or left — the whole in-memory blocking state did.
+      (step! :derived-sets)
+      (special/recheck-every-exception kb)
+      ;; ...and the same for supersession, which is derived from the equality closure and
+      ;; is likewise not readable back from the store.  Seeded before the settle, since
+      ;; `refresh-supersessions` only re-examines the entries it already holds.
+      (special/refresh-supersessions kb (recovered-supersessions kb) nil)
+      ;; ...and the candidates of the nogood families the settle places, which no store
+      ;; holds either (`vaelii.impl.decide`)
+      (decide/rebuild-candidates! kb)
+      ;; ...and the inherited-clash memo, so the settle's first discovery asks the whole
+      ;; store's questions (`discovery/*whole-store-region?*`)
+      (reset! (reasoning/preserved-clashes kb) {})
+      ;; The first cache reconcile ran before the visibility `except` set existed, so it
+      ;; could narrow only against JTMS belief. Re-run through the common transition
+      ;; boundary now that recovery can also answer which declarations are excepted.
+      (special/reconcile-belief-change kb)
+      ;; the last point a background rebuild can stop at before the settle below, which can
+      ;; place a conclusion; a background rebuild's records refuse that write
+      (check-abandoned!)
+      ;; ...and the settle that finishes the rebuild is told it *is* one, so the passes that
+      ;; report or re-derive what a change moved stay out of it: a restore changes nothing
+      ;; (`settle/*rebuilding?*`).
+      (binding [settle/*rebuilding?* true]
+        ;; `rebuild-tms` made a node for every stored sentex but an inert one and nothing
+        ;; has cleared the touched set since, so this settle's region is the whole store and
+        ;; its retroactive sweeps add no candidate (`discovery/*whole-store-region?*`).  The
+        ;; re-fire's settle below is not bound: its region is only what the re-fire moved.
+        (step! :settle)
+        (binding [discovery/*whole-store-region?* true]
+          (settle/settle kb))
+        ;; The **refusal** record is the other in-memory state no store holds: a firing
+        ;; refused at derive time left no justification, so replaying the stored ones cannot
+        ;; put it back, and a KB restarted with refusals standing would answer a later
+        ;; release differently from one that never restarted.  Re-firing the rules that can
+        ;; refuse re-records what they refuse, and it runs after the settle above because a
+        ;; refusal is a claim about what the KB *believes*.  A re-fire that placed something
+        ;; the narrowed re-chain had not owes a second settle.
+        (step! :refusals)
+        (let [{:keys [derived]} (chain/rerecord-refusals! kb)
+              ;; ...and the class memberships a metatype route derives, which a store
+              ;; written with no belief holds no justification for
+              classes? (chain/resync-arity-classes! kb)
+              ;; ...and the spellings a held rule reads where its context meets a
+              ;; correspondence declaration's, which an older store holds none of
+              held     (chain/sync-held-respellings! kb)]
+          ;; ...and the lifts an argument conviction still refuses, which that
+          ;; re-fire does not reach
+          (special/rebuild-pending! kb)
+          (when (seq held) (chain/chain kb held {}))
+          (when (or classes? (seq held) (pos? (long (or derived 0)))) (settle/settle kb))))
+      ;; the settle above places the inherited clashes and stands aside from the other
+      ;; families, and a store written with no belief holds none placed: the nogoods the
+      ;; rebuilt index queued are placed where they stand (`chain/place-nogoods!`)
+      (step! :placement)
+      (when (chain/placement-queued? kb) (settle/settle kb))
+      (step! nil)
+      kb)))
 
 ;; ---- rebuilding belief behind an installed image ------------------------------
 

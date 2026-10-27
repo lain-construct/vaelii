@@ -25,6 +25,23 @@
       (testing "a KB's name names its own file, whatever it is spelled with"
         (is (= ["(q b)"] (map :sentence (removed/entries "kb/two"))))))))
 
+(deftest owners-differing-in-one-character-or-in-case-keep-two-lists
+  (with-dir
+    (fn [_]
+      (let [owners ["a/b" "a_b" "Kb" "kb"]]
+        (doseq [o owners]
+          (removed/note! o :retract [{:sentence (str "(p " o ")") :context "Cx"}]))
+        (is (= (map #(vector (str "(p " % ")")) owners)
+               (map #(mapv :sentence (removed/entries %)) owners)))))))
+
+(deftest a-list-owned-by-a-value-other-than-a-string-is-held-in-memory
+  (with-dir
+    (fn [d]
+      (let [a (atom nil) b (atom nil)]
+        (removed/note! a :retract [{:sentence "(p a)" :context "Cx"}])
+        (is (= [["(p a)"] []] [(mapv :sentence (removed/entries a)) (removed/entries b)]))
+        (is (= [d] (vec (file-seq d))) "no file is written")))))
+
 (deftest forget-drops-one-entry
   (with-dir
     (fn [_]
@@ -37,6 +54,6 @@
 
 (deftest an-unreadable-list-reads-as-empty
   (with-dir
-    (fn [d]
-      (spit (io/file d "k.edn") "[{:id")
+    (fn [_]
+      (spit (#'removed/file-for "k") "[{:id")
       (is (= [] (removed/entries "k"))))))

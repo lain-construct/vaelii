@@ -190,7 +190,7 @@
     (testing "and it is genuinely the agent's — base does not derive it"
       (is (not (v/ask? kb '(raptor7 Kes7) ask-ctx))))))
 
-;; ---- registration is scoped to the granting context (item 4, second half) ----
+;; ---- registration is scoped to the granting context ----------------------
 
 (tu/deftest-kb a-modal-grant-is-a-policy-of-the-context-that-holds-it
   (believe! kb 'Alice '(sings Lark))

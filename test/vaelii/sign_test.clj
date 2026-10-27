@@ -200,7 +200,7 @@
         (is (some? concl))
         (is (false? (v/premise? kb (:id concl)))))
       (testing "and the proof names the comparison"
-        (is (contains? (set (tree-seq coll? seq (v/why kb (:id concl)))) h-cmp)))
+        (is (contains? (set (keys (:nodes (v/why kb (:id concl))))) h-cmp)))
       (testing "so retracting it takes the conclusion with it"
         (v/retract! kb h-cmp)
         (is (empty? (v/sentexes-matching kb (list overflowing WaterLevel) '?ctx)))))))

@@ -77,14 +77,23 @@
    [:max-results       "a non-negative integer" nat-int?]
    [:max-work          "a non-negative integer" nat-int?]
    [:max-derivations   "a non-negative integer" nat-int?]
+   [:max-term-depth    "a non-negative integer" nat-int?]
    [:max-hypotheses    "a non-negative integer" nat-int?]
    [:node-budget       "a non-negative integer" nat-int?]
    [:max-term-growth   "a non-negative integer" nat-int?]
    [:progress-every-ms "a non-negative integer" nat-int?]
+   [:commit-every-ms   "a non-negative integer" nat-int?]
+   [:budget-ms         "a non-negative number of milliseconds"
+    #(and (number? %) (not (neg? (double %))))]
    [:on-progress       "a function"             fn?]
+   [:stop?             "a function"             fn?]
+   [:on-stop           ":rollback or :keep"     #{:rollback :keep}]
    [:counters?         "true or false"          boolean?]
    [:believed?         "true or false"          boolean?]
-   [:grounds?          "true or false"          boolean?]])
+   [:grounds?          "true or false"          boolean?]
+   [:resume?           "true or false"          boolean?]
+   [:retry-deferred?   "true or false"          boolean?]
+   [:drop-principal?   "true or false"          boolean?]])
 
 (def ^:private bound-domain-map
   "`bound-domains` as `{key [what pred]}`, for a per-key lookup rather than a scan of the

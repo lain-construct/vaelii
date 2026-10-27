@@ -12,6 +12,7 @@
             [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
             [vaelii.core :as v]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.clashes :as clashes]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.kb :as kb]
@@ -194,6 +195,43 @@
             (finally (v/close! lkb))))
         (finally (rm-rf! a))))))
 
+(deftest a-replayed-write-runs-to-its-end-over-a-nearly-full-heap
+  ;; The log after the seal holds the rows' writes: one `forward-chain` frame over three
+  ;; facts stored before the seal, three asserts each chaining the forward rule inside a
+  ;; rollback scope, or one `bulk-assert-facts!` frame.  The heap mark holds through the
+  ;; restore, and the replay stores what the logged writes stored.
+  (doseq [[how write! frames mortal]
+          [[:forward-chain #(is (= 3 (:derived (v/forward-chain %)))) 1 3]
+           [:assert #(doseq [x '[Socrates Plato Aristotle]]
+                       (v/assert % (list 'animal x) 'CxUniverse))
+            3 3]
+           [:bulk-assert-facts! #(v/bulk-assert-facts! % '[(animal Socrates) (animal Plato)
+                                                           (animal Aristotle)]
+                                                       'CxUniverse)
+            1 0]]]
+    (tu/with-snapshot-platform
+      (let [a (tmpdir)]
+        (try
+          (let [lkb (seal/attach! (open a))]
+            (try
+              (when (= :forward-chain how)
+                (doseq [x '[Socrates Plato Aristotle]]
+                  (v/assert lkb (list 'animal x) 'CxUniverse)))
+              (v/assert lkb '(set/forwardRule (implies (and (animal ?x)) (mortal ?x))) 'CxUniverse
+                        {:chain? (not= :forward-chain how)})
+              (v/seal lkb)
+              (write! lkb)
+              (with-redefs [caches/heap-critical? (constantly true)]
+                (restore-copy a (fn [r]
+                                  (is (= [true frames] ((juxt :restored :frames) r))
+                                      (str (name how) " " (pr-str (:reason r))))
+                                  (is (= [3 mortal]
+                                         (map #(count (some-> (:kb r) (v/sentexes-with-functor % {:believed? true})))
+                                              '[animal mortal]))
+                                      (name how)))))
+              (finally (v/close! lkb))))
+          (finally (rm-rf! a)))))))
+
 (deftest a-log-with-a-damaged-frame-inside-it-declines
   (tu/with-snapshot-platform
     ;; A frame that does not thaw with frames after it ends what can be replayed.  Read as a
@@ -258,6 +296,32 @@
             (is (= [:seal :clear] (oplog/unusable (:oplog lkb)))
                 "the refused seal leaves the mark the operation made")
             (is (= g (:generation (seal/read-seal a))) "and starts no generation")
+            (finally (v/close! lkb))))
+        (finally (rm-rf! a))))))
+
+(deftest a-seal-class-operation-fsyncs-its-unusable-mark-before-it-writes-a-record
+  ;; a machine crash that keeps the records' deletes and loses an unsynced mark leaves a
+  ;; usable log over records its seal does not describe.  The events are this thread's
+  ;; and this log's, so a durability tick's fsync is not counted.
+  (tu/with-snapshot-platform
+    (let [a (tmpdir)]
+      (try
+        (let [lkb    (seal/attach! (open a))
+              raf    (:raf (:oplog lkb))
+              t      (Thread/currentThread)
+              events (atom [])
+              note!  (fn [e r] (when (and (identical? raf r) (identical? t (Thread/currentThread)))
+                                 (swap! events conj e)))
+              force  f/force!
+              append f/append-record!
+              write  @#'oplog/before-write!]
+          (try
+            (v/assert lkb '(animal Zeno) 'CxUniverse)
+            (with-redefs [f/force!            (fn [r m] (note! :fsync r) (force r m))
+                          f/append-record!    (fn ^long [r v] (when (:unusable v) (note! :mark r)) (append r v))
+                          oplog/before-write! (fn [& args] (apply write args) (note! :write raf))]
+              (v/clear! lkb))
+            (is (= [:mark :fsync :write] (take 3 (dedupe @events))))
             (finally (v/close! lkb))))
         (finally (rm-rf! a))))))
 
@@ -417,6 +481,58 @@
                     "the new seal's generation is above the retired one")
                 (finally (v/close! kb)))))
           (finally (rm-rf! a)))))))
+
+(deftest retiring-the-seal-fsyncs-its-directory-before-returning
+  ;; a power loss that keeps the records write and loses the rename leaves the seal in
+  ;; place over records it does not describe
+  (tu/with-snapshot-platform
+    (let [a (tmpdir)]
+      (try
+        (v/close! (open a {:oplog? true}))
+        (let [synced (atom [])
+              sync   f/fsync-dir!]
+          (with-redefs [f/fsync-dir! (fn [p] (swap! synced conj (.getParent (io/file p))) (sync p))]
+            (seal/retire-unlogged! {:snapshot-dir a}))
+          (is (nil? (seal/read-seal a)))
+          (is (some #{(str a "/oplog")} @synced)))
+        (finally (rm-rf! a))))))
+
+(deftest a-records-write-the-seal-did-not-see-declines-the-restore
+  ;; a writer with no path to the seal, such as a second `:pg` KB over the same schema,
+  ;; stands in here as a disk KB whose retire is a no-op.  With no frame, the records'
+  ;; fingerprint moves from the seal's.  With a frame a crash left, the replay moves the
+  ;; fingerprint too, and the retraction shows as a node with no record, or as a premise
+  ;; mark the records dropped from a sentex a rule still derives.
+  (tu/with-snapshot-platform
+    (doseq [[frame? retracted believed?] [[false '(animal Plato) false]
+                                          [true '(animal Plato) false]
+                                          [true '(mortal Plato) true]]
+            :let [row (pr-str [frame? retracted])]]
+      (let [a (tmpdir) c (tmpdir)]
+        (try
+          (let [kb (open a {:oplog? true})]
+            (v/assert kb '(set/forwardRule (implies (and (animal ?x)) (mortal ?x))) 'CxUniverse)
+            (v/assert kb '(animal Plato) 'CxUniverse)
+            (v/assert kb '(mortal Plato) 'CxUniverse)
+            (v/close! kb))
+          (let [kb (open a {:oplog? true})]
+            (try (when frame? (v/assert kb '(animal Zeno) 'CxUniverse))
+                 (copy-dir! a c)
+                 (finally (v/close! kb))))
+          (with-redefs [seal/retire-unlogged! (fn [_] nil)]
+            (let [kb (open c {:backend :disk-dense})]
+              (try (v/retract! kb (v/handle-of kb retracted 'CxUniverse))
+                   (finally (v/close! kb)))))
+          (is (some? (seal/read-seal c)) row)
+          (let [kb (open c {:oplog? true})]
+            (try
+              (is (= {:restored false :reason :records-moved} (opened kb)) row)
+              (is (= believed? (v/ask? kb retracted 'CxUniverse)) row)
+              (let [h (v/assert kb retracted 'CxUniverse)]
+                (is (contains? (set (p/premise-ids (oplog/inner-records (:records kb)))) h)
+                    (str row " a re-assert stores a premise record")))
+              (finally (v/close! kb))))
+          (finally (rm-rf! a) (rm-rf! c)))))))
 
 (defn- manifest-source [dir]
   (:source (edn/read-string (slurp (io/file dir "reasoning" "manifest.edn")))))

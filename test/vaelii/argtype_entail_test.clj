@@ -13,11 +13,13 @@
   On by default (`argument/*assertive-arg-types?*`), and every test here binds it anyway, so
   a run under `VAELII_ASSERTIVE_ARG_TYPES=0` still measures the entailment."
   (:require [clojure.java.io :as io]
-            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.except :as exc]
+            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
@@ -126,7 +128,7 @@
       (with-entailing
         (let [fh (v/assert kb (list parentOf Fred Mary) CxWorld)
               th (v/handle-of kb (list animal Fred) CxWorld)
-              w  (v/why kb th)
+              w  (tu/why-root kb th)
               sup (first (:support w))]
           (is (some? th) "the type is stored")
           (is (false? (:premise? w)) "and derived, not asserted")
@@ -163,8 +165,8 @@
             (if (= order :declaration-first) (do (decl) (fact)) (do (fact) (decl))))
           (is (believed? kb (list animal Fred) CxWorld)
               (str "entailed under " (name order)))
-          (is (= 1 (count (:support (v/why kb (v/handle-of kb (list animal Fred)
-                                                           CxWorld)))))
+          (is (= 1 (count (:support (tu/why-root kb (v/handle-of kb (list animal Fred)
+                                                                 CxWorld)))))
               (str "with one justification under " (name order))))))))
 
 ;; ---- a declaration's sweep over stored facts ------------------------------
@@ -223,7 +225,7 @@
       (let [dhs   (mapv #(v/assert kb % CxUp)
                         [(list 'arg rel 1 a_t) (list 'arg rel 2 u1_t) (list 'genlArg rel 3 g_t)
                          (list 'interArg rel 1 trig_t 2 tu_t) (list 'interArg rel 1 trig_t 2 u1_t)
-                         (list 'args rel all_t) (list 'args rel u0_t)
+                         (list 'argAndRest rel 1 all_t) (list 'argAndRest rel 1 u0_t)
                          (list 'argAndRest rel 2 rest_t) (list 'argAndRestGenl rel 3 arg_t)
                          (list 'interArgs rel hom_t) (list 'interArgAndRest rel 2 hom2_t)
                          (list 'argsGenl kinds ag_t) (list 'arg super 2 s_t)])
@@ -233,7 +235,9 @@
                    [(list rel A E kind_t) CxUp] [(list kinds kind_t kind2_t) CxDown]]]
         (doseq [[s c] facts] (v/assert kb s c))
         (let [all (mapv (fn [[s c]] (checks/constraint-entailments kb s c)) facts)]
-          (is (= '#{arg genlArg interArg args argAndRest argAndRestGenl interArgs
+          ;; `args` is no kind of its own: it entails through the `argAndRest` twin
+          ;; core.txt's forward rule stores (covering_arg_test)
+          (is (= '#{arg genlArg interArg argAndRest argAndRestGenl interArgs
                     interArgAndRest argsGenl}
                  (into #{} (comp cat (map :kind)) all))
               "every entailing kind draws over the facts")
@@ -489,7 +493,7 @@
       (v/assert kb (list parentOf Fred Mary) CxWorld)
       (v/assert kb (list childOf Fred Mary) CxWorld)
       (is (= 1 (count (v/sentexes-with-functor kb animal))) "one record")
-      (is (= 2 (count (:support (v/why kb (entailed kb (list animal Fred) CxWorld)))))
+      (is (= 2 (count (:support (tu/why-root kb (entailed kb (list animal Fred) CxWorld)))))
           "two justifications — each fact holds it up on its own"))))
 
 (tu/deftest-kb a-subsuming-membership-does-not-suppress-the-entailment
@@ -621,11 +625,11 @@
       (v/assert kb (list 'arg childOf 1 animal) CxWorld)
       (v/assert kb (list parentOf Fred Mary) CxWorld)
       (v/assert kb (list childOf Fred Mary) CxWorld)
-      (is (= 2 (count (:support (v/why kb (entailed kb (list animal Fred) CxWorld))))))
+      (is (= 2 (count (:support (tu/why-root kb (entailed kb (list animal Fred) CxWorld))))))
       (v/assert kb (list dog Fred) CxWorld)
       (is (nil? (v/handle-of kb (list animal Fred) CxWorld)) "both supports blocked, record swept")
       (v/retract! kb (v/handle-of kb (list dog Fred) CxWorld))
-      (is (= 2 (count (:support (v/why kb (entailed kb (list animal Fred) CxWorld)))))
+      (is (= 2 (count (:support (tu/why-root kb (entailed kb (list animal Fred) CxWorld)))))
           "and both are back — each fact holds it up on its own again"))))
 
 (tu/deftest-kb a-record-stored-by-another-route-takes-the-justification
@@ -781,7 +785,7 @@
       (with-entailing
         (let [fh  (v/assert kb (list kindOf Rex dog) CxWorld)
               th  (entailed kb (list dog Rex) CxWorld)
-              sup (first (:support (v/why kb th)))]
+              sup (first (:support (tu/why-root kb th)))]
           (is (some? th) "the type at argument 2 is a stored, believed membership of argument 1")
           (is (= 'argArg (:informant sup)))
           (is (= #{fh dh} (set (map :handle (:because sup))))
@@ -825,7 +829,7 @@
                 :four        (v/assert kb (list grants Fido 4) CxWorld)))
             (is (= [true false] (mapv #(believed? kb (list t %) CxWorld) [Rex Fido])) (str (vec order)))
             (is (= 'interArgEqual
-                   (:informant (first (:support (v/why kb (v/handle-of kb (list t Rex) CxWorld))))))
+                   (:informant (first (:support (tu/why-root kb (v/handle-of kb (list t Rex) CxWorld))))))
                 (str (vec order)))
             (v/retract! kb @dh)
             (is (not (believed? kb (list t Rex) CxWorld))
@@ -1148,7 +1152,7 @@
               (is (believed? kb (list tt Bee) CxDown))
               (is (believed? kb (list sub Bee) CxDown)
                   "the inherited declaration derives over the derived membership")
-              (is (= 2 (count (:support (v/why kb (v/handle-of kb (list tt Bee) CxDown)))))))))))))
+              (is (= 2 (count (:support (tu/why-root kb (v/handle-of kb (list tt Bee) CxDown)))))))))))))
 
 (tu/deftest-kb a-stored-membership-re-asserts-as-it-first-asserted
   (tu/with-neutral-kb [kb tu/fresh]
@@ -1280,6 +1284,155 @@
         (v/bulk-assert-facts! kb [(list achieves Ann Bee)] CxDown)
         (is (= 2 (:recorded (v/record-arg-types kb))))
         (is (= 0 (:recorded (v/record-arg-types kb))))))))
+
+(def ^:private no-memo
+  "An `inherit/*memo*` that holds nothing, so every inheritance read is made afresh."
+  (reify
+    clojure.lang.IDeref (deref [_] {})
+    clojure.lang.IAtom
+    (swap [_ _] nil) (swap [_ _ _] nil) (swap [_ _ _ _] nil) (swap [_ _ _ _ _] nil)
+    (compareAndSet [_ _ _] false) (reset [_ _] nil)))
+
+(defn- asking-everything
+  "`(f)` with every check asked in full: no admission check's answer held
+  (`special/*admission-memo*`), every reader state built (`exc/build-reader-state`), no
+  inheritance read held (`inherit/*memo*`), the inheritance prover reading the verdict of
+  every negation it is asked (`inherit/answers?` with no look at the stated denials
+  first), and the cover arm proving every cover up to the first refuted one, which
+  `keep?` then takes or not."
+  [f]
+  (let [cover   @#'checks/cover-problem
+        answers (fn [kb goal context]
+                  (boolean
+                   (when-let [[holds lit] (inherit/goal-verdict goal)]
+                     (and (= holds (inherit/verdict kb lit context))
+                          (or (= :for holds)
+                              (some #(and (= :against (:polarity %)) (not (:separated? %)))
+                                    (inherit/surviving kb lit context)))))))]
+    (with-redefs-fn {#'special/entail-arg-type
+                     (let [e @#'special/entail-arg-type]
+                       (fn [& args]
+                         (with-bindings {#'special/*admission-memo* nil
+                                         #'inherit/*memo*           no-memo}
+                           (apply e args))))
+                     #'exc/reader-state     @#'exc/build-reader-state
+                     #'inherit/answers?     answers
+                     #'checks/cover-problem (fn [kb sentence context keep?]
+                                              (let [v (cover kb sentence context some?)]
+                                                (when (and v (keep? v)) v)))}
+      f)))
+
+(defn- held-checks-reading
+  "Record the mints of a cover-heavy store over the terms of the first argument, and read
+  back what it stores, believes at `CxW` and `CxE`, and justifies, with `:violations` the
+  pass reported.  `edge-at` places the functors whose `genlArg` mints write `genl` edges
+  before, between or after the functors whose mints the cover is asked of; `held?` false
+  asks everything (`asking-everything`)."
+  [{:keys [q_w q_a q_b q_c q_e q_s q_d q_top q_t q_up7 q_up8 aSub cSub eSub aTop cTop eTop
+           bRel dRel X1 X2 X3 X4 X6 q_x7 q_x8 Y1 Y2 CxW CxE]} edge-at held?]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (let [M        {:strength :monotonic}
+          U        'CxUniverse
+          [sub top] (case edge-at :first [aSub aTop] :middle [cSub cTop] :last [eSub eTop])
+          row      #(let [sx (v/sentex kb %)] (tu/handle-free kb [(v/sentence-of sx) (:context sx)]))]
+      (with-entailing
+        (v/assert kb (list 'genlCx CxW U) U)
+        (v/assert kb (list 'genlCx CxE CxW) U)
+        (doseq [s [(list 'genl q_w 'thing) (list 'genl q_a q_w) (list 'genl q_b q_w)
+                   (list 'covering q_w q_a q_b) (list 'genl q_s 'thing) (list 'genl q_d 'thing)
+                   (list 'disjoint q_d q_a) (list 'genl q_top 'thing)
+                   (list 'arg bRel 1 q_w) (list 'arg dRel 1 q_w)
+                   (list 'genlArg sub 1 q_d) (list 'genlArg top 1 q_top)
+                   (list 'transitiveInArgInverse q_a 1 'genl) (list 'transitiveInArgInverse q_b 1 'genl)
+                   (list 'genl q_c q_w) (list 'genl q_e q_w) (list 'covering q_w q_c q_e)
+                   (list 'transitiveInArgInverse q_c 1 'genl) (list 'transitiveInArgInverse q_e 1 'genl)
+                   (list 'genl q_x7 q_up7) (list 'genl q_x8 q_up8)]]
+          (v/assert kb s CxW M))
+        ;; X1's cover is refuted by stored negations, X2's is not, X3's by a separation
+        ;; the `genl` mint of `q_s` makes; X4's negation is hidden at CxE by an except, and
+        ;; X6's is defeated there.  Both parts are denied of `q_top`, and so of `q_t` once
+        ;; its `genl` mint arrives: a refutation naming no stored member, which refuses.
+        ;; `q_x7` and `q_x8` are each under both covers, one refuted by stored negations
+        ;; and the other through denials of the type above, which name no stored member;
+        ;; the first refuted cover decides, so one of the two is refused and the other not
+        (doseq [s [(list 'not (list q_a X1)) (list 'not (list q_b X1)) (list 'not (list q_a X2))
+                   (list q_s X3) (list 'not (list q_b X3)) (list 'not (list q_a X4))
+                   (list 'not (list q_a X6)) (list 'not (list q_b X6))
+                   (list 'not (list q_a q_top)) (list 'not (list q_b q_top))
+                   (list 'not (list q_a q_x7)) (list 'not (list q_b q_x7))
+                   (list 'not (list q_c q_up7)) (list 'not (list q_e q_up7))
+                   (list 'not (list q_c q_x8)) (list 'not (list q_e q_x8))
+                   (list 'not (list q_a q_up8)) (list 'not (list q_b q_up8))]]
+          (v/assert kb s CxW))
+        (v/assert kb (list 'except (list 'sentexHandle (v/assert kb (list 'not (list q_b X4)) CxW))) CxE M)
+        (v/assert kb (list q_b X6) CxE M)
+        (v/bulk-assert-facts! kb (concat (for [x [X1 X2 X3 q_x7 q_x8 q_t] r [bRel dRel] y [Y1 Y2]] (list r x y))
+                                         [(list sub q_s Y1) (list top q_t Y1)])
+                              CxW)
+        (v/bulk-assert-facts! kb (for [x [X4 X6] r [bRel dRel] y [Y1 Y2]] (list r x y)) CxE)
+        (let [res (if held? (v/record-arg-types kb) (asking-everything #(v/record-arg-types kb)))
+              hs  (tu/sentex-ids kb)]
+          {:violations (:violations res)
+           :stored     (set (map row hs))
+           :believed   (set (for [h hs, c [CxW CxE] :when (v/believed? kb h c)] (conj (row h) c)))
+           :justified  (set (for [h hs, j (v/supporting-justifications kb h)]
+                              [(row h) (set (map row (:antecedents j)))]))})))))
+
+(deftest a-record-pass-holding-its-checks-stores-and-believes-what-asking-each-afresh-does
+  ;; With the edge to `q_top` between the two functors, the mint `(q_w q_t)` is drawn
+  ;; before it and refused after it in one pass, which a memo kept across that write
+  ;; would miss
+  (tu/with-terms [q_w q_a q_b q_c q_e q_s q_d q_top q_t q_up7 q_up8 aSub cSub eSub aTop cTop
+                  eTop bRel dRel X1 X2 X3 X4 X6 q_x7 q_x8 Y1 Y2 CxW CxE]
+    (let [t    {:q_w q_w :q_a q_a :q_b q_b :q_c q_c :q_e q_e :q_s q_s :q_d q_d :q_top q_top
+                :q_t q_t :q_up7 q_up7 :q_up8 q_up8 :aSub aSub :cSub cSub :eSub eSub :aTop aTop
+                :cTop cTop :eTop eTop :bRel bRel :dRel dRel :X1 X1 :X2 X2 :X3 X3 :X4 X4 :X6 X6
+                :q_x7 q_x7 :q_x8 q_x8 :Y1 Y1 :Y2 Y2 :CxW CxW :CxE CxE}
+          held (into {} (map (fn [e] [e (held-checks-reading t e true)])) [:first :middle :last])]
+      (doseq [[edge-at r] held]
+        (testing (str edge-at)
+          (is (= (held-checks-reading t edge-at false) r))))
+      (is (= {:first 8 :middle 6 :last 4} (update-vals held :violations))))))
+
+(deftest a-record-pass-asks-each-terms-admission-once-between-writes
+  ;; Counted rather than timed: each ask costs too little for a timing to separate a
+  ;; held answer from a fresh one
+  (let [asks (fn [n held?]
+               (tu/with-neutral-kb [kb tu/fresh]
+                 (tu/with-terms [tangible intangible agent inert part_a part_b employs Clash
+                                 CxW]
+                   (let [M      {:strength :monotonic}
+                         bosses [(tu/tmp-ind "Boss") (tu/tmp-ind "Boss")]
+                         staff  (vec (repeatedly n #(tu/tmp-ind "Staff")))
+                         n-asks (atom 0)
+                         ask    @#'special/inadmissible
+                         entail @#'special/entail-arg-type]
+                     (a-context kb CxW)
+                     (with-entailing
+                       (doseq [s [(list 'genl tangible 'thing) (list 'genl intangible 'thing)
+                                  (list 'genl agent tangible) (list 'genl inert tangible)
+                                  (list 'genl part_a 'thing) (list 'genl part_b 'thing)
+                                  (list 'covering 'thing tangible intangible)
+                                  (list 'covering tangible agent inert)
+                                  (list 'covering 'thing part_a part_b)
+                                  (list 'disjoint tangible intangible)
+                                  (list 'arg employs 1 agent)]]
+                         (v/assert kb s CxW M))
+                       (v/assert kb (list tangible Clash) CxW)
+                       (v/assert kb (list intangible Clash) CxW)
+                       (v/bulk-assert-facts! kb (for [b bosses s staff] (list employs b s)) CxW)
+                       (with-redefs-fn {#'special/inadmissible
+                                        (fn [& args] (swap! n-asks inc) (apply ask args))
+                                        #'special/entail-arg-type
+                                        (if held?
+                                          entail
+                                          (fn [& args]
+                                            (with-bindings {#'special/*admission-memo* nil}
+                                              (apply entail args))))}
+                         #(v/record-arg-types kb))
+                       @n-asks)))))]
+    (is (= (asks 2 true) (asks 8 true)))
+    (is (< (asks 2 false) (asks 8 false)) "unheld, each fact asks again")))
 
 (tu/deftest-kb a-symmetric-fact-derives-at-its-stored-positions-in-either-spelling
   ;; Both spellings of a `symmetric` fact store as one sentex in sorted order, and each
@@ -1765,7 +1918,7 @@
                     (into {}
                           (for [t [a_kind b_kind]
                                 :let [h (v/handle-of kb (list 'genl t kind) CxWorld)]]
-                            [t (set (for [s (:support (v/why kb h))]
+                            [t (set (for [s (:support (tu/why-root kb h))]
                                       (set (map #(v/sentence-of (v/sentex kb (:handle %)))
                                                 (:because s)))))])))))
           results (for [fact-first? [true false]

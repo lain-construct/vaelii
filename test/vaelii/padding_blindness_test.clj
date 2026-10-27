@@ -3,9 +3,9 @@
 (ns vaelii.padding-blindness-test
   "No write reads a standing set whole.  World W is a seeded write stream over four
   contexts and five types; world W′ is the same stream run after a padding P: n copies of
-  every standing kind (a placed `contradicts`, a placed `defeat`, a waiting mint, lift and
-  constraint refusal, an inherited-clash entry over a separated membership, a rule, a deep
-  type branch), each copy in a context of its own under CxPad, over types and individuals
+  every standing kind (a placed `contradicts`, a placed `defeat`, a waiting mint and lift,
+  a firing held by the argument hold, an inherited-clash entry over a separated membership,
+  a rule, a deep type branch), each copy in a context of its own under CxPad, over types and individuals
   the stream never names.  Each write of the stream runs with `prof/*handle-sink*` bound:
   the handles it fetches or a posting read answers, during the write and its settle,
   share nothing with P, and belief over the stream's own content after it equals W's.
@@ -27,14 +27,14 @@
 ;; ---- the padding ----------------------------------------------------------------
 ;;
 ;; Copy k of a kind writes into `CxPad<k><kind>` (and one context below it for the
-;; constraint refusal) and names only symbols spelled with its own `k`, so no two copies
+;; held firing) and names only symbols spelled with its own `k`, so no two copies
 ;; and no stream write share a term.
 
 (def ^:private mono {:strength :monotonic})
 
 (def pad-kinds
   "The standing kinds one padding copy holds."
-  [:contradicts :defeat :mint :constraint :lift :sep :rule :deep])
+  [:contradicts :defeat :mint :held :lift :sep :rule :deep])
 
 (defn- sym [fmt k] (symbol (format fmt k)))
 
@@ -64,9 +64,9 @@
       :mint        (do (in! (list 'binary_predicate (sym "pad%dfloating" k)) 'CxUniverse mono)
                        (in! (list (r "MintRel") (i "Ma") (i "Mb")))
                        (in! (list 'arg (r "MintRel") 1 (sym "pad%dfloating" k))))
-      ;; a firing whose number argument the argument constraint convicts waits as a
-      ;; `:constraint` entry
-      :constraint  (let [below (sym "CxPad%dConstraintBelow" k)]
+      ;; a firing whose number argument the argument constraint convicts, stored and
+      ;; held by the argument hold
+      :held        (let [below (sym "CxPad%dHeldBelow" k)]
                      (v/assert kb (list 'genlCx below cx) 'CxUniverse mono)
                      (in! (list 'genl (t "animal") 'thing) cx mono)
                      (in! (list 'arg (r "OwnsPet") 2 (t "animal")))
@@ -309,10 +309,6 @@
    {:frame "vaelii.impl.discovery$preserving_entries"
     :reads "every inherited-clash entry over a separation, re-asked on a separation write (`sep-moved?`)"
     :world {:pad [:sep] :ops disjoint-edge}}
-   :released-constraint-refusals
-   {:frame "vaelii.impl.settle$released_constraint_refusals"
-    :reads "every waiting `:constraint` refusal, on a taxonomy write"
-    :world {:pad [:constraint] :ops disjoint-edge}}
    :released-lifts
    {:frame "vaelii.impl.settle$released_lifts"
     :reads "every waiting `:lift` refusal, on a taxonomy write"

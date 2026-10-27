@@ -7,7 +7,8 @@
 
   `equate-under-context-edge-via` hands `context-down(sub)` — the contexts whose ancestor
   set this edge changed — to both twins' `derive`, which sweep that set instead of the
-  whole reader fan of each candidate's own storage context.
+  whole reader fan of each candidate's own storage context.  The candidates are the facts
+  stored where a reader under `sub` sees and `super` does not (`below-sweep-contexts`).
 
   ## The two claims
 
@@ -46,14 +47,15 @@
             [vaelii.test-util :as tu]))
 
 (def ^:private pairs
-  "Clashing pairs across the two branches.  Six, so the slope below is 12 — two digits,
-  which reads against a two-digit count without costing a second."
-  6)
+  "Clashing pairs across the two branches.  Twelve, so the slope below is 12 — two
+  digits, which reads against a two-digit count without costing a second."
+  12)
 
 (def ^:private candidates
-  "Facts the sweep enumerates: both halves of every pair.  The slope the second claim
-  asserts, since each candidate is re-derived once per reader swept."
-  (* 2 pairs))
+  "Facts the sweep enumerates: the half of every pair stored in `CxLeft`, which `CxSub`
+  sees and the edge's `super`, `CxRight`, does not.  The slope the second claim asserts,
+  since each candidate is re-derived once per reader swept."
+  pairs)
 
 (defn- sweep-derivations
   "`derive-functional-equalities-in` calls made while `f` runs — one per candidate per

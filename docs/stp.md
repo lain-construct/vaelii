@@ -154,16 +154,17 @@ directly.
 Constraints spanning **more than one dimension** are refused rather than mixed: `problem`
 returns nil, and no metric goal is answered. Gaps in metres are not durations — the same
 dimension check `totalDuration` applies to its components. The interval network reading the refused
-problem is unsatisfiable, as it is over an unsatisfiable one ("The interval algebra reads
-it"), so no Allen goal is answered in the context either, and every firing that rested on
-an Allen entailment there is withdrawn until the refusal ends.
+problem is unsatisfiable in the component holding the intervals the constraints bound ("The
+interval algebra reads it"), so no Allen goal naming one of those intervals is answered in
+the context either, and every firing that rested on an Allen entailment over one is
+withdrawn until the refusal ends.
 
 That refusal is **reported** to the `(violations kb)` ledger as
 `:metric-temporal-mixed-dimensions`, naming the context, the dimensions and the base units
 they would have been summed in. `totalDuration` refusing a mismatched sum withdraws one
-goal; this refusal withdraws every metric and every Allen goal in the context, the gaps
-stated outright included, and one mis-spelt unit is enough to cause it. It is reported
-once per KB and context.
+goal; this refusal withdraws every metric goal in the context, the gaps stated outright
+included, and every Allen goal over an interval a constraint bounds, and one mis-spelt unit
+is enough to cause it. It is reported once per KB and context.
 
 ## Bind or check
 
@@ -279,17 +280,22 @@ combination of them that no single assignment of times realizes is not noticed. 
 only leave in a relation the metric network excludes, never take out one it permits.
 
 Only pairs the constraints narrow are recorded; a pair still open to all thirteen is the
-absence of a claim. An unsatisfiable metric network narrows every pair to nothing, and the
-reading records one of them (`unsatisfiable-narrowing`), supported by every constraint
-read: the interval network reading it is then unsatisfiable, answers no goal, and
-withdraws the firings it licensed ([qcn.md](qcn.md), "A network can have a second
-reader"). The reading also describes the clash as a `:metric` source: the pairs
-unsatisfiable as written, the instants on a negative cycle, and the handles behind the
-constraints among them, so `qualitative-network` over `:allen` names the cycle. A problem
-refused for spanning more than one dimension is read the same way: one pair emptied,
-supported by every constraint read, its `:metric` source naming the `:dimensions` in
-place of pairs and a cycle. An interval missing one of its bounding instants, or with one
-stated of two *different* instants, is not read at all.
+absence of a claim. An unsatisfiable metric network is read one connected component at a
+time (`qcn/components` over the instants its constraints join). An unsatisfiable component
+narrows every pair of the intervals it bounds to nothing, and the reading empties pairs
+joining those intervals (`unsatisfiable-narrowing`), supported by the component's
+constraints: the component of the interval network holding them is then unsatisfiable,
+answers no goal naming one of them, and withdraws the firings that rested on one
+([qcn.md](qcn.md), "Unsatisfiability is per component"). A negative cycle through instants
+that bound no interval leaves the interval network satisfiable. The satisfiable components
+narrow the intervals no unsatisfiable component bounds as a satisfiable network does. Each
+unsatisfiable component is described as a `:metric` source: its pairs unsatisfiable as
+written, the instants on a negative cycle, and the handles behind the constraints among
+them, so `qualitative-network` over `:allen` names the cycle. A problem refused for spanning
+more than one dimension empties pairs joining the intervals its constraints bound,
+supported by every constraint read, its `:metric` source naming the `:dimensions` in place
+of pairs and a cycle. An interval missing one of its bounding instants, or with one stated
+of two *different* instants, is not read at all.
 
 ### The interval algebra reads it
 

@@ -579,8 +579,8 @@ E17 too. What is on it:
 | settle's candidate discovery, and the nogood candidates the settle places (`membership/term-nogoods`, the `decide/tuple` rows) | an over-approximated candidate merely checks and yields nothing; the placement that follows reads the contexts that see a route |
 | a candidate filter in front of a scoped read (`special/offered-mark-over?`, `inherit/stated-claims`) | the filter answers a superset, and the read behind it takes the reader's context |
 | `except`'s exception index and `except-hidden-fn`, and the read walk (`exc/defeat-hidden-fn`) | the visibility filter cannot be scoped by the filter it is itself derived from |
-| `quality/taxonomy-coverage` | a report on the whole taxonomy has no vantage to read from |
-| `quality/clash-partners` | a rule pair is decided from a common descendant of the two rules' contexts, a vantage belonging to neither, so the candidate fan cannot be scoped by either |
+| `integrity/taxonomy-reach` | a report on the whole taxonomy has no vantage to read from: `kb-quality`'s census reads it with a nil context, and a `kb-integrity` sweep passes its audit context and reads scoped |
+| `integrity/clash-partners` | a rule pair is decided from a common descendant of the two rules' contexts, a vantage belonging to neither, so the candidate fan cannot be scoped by either |
 
 A visibility `except` (docs/contexts.md) can hide a *supporter* from a reader, and then
 the context-only filter is not enough: the scoped walk asks the KB, per supporter, whether
@@ -601,7 +601,14 @@ reader — each candidate descendant brings its own ancestor set — so under an
 reaches `genlCx` it filters the raw candidates by each one's own forward walk and
 memoizes the answer per context and reading, keyed by the change clock. The presence check's
 own answer is memoized per relation and reading under the same clock, and a hit reads no
-index. The whole-KB presence check reads two counts, whether an `except` or a `defeat` is stored;
+index. Past a write, the forward walk from the targets is held (`kb/held-forward-reach`).
+One that met no supporter is held as the handles it read: the next read walks on from the
+handles the network touched since and from the targets stored since, so a write off the
+targets' closure, a mint among them, pays no walk of it (`lein perf`'s
+`record-pass-beside-defeated-chains`). One that met a supporter is held as a path to it
+from a target, and the next read checks each justification on the path, the target and
+the supporter against the network; a path that no longer holds walks again (`lein
+perf`'s `record-pass-beside-a-reached-supporter`). The whole-KB presence check reads two counts, whether an `except` or a `defeat` is stored;
 the sets of their targets are built only when the `genl` filter reads them, or the
 `genlCx` filter while no more `except`s are stored than `genlCx` supporters (`lein perf`'s
 `genlcx-edge-beside-seen-excepts-columnar`, `genlcx-edge-beside-stored-context-edges`).
@@ -923,8 +930,8 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   The genl-relatedness exception is essential and not a special case: a type and its
   own supertype are both specializations of `C`, so without it the mark would separate
   a subtype from the very type it refines. It is read over the **whole** KB, not the
-  reader's context ancestor set — the same global test `(disjoint a b)` applies when it refuses
-  a genl-related pair as ill-formed — which is what keeps the sibling arm monotone on
+  reader's context ancestor set — the same global test that reads a `(disjoint a b)` over a
+  genl-related pair as a clash — which is what keeps the sibling arm monotone on
   the visibility of `genl` edges, so a descendant context never separates a pair the
   whole edge set knows overlaps.
 
@@ -1365,12 +1372,18 @@ denial](#disjointness)). With `(covering W A B)`, `(disjoint S A)` and `(disjoin
 the memberships `(W X)`, `(S X)` and `(T X)` refute the cover, and the nogood is `{(W X),
 (S X), (T X)}`: each denying membership is a member, and the separations and the `genl`
 edges they climb are grounds. The write that completes it names those memberships as the
-sentexes it opposes (`checks/cover-refutations`), so it is stored and placed, never
+sentexes it opposes (`checks/cover-problem`), so it is stored and placed, never
 refused, and the settle forms the same nogood from what is stored
 (`membership/term-nogoods`), so `contradictions` lists the cover `argue` reads as
 refuted (`order_independence_test/a-cover-a-separation-denies-every-part-of-is-one-nogood-in-every-order`).
 The separation answers here under the same soundness rule as at the query: an edge it
 climbs at `:default` rules out no part.
+
+So a write is refused over a cover only when the first cover it refutes names no
+opposing sentex: every part denied, and none by a stored negation, a separation or the
+write's own membership. Those handles are stored reads, so the refusal paths read them
+before proving anything, and prove a cover's parts only when it could refuse, or when it
+comes before one that has been refuted (`checks/cover-problem`).
 
 ### `partition` and `separating` add no separation mechanism of their own
 
@@ -1599,7 +1612,7 @@ forced-monotonic and is weighed as a member of an inherited nogood.
   So `(P ?x ?y)` and a loop over `(P a ?y)` give different answers, and that is the one
   place a marker's arms disagree. It is the trade the quadratic buys. A report read says
   when a search took it: `query-status`, `search-tree`, `compare-tacticians`, `ask-within`,
-  `prove-within` and `explain-levels` name `P` in `:unenumerated`, and a status they report
+  `prove-within`, `explain-levels` and `do/label` name `P` in `:unenumerated`, and a status they report
   is `:incomplete` ([anytime.md](anytime.md#where-the-collector-lives)).
 
   #### What one hop costs, and where
@@ -1949,6 +1962,21 @@ value endpoint out, and `tax/refresh-cache-support` a `disjoint`, `disjoint_meta
 constraint whose type is a value constrains nothing, since the argument checks judge only
 a symbol type. `check` of the stored sentence reports `:not-well-formed`.
 
+**A position that names a predicate or a function refuses the same two terms.** The
+positions are the argument of every predicate mark (`transitive`, `commutative`,
+`modal_predicate` and the rest), the relation of `closedExtentForArg`, `functionalInArg`,
+`commutativeInArgAndRest` and `commutativeInArgs`, and both sides of `inverse` and
+`genlInverse`. One check, `wff/name-problems`, serves the type positions and these. The
+relation of `commutative`, `commutativeInArgAndRest` and `commutativeInArgs` may be a
+function, so those three positions admit a `…Fn` symbol (`nm/function-spelled?`) whether or
+not its function declaration is stored. Every other position here, and every type position,
+refuses it as an individual. The
+argument constraints, `transitiveInArg`, `contextArgSubrelation`,
+`functionCorrespondingPredicate` and the function marks admit nothing but a symbol or a
+compound in those positions, so their own checks refuse a value. `negates` is the
+exception: its arguments are judged as clashes ([Predicate metadata](#predicate-metadata)). A stored mark, `inverse` or `genlInverse` naming a value recovers with its
+`tax/refresh-cache-support` entry inactive.
+
 These are structural checks; the *content* check that an argument actually reaches its
 `arg` type is `checks/constraint-checks`.
 
@@ -2056,7 +2084,7 @@ whichever of the tuple, the binding and the edges arrived first, and a recover r
 the same `:out` members (`arity/drain!`). `try-assert` refuses a tuple that breaks a
 binding already stored, as `:violation :arity`. It also refuses a binding, a `genl` edge,
 or a `:monotonic` metatype membership or edge that would break the length of tuples
-already stored (`arity/write-breaks`), and an `except` of a binding
+already stored and believed (`arity/write-breaks`), and an `except` of a binding
 ([api.md](api.md#refusing-a-clash)). `core.txt`
 declares the fourteen binding functors `decontextualized_predicate`, so every binding has
 a copy in CxUniverse ([contexts.md](contexts.md#what-the-shipped-ontology-declares-it-of)).
@@ -2110,8 +2138,10 @@ them.
 ### The declarations are checked against each other
 
 `checks/declaration-problem` runs on an `arg` / `genlArg` sentence itself, not on
-the content it constrains, and refuses two ways one can contradict what the KB
-already says about its predicate:
+the content it constrains, and convicts two ways one can contradict what the KB
+already says about its predicate. Both read stored content, so `assert` stores the
+declaration in either arrival order and `try-assert` refuses whichever write arrives
+second ([api.md](api.md#refusing-a-clash)):
 
 - **A position the predicate does not have** — `(arg parentOf 5 animal)` where
   `parentOf` is declared binary. The constraint would never fire, so it reads as
@@ -2123,12 +2153,19 @@ already says about its predicate:
   **`variable_arity` releases this arm too**: such a predicate reads a tuple of any
   length from its declared
   arity upward, so a position past that length is one its tuples really do reach and a
-  constraint on it fires on the tuples long enough to have it — refusing the declaration
-  while the same KB admits those very facts is the reading no arrival order makes
-  coherent. The release is read off the predicate's **own** memberships, since
+  constraint on it fires on the tuples long enough to have it. The release is read off
+  the predicate's **own** memberships, since
   `arity/relation-length` already declines to bind when a super carries the mark.
 - **A constraint disagreeing with the predicate's `relation_kind`** — `genlArg` on an
   `instance_relation_predicate`, whose arguments are individuals and never subtypes.
+  The clash has three ingredients: the `genlArg`, a membership `(T P)`, and the `genl`
+  edges putting `T` under `instance_relation_predicate`. `try-assert` refuses whichever of
+  the three arrives last (`checks/relation-kind-conflict`). It reads the other two in the
+  writer's ancestor set and in the contexts below the writer's, each pair from whichever
+  of the contexts involved sees the others. The check reads the `genl` edges in that
+  context only. An edge stated in a context below both the membership's and the
+  declaration's is refused when the edge arrives last. A membership or declaration
+  arriving after such an edge is stored.
   `arg` on a `type_relation_predicate` is not one: a kind is an instance of a type as
   well as a subtype of one.
 
@@ -2306,6 +2343,8 @@ clash at the contexts that see it whole ([nmtms.md](nmtms.md#the-nogood-families
 | a predicate-level `genl` edge, under an *argument* constraint above it | the entailing reading stores what follows; the constraint-only reading holds it inert | same — the derivation and the hold both reach back | one ingredient further out |
 | a predicate-level `genl` edge, under a `functional` / `asymmetric` mark above it | stores what follows and weighs it on the marked predicate's terms — `tax/props-over` reads the mark at every predicate above the sentence's own functor | the edge is admitted, and it reaches back over the sub's stored facts: a nogood, plus the merges a `functional` mark now licenses (`special/equate-under-edge`) | the sub's tuples *are* the super's, so a clash among them is the super's |
 | a predicate-level `genl` edge, across two bound **arities** | stores the edge; a hard clash of the two bindings each reader reads | same | every member is forced-monotonic |
+| an arity binding, over an `arg` / `genlArg` / `interArg` / `interArgEqual` / `argArg` naming a position past the length | stores the argument declaration, stranded | same — the binding strands the stored declaration | a stranded declaration constrains nothing; `kb-quality` lists it, and `try-assert` refuses the second write |
+| `instance_relation_predicate`, or a `genl` edge into it, over a `genlArg` on the predicate | stores the `genlArg` | same | `try-assert` refuses the last write |
 
 **A row's two halves answer one question about one KB, so they answer it in one
 vocabulary.** Both are true statements either way, which is what makes a disagreement
@@ -2342,20 +2381,23 @@ so it has to exist in every arrival order or belief would depend on which. Where
 disjoint from `person`, the entailment's `(person TheRock1)` is placed and forms a nogood
 with that membership, as a rule's conclusion does.
 
-**A declaration the arity strands is a census finding, not a ledger one.** `(arg
-parentOf 3 person)` is admitted while `parentOf` has no declared length, because the
-highest position a declaration names is a lower bound on the arity rather than a claim
-about it. When a length arrives — declared of the predicate, or inherited through a
-`genl` edge — the declaration is left constraining a position the predicate provably does
-not have, and the entry point refuses the identical sentence one line later. A `variable_arity`
-predicate is the length that is not the last word, and it releases both halves at once:
-its tuples reach any length from the declared one upward, so a position past that length
-is one they really do have, and nothing of such a predicate's is stranded or refused
-however high the position. It is not refused
-retroactively: that would make the binding's arrival order decide. Nor is it a nogood: a wrong-length *fact* is a claim a
-reader believes or withdraws, while a stranded declaration is inert — it constrains
-nothing, refuses nothing, mints nothing — and reads the same an hour later, so it belongs
-to `kb-quality`, whose `:declarations` reading names them.
+**A declaration the arity strands is a sweep finding, not a ledger one.** `assert`
+stores `(arg parentOf 3 person)` whatever binds `parentOf`'s length. Once a length is
+bound — declared of the predicate, or inherited through a `genl` edge — the declaration
+constrains a position the predicate does not have, whichever of the two arrived first.
+A stranded declaration enters no arity reading: `admitsArgnum` denies the position, and
+a tuple long enough to have it stays inert. It constrains nothing, mints nothing and
+refuses nothing. `assert` refuses it in neither order, since a refusal when the length
+arrived first would make the binding's arrival order decide what the KB stores, and
+`try-assert` refuses whichever of the two arrives second. A `variable_arity` predicate
+is the length that is not the last word, and it releases both readings: its tuples
+reach any length from the declared one upward, so a position past that length is one
+they really do have, and nothing of such a predicate's is stranded or refused however
+high the position. A stranded declaration is not a nogood either. A wrong-length *fact*
+is a claim a reader believes or withdraws, while a stranded declaration is inert and
+reads the same an hour later, so it belongs to `kb-integrity`, whose
+`:stranded-declaration` category names them ([integrity.md](integrity.md));
+`kb-quality`'s `:declarations` reading counts the same entries.
 
 A conditional constraint has **three** ingredients, not two — the fact, the declaration,
 and the trigger argument's type. With `(eats Rex Chunk)` and `(interArg eats 1 carnivore 2

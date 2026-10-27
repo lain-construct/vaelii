@@ -176,7 +176,7 @@
     (is (nil? (v/sentex kb ah)) "its answer cascaded")
     (is (nil? (v/sentex kb eh)) "and its endorsement — no dangling edges")))
 
-;; ---- reply-many: validate before commit (item 4) -------------------------
+;; ---- reply-many: validate before commit ----------------------------------
 
 (tu/deftest-kb a-multi-claim-reply-validates-before-it-commits
   (let [atlas (join! kb 'AgentAtlas)

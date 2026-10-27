@@ -244,11 +244,61 @@
         (is (empty? (v/sentexes-matching kb (list flies Opus) CxStory)))
         (is (= before (content kb)))))))
 
+(defn- excepted-chain!
+  "A forward chain of `reached` along `linkA` over `nodes`, whose start `(startp n0)` an
+  `except` hides from the rule that would fire on it, so the chain is never derived.
+  Returns the except's handle."
+  [kb linkA reached startp nodes cx]
+  (v/assert kb (vr/rule-sentence [(list linkA '?x '?y) (list reached '?x)] (list reached '?y))
+            cx {:direction :forward})
+  (doseq [[a b] (partition 2 1 nodes)] (v/assert kb (list linkA a b) cx))
+  (let [s (v/assert kb (list startp (first nodes)) cx)
+        e (v/assert kb (list 'except (list 'sentexHandle s)) cx)]
+    (v/assert kb (vr/rule-sentence [(list startp '?x)] (list reached '?x)) cx {:direction :forward})
+    e))
+
+(tu/deftest-kb previewing-the-removal-of-an-except-reports-the-firings-it-releases
+  (tu/with-terms [linkA reached startp N0 N1 N2 N3 CxStory]
+    (let [nodes  [N0 N1 N2 N3]
+          eh     (excepted-chain! kb linkA reached startp nodes CxStory)
+          chain  (set (map #(list reached %) nodes))
+          tms    (reasoning/tms kb)
+          labels #(into {} (map (juxt identity (partial jtms/in? tms))) (tu/sentex-ids kb))
+          _      (is (every? #(nil? (v/handle-of kb % CxStory)) chain)
+                     "the except refuses the firing, so the chain is not derived")
+          before (content kb)
+          lab0   (labels)
+          r      (v/preview kb {:remove [eh]})]
+      (testing "removing the except would derive the whole chain"
+        (is (= chain (set (sentences (:believed-added r))))))
+      (testing "and the rollback refuses the released firings again"
+        (is (every? #(nil? (v/handle-of kb % CxStory)) chain))
+        (is (= before (content kb)))
+        (is (= lab0 (labels))))
+      (testing "the removal itself reports the release the preview reported"
+        (is (= chain (set (sentences (:believed-added (v/edit-with-consequences! kb {:remove [eh]}))))))))))
+
 ;; ---- 5. the derivation path's own refusals -------------------------------
 
 (tu/deftest-kb a-conclusion-the-derivation-path-would-drop-is-reported-as-a-violation
-  ;; forced to the constraint reading: the entailment reading mints instead of
-  ;; dropping an arg conviction (docs/argtypes.md)
+  ;; rule and fact live in island contexts with no common descendant, so the firing
+  ;; completes and its conclusion has nowhere to land
+  (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barksAt '?x '?x)) CxIslandA {:direction :forward})
+    (let [before (content kb)
+          r      (v/preview kb {:add [[(list dog Muffet) CxIslandB]]})]
+      (testing "the drop is reported where a real run would report it"
+        (is (= [:no-placement] (mapv :violation (:violations r))))
+        (is (= [(list barksAt Muffet Muffet)] (mapv :sentence (:violations r)))))
+      (testing "only the admissible half of the batch is believed"
+        (is (= [(list dog Muffet)] (sentences (:believed-added r)))))
+      (testing "the KB's own ledger is left as it was found"
+        (is (empty? (v/violations kb))))
+      (is (= before (content kb))))))
+
+(tu/deftest-kb a-conclusion-an-argument-declaration-convicts-is-not-believed-in-a-preview
+  ;; the firing stores the conclusion held OUT (docs/argtypes.md); forced to the
+  ;; constraint reading, where the entailment reading mints `(person Boulder)` instead
   (tu/without-entailing
    (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
      (v/assert kb (list 'genl person 'thing) CxStory)
@@ -259,9 +309,6 @@
      (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory {:direction :forward})
      (let [before (content kb)
            r      (v/preview kb {:add [[(list looksLike Boulder) CxStory]]})]
-       (testing "the drop is reported where a real run would report it"
-         (is (= [:arg-type] (mapv :violation (:violations r))))
-         (is (= [(list parentOf Boulder Muffet)] (mapv :sentence (:violations r)))))
        (testing "only the admissible half of the batch is believed"
          (is (= [(list looksLike Boulder)] (sentences (:believed-added r)))))
        (testing "the KB's own ledger is left as it was found"
@@ -273,15 +320,10 @@
 ;; what the batch filed and keeps the reader's entry.
 (tu/deftest-kb a-preview-rollback-keeps-what-a-reader-filed-beside-it
   (tu/without-entailing
-   (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
-     (v/assert kb (list 'genl person 'thing) CxStory)
-     (v/assert kb (list 'genl rock 'thing) CxStory)
-     (v/assert kb (list 'disjoint person rock) CxStory)
-     (v/assert kb (list 'arg parentOf 1 person) CxStory)
-     (v/assert kb (list rock Boulder) CxStory)
-     (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory {:direction :forward})
+   (tu/with-terms [dog barksAt Muffet CxIslandA CxIslandB]
+     (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barksAt '?x '?x)) CxIslandA {:direction :forward})
      (let [entry  {:violation :qualitative-inconsistency :calculus :rcc8
-                   :context CxStory :sentence nil}
+                   :context CxIslandB :sentence nil}
            filed? (atom false)
            orig   clashes/opened
            r      (with-redefs [clashes/opened
@@ -292,10 +334,10 @@
                                   (when (compare-and-set! filed? false true)
                                     (doto (Thread. #(viol/report-without-run kb entry)) .start .join))
                                   (apply orig args))]
-                    (v/preview kb {:add [[(list looksLike Boulder) CxStory]]}))]
+                    (v/preview kb {:add [[(list dog Muffet) CxIslandB]]}))]
        (is @filed? "the reader filed while the preview ran")
        (testing "the preview reports the batch's drop and not the reader's entry"
-         (is (= [:arg-type] (mapv :violation (:violations r)))))
+         (is (= [:no-placement] (mapv :violation (:violations r)))))
        (testing "the rollback removes the batch's entry and keeps the reader's"
          (is (= [entry] (v/violations kb))))
        (v/clear-violations! kb)))))
@@ -398,6 +440,26 @@
       (is (nil? (integrate/spellings kb h)))
       (v/retract! kb m)
       (is (= [(list sib Aa Bb)] (map :sentence (v/sentexes-matching kb (list sib '?p '?q) CxStory)))))))
+
+(tu/deftest-kb previewing-a-stored-rule-for-the-forward-engine-leaves-no-forward-conclusion
+  ;; The batch rewrites a backward rule's engines in place, and the forward run that starts
+  ;; concludes from a rule and edges the batch did not store.  The rollback removes every
+  ;; record above the batch's mark and puts the engines back.
+  (tu/with-terms [edgeP pathP CxProbe]
+    (v/assert kb (list 'genlCx CxProbe 'CxUniverse) 'CxUniverse)
+    (doseq [[a b] (partition 2 1 (repeatedly 7 #(tu/tmp-ind "N")))]
+      (v/assert kb (list edgeP a b) CxProbe))
+    (let [rh     (v/assert-rule kb [(list edgeP '?x '?y)] (list pathP '?x '?y) CxProbe
+                                {:direction :backward})
+          before (content kb)
+          r      (v/preview kb {:add [[(list 'set/forwardRule
+                                             (vr/rule-sentence [(list edgeP '?x '?y)]
+                                                               (list pathP '?x '?y)))
+                                       CxProbe]]})]
+      (is (= 6 (count (filter #(= pathP (first (:sentence %))) (:believed-added r)))))
+      (is (= #{:backward} (:engines (p/get-sentex (:records kb) rh))))
+      (is (zero? (v/count-with-functor kb pathP)))
+      (is (= before (content kb))))))
 
 ;; ---- 8. bounds ---------------------------------------------------------
 
@@ -542,6 +604,11 @@
     (v/assert kb (list bird Opus) CxStory)
     (let [ph    (v/assert kb (list penguin Opus) CxStory)
           batch {:remove [ph]}]
+      (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
+
+(tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-removes-an-except
+  (tu/with-terms [linkA reached startp N0 N1 N2 N3 CxStory]
+    (let [batch {:remove [(excepted-chain! kb linkA reached startp [N0 N1 N2 N3] CxStory)]}]
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-excepts-a-default-blocker

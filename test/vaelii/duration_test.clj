@@ -326,6 +326,25 @@
       (is (= '(QuantityIntervalFn 0 1800 Second)
              (bound kb (list 'overlapDuration A B '?d)))))))
 
+(tu/deftest-kb an-unsatisfiable-metric-network-sharpens-no-overlap
+  (load-time-units kb)
+  (tu/with-terms [A B As Ae Bs Be P Q]
+    (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
+    (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
+    (bridge-interval kb A As Ae)
+    (bridge-interval kb B Bs Be)
+    (v/assert kb (list 'temporalDistance As Ae '(QuantityFn 2 Hour)) C)
+    (v/assert kb (list 'temporalDistance Bs Be '(QuantityFn 30 Minute)) C)
+    (testing "a negative cycle through instants that bound neither interval"
+      (let [cycle [(v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)
+                   (v/assert kb (list 'temporalDistance Q P '(QuantityFn 1 Hour)) C)]]
+        (is (= '(QuantityIntervalFn 0 1800 Second) (bound kb (list 'overlapDuration A B '?d))))
+        (run! #(v/retract! kb %) cycle)))
+    (testing "a negative cycle through A's end and B's start"
+      (v/assert kb (list 'temporalDistance Ae Bs '(QuantityFn 1 Hour)) C)
+      (v/assert kb (list 'temporalDistance Bs Ae '(QuantityFn 1 Hour)) C)
+      (is (empty? (v/ask kb (list 'overlapDuration A B '?d) C))))))
+
 (tu/deftest-kb a-determined-overlap-without-both-lengths-answers-nothing
   (load-time-units kb)
   (tu/with-terms [A B As Ae Bs Be]

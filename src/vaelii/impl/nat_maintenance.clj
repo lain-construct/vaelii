@@ -42,6 +42,15 @@
         (when (seq new) (settle/rechain-seeds kb new))
         (settle/settle kb)))))
 
+(defn- reconcile-values!
+  "Queue the constants whose correspondence derivations the stored or removed
+  `sentences` move (`nat-read/note-values`, with the constants a sentence names when
+  `uses?`), and settle, which drains them (`chain/sync-values!`, docs/nat.md, The
+  corresponding predicate).  `seed?` is the write's `:chain?`."
+  [kb sentences uses? seed?]
+  (when (nat-read/note-values kb sentences uses?)
+    (settle/settle-write kb seed?)))
+
 (defn reconcile-formula-positions
   "Re-decide the hold of the rules a `formula` position moved by the stored or removed
   `sentences` decides (`nat/formula-declared-predicates`,
@@ -55,15 +64,18 @@
 
 (defn reconcile-assert
   "The reified-NAT maintenance a just-stored `sentence` calls for, run after its own
-  chaining has settled: `nat/reconcile-nats!`, the rules a correspondence declaration
-  respells (`respell-corresponded!`), then the structural `genlCx` edges
+  chaining has settled: `nat/reconcile-nats!`, the correspondence derivations it moves
+  (`reconcile-values!`), the rules a correspondence declaration respells
+  (`respell-corresponded!`), then the structural `genlCx` edges
   `context-nat/reconcile-genlCx` builds, settled, behind `nat/any-reified-constants?`;
   and on every KB the rules a `formula` position it moves holds or releases
-  (`reconcile-formula-positions`).  `context` and `opts` are the assert's."
-  [kb sentence context opts]
+  (`reconcile-formula-positions`).  `opts` is the assert's; the stored context is not
+  read."
+  [kb sentence _context opts]
   (when (sequential? sentence)
     (when (nat/any-reified-constants? kb)
-      (nat/reconcile-nats! kb sentence context)
+      (nat/reconcile-nats! kb sentence)
+      (reconcile-values! kb [sentence] true (:chain? opts true))
       (respell-corresponded! kb [sentence] false)
       (settle-computed-edges kb (context-nat/reconcile-genlCx kb sentence) opts))
     (reconcile-formula-positions kb [sentence])))
@@ -116,7 +128,8 @@
 (defn collect-orphans!
   "Re-spell the uses a removed `natFormula` map left naming its constant
   (`respell-stranded!`) and the rules a removed correspondence declaration respelled
-  (`respell-corresponded!`), then collect the reified constants a teardown orphaned
+  (`respell-corresponded!`), re-derive the values a removed declaration or corresponding
+  fact moves (`reconcile-values!`), then collect the reified constants a teardown orphaned
   (docs/nat.md, Rename and remove).  `retract!` and `edit!`, and the rollback of a single
   refused `assert`, pass their removal record `sink`; `rollback-batch!` passes none, and
   the sweep asks the whole KB.  The sweep runs only when `nat/any-reified-constants?`
@@ -126,6 +139,7 @@
    (when-not *in-orphan-removal?*
      (when sink
        (respell-stranded! kb sink)
-       (respell-corresponded! kb (map :sentence @sink) true))
+       (respell-corresponded! kb (map :sentence @sink) true)
+       (reconcile-values! kb (map :sentence @sink) false true))
      (when (nat/any-reified-constants? kb)
        (remove-orphaned-nats! kb sink retract!)))))

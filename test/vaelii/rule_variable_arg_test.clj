@@ -124,6 +124,25 @@
                 (do (v/assert kb edge 'CxUniverse) (in?))]]
       (is (= [false true false] r) "held, freed by the edge leaving, held by it arriving"))))
 
+(tu/deftest-kb a-separation-leaving-fires-the-rule-it-released-at-that-write-in-either-order
+  ;; the settle's argument-hold refresh releases the rule after the pass read its touched
+  ;; set, so the rule is re-chained from the handles the refresh released
+  (doseq [facts-first? [true false]]
+    (tu/with-terms [p q a_ b_ Foo]
+      (let [sep  (list 'disjoint a_ b_)
+            rule (list 'set/forwardRule (list 'implies (list p '?x) (list q '?x)))
+            _    (run! #(v/assert kb % 'CxUniverse)
+                       [(list 'genl a_ 'thing) (list 'genl b_ 'thing) sep
+                        (list 'arg p 1 a_) (list 'arg q 1 b_) rule])
+            h    (v/handle-of kb rule 'CxUniverse)
+            fact #(v/assert kb (list p Foo) 'CxUniverse)
+            free #(v/retract! kb (v/handle-of kb sep 'CxUniverse))]
+        (is (not (v/in? kb h)))
+        (if facts-first? (do (fact) (free)) (do (free) (fact)))
+        (let [c (v/handle-of kb (list q Foo) 'CxUniverse)]
+          (is (= [true true true] [(v/in? kb h) (some? c) (boolean (and c (v/in? kb c)))])
+              (if facts-first? "the fact before the release" "the release before the fact")))))))
+
 (tu/deftest-kb try-assert-refuses-the-rule-and-the-declaration-in-either-order
   (testing "declarations first: the rule is refused"
     (tu/with-terms [p q a_ b_]

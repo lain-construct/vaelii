@@ -201,13 +201,26 @@
                                          (p/delete-provenance! recs h))))))
 
 (defn permuting?
-  "Does a stored mark permute `pred`'s arguments — `symmetric`, or a commuting group?
+  "Does a stored mark permute `pred`'s arguments — `symmetric`, or a commuting group — or
+  reshape its applications below the literal — `associative`, `idempotent`, or a
+  `meetFunctionOf` order?
 
   Read unscoped: the fold decides the stored key, which every reader shares."
   [kb pred]
   (let [tax (reasoning/taxonomy kb)]
     (boolean (and pred (or (tax/has-prop? tax :symmetric pred)
-                           (seq (tax/commuting-groups tax pred)))))))
+                           (seq (tax/commuting-groups tax pred))
+                           (tax/has-prop? tax :associative pred)
+                           (tax/has-prop? tax :idempotent pred)
+                           (seq (tax/meet-orders tax pred)))))))
+
+(defn permuting-sentence?
+  "Does a stored mark permute the arguments of `sentence`'s literal, or of a compound
+  below it (`sx/compound-functors`)?  Read unscoped, as `permuting?` is."
+  [kb sentence]
+  (let [s (if (and (seq? sentence) (= 'not (first sentence))) (second sentence) sentence)]
+    (boolean (some #(permuting? kb %)
+                   (sx/compound-functors s (res/opaque-fn (reasoning/taxonomy kb)))))))
 
 (defn premise-spellings
   "`{written strength}` for row `h`'s premise assertions: the record's, or `stored` at
@@ -281,7 +294,11 @@
   (let [tax (reasoning/taxonomy kb)]
     (witness-among kb (concat (tax/prop-supporters tax :symmetric pred)
                               (mapcat #(tax/commuting-supporters tax pred %)
-                                      (tax/commuting-groups tax pred))))))
+                                      (tax/commuting-groups tax pred))
+                              (tax/prop-supporters tax :associative pred)
+                              (tax/prop-supporters tax :idempotent pred)
+                              (mapcat #(tax/meet-supporters tax pred %)
+                                      (tax/meet-orders tax pred))))))
 
 (defn- rule-justification?
   "Is `jid` a rule firing — a justification whose informant is a rule handle?  Only a
@@ -437,12 +454,27 @@
             {}
             (vec (jtms/supports tms doomed)))))
 
-(defn- apply-removals!
-  "Delete from the stores what a network removal `r` swept: a `jtms/retract!`,
+(defn swept-records
+  "The stored records of a network removal's `removed-sentexes`, in the removal's order and
+  read before any is deleted, less each record carrying the `:inert` provenance mark
+  `assert-inert` writes.  A derivation concluding an inert record's sentence gives the
+  record a node and a justification, and the sweep that drops them leaves the record as
+  `assert-inert` stored it.  `retracted`, the handle a `retract!` names, is kept in the
+  result even when it carries the mark."
+  ([kb removed-sentexes] (swept-records kb removed-sentexes nil))
+  ([kb removed-sentexes retracted]
+   (let [recs (:records kb)]
+     (into [] (keep #(when (or (= % retracted) (not (true? (:inert (p/get-provenance recs %)))))
+                       (p/get-sentex recs %)))
+           removed-sentexes))))
+
+(defn apply-removals!
+  "Delete from the stores what a network removal `r` swept (`swept-records`), and tear
+  each deleted record down through `sentex-removed!`: `r` is a `jtms/retract!`,
   `jtms/sweep!` or `jtms/drop-justification!` result."
   [kb {:keys [removed-sentexes removed-justifications] :as r}]
   (let [recs (:records kb)
-        gone (into [] (keep #(p/get-sentex recs %)) removed-sentexes)]
+        gone (swept-records kb removed-sentexes)]
     (doseq [sx gone] (sentex-removed! kb sx))
     (doseq [jid removed-justifications] (p/delete-justification! recs jid))
     (special/retire-unjustified-mints! kb r)))
@@ -618,11 +650,13 @@
 
 (defn- recanonicalizing-subject
   "The predicate whose stored facts a declaration re-spells, or nil when `sentence` is not
-  one that moves a spelling.  Four spellings reach one sweep:
+  one that moves a spelling.  Seven spellings reach one sweep:
 
   * `(symmetric P)` — the two arguments of a binary `P` sort.
   * `(commutativeInArgAndRest P f)`, `(commutativeInArgs P p …)` and `(commutative P)` —
     the arguments inside the component named sort, at any arity.
+  * `(associative F)`, `(idempotent F)` and `(meetFunctionOf F R)` — a ground application
+    of `F` below the literal is reshaped (`sx/canonical-term`).
 
   `(commutative P)` installs the group `[:rest 1]` at its own arm (`special/arms`), so it
   re-spells `P`'s stored facts exactly as the other two spellings do and is asked about
@@ -650,7 +684,21 @@
           (commutativeInArgAndRest
            commutativeInArgs
            commutative)            (when (seq (tax/commuting-groups tax p)) p)
+          associative              (when (tax/has-prop? tax :associative p) p)
+          idempotent               (when (tax/has-prop? tax :idempotent p) p)
+          meetFunctionOf           (when (seq (tax/meet-orders tax p)) p)
           nil)))))
+
+(defn rows-spelled-by
+  "The stored rows whose spelling `pred`'s permuting marks decide, sorted: `pred`'s own
+  rows, and the rows the term index keys by `pred`, a candidate set holding every row with
+  an application of `pred` below its literal.  A candidate whose spelling the marks do not
+  move is left where it lies by the caller's re-spell."
+  [idx pred]
+  (vec (into (sorted-set)
+             (concat (when (pos? (reads/stored-count-with-functor idx pred))
+                       (reads/as-stored-with-functor idx pred))
+                     (reads/as-stored-with-term idx pred)))))
 
 (defn commute-predicate
   "Bring `pred`'s stored rows into the spelling its marks now give them, folding mirrored
@@ -660,17 +708,17 @@
   carried on.  `{:new [handles] :violations [v]}`, the moved rows and the mints their new
   spellings drew, or nil when `pred` has no stored rows."
   [kb pred witness]
-  (let [idx (:index kb)]
-    (when (pos? (reads/stored-count-with-functor idx pred))
-      ;; snapshotted before the first write: the fold posts to the roots this walk
-      ;; reads, and no index backend promises whether a posting read is a snapshot
-      (let [planner (res/spelling-planner kb)]
-        (transduce (keep (fn [h]
-                           (when-let [sx (p/get-sentex (:records kb) h)]
-                             (symmetrize-row! kb planner sx witness))))
-                   (completing #(merge-with into %1 (select-keys %2 [:new :violations])))
-                   {:new [] :violations []}
-                   (vec (reads/as-stored-with-functor idx pred)))))))
+  ;; snapshotted before the first write: the fold posts to the roots this walk reads,
+  ;; and no index backend promises whether a posting read is a snapshot
+  (when-let [hs (not-empty (rows-spelled-by (:index kb) pred))]
+    (let [planner (res/spelling-planner kb)]
+      (transduce (keep (fn [h]
+                         (when-let [sx (p/get-sentex (:records kb) h)]
+                           (when-not (:antecedent sx)
+                             (symmetrize-row! kb planner sx witness)))))
+                 (completing #(merge-with into %1 (select-keys %2 [:new :violations])))
+                 {:new [] :violations []}
+                 hs))))
 
 (defn commute-existing
   "When a declaration that *re-spells* arrives — `symmetric`, or either commutativity
@@ -699,7 +747,8 @@
   spellings it was written in (`spellings-key`), which `chain/reconcile-spellings!` reads
   to split the rows back apart.
 
-  **The extent is `P`'s own stored rows, not its spec subtree.**  `res/kb-sentex` reads
+  **The extent is `P`'s own stored rows and the rows applying `P` below the literal
+  (`rows-spelled-by`), not its spec subtree.**  `res/kb-sentex` reads
   the mark off the literal's exact functor — a `genl` edge below a symmetric predicate
   does not make the sub-predicate symmetric, and `constraint_descension_test` holds that
   line — so a row this arm re-spelled at a sub-predicate would be one the entry point stores the

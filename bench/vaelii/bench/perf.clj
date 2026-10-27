@@ -125,6 +125,7 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.reads :as reads]
+            [vaelii.impl.record-edit :as record-edit]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
@@ -224,6 +225,11 @@
 ;; once and judged: a reading over the bound reports UNMET and does not fail the run, and
 ;; a reading within it reports PASS beside the mark.  Its comment gives the reading the
 ;; engine takes.
+;;
+;; A `:settle` check also carries `:max-ms`, its phase's share of the hour per reading
+;; (`settle-hour`), and `:budget-unmet true` when the engine does not meet that share yet:
+;; a reading over the share alone then reports UNMET, and its growth is judged as ever.
+;; One with no `:phase` holds a fixed `:max-ms` and stays out of the projection.
 
 (defn- clash-arbitration
   "n individuals each holding two separated types, so the KB carries n standing dilemmas,
@@ -562,6 +568,25 @@
                (do (v/assert kb (list 'genl hi 'thing) 'CxPerf m)
                    (nanos (v/assert kb (list 'genl lo hi) 'CxPerf m))))))))
 
+(defn- assert-beside-held-firings
+  "One assert of a fact naming nothing, beside n firings of one rule whose conclusions
+  `(arg phfOwnsPet 2 phf_animal)` convicts, a number standing at argument 2.  Each firing is
+  stored and held by the argument hold, and the assert moves no hold, so the settle reads
+  none of the n held conclusions (`checks/refresh-argument-holds!`).  The declaration sits
+  above the rule's context."
+  [n]
+  (let [kb    (fresh-kb)
+        m     {:strength :monotonic}
+        below 'CxPerfHeldBelow]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genlCx below 'CxPerf) 'CxUniverse m)
+      (v/assert kb '(genl phf_animal thing) 'CxPerf m)
+      (v/assert kb '(arg phfOwnsPet 2 phf_animal) 'CxPerf)
+      (v/assert kb '(set/forwardRule (implies (phfPetOf ?x ?y) (phfOwnsPet ?y ?x))) below)
+      (doseq [i (range n)] (v/assert kb (list 'phfPetOf i 'PhfAnn) below)))
+    (doall (for [i (range 60)]
+             (nanos (v/assert kb (list 'phfVictim (symbol (str "PHFV" i)) 'PhfVal) 'CxPerf {}))))))
+
 (defn- genl-ends-above-deep-declarations
   "One batch of four `genl` edges into a new type, beside 500 `arg` declarations, each on
   its own declared type at the bottom of a chain of n types.  The four lower ends sit
@@ -773,8 +798,8 @@
   two-argument tuples, one three-argument tuple and one self tuple: its length binding,
   an `irreflexive` mark, and a `genl` edge into a predicate bound to length 2, in turn.
   Each asks `checks/declaration-clash-checks`: the length checks read one shape-length
-  set and one count per breaking shape, and the mark reads the self-tuple posting.  None
-  reads the n tuples."
+  set and the belief of each tuple at a breaking shape, and the mark reads the self-tuple
+  posting.  None reads the n tuples."
   [n]
   (let [kb (fresh-kb)]
     (v/assert kb '(arity pTryBound 2) 'CxPerf {:strength :monotonic})
@@ -1650,6 +1675,79 @@
                 (rules/trigger-keys tax '(pTkFact TkA) st)
                 (rules/trigger-keys tax '(not (pTkFact TkA)) st)))))))
 
+(defn- rule-key-kb
+  "An empty KB on the columnar index with n rules posted, each under an antecedent key of
+  its own (`pRk<i>`), and no rule record.  The columnar index decodes the rule-key set on
+  every read.  The readers timed over it ask about keys no rule takes, so they read no
+  rule handle."
+  [n]
+  (let [kb (binding [*backend* :memory-columnar] (fresh-kb))]
+    (doseq [i (range n)]
+      (rules/index-rule (:index kb) (+ 1000000 i) [(symbol (str "pRk" i))] nil 'CxPerf))
+    kb))
+
+(defn- rule-reads-above-beside-rule-keys
+  "`special/rule-reads-above?` of a `genl` edge's upper end `prk_super_t`, which no rule
+  reads, against n rules each reading a predicate of its own, on the columnar index.
+
+  `subsumption-seeds` asks it once per edge.  A read of every stored key grows with n,
+  and a membership test per term of the upward closure and of the licensing families
+  does not."
+  [n]
+  (let [kb  (rule-key-kb n)
+        tax (reasoning/taxonomy kb)]
+    (doall
+     (for [_ (range 100)]
+       (nanos (dotimes [_ reads-per-reading]
+                (#'special/rule-reads-above? kb tax 'prk_super_t)))))))
+
+(defn- negative-seeds-beside-rule-keys
+  "`special/negative-subsumption-seeds` of a `genl` edge from `prk_sub_t` to `prk_super_t`
+  against n rules each reading a positive predicate of its own, on the columnar index.
+
+  `subsumption-seeds` asks it once per edge.  A pass over every stored key for the
+  negated ones grows with n, and a membership test per term of `prk_sub_t`'s spec closure
+  does not."
+  [n]
+  (let [kb (rule-key-kb n)]
+    (doall
+     (for [_ (range 100)]
+       (nanos (dotimes [_ reads-per-reading]
+                (#'special/negative-subsumption-seeds kb 'prk_sub_t 'prk_super_t)))))))
+
+(defn- computed-reading-beside-rule-keys
+  "`special/computed-reading-rules` of a `conversionFactor` datum, which the quantity
+  prover reads, against n rules each reading a predicate of its own and none reading an
+  answer of the prover, on the columnar index.
+
+  The write path asks it once per datum on a predicate a `SupportingProver` reads.  A
+  read of every stored key grows with n, and a membership test per answer does not."
+  [n]
+  (let [kb (rule-key-kb n)
+        s  '(conversionFactor Gram Kilogram 0.001)]
+    (doall
+     (for [_ (range 100)]
+       (nanos (dotimes [_ reads-per-reading]
+                (special/computed-reading-rules kb 'conversionFactor s)))))))
+
+(defn- visibility-seeds-beside-rule-keys
+  "`special/visibility-seeds` of a `genlCx` edge from `CxRkSub`, which stores nothing, to
+  `CxPerf`, which states n rules each reading a predicate of its own, on the columnar
+  index.
+
+  The write path asks it once per `genlCx` move.  The facts the move seeds are
+  `CxRkSub`'s, none, so it reads no key's closure.  A read of every stored key grows with
+  n, and the key count does not."
+  [n]
+  (let [kb (rule-key-kb 0)]
+    (v/assert kb '(genlCx CxRkSub CxPerf) 'CxUniverse {:strength :monotonic})
+    (doseq [i (range n)]
+      (rules/index-rule (:index kb) (+ 1000000 i) [(symbol (str "pRk" i))] nil 'CxPerf))
+    (doall
+     (for [_ (range 100)]
+       (nanos (dotimes [_ 50]
+                (special/visibility-seeds kb '(genlCx CxRkSub CxPerf))))))))
+
 (defn- overlay-selectivity
   "`reads/stored-count-in-context` on a fork, for a context root of n handles the fork has
   never touched — a flat posting's cardinality, read through the overlay's `kv-count`.
@@ -2033,6 +2131,39 @@
       (doseq [i (range (dec n))]
         (v/assert kb (list 'genlCx (c i) (c (inc i))) 'CxUniverse {})))
     (doall (for [_ (range 8)] (quot (nanos (v/recover kb)) n)))))
+
+(defn- deep-chain-kb
+  "A KB holding a linear chain n deep in CxPerf: n edges `(dcLink DC_i DC_i+1)`, the seed
+  `(dc_reach DC0)` and the rule `(dc_reach ?y) <= (dcLink ?x ?y) (dc_reach ?x)` in
+  `direction`, so a forward rule derives `(dc_reach DC_i)` for every i ≤ n."
+  [n direction]
+  (let [kb (fresh-kb)
+        d  #(symbol (str "DC" %))]
+    (v/assert-rule kb '[(dcLink ?x ?y) (dc_reach ?x)] '(dc_reach ?y) 'CxPerf
+                   {:direction direction})
+    (v/bulk-assert-facts! kb (mapv #(list 'dcLink (d %) (d (inc %))) (range n)) 'CxPerf)
+    (v/assert kb '(dc_reach DC0) 'CxPerf {})
+    kb))
+
+(defn- recover-over-a-derivation-chain
+  "One in-session `recover` of `deep-chain-kb` over a forward rule, per link, three
+  readings.  The replay re-marks every premise on a network that already holds the chain
+  (`recovery/rebuild-tms`), and each re-mark relabels nothing (`jtms/premise*`)."
+  [n]
+  (let [kb (deep-chain-kb n :forward)]
+    (doall (for [_ (range 3)] (quot (nanos (v/recover kb)) n)))))
+
+(defn- prove-down-a-derivation-chain
+  "One `prove` of `(dc_reach DC<n>)` over `deep-chain-kb`'s backward rule, per link, three
+  readings: n expansions on one path, each renaming the rule apart from the names the
+  path holds (`res/freshen-rule`)."
+  [n]
+  (let [kb   (deep-chain-kb n :backward)
+        goal (list 'dc_reach (symbol (str "DC" n)))]
+    (doall (for [_ (range 3)]
+             (quot (nanos (when-not (= 1 (count (v/prove kb goal 'CxPerf)))
+                            (throw (ex-info "the chain's end is not proved" {:n n}))))
+                   n)))))
 
 (defn- context-ring!
   "Put n contexts `CxPr0 … CxPr(n-1)` into one `genlCx` cycle, `CxPr(i) → CxPr(i+1)` and
@@ -3067,9 +3198,8 @@
   "One assert of a fact naming nothing, on a KB whose 16 `unknown` rules hold n refused
   firings between them in the refusal record.
 
-  Every settle pass asks the record for the lifts and the argument convictions waiting
-  in it (`settle/released-lifts`, `released-constraint-refusals`), and the KB holds
-  neither: what the unrelated assert owes the record is nothing at both sizes.  The population is built
+  Every settle pass asks the record for the lifts waiting in it (`settle/released-lifts`),
+  and the KB holds none: what the unrelated assert owes the record is nothing at both sizes.  The population is built
   under one deferred settle, with each blocking fact stored before the firing it
   refuses."
   [n]
@@ -3739,7 +3869,7 @@
 
   A withheld mint stores nothing, so `special/entail-arg-type` decides the withholding
   before the admission checks.  The checks' cover arm asks the provers once per cover
-  over the type (`checks/cover-refutations`)."
+  over the type (`checks/cover-problem`)."
   [n]
   (let [kb (fresh-kb)
         M  {:strength :monotonic}
@@ -3753,6 +3883,440 @@
                   'CxPerf M))
       (doseq [x xs] (v/assert kb (list 'wmc_sub x) 'CxPerf {})))
     (doall (for [x xs] (nanos (v/assert kb (list 'wmcRel x 'WmcY) 'CxPerf {}))))))
+
+(defn- record-pass-beside-covers
+  "One `v/record-arg-types` pass over 8 terms named by n facts each, per fact, beside 128
+  covers of the minted type's supertype and a placed clash, after a first pass stored
+  every mint.
+
+  Each fact finds its term's mint stored and asks no admission check, so the per-fact
+  cost is the pass's own.  The asks the first pass makes, held until it writes
+  (`special/*admission-memo*`), are counted by `argtype_entail_test`'s
+  `a-record-pass-asks-each-terms-admission-once-between-writes`."
+  [n]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          M  {:strength :monotonic}
+          C  'CxPerf]
+      (v/with-deferred-settle kb
+        (doseq [s '[(genl rpc_tangible thing) (genl rpc_intangible thing)
+                    (genl rpc_agent rpc_tangible) (genl rpc_inert rpc_tangible)
+                    (covering thing rpc_tangible rpc_intangible)
+                    (covering rpc_tangible rpc_agent rpc_inert)
+                    (disjoint rpc_tangible rpc_intangible)
+                    (arg rpcEmploys 1 rpc_agent)]]
+          (v/assert kb s C M))
+        (dotimes [i 128]
+          (let [a (symbol (str "rpc_a" i)) b (symbol (str "rpc_b" i))]
+            (v/assert kb (list 'genl a 'thing) C M)
+            (v/assert kb (list 'genl b 'thing) C M)
+            (v/assert kb (list 'covering 'thing a b) C M)))
+        (v/assert kb '(rpc_tangible RpcClash) C {})
+        (v/assert kb '(rpc_intangible RpcClash) C {}))
+      (v/bulk-assert-facts! kb (for [i (range 8) j (range n)]
+                                 (list 'rpcEmploys (symbol (str "RpcE" i)) (symbol (str "RpcS" j))))
+                            C)
+      (v/record-arg-types kb)
+      (doall (for [_ (range 6)] (quot (nanos (v/record-arg-types kb)) (* 8 n)))))))
+
+(defn- record-pass-mints-beside-an-inherited-extent
+  "Six `v/record-arg-types` passes, each over 8 facts naming fresh terms, each term's mint
+  written by the pass, per fact in the store, beside a cover of `thing` whose two parts
+  hold n members each and carry their claims down `genl`, the terms each holding 2n
+  types beneath.
+
+  Each mint is new, so each fact asks the admission checks afresh, and the cover arm asks
+  the inheritance prover to deny each part of the term.  A part with no stated denial in
+  the term's reach is not denied, and the prover answers that without reading the part's
+  extent (`inherit/answers?`)."
+  [n]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          M  {:strength :monotonic}
+          C  'CxPerf]
+      (v/with-deferred-settle kb
+        (doseq [s '[(genl rpi_kind thing) (genl rpi_a thing) (genl rpi_b thing)
+                    (covering thing rpi_a rpi_b)
+                    (transitiveInArg rpi_a 1 genl) (transitiveInArg rpi_b 1 genl)
+                    (arg rpiNames 1 rpi_kind)]]
+          (v/assert kb s C M))
+        (dotimes [k (* 2 n)] (v/assert kb (list 'genl (symbol (str "rpi_s" k)) 'rpi_base) C M))
+        (dotimes [j n]
+          (v/assert kb (list 'rpi_a (symbol (str "RpiA" j))) C {})
+          (v/assert kb (list 'rpi_b (symbol (str "RpiB" j))) C {})))
+      (doall
+       (for [rep (range 6)]
+         (let [xs (for [i (range 8)] (symbol (str "rpi_x" rep "_" i)))]
+           (v/with-deferred-settle kb
+             (doseq [x xs] (v/assert kb (list 'genl 'rpi_base x) C M)))
+           (v/bulk-assert-facts! kb (for [x xs] (list 'rpiNames x 'RpiY)) C)
+           (quot (nanos (v/record-arg-types kb)) (* 8 (inc rep)))))))))
+
+;; ---- the phases of `settle-record-edits!` at the full KB's shape ------------
+;;
+;; `settle-record-edits!` settles a batch of record surgery in four phases: the belief
+;; rebuild (`reindex`, or `recover` when the index stands), the sweep of the seeds'
+;; consequence closures, the withheld-mint releases the sweep's settle draws, and the
+;; `record-arg-types` pass.  The `:settle` checks read each phase's cost per unit at the
+;; shape that made it slow on a large store, and hold it to two bounds: a growth ratio, and
+;; a per-unit time at the large size (`:max-ms`) that is the phase's share of an hour
+;; (`settle-hour`).  Each reading is the calling thread's CPU time (`cpu-nanos`), the work
+;; without the box's load.  A memory KB reads a record
+;; faster than a postgres one, so a per-unit bound met here is necessary for the hour and
+;; not sufficient; `settle_hour_test` times the phases on a clone of a real store.
+
+(def ^:private settle-hour
+  "The hour `settle-record-edits!` has on a large store, split by phase: `:budget-min`
+  minutes, and `:unit-ms`, the per-unit bound (`settle-unit-ms`) the phase's check
+  carries at its large size, set so a large store's units of the phase fit the minutes.
+
+  A rebuild unit is a record and a sweep unit a seed.  A release follows a swept
+  membership or `genl` edge, at most one a seed.  The pass's 25 minutes split in two:
+  12.5 for its mints, each one admission, and 12.5 for its facts, each a read of a fact a
+  declaration reaches."
+  {:rebuild  {:budget-min 20   :unit-ms 0.097 :unit "record"}
+   :sweep    {:budget-min 10   :unit-ms 4.2   :unit "seed"}
+   :release  {:budget-min 5    :unit-ms 2.1   :unit "release"}
+   :mint     {:budget-min 12.5 :unit-ms 1.44  :unit "mint"}
+   :fact     {:budget-min 12.5 :unit-ms 0.061 :unit "fact"}})
+
+(defn- settle-unit-ms
+  "Phase `k`'s per-unit milliseconds in `settle-hour`, times `per` units a reading counts."
+  ([k] (settle-unit-ms k 1))
+  ([k per] (* per (:unit-ms (settle-hour k)))))
+
+(def ^:private thread-mx (java.lang.management.ManagementFactory/getThreadMXBean))
+
+(defmacro ^:private cpu-nanos
+  "The calling thread's CPU nanoseconds over `body`.  A settle phase runs on its caller's
+  thread, and a per-unit bound held against wall time on a loaded box would be held
+  against the box: the `:settle` checks read CPU time, of the work alone."
+  [& body]
+  `(let [mx# ^java.lang.management.ThreadMXBean thread-mx
+         t#  (.getCurrentThreadCpuTime mx#)]
+     ~@body
+     (- (.getCurrentThreadCpuTime mx#) t#)))
+
+(defn- reopened-without-belief
+  "The store the last `fresh-kb` built, opened again without belief: a store
+  `edit-records!` edits."
+  []
+  (v/open-kb {:space 9 :recover? false :backend *backend*}))
+
+(defn- record-pass-beside-a-broad-negated-extent
+  "Six `v/record-arg-types` passes, each over 8 facts naming fresh terms (the previous
+  pass's facts retracted, untimed), per fact, beside n positive members of a broad type a
+  cover's negated part fans to, n members of each part of a partition of `thing`, eight
+  covers of `thing` and a placed defeat.  Each fact mints two memberships.
+
+  **A large store's crawl, at its shape.**  The minted type sits under `rbn_whole`, a
+  partition of `rbn_empty` and `rbn_nonempty` whose memberships inherit along `genl`
+  (`transitiveInArgInverse`, `transitiveInArg`), as `unary_predicate` is of `empty` and
+  `nonempty` in the upper ontology and `type` under it.  A mint's cover arm asks the
+  inheritance prover to deny each part of the term, which reads the part's stated
+  denials, the open negative `(not (rbn_empty ?w))`, fanned to `(not (rbn_whole ?w))`.
+  The argument roots hold both polarities, and a read that fetched every candidate to drop
+  the positives fetched the n members per probe (`res/negative-root-handles`).  The
+  fixture states no ground denial of `rbn_whole`, so a probe for an `rbnCauses` fact's
+  mint fetched the n positive members of `rbn_whole` and kept none.
+
+  The fixture states ten covers: eight `covering`s of `thing` and the two `partition`s.
+
+  Budget: a mint's share is 1.44 ms (`settle-hour`), so 2.88 ms a fact here."
+  [n]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          M  {:strength :monotonic}
+          C  'CxPerf]
+      (v/with-deferred-settle kb
+        (doseq [s '[(genl rbn_whole thing) (genl rbn_empty rbn_whole) (genl rbn_nonempty rbn_whole)
+                    (partition rbn_whole rbn_empty rbn_nonempty)
+                    (transitiveInArgInverse rbn_empty 1 genl) (transitiveInArg rbn_nonempty 1 genl)
+                    (genl rbn_kind rbn_whole)
+                    (genl rbn_tangible thing) (genl rbn_intangible thing)
+                    (partition thing rbn_tangible rbn_intangible)
+                    (arg rbnCauses 1 rbn_kind) (arg rbnCauses 2 rbn_kind)]]
+          (v/assert kb s C M))
+        (dotimes [i 8]
+          (let [a (symbol (str "rbn_ca" i)) b (symbol (str "rbn_cb" i))]
+            (v/assert kb (list 'genl a 'thing) C M)
+            (v/assert kb (list 'genl b 'thing) C M)
+            (v/assert kb (list 'covering 'thing a b) C M)))
+        (v/assert kb '(genl rbn_fs rbn_ft) C {})
+        (v/assert kb '(not (genl rbn_fs rbn_ft)) C M))
+      (v/bulk-assert-facts! kb (concat (for [i (range n)] (list 'rbn_whole (symbol (str "RbnW" i))))
+                                       (for [i (range n)] (list 'rbn_tangible (symbol (str "RbnT" i))))
+                                       (for [i (range n)] (list 'rbn_intangible (symbol (str "RbnI" i)))))
+                            C)
+      (v/record-arg-types kb)
+      (loop [rep 0 prev [] out []]
+        (if (= rep 6)
+          out
+          (let [fs (vec (for [i (range 8)]
+                          (list 'rbnCauses (symbol (str "RbnA" rep "x" i)) (symbol (str "RbnB" rep "x" i)))))]
+            (doseq [h prev] (v/retract! kb h))
+            (v/bulk-assert-facts! kb fs C)
+            (let [t (quot (cpu-nanos (v/record-arg-types kb)) 8)]
+              (when-not (v/handle-of kb (list 'rbn_kind (second (peek fs))) C)
+                (throw (ex-info "the pass mints the fact's type" {:fact (peek fs)})))
+              (recur (inc rep) (mapv #(v/handle-of kb % C) fs) (conj out t)))))))))
+
+(defn- record-pass-over-recorded-facts
+  "A `v/record-arg-types` pass over n facts whose mints are all stored, per fact: each
+  fact names a term of its own and one of 64 shared ones, under ten covers of `thing` and
+  a placed defeat.  Three passes after the one that stores the mints.
+
+  **The whole-store half of the pass.**  On a large store the pass reads every fact a
+  declaration reaches, and finds nearly every mint stored with the fact's justification:
+  it has nothing to write.  What a fact costs then is a read and, today, each of its
+  mints asked whether the fact would change it (`unchanged-mint?`), which it would not:
+  the pass passes such a mint over before its admission checks, whose cover arm asks the
+  provers a denial per cover, as `rederive-mints` does.
+
+  Budget: a fact's share is 61 µs (`settle-hour`)."
+  [n]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          M  {:strength :monotonic}
+          C  'CxPerf]
+      (v/with-deferred-settle kb
+        (doseq [s '[(genl rpr_kind thing) (genl rpr_sub rpr_kind)
+                    (arg rprRel 1 rpr_kind) (arg rprRel 2 rpr_kind)]]
+          (v/assert kb s C M))
+        (dotimes [i 10]
+          (let [a (symbol (str "rpr_ca" i)) b (symbol (str "rpr_cb" i))]
+            (v/assert kb (list 'genl a 'thing) C M)
+            (v/assert kb (list 'genl b 'thing) C M)
+            (v/assert kb (list 'covering 'thing a b) C M)))
+        (v/assert kb '(genl rpr_fs rpr_ft) C {})
+        (v/assert kb '(not (genl rpr_fs rpr_ft)) C M))
+      (v/bulk-assert-facts! kb (for [i (range n)]
+                                 (list 'rprRel (symbol (str "RprA" i)) (symbol (str "RprB" (mod i 64)))))
+                            C)
+      (v/record-arg-types kb)
+      (doall (for [_ (range 3)] (quot (cpu-nanos (v/record-arg-types kb)) n))))))
+
+(defn- defeated-chains-pass
+  "Six `v/record-arg-types` passes, each over 8 facts naming fresh terms (the previous
+  pass's facts retracted, untimed), per fact, beside n placed defeats, each on a default
+  fact `(rdc_p0 rdc_xI)` heading a forward chain of four firings, and n + 64 `genl` edges.
+  Each fact mints two memberships.  With `reached?`, a rule
+  `(rdc_p4 ?x) ∧ (rdc_on ?x) → (genl ?x rdc_kind)` and one `(rdc_on x)` make the chain
+  of the target the forward walk reads last end at a `genl` supporter."
+  [n reached?]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          M  {:strength :monotonic}
+          C  'CxPerf]
+      (v/with-deferred-settle kb
+        (doseq [s '[(genl rdc_kind thing) (arg rdcRel 1 rdc_kind) (arg rdcRel 2 rdc_kind)]]
+          (v/assert kb s C M))
+        (dotimes [j 4]
+          (v/assert-rule kb [(list (symbol (str "rdc_p" j)) '?x)] (list (symbol (str "rdc_p" (inc j))) '?x)
+                         C {:direction :forward}))
+        (when reached?
+          (v/assert-rule kb '[(rdc_p4 ?x) (rdc_on ?x)] '(genl ?x rdc_kind) C {:direction :forward}))
+        (dotimes [i (+ 64 n)]
+          (v/assert kb (list 'genl (symbol (str "rdc_g" i)) 'rdc_kind) C M))
+        (dotimes [i n]
+          (let [x (symbol (str "rdc_x" i))]
+            (v/assert kb (list 'rdc_p0 x) C {})
+            (v/assert kb (list 'not (list 'rdc_p0 x)) C M))))
+      (when reached?
+        ;; `kb/forward-walk` pops the targets from the end of their set's seq, so the
+        ;; first target's chain is the one it reads last
+        (let [t (first (into #{} (mapcat (comp deref val)) (exc/supporter-entries kb)))]
+          (v/assert kb (list 'rdc_on (second (:sentence (v/sentex kb t)))) C {})))
+      (v/record-arg-types kb)
+      (loop [rep 0 prev [] out []]
+        (if (= rep 6)
+          out
+          (let [fs (vec (for [i (range 8)]
+                          (list 'rdcRel (symbol (str "RdcA" rep "x" i)) (symbol (str "RdcB" rep "x" i)))))]
+            (doseq [h prev] (v/retract! kb h))
+            (v/bulk-assert-facts! kb fs C)
+            (let [t (quot (cpu-nanos (v/record-arg-types kb)) 8)]
+              (when-not (v/handle-of kb (list 'rdc_kind (second (peek fs))) C)
+                (throw (ex-info "the pass mints the fact's type" {:fact (peek fs)})))
+              (recur (inc rep) (mapv #(v/handle-of kb % C) fs) (conj out t)))))))))
+
+(defn- record-pass-beside-defeated-chains
+  "`defeated-chains-pass` with no chain reaching a supporter.
+
+  **A large store's second crawl, at its shape.**  A mint is a write, and every write
+  moves the change clock the taxonomy's filter memo is keyed by
+  (`tax/relation-filter-active?`), so the mint's next scoped `genl?` or `genls` asks
+  again whether a `genl` supporter rests on a target of the placed defeats
+  (`kb/supporter-reaches?`).  With the defeats no more than the supporters that is a walk
+  forward from every target over the justifications resting on it, which meets no
+  supporter, so it reads the targets' whole consequence closure, a supporter probe each.
+  Here that closure is the four conclusions of each of the n chains.  The walk is held
+  across writes (`kb/held-forward-reach`), and a mint's read walks on from what it touched.
+
+  Budget: a mint's share is 1.44 ms (`settle-hour`), so 2.88 ms a fact here."
+  [n]
+  (defeated-chains-pass n false))
+
+(defn- record-pass-beside-a-reached-supporter
+  "`defeated-chains-pass` with the chain the walk reads last ending at a `genl` supporter.
+
+  **The full-size store's third crawl, at its shape.**  There a placed defeat's target
+  concludes a `genl` edge by one firing, so the reach answers true, and the forward walk
+  read again after each mint meets that supporter on the last chain it reads, after the
+  other n - 1 chains.  The true is held as the path the walk met the supporter by
+  (`kb/held-forward-reach`), and a mint's read checks that path.
+
+  Budget: a mint's share is 1.44 ms (`settle-hour`), so 2.88 ms a fact here."
+  [n]
+  (defeated-chains-pass n true))
+
+(defn- edges-into-a-broad-type-beside-a-preserved-relation
+  "One settle after n `genl` edges into a type with 64n specs arrive in one batch, per edge,
+  beside `(transitive ebpLarger)`, `ebpLarger` preserved along `genl` at both positions, a
+  forward rule on it, two of its facts, and 7 sub-predicates and 31 `genlInverse` ones
+  under it.  Three readings, each on a store built afresh (untimed).
+
+  **The full-size store's arg-type commit, at its shape.**  There `record-arg-types!`
+  minted `(genl lex/X fabric-textile)` off `madeOf` facts, `fabric-textile` holding 100,677
+  specs, and `typeLargerThan` is declared so and fans to 39 predicates.  Each edge queues the
+  rule with a `{::preserving edge}` marker, and the re-check's `moved-goal-test` for it
+  reads the joint `genl` and `typeLargerThan` reach of the type at each position: every spec,
+  and a `typeLargerThan` literal of each.
+
+  A fixed bound, not a share of `settle-hour`: an edge's share of the settle is its share
+  of the type's reach, read once a pass, so it is the 64 specs an edge brings here and
+  not a mint's own work."
+  [n]
+  (doall
+   (for [_ (range 3)]
+     (let [kb (fresh-kb)
+           C  'CxPerf]
+       (v/with-deferred-settle kb
+         (v/assert kb '(genl ebp_material ebp_stuff) C)
+         (dotimes [i (* 64 n)]
+           (v/assert kb (list 'genl (symbol (str "ebp_m" i)) 'ebp_material) C)))
+       (v/with-deferred-settle kb
+         (v/assert kb '(transitive ebpLarger) C)
+         (v/assert kb '(transitiveInArgInverse ebpLarger 1 genl) C)
+         (v/assert kb '(transitiveInArgInverse ebpLarger 2 genl) C)
+         (dotimes [i 7]
+           (v/assert kb (list 'genl (symbol (str "ebpLargerBy" i)) 'ebpLarger) C))
+         (dotimes [i 31]
+           (v/assert kb (list 'genlInverse (symbol (str "ebpInside" i)) 'ebpLarger) C))
+         (v/assert kb '(ebpLarger ebp_mammal ebp_insect) C)
+         (v/assert kb '(ebpLarger ebp_bird ebp_insect) C)
+         (v/assert-rule kb '[(ebpLarger ?x ?y)] '(ebpOutweighs ?x ?y) C {:direction :forward}))
+       (let [t (cpu-nanos
+                (v/with-deferred-settle kb
+                  (dotimes [j n]
+                    (v/assert kb (list 'genl (symbol (str "ebp_new" j)) 'ebp_material) C))))]
+         (when-not (v/handle-of kb '(ebpOutweighs ebp_mammal ebp_insect) C)
+           (throw (ex-info "the rule fires on the stated claim" {})))
+         (quot t n))))))
+
+(defn- surgery-store
+  "A store of n individuals `x`, each holding `(rsw_p x)` under the forward chain
+  `rsw_p → rsw_q → rsw_r`, `(rsw_s x)` under the forward rule `rsw_s → rsw_dog`, and
+  `(rswOwns x RswHome)`, whose mint `(rsw_animal x)` the derived `(rsw_dog x)` withholds.
+  Returns the handles of the first k individuals' `(rsw_p x)` and `(rsw_s x)`."
+  [n k]
+  (let [kb (fresh-kb)
+        M  {:strength :monotonic}
+        C  'CxPerf
+        x  #(symbol (str "RswX" %))]
+    (v/with-deferred-settle kb
+      (v/assert kb '(genl rsw_animal thing) C M)
+      (v/assert kb '(genl rsw_dog rsw_animal) C M)
+      (v/assert kb '(arg rswOwns 1 rsw_animal) C M)
+      (v/assert-rule kb '[(rsw_p ?x)] '(rsw_q ?x) C {:direction :forward})
+      (v/assert-rule kb '[(rsw_q ?x)] '(rsw_r ?x) C {:direction :forward})
+      (v/assert-rule kb '[(rsw_s ?x)] '(rsw_dog ?x) C {:direction :forward})
+      (dotimes [i n]
+        (v/assert kb (list 'rsw_p (x i)) C {})
+        (v/assert kb (list 'rsw_s (x i)) C {})
+        (v/assert kb (list 'rswOwns (x i) 'RswHome) C {})))
+    {:p (mapv #(v/handle-of kb (list 'rsw_p (x %)) C) (range k))
+     :s (mapv #(v/handle-of kb (list 'rsw_s (x %)) C) (range k))}))
+
+(defn- swept
+  "`record-edit/sweep!` of what `edit-records!` leaves after removing `removed` from the
+  store the last `surgery-store` built, reopened without belief and recovered (untimed):
+  `[nanoseconds seeds kb]`."
+  [removed]
+  (let [kb (reopened-without-belief)
+        r  (v/edit-records! kb {:remove removed})]
+    (v/recover kb)
+    [(cpu-nanos (record-edit/sweep! kb (:seeds r))) (:seeds r) kb]))
+
+(defn- sweep-per-seed
+  "The sweep of `settle-record-edits!` from the seeds 64 removed premises leave, each the
+  head of a forward chain of two firings, per seed, beside n individuals whose chains no
+  seed reaches.  Three readings, each on a store built afresh.
+
+  A seed's sweep reads its consequence closure and settles what went OUT, none of the n.
+
+  Budget: a seed's share is 4.2 ms (`settle-hour`)."
+  [n]
+  (binding [argument/*assertive-arg-types?*  true
+            checks/*prune-subsumed-mints?* true]
+    (doall (for [_ (range 3)]
+             (let [{:keys [p]} (surgery-store n 64)
+                   [t seeds kb] (swept p)]
+               (when (v/handle-of kb '(rsw_r RswX0) 'CxPerf)
+                 (throw (ex-info "the sweep takes the removed premise's chain" {})))
+               (quot t (max 1 (count seeds))))))))
+
+(defn- release-per-mint
+  "The sweep of `settle-record-edits!` from the seeds 64 removed premises leave, each
+  the premise of a derived membership that withheld a mint, per mint the sweep's settle
+  releases, beside n individuals whose mints stay withheld.  Three readings, each on a
+  store built afresh.
+
+  The swept membership departs, and the settle draws the mints it withheld off the
+  departed term (`special/withheld-releases`), none of the n.
+
+  Budget: a release's share is 2.1 ms (`settle-hour`), and the reading counts the seed's
+  sweep beside its release."
+  [n]
+  (binding [argument/*assertive-arg-types?*  true
+            checks/*prune-subsumed-mints?* true]
+    (doall (for [_ (range 3)]
+             (let [{:keys [s]} (surgery-store n 64)
+                   [t _ kb] (swept s)]
+               (when-not (v/handle-of kb '(rsw_animal RswX0) 'CxPerf)
+                 (throw (ex-info "the sweep releases the withheld mint" {})))
+               (quot t 64))))))
+
+(defn- rebuild-per-record
+  "`v/reindex` of a store reopened without belief, per record: n individuals each holding
+  a membership under a partition, a fact under an argument declaration with its mint, and
+  a forward rule's firing for half of them, beside a placed defeat.  Three readings, each
+  on the store reopened.
+
+  The first phase of `settle-record-edits!` on a store whose index was never built: the
+  index and the belief network rebuilt from the records, the settle included.
+
+  Budget: a record's share is 97 µs (`settle-hour`)."
+  [n]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          M  {:strength :monotonic}
+          C  'CxPerf
+          x  #(symbol (str "RrbX" %))]
+      (v/with-deferred-settle kb
+        (doseq [s '[(genl rrb_animal thing) (genl rrb_dog rrb_animal) (genl rrb_cat rrb_animal)
+                    (partition rrb_animal rrb_dog rrb_cat) (arg rrbOwns 1 rrb_animal)]]
+          (v/assert kb s C M))
+        (v/assert-rule kb '[(rrb_dog ?x)] '(rrb_barks ?x) C {:direction :forward})
+        (v/assert kb '(genl rrb_fs rrb_ft) C {})
+        (v/assert kb '(not (genl rrb_fs rrb_ft)) C M)
+        (dotimes [i n]
+          (v/assert kb (list (if (even? i) 'rrb_dog 'rrb_cat) (x i)) C {})
+          (v/assert kb (list 'rrbOwns (x i) (x (inc i))) C {})))
+      (let [records (count (p/sentex-ids (:records kb)))]
+        (doall (for [_ (range 3)]
+                 (let [kb (reopened-without-belief)]
+                   (quot (cpu-nanos (v/reindex kb)) records))))))))
 
 (defn- arity-refresh-under-bound-chain
   "A chain of n predicates, each bound to two arguments in CxUniverse, then the arity
@@ -4328,6 +4892,287 @@
       (doall
        (for [i (range 60)]
          (nanos (v/assert kb (list 'genlCx 'CxGecR (symbol (str "CxGecS" i))) 'CxUniverse m)))))))
+
+(defn- genlcx-edge-over-a-small-context-under-a-large-one
+  "One `v/edit!` that wires two fresh contexts above `CxGolL` and under `CxUniverse`,
+  which `CxGolL` already sees: `(genlCx CxGolW CxUniverse)`, `(genlCx CxGolD CxGolW)` and
+  `(genlCx CxGolL CxGolD)`, with one plain fact in `CxGolW`, beside n facts in `CxGolL` of
+  each of an anti-symmetric, a functional, a declared and an undeclared predicate, and a
+  `genl` edge under the anti-symmetric one stated there.
+
+  **A large store's edit, at its shape.**  A context holding the store's facts gains two
+  contexts between it and CxUniverse in one edit.  With every move read whole, the context
+  move's merge, anti-symmetry and argument-type sweeps read every fact `CxGolL` sees, and
+  the move's mint withdrawal and argument holds read every mint and constrained tuple
+  under `CxGolL`.  The edge shows CxGolL one fact, so a move read by what each reader
+  gains (`tax/context-move`'s `:gains`) reads that fact and what it meets.  Each reading
+  wires a fresh pair of contexts."
+  [n]
+  (binding [argument/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          m  {:strength :monotonic}]
+      (v/assert kb '(genlCx CxGolL CxUniverse) 'CxUniverse m)
+      (v/assert kb '(anti_symmetric golAbove) 'CxUniverse)
+      (v/assert kb '(functional golFn) 'CxUniverse)
+      (v/assert kb '(genl gol_kind thing) 'CxUniverse m)
+      (v/assert kb '(arg golDecl 1 gol_kind) 'CxUniverse m)
+      (v/assert kb '(genl golSubAbove golAbove) 'CxGolL m)
+      (v/with-deferred-settle kb
+        (doseq [i (range n)]
+          (v/assert kb (list 'golAbove (symbol (str "GolA" i)) (symbol (str "GolB" i))) 'CxGolL m)
+          (v/assert kb (list 'golFn (symbol (str "GolF" i)) (symbol (str "GolG" i))) 'CxGolL m)
+          (v/assert kb (list 'golDecl (symbol (str "GolD" i)) 'GolThing) 'CxGolL m)
+          (v/assert kb (list 'golPlain (symbol (str "GolP" i)) 'GolThing) 'CxGolL)))
+      (doall
+       (for [i (range 24)
+             :let [w (symbol (str "CxGolW" i))
+                   d (symbol (str "CxGolD" i))]]
+         (cpu-nanos
+          (v/edit! kb {:add [[(list 'genlCx w 'CxUniverse) 'CxUniverse m]
+                             [(list 'genlCx d w) 'CxUniverse m]
+                             [(list 'genlCx 'CxGolL d) 'CxUniverse m]
+                             [(list 'golPlain (symbol (str "GolW" i)) 'GolThing) w]]})))))))
+
+(defn- spin!
+  "Spend `ns` nanoseconds of the calling thread's CPU."
+  [^long ns]
+  (let [end (+ (System/nanoTime) ns)]
+    (while (< (System/nanoTime) end))))
+
+(defn- round-trip-store
+  "`inner` behind an access-ordered LRU of `cap` sentexes, the fetch cache a networked
+  record store keeps in front of its point read.  A `get-sentex` the LRU misses spends
+  `rt-ns` of CPU (`spin!`), the round trip, and fills it; a `prefetch-sentexes!` spends
+  one round trip and fills it with up to `cap` of the handles not held.  A write evicts
+  its handle.  Every other method delegates."
+  [inner ^long cap ^long rt-ns]
+  (let [lru (proxy [java.util.LinkedHashMap] [16 (float 0.75) true]
+              (removeEldestEntry [_] (> (.size ^java.util.LinkedHashMap this) cap)))
+        ^java.util.Map lru lru
+        k   #(Long/valueOf (long %))]
+    #_{:clj-kondo/ignore [:missing-protocol-method]}
+    (reify
+      p/RecordStore
+      (put-sentex [_ sx] (let [h (p/put-sentex inner sx)] (.remove lru (k h)) h))
+      (get-sentex [_ id]
+        (or (.get lru (k id))
+            (when-let [sx (p/get-sentex inner id)]
+              (spin! rt-ns)
+              (.put lru (k id) sx)
+              sx)))
+      (delete-sentex! [_ id] (.remove lru (k id)) (p/delete-sentex! inner id))
+      (put-justification [_ d] (p/put-justification inner d))
+      (get-justification [_ id] (p/get-justification inner id))
+      (delete-justification! [_ id] (p/delete-justification! inner id))
+      (next-id [_] (p/next-id inner))
+      (put-provenance [_ id prov] (p/put-provenance inner id prov))
+      (get-provenance [_ id] (p/get-provenance inner id))
+      (delete-provenance! [_ id] (p/delete-provenance! inner id))
+      (sentex-ids [_] (p/sentex-ids inner))
+      (justification-ids [_] (p/justification-ids inner))
+      (mark-premise [_ id s] (.remove lru (k id)) (p/mark-premise inner id s))
+      (unmark-premise! [_ id] (.remove lru (k id)) (p/unmark-premise! inner id))
+      (premise-ids [_] (p/premise-ids inner))
+      (premise-strength [_ id] (p/premise-strength inner id))
+      (clear-records! [_] (.clear lru) (p/clear-records! inner))
+      p/Prefetching
+      (prefetch-sentexes! [_ ids]
+        (let [missing (into [] (comp (map k) (remove #(.containsKey lru %)) (take cap)) ids)]
+          (when (seq missing)
+            (spin! rt-ns)
+            (doseq [id missing]
+              (when-let [sx (p/get-sentex inner id)] (.put lru id sx)))))
+        nil)
+      (prefetch-justifications! [_ _] nil))))
+
+(defn- membership-placement-over-a-fetch-cache
+  "n terms each held in two types a `disjoint` separates, so n membership nogoods stand,
+  read through a record store with a fetch cache of 2048 sentexes and a 100 µs round trip
+  a miss (`round-trip-store`).  Each reading states a `genl` edge above one of the types,
+  and its settle places the n nogoods again (`chain/place-memberships!`), per nogood.
+
+  **A large store's settle, at its shape.**  An `edit!` removing 50 `genl` edges
+  between predicates sat in that pass for 10 minutes with the records read a round trip
+  apiece, each sample in the postgres store's point read under
+  `chain/nogood-justifications`.  The pass reads each nogood's members, placed sentexes
+  and their justifications' antecedents, a record apiece, once to plan and once to place.
+  The store's fetch cache holds a fraction of its records, so every one of those reads was
+  a round trip.  Here the nogoods' records fit
+  the cache at the small size and do not at the large one."
+  [n]
+  (let [kb  (fresh-kb)
+        m   {:strength :monotonic}
+        _   (v/with-deferred-settle kb
+              (v/assert kb '(disjoint mpfa_kind mpfb_kind) 'CxPerf m)
+              (doseq [i (range n) :let [x (symbol (str "Mpf" i))]]
+                (v/assert kb (list 'mpfa_kind x) 'CxPerf {})
+                (v/assert kb (list 'mpfb_kind x) 'CxPerf {})))
+        kb  (assoc kb :records (round-trip-store (:records kb) 2048 100000))
+        up! #(v/assert kb (list 'genl 'mpfa_kind (symbol (str "mpfup" % "_kind"))) 'CxPerf m)]
+    ;; the first settle fills the cache at the small size
+    (up! -1)
+    (doall (for [i (range 6)] (quot (cpu-nanos (up! i)) n)))))
+
+(defn- subsumed-mint-pass-over-a-fetch-cache
+  "n terms x, each minted `(pmf_animal x)` off `(pmfOwns x PmfThing)` and stated
+  `(pmf_dog x)` in a context the mint's does not see, read through a record store with a
+  fetch cache of 2048 sentexes and a 100 µs round trip a miss (`round-trip-store`).  Each
+  reading is one `recover`, divided by n.
+
+  **A large store's recover, at its shape.**  The recover's settle asks every stored mint
+  whether a believed record says it more specifically (`special/subsumed-mint-blocks`),
+  which reads the mint and each membership of its term in a subtype, a record apiece.  The
+  store's fetch cache holds a fraction of its records, so each of those reads was a round
+  trip.  Here the records fit the cache at the small size and do not at the large one."
+  [n]
+  (binding [argument/*assertive-arg-types?*  true
+            checks/*prune-subsumed-mints?* true]
+    (let [kb (fresh-kb)
+          m  {:strength :monotonic}]
+      (v/assert kb '(genl pmf_dog pmf_animal) 'CxPerf m)
+      (v/assert kb '(arg pmfOwns 1 pmf_animal) 'CxPerf m)
+      (v/with-deferred-settle kb
+        (doseq [i (range n) :let [x (symbol (str "Pmf" i))]]
+          (v/assert kb (list 'pmfOwns x 'PmfThing) 'CxPerf m)
+          (v/assert kb (list 'pmf_dog x) 'CxPerfSide m)))
+      (let [kb (assoc kb :records (round-trip-store (:records kb) 2048 100000))]
+        (doall (for [_ (range 3)] (quot (cpu-nanos (v/recover kb)) n)))))))
+
+(defn- membership-placement-beside-wide-contexts
+  "n terms, each held in `mpw_a0` in `CxMpwA` and in `mpw_b0` in `CxMpwB`, which nine
+  `disjoint` declarations stated in `CxMpwD` separate, one over each pair of their three
+  supertypes, each supertype reached along two `genl` paths; and n contexts under each of
+  `CxMpwA`, `CxMpwB` and `CxMpwD`, which `CxMpwW` sees together.  Each reading is one
+  `recover`, divided by n.
+
+  ```
+  mpw_a0 → mpw_a1 → mpw_a2 → mpw_a3, and mpw_a0 → mpw_ax → mpw_a1   (b alike)
+  CxMpwD  (disjoint mpw_ai mpw_bj) for i, j in 1..3
+  CxMpwW sees CxMpwA, CxMpwB, CxMpwD;  CxMpwAL_i sees CxMpwA, and so for B and D
+  ```
+
+  **A large store's recover, at its shape.**  The recover's last step places every
+  membership nogood the rebuilt index queued (`chain/place-memberships!`), each over every
+  route the declarations convict it through (`membership/routes`), here nine, and each
+  route reads the maximal common descendants of its members' and supporters' contexts.
+  No member context sees the others, so that read walks the n contexts below one of them.
+  The claim is that the read is held for the pass (`tax/pass-held`), so the n terms read
+  the n contexts once and not once a route."
+  [n]
+  (let [kb (fresh-kb)
+        m  {:strength :monotonic}
+        U  'CxUniverse]
+    (v/with-deferred-settle kb
+      (doseq [[k up] '[[CxMpwA CxUniverse] [CxMpwB CxUniverse] [CxMpwD CxUniverse]
+                       [CxMpwW CxMpwA] [CxMpwW CxMpwB] [CxMpwW CxMpwD]]]
+        (v/assert kb (list 'genlCx k up) U m))
+      (doseq [i (range n), c '[CxMpwA CxMpwB CxMpwD]]
+        (v/assert kb (list 'genlCx (symbol (str c "L" i)) c) U m))
+      (doseq [side '[a b]
+              :let [t #(symbol (str "mpw_" side %))]]
+        (doseq [i (range 3)] (v/assert kb (list 'genl (t i) (t (inc i))) U m))
+        (v/assert kb (list 'genl (t 0) (t "x")) U m)
+        (v/assert kb (list 'genl (t "x") (t 1)) U m))
+      (doseq [i (range 1 4), j (range 1 4)]
+        (v/assert kb (list 'disjoint (symbol (str "mpw_a" i)) (symbol (str "mpw_b" j))) 'CxMpwD m))
+      (doseq [i (range n) :let [x (symbol (str "Mpw" i))]]
+        (v/assert kb (list 'mpw_a0 x) 'CxMpwA)
+        (v/assert kb (list 'mpw_b0 x) 'CxMpwB)))
+    (when-not (= n (count (v/sentexes-with-functor kb 'contradicts)))
+      (throw (ex-info "each term's nogood is placed" {})))
+    (doall (for [_ (range 3)] (quot (cpu-nanos (v/recover kb)) n)))))
+
+(defn- genlcx-edge-beside-correspondence-uses
+  "One `(genlCx sub CxGcuSide)` edge to a fresh `sub`, where `CxGcuSide` states the one
+  `functionCorrespondingPredicate` of `GcuFn`, `CxGcuRule` stores a rule applying `GcuFn`
+  that its context respells nowhere (the `:held` set holds it), and n facts in CxUniverse
+  each name a constant minted for an application of `GcuFn`.
+
+  The claim is that the move's correspondence row re-spells the held rules applying
+  `GcuFn` and the rules a correspondence of it respelled
+  (`chain/reconcile-corresponded!`), and reads none of the n uses of the minted
+  constants.  Each reading asserts the edge to a fresh `sub`."
+  [n]
+  (let [kb (fresh-kb)
+        m  {:strength :monotonic}]
+    (doseq [c '[CxGcuSide CxGcuRule]]
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse m))
+    (v/assert kb '(reifiable_function GcuFn) 'CxUniverse m)
+    (v/assert kb '(functionCorrespondingPredicate GcuFn gcuOf) 'CxGcuSide)
+    (v/assert kb '(set/forwardRule (implies (gcu_tagged (GcuFn ?t)) (gcu_ripe ?t))) 'CxGcuRule)
+    (v/with-deferred-settle kb
+      (doseq [i (range n)
+              :let [a (symbol (str "GcuA" i))]]
+        (v/assert kb (list 'gcuUse a (list 'GcuFn a)) 'CxUniverse)))
+    (doall
+     (for [i (range 60)]
+       (nanos (v/assert kb (list 'genlCx (symbol (str "CxGcuS" i)) 'CxGcuSide) 'CxUniverse m))))))
+
+(defn- default-value-beside-uses
+  "One `:default` corresponding fact `(gdvOf GdvXi GdvVi)` in `CxGdvStory`, which arrives
+  beside the n facts in CxUniverse that name the constant minted for `(GdvFn GdvXi)`,
+  divided by n.  Every reading's constant has its n uses stored before the first reading.
+
+  The claim is that the fact's copies (`chain/sync-values!`) cost the same per use at
+  both n: the copies read the uses of the one constant the fact names a value of, and
+  no other constant's uses.  Each reading asserts the fact for a fresh constant."
+  [n]
+  (let [kb (fresh-kb)
+        m  {:strength :monotonic}
+        xs (mapv #(symbol (str "GdvX" %)) (range 8))]
+    (v/assert kb '(genlCx CxGdvStory CxUniverse) 'CxUniverse m)
+    (v/assert kb '(reifiable_function GdvFn) 'CxUniverse m)
+    (v/assert kb '(functionCorrespondingPredicate GdvFn gdvOf) 'CxUniverse m)
+    (v/with-deferred-settle kb
+      (doseq [x xs, i (range n)]
+        (v/assert kb (list 'gdvUse (symbol (str "GdvA" i)) (list 'GdvFn x)) 'CxUniverse)))
+    (doall
+     (for [[i x] (map-indexed vector xs)]
+       (/ (nanos (v/assert kb (list 'gdvOf x (symbol (str "GdvV" i))) 'CxGdvStory)) n)))))
+
+(defn- genlcx-edge-beside-distant-merges
+  "One `(genlCx sub CxGdmC)` edge to a fresh `sub`, beside n `sameAs` merges, each stated
+  in its own context under `CxUniverse` that the edge does not reach and displacing the
+  one fact stored there.
+
+  The claim is that `special/migrate-under-context-edge` reads the merges stated in the
+  contexts a reader under `sub` sees, none here at both n, and `special/reconcile-move`
+  the superseded facts stored below `sub`, none here, and neither reads every standing
+  merge or displaced fact.  Each reading asserts the edge to a fresh `sub`."
+  [n]
+  (let [kb (fresh-kb)
+        m  {:strength :monotonic}]
+    (v/assert kb '(genlCx CxGdmC CxUniverse) 'CxUniverse m)
+    (v/with-deferred-settle kb
+      (doseq [i (range n)
+              :let [c (symbol (str "CxGdmM" i))]]
+        (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse m)
+        (v/assert kb (list 'gdmBorn (symbol (str "GdmB" i)) 'GdmPlace) c m)
+        (v/assert kb (list 'sameAs (symbol (str "GdmA" i)) (symbol (str "GdmB" i))) c m)))
+    (doall
+     (for [i (range 60)]
+       (nanos (v/assert kb (list 'genlCx (symbol (str "CxGdmS" i)) 'CxGdmC) 'CxUniverse m))))))
+
+(defn- genlcx-edge-beside-seen-functional-facts
+  "One `(genlCx sub CxGsfTop)` edge to a fresh `sub` that stores nothing, where `CxGsfTop`
+  states n facts of a predicate a `functional` mark in `CxUniverse` declares.
+
+  The claim is that `special/equate-under-context-edge` reads the facts stated where a
+  reader under `sub` sees and `super` does not, none here at both n: `super` sees the n
+  facts and the mark, so every merge they license stands at `super` already.  Each
+  reading asserts the edge to a fresh `sub`."
+  [n]
+  (let [kb (fresh-kb)
+        m  {:strength :monotonic}]
+    (v/assert kb '(genlCx CxGsfTop CxUniverse) 'CxUniverse m)
+    (v/assert kb '(functional gsfParent) 'CxUniverse m)
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'gsfParent (symbol (str "GsfK" i)) (symbol (str "GsfP" i)))
+                  'CxGsfTop m)))
+    (doall
+     (for [i (range 60)]
+       (nanos (v/assert kb (list 'genlCx (symbol (str "CxGsfS" i)) 'CxGsfTop) 'CxUniverse m))))))
 
 (defn- fact-beside-distant-declarations
   "A fact asserted into `CxFdF`, which sits under `CxFdTop` and has one child, beside n
@@ -6208,7 +7053,8 @@
    :placement  "nogood placement and the read walk: vantages, losers, defeats, the per-family placements"
    :recover    "recover and the image install"
    :inherit    "preservation along genl and its route search"
-   :chaining   "forward chaining, the settle drain, the feed, retraction teardown"
+   :chaining   "forward chaining, the backward chainer's path, the settle drain, the feed, retraction teardown"
+   :settle     "the phases of settle-record-edits! at the full KB's shape, each per unit and against its share of an hour (`settle-hour`)"
    :solvers    "the solvers, the qualitative and metric calculi, the planner, kb-quality, context NATs"))
 
 (def checks
@@ -6307,6 +7153,16 @@
     :max-ratio 2.0
     :run       genl-write-beside-held-facts}
 
+   ;; Both ends measured 2026-10-24 by `lein perf --only`, load average 80 to 170.  Healthy
+   ;; 0.11x (4.889 ms against 0.533).  With every settle pass re-asking each convicted
+   ;; firing from a refusal record: 23.27x (10.937 ms against 254.455).
+   {:name      :assert-beside-held-firings
+    :group     :argtypes
+    :claim     "an assert naming nothing costs under 2x per 32x the held conclusions of a rule's convicted firings — no pass reads them"
+    :sizes     [125 4000]
+    :max-ratio 2.0
+    :run       assert-beside-held-firings}
+
    ;; Both ends measured 2026-10-21, load average 14 to 104.  Healthy 0.17x to 0.41x
    ;; (13.954 ms at the large end, load 14).  With one `genl?` walk per declared type per
    ;; moved end: 3.26x (195.547 ms against 638.210).
@@ -6394,6 +7250,17 @@
     :sizes     [250 2000]
     :max-ratio 2.0
     :run       per-reading-vantages}
+
+   ;; Both ends measured 2026-10-26 by `lein perf --only`, CPU per term.  Healthy: 0.84x
+   ;; (0.514 against 0.431 ms).  With the maximal common descendants read once a route
+   ;; rather than once a pass: 4.05x (1.104 against 4.470 ms).  The bound is the file's
+   ;; standing 2.0 for a flat claim.
+   {:name      :membership-placement-beside-wide-contexts
+    :group     :placement
+    :claim     "8x the membership nogoods and the contexts below their members costs under 2x per nogood in the recover that places them, each over nine routes"
+    :sizes     [128 1024]
+    :max-ratio 2.0
+    :run       membership-placement-beside-wide-contexts}
 
    ;; Flat by construction: a computed membership's readers and its placement read the
    ;; handles naming its individual, which the other n - 1 contexts do not hold.  Measured
@@ -6927,6 +7794,46 @@
     :max-ratio 2.0
     :run       trigger-keys-beside-rules}
 
+   ;; Measured 2026-10-24 per batch of 500 calls, at load 43: 3.64 ms at 64 and 4.63 ms
+   ;; at 2,048 (1.27x).  Reading every stored key per call, at load 58: 5.18 ms against
+   ;; 100.8 ms (19x).
+   {:name      :rule-reads-above-beside-rule-keys
+    :group     :index
+    :claim     "special/rule-reads-above? of an edge no rule reads above is flat in how many antecedent keys the stored rules take"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       rule-reads-above-beside-rule-keys}
+
+   ;; Measured 2026-10-24 per batch of 500 calls, at load 43: 0.572 ms at 64 and 0.445 ms
+   ;; at 2,048 (0.78x).  A pass over every stored key per call, at load 58: 6.72 ms
+   ;; against 134 ms (20x).
+   {:name      :negative-seeds-beside-rule-keys
+    :group     :index
+    :claim     "special/negative-subsumption-seeds of an edge no negated antecedent reads is flat in how many antecedent keys the stored rules take"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       negative-seeds-beside-rule-keys}
+
+   ;; Measured 2026-10-24 per batch of 500 calls, at load 43: 0.803 ms at 64 and 0.642 ms
+   ;; at 2,048 (0.80x).  Reading every stored key per call, at load 58: 3.68 ms against
+   ;; 105 ms (29x).
+   {:name      :computed-reading-beside-rule-keys
+    :group     :index
+    :claim     "special/computed-reading-rules of a unit-table datum no rule reads an answer of is flat in how many antecedent keys the stored rules take"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       computed-reading-beside-rule-keys}
+
+   ;; Measured 2026-10-24 per batch of 50 calls, at load 43: 1.59 ms at 64 and 0.450 ms at
+   ;; 2,048 (0.28x).  Reading every stored key per call, at load 58: 0.969 ms against
+   ;; 10.8 ms (11x).
+   {:name      :visibility-seeds-beside-rule-keys
+    :group     :index
+    :claim     "special/visibility-seeds of a genlCx edge from a context storing nothing is flat in how many antecedent keys the stored rules take"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       visibility-seeds-beside-rule-keys}
+
    ;; Measured 2026-10-16 per batch of 100 reads: 0.611 ms at 64 and 0.518 ms at 2,048
    ;; (0.85x).  Reading every member and walking the fan per read, 42.2 ms against
    ;; 1,404 ms (33x).
@@ -7028,6 +7935,160 @@
     :sizes     [16 256]
     :max-ratio 2.0
     :run       withheld-mint-beside-covers}
+
+   ;; Measured 2026-10-27: two full runs 0.52x and 0.54x (0.031 ms against 0.017), warm in
+   ;; one JVM at load 5 to 6 0.27x to 0.46x, and the same with the admission memo unbound.
+   ;; The bound sits 1.5x over 0.54x.
+   {:name      :record-pass-beside-covers
+    :group     :argtypes
+    :claim     "16x the facts naming each term costs each under 0.85x in one record-arg-types pass beside 128 covers"
+    :sizes     [2 32]
+    :max-ratio 0.85
+    :run       record-pass-beside-covers}
+
+   ;; Both ends measured 2026-10-24 by `lein perf --only`.  Healthy 1.46x (0.834 ms
+   ;; against 1.216).  With the prover reading each part's extent to deny it: 4.78x (0.926
+   ;; ms against 4.429).
+   {:name      :record-pass-mints-beside-an-inherited-extent
+    :group     :argtypes
+    :claim     "16x the members of each part of a cover the minted type sits under costs under 2x per fact in a record-arg-types pass that writes every mint"
+    :sizes     [100 1600]
+    :max-ratio 2.0
+    :run       record-pass-mints-beside-an-inherited-extent}
+
+   ;; ---- :settle — each phase of `settle-record-edits!` per unit, at its share of the
+   ;; hour (`settle-hour`): `:phase` names the share, `:max-ms` is it per reading at the
+   ;; large size, and the run prints the projection of every phase it measured.
+
+   ;; Both ends measured 2026-10-24, CPU per fact, load 50-80.  Healthy, by `lein perf
+   ;; --only`: 0.88x (5.626 against 4.949 ms).  With the open negative fetching the positive
+   ;; extent (`res/*split-negative-roots?*` false), in a REPL: 3.0x (3.3 against 9.9 ms).
+   ;; Over a mint's share (1.44 ms) by about 1 ms a mint: `:budget-unmet`.
+   {:name      :record-pass-beside-a-broad-negated-extent
+    :group     :settle
+    :claim     "64x the members of a broad type a cover's negated part fans to costs under 1.5x per fact in a record-arg-types pass that mints, each within a mint's share of the hour"
+    :sizes     [250 16000]
+    :max-ratio 1.5
+    :phase     :mint
+    :per       2
+    :max-ms    (settle-unit-ms :mint 2)
+    :budget-unmet true
+    :run       record-pass-beside-a-broad-negated-extent}
+
+   ;; Both ends measured 2026-10-24 by `lein perf --only settle`, CPU per fact.  Healthy:
+   ;; 0.92x (0.028 against 0.025 ms), within a fact's share (0.061 ms).  With every stored
+   ;; mint's admission checks asked again (no `unchanged-mint?` skip): 0.82x (1.213
+   ;; against 0.996 ms), sixteen times the share.
+   {:name      :record-pass-over-recorded-facts
+    :group     :settle
+    :claim     "16x the facts whose mints are stored costs under 1.5x per fact in a record-arg-types pass, each within a fact's share of the hour"
+    :sizes     [256 4096]
+    :max-ratio 1.5
+    :phase     :fact
+    :max-ms    (settle-unit-ms :fact)
+    :run       record-pass-over-recorded-facts}
+
+   ;; Both ends measured 2026-10-24, CPU per fact, in a REPL at load 20-40.  Healthy: 0.95x
+   ;; (0.40 against 0.42 ms).  With the walk read afresh at each mint
+   ;; (`kb/held-forward-reach` reading no memo): 64x (90.5 against 1.42 ms), the targets'
+   ;; whole closure a mint.
+   {:name      :record-pass-beside-defeated-chains
+    :group     :settle
+    :claim     "64x the placed defeats heading forward chains costs under 1.5x per fact in a record-arg-types pass that mints, each within a mint's share of the hour"
+    :sizes     [64 4096]
+    :max-ratio 1.5
+    :phase     :mint
+    :per       2
+    :max-ms    (settle-unit-ms :mint 2)
+    :run       record-pass-beside-defeated-chains}
+
+   {:name      :record-pass-beside-a-reached-supporter
+    :group     :settle
+    :claim     "64x the placed defeats, one heading a chain that ends at a genl supporter, costs under 1.5x per fact in a record-arg-types pass that mints, each within a mint's share of the hour"
+    :sizes     [64 4096]
+    :max-ratio 1.5
+    :phase     :mint
+    :per       2
+    :max-ms    (settle-unit-ms :mint 2)
+    :run       record-pass-beside-a-reached-supporter}
+
+   {:name      :edges-into-a-broad-type-beside-a-preserved-relation
+    :group     :settle
+    :claim     "8x the genl edges into a type with 64 specs an edge costs under 2x per edge in the settle that re-checks a rule on a transitive predicate preserved along genl, each within 15 ms"
+    :sizes     [8 64]
+    :max-ratio 2.0
+    :max-ms    15
+    :run       edges-into-a-broad-type-beside-a-preserved-relation}
+
+   ;; Measured 2026-10-24 by `lein perf --only`, CPU per seed: 1.00x (0.183 ms at both).
+   {:name      :sweep-per-seed
+    :group     :settle
+    :claim     "16x the chains no seed reaches costs under 2x per seed of settle-record-edits!'s sweep, each within a seed's share of the hour"
+    :sizes     [64 1024]
+    :max-ratio 2.0
+    :phase     :sweep
+    :max-ms    (settle-unit-ms :sweep)
+    :run       sweep-per-seed}
+
+   ;; Measured 2026-10-24 by `lein perf --only`, CPU per release: 0.81x (0.322 against
+   ;; 0.261 ms).
+   {:name      :release-per-mint
+    :group     :settle
+    :claim     "16x the mints left withheld costs under 2x per mint the sweep's settle releases, each within a release's share of the hour"
+    :sizes     [64 1024]
+    :max-ratio 2.0
+    :phase     :release
+    :max-ms    (settle-unit-ms :release)
+    :run       release-per-mint}
+
+   ;; Measured 2026-10-24 by `lein perf --only`, CPU per record: 0.94x (0.032 against
+   ;; 0.030 ms).
+   {:name      :rebuild-per-record
+    :group     :settle
+    :claim     "16x the records costs under 1.5x per record of a reindex of a store without belief, each within a record's share of the hour"
+    :sizes     [1024 16384]
+    :max-ratio 1.5
+    :phase     :rebuild
+    :max-ms    (settle-unit-ms :rebuild)
+    :run       rebuild-per-record}
+
+   ;; Both ends measured 2026-10-25 in a REPL, CPU per edit.  Healthy: 0.90x (3.03
+   ;; against 2.72 ms).  With every move read whole (`checks/*whole-move-sweeps?*`):
+   ;; 17.8x (98.6 against 1753 ms), over 20 ms at both sizes.  A fixed bound, not a share
+   ;; of `settle-hour`: the edit's cost is what the new contexts hold, whatever the lower
+   ;; one holds.
+   {:name      :genlcx-edge-over-a-small-context-under-a-large-one
+    :group     :settle
+    :claim     "16x the facts a context holds costs under 2x per edit wiring it under a fresh context holding one fact, each within 20 ms"
+    :sizes     [512 8192]
+    :max-ratio 2.0
+    :max-ms    20
+    :run       genlcx-edge-over-a-small-context-under-a-large-one}
+
+   ;; Both ends measured 2026-10-25, CPU per nogood.  Healthy: 0.81x by `lein perf --only`
+   ;; (0.095 against 0.078 ms); 0.83x and 1.06x in a REPL at load 21 to 26.  With the
+   ;; records read a round trip apiece (no `chain/placement-hinter`): 6.33x by `lein perf
+   ;; --only` (0.113 against 0.716 ms); 10.0x in a REPL (0.069 against 0.686 ms).  A
+   ;; fixed bound, not a share of `settle-hour`, which has no placement phase.
+   {:name      :membership-placement-over-a-fetch-cache
+    :group     :settle
+    :claim     "16x the membership nogoods costs under 2x per nogood in the settle that places them again over a record store with a fixed fetch cache and a round trip a miss, each within 0.25 ms"
+    :sizes     [256 4096]
+    :max-ratio 2.0
+    :max-ms    0.25
+    :run       membership-placement-over-a-fetch-cache}
+
+   ;; Both ends measured 2026-10-26 by `lein perf --only`, CPU per mint at load 80 to 100.
+   ;; Healthy: 0.72x (0.058 against 0.042 ms).  With the records read a round trip apiece
+   ;; (no `special/withdrawal-hinter`): 4.99x (0.047 against 0.233 ms).  A fixed bound, not
+   ;; a share of `settle-hour`.
+   {:name      :subsumed-mint-pass-over-a-fetch-cache
+    :group     :settle
+    :claim     "16x the stored mints costs under 2x per mint in the recover that asks each whether a believed record subsumes it, over a record store with a fixed fetch cache and a round trip a miss, each within 0.12 ms"
+    :sizes     [256 4096]
+    :max-ratio 2.0
+    :max-ms    0.12
+    :run       subsumed-mint-pass-over-a-fetch-cache}
 
    ;; Measured 2026-10-14 per hundred predicates: 0.844 ms at 256 and 0.486 ms at 4,096
    ;; (0.58x).  With the lengths below each predicate held in the bounded length entries,
@@ -7209,6 +8270,27 @@
     :sizes     [128 1024]
     :max-ratio 16.0
     :run       genlcx-chain-moved-beside-a-nogood}
+
+   ;; Measured under `--only` at load 50-100, 2026-10-25: 0.15x (0.126 against 0.019
+   ;; ms/op), and 0.36x at 1000/4000, with the unchanged premise re-mark relabelling
+   ;; nothing; 3.52x (0.941 against 3.309) with a relabel of its closure per re-mark.
+   {:name      :recover-over-a-derivation-chain
+    :group     :recover
+    :claim     "a recover over 8x the links of one derivation chain costs under 2x per link"
+    :sizes     [500 4000]
+    :max-ratio 2.0
+    :run       recover-over-a-derivation-chain}
+
+   ;; Measured under `--only` at load 50-100, 2026-10-25: 0.86x and 1.44x (0.163 against
+   ;; 0.235 ms/op), and 1.86x at 1000/4000, with the path's names carried in its frames;
+   ;; 11.29x (1.072 against 12.099) re-reading the path's bindings and copying its queued
+   ;; goals at each expansion.
+   {:name      :prove-down-a-derivation-chain
+    :group     :chaining
+    :claim     "a backward prove down 8x the links of one derivation chain costs under 3x per link"
+    :sizes     [500 4000]
+    :max-ratio 3.0
+    :run       prove-down-a-derivation-chain}
 
    ;; Both ends measured under `--only`, 2026-10-18: healthy 1.02x (0.027 against 0.028
    ;; ms/op); with `chain/place-nogoods!` forcing the reach for the arity refresh alone,
@@ -7402,6 +8484,31 @@
     :sizes     [64 1024]
     :max-ratio 2.0
     :run       genl-edge-under-no-merge-mark}
+
+   ;; The merges a `genlCx` edge restates under and the displaced facts it re-examines.
+   ;; Flat by construction: no context under `sub` or seen by a reader under it states a
+   ;; merge or stores a displaced fact at either n.  Both ends under `--only`, 2026-10-24,
+   ;; load 78-101: healthy 0.97x (0.84 against 0.82 ms/op); at the parent commit, with
+   ;; every standing merge read and every displaced fact re-examined per edge, 5.40x
+   ;; (5.18 against 27.95 ms/op).
+   {:name      :genlcx-edge-beside-distant-merges
+    :group     :merges
+    :claim     "16x the merges in contexts a genlCx edge does not reach costs under 2x per edge"
+    :sizes     [64 1024]
+    :max-ratio 2.0
+    :run       genlcx-edge-beside-distant-merges}
+
+   ;; The functional facts a `genlCx` edge re-derives merges over.  Flat by construction:
+   ;; the edge's `sub` stores nothing and `super` sees every fact.  Both ends under
+   ;; `--only`, 2026-10-24, load 81-111: healthy 0.35x and 0.55x (1.26 against 0.45
+   ;; ms/op); at the parent commit, with every fact the readers see swept, 8.78x (5.45
+   ;; against 47.84 ms/op).
+   {:name      :genlcx-edge-beside-seen-functional-facts
+    :group     :merges
+    :claim     "16x the functional facts a genlCx edge's super sees costs under 2x per edge to an empty context"
+    :sizes     [64 1024]
+    :max-ratio 2.0
+    :run       genlcx-edge-beside-seen-functional-facts}
 
    ;; Measured 2026-10-03 at load 50, the assert timed alone: 1.55x and 0.74x (0.27 and
    ;; 0.70 ms against 0.42 and 0.52).  With each functor under a conflict asked whether it
@@ -7683,6 +8790,24 @@
     :sizes     [64 2048]
     :max-ratio 2.0
     :run       genlcx-edge-beside-seen-declared-facts}
+
+   ;; The rules a `genlCx` edge showing a correspondence declaration re-spells.  Flat by
+   ;; construction: one held rule at both n, and the n minted constants' uses are not read.
+   {:name      :genlcx-edge-beside-correspondence-uses
+    :group     :merges
+    :claim     "32x the uses of constants minted for a corresponded function costs under 2x per genlCx edge showing its declaration"
+    :sizes     [64 2048]
+    :max-ratio 2.0
+    :run       genlcx-edge-beside-correspondence-uses}
+
+   ;; The copies a `:default` corresponding fact draws of the uses of the constant it
+   ;; names a value of.  Linear in those uses, so the reading is the cost per use.
+   {:name      :default-value-beside-uses
+    :group     :merges
+    :claim     "16x the uses of a minted constant costs under 2x per use for a :default corresponding fact"
+    :sizes     [32 512]
+    :max-ratio 2.0
+    :run       default-value-beside-uses}
 
    ;; The facts a `genlCx` edge to an empty context draws again.  Flat by construction:
    ;; the edge shows the reader nothing stored at both n.  Both ends measured under
@@ -8724,8 +9849,14 @@
   GC pause or a scheduler hiccup landing in one run is not a regression, and an
   algorithmic one survives being looked at twice.  A baseline (no `:max-ratio`) is
   measured once and not judged, and an `:unmet` check is measured once and an over-bound
-  reading reports `:unmet`."
-  [{:keys [sizes max-ratio run unmet]} tolerance quick?]
+  reading reports `:unmet`.
+
+  A check with `:max-ms` is also judged by its large-size reading, which must be at most
+  that many milliseconds (widened as the ratio bound is): a `:settle` check's share of
+  the hour (`settle-hour`) when it names a `:phase`, else a fixed bound.  Over it is over the bound, as a ratio over its bound is,
+  except that `:budget-unmet` reports a reading over it alone as `:unmet`: the growth is
+  still judged, and the share is a target the engine does not meet yet."
+  [{:keys [sizes max-ratio max-ms run unmet budget-unmet]} tolerance quick?]
   (let [[small large] sizes
         ;; the small size first, read after exactly the warming the bounds were calibrated
         ;; against; the large reading is warmer by one small run
@@ -8738,26 +9869,41 @@
       (let [;; quick widens the bound instead of shrinking the pair: one attempt over the
             ;; real sizes is a coarse verdict, where measuring one size twice is six runs
             ;; and no possible failure — a check that cannot fail is decoration
-            bound     (* (double max-ratio) (double tolerance) (if quick? quick-slack 1.0))
+            slack     (* (double tolerance) (if quick? quick-slack 1.0))
+            bound     (* (double max-ratio) slack)
+            budget-ns (when max-ms (* (double max-ms) 1e6 slack))
+            in-budget? (fn [{:keys [large]}] (or (nil? budget-ns) (<= large budget-ns)))
+            within?   (fn [r] (and (<= (:ratio r) bound) (in-budget? r)))
+            ;; over either bound reads again, and the reading within more of them stands
+            better    (fn [a b] (cond (within? a) a (within? b) b
+                                      (not= (in-budget? a) (in-budget? b)) (if (in-budget? a) a b)
+                                      :else (min-key :ratio a b)))
             first-try (attempt)
-            best      (if (or quick? unmet (<= (:ratio first-try) bound))
+            best      (if (or quick? unmet (within? first-try)
+                              (and budget-unmet (<= (:ratio first-try) bound)))
                         first-try
-                        (min-key :ratio first-try (attempt)))]
+                        (better first-try (attempt)))]
         (assoc best
-               :bound  bound
-               :sizes  [small large]
-               :status (cond (< (:small best) noise-floor-ns) :noise
-                             (<= (:ratio best) bound)         :pass
-                             unmet                            :unmet
-                             :else                            :fail))))))
+               :bound     bound
+               :budget-ns budget-ns
+               :sizes     [small large]
+               :status    (cond (and (< (:small best) noise-floor-ns) (nil? budget-ns)) :noise
+                                (within? best)                                          :pass
+                                unmet                                                   :unmet
+                                (and budget-unmet (<= (:ratio best) bound))             :unmet
+                                :else                                                   :fail))))))
 
-(defn- report [{:keys [name claim unmet]} {:keys [small large ratio bound sizes status retried]}]
+(defn- report [{:keys [name claim unmet budget-unmet phase]} {:keys [small large ratio bound budget-ns sizes status retried]}]
   (let [[s l] sizes]
     (println (format "  %-20s %s%s" (clojure.core/name name)
                      (case status
-                       :pass     (if unmet "PASS — marked :unmet" "PASS")
+                       :pass     (cond unmet        "PASS — marked :unmet"
+                                       budget-unmet "PASS — marked :budget-unmet"
+                                       :else        "PASS")
                        :fail     "FAIL"
-                       :unmet    "UNMET — over the bound, marked :unmet, not failed"
+                       :unmet    (if (and budget-unmet (not unmet))
+                                   "UNMET — over its share of the hour, marked :budget-unmet, not failed"
+                                   "UNMET — over the bound, marked :unmet, not failed")
                        :noise    "noise — below the noise floor, not judged"
                        :baseline "baseline — measured, not judged")
                      (if retried " — over the bound once, run again at the end" "")))
@@ -8768,7 +9914,33 @@
       :noise    nil
       :baseline (println (format "    growth %.2fx  (no bound)" ratio))
       (println (format "    growth %.2fx  (bound %.2fx)" ratio bound)))
+    (when budget-ns
+      (println (format "    %.3f ms/op at n=%d  (bound %.3f ms%s)%s"
+                       (/ large 1e6) l (/ budget-ns 1e6)
+                       (if phase ", its share of the hour" "")
+                       (if (> large budget-ns) " — OVER" ""))))
     (println)))
+
+(defn- settle-projection
+  "The hour `settle-record-edits!` has in `settle-hour` as the `:settle` checks of this
+  run read it: each measured phase's large-size reading per unit (`:per` units a
+  reading) over the phase's `:unit-ms`, times its `:budget-min`.  A memory KB's reading,
+  so a projection within the hour is necessary for it and not sufficient
+  (`settle_hour_test` times a real store's phases)."
+  [results]
+  (let [rows (for [[{:keys [name phase per]} {:keys [large]}] results
+                   :when (and phase large)
+                   :let [{:keys [budget-min unit-ms unit]} (settle-hour phase)
+                         ms (/ (double large) (or per 1) 1e6)]]
+               [name unit unit-ms ms (* budget-min (/ ms unit-ms)) budget-min])]
+    (when (seq rows)
+      (println "the settle-hour settle at these readings (memory KB; each phase's budget x its reading over its bound):")
+      (println (format "  %-44s %-8s %10s %10s %9s %9s" "check" "unit" "bound ms" "ms/unit" "minutes" "budget"))
+      (doseq [[nm unit bound ms mins budget] rows]
+        (println (format "  %-44s %-8s %10.4f %10.4f %9.1f %9.1f" (clojure.core/name nm) unit (double bound) ms mins (double budget))))
+      (println (format "  %-44s %-8s %10s %10s %9.1f %9.1f" "total" "" "" ""
+                       (reduce + (map #(nth % 4) rows)) (reduce + (map #(double (nth % 5)) rows))))
+      (println))))
 
 (defn- usage-exit [msg]
   (binding [*out* *err*]
@@ -8851,6 +10023,7 @@
                         retry)
           results (mapv (fn [[c r]] [c (get retried (:name c) r)]) results)]
       (doseq [[c r] results] (report c r))
+      (settle-projection results)
       (let [failed (filter (fn [[_ r]] (= :fail (:status r))) results)]
         (if (seq failed)
           (do (println (format "%d of %d checks REGRESSED: %s"

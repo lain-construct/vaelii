@@ -72,7 +72,7 @@
     (preserving! kb typeLargerThan)
     (v/assert kb (list typeLargerThan dog_t cat_t) ctx)
     (v/assert kb (list 'implies (list typeLargerThan '?x '?y) (list outweighs '?x '?y)) ctx {:direction :forward})
-    (let [w (v/why kb (v/handle-of kb (list outweighs chihuahua_t maine_coon_t) ctx))
+    (let [w (tu/why-root kb (v/handle-of kb (list outweighs chihuahua_t maine_coon_t) ctx))
           reasons (into #{} (comp (mapcat :because) (map :sentence)) (:support w))]
       (is (:believed? w))
       (testing "the actual reasons, and the reader can read them"
@@ -101,7 +101,7 @@
       (v/assert kb (list 'implies (list locatedIn '?x House) (list housed '?x)) ctx
                 {:direction :forward}))
     (is (holds? kb (list housed Piston)))
-    (let [w       (v/why kb (v/handle-of kb (list housed Piston) ctx))
+    (let [w       (tu/why-root kb (v/handle-of kb (list housed Piston) ctx))
           reasons (into #{} (comp (mapcat :because) (map :sentence)) (:support w))]
       (is (some #(and (contains? % (list partOf Engine Car))
                       (contains? % (list locatedIn Car Garage))
@@ -124,7 +124,7 @@
     (preserving! kb typeLargerThan)
     (v/assert kb (list typeLargerThan dog_t cat_t) ctx)
     (v/assert kb (list 'implies (list typeLargerThan '?x '?y) (list outweighs '?x '?y)) ctx {:direction :forward})
-    (let [w (v/why kb (v/handle-of kb (list outweighs dog_t cat_t) ctx))]
+    (let [w (tu/why-root kb (v/handle-of kb (list outweighs dog_t cat_t) ctx))]
       (is (= 1 (count (:support w))))
       (is (= [(list typeLargerThan dog_t cat_t)]
              (mapv :sentence (:because (first (:support w)))))
@@ -265,7 +265,7 @@
     (is (v/ask? kb (list schedule Piston) ctx))
     (let [reasons (into #{}
                         (comp (mapcat :because) (map :sentence))
-                        (:support (v/why kb (v/handle-of kb (list schedule Piston) ctx))))]
+                        (:support (tu/why-root kb (v/handle-of kb (list schedule Piston) ctx))))]
       (is (contains? reasons (list needs_maintenance Car)))
       (is (contains? reasons (list tangiblePartOf Piston Engine)))
       (is (contains? reasons (list tangiblePartOf Engine Car)))
@@ -430,7 +430,7 @@
           (testing "and rests on the long route's two edges, not on the short one"
             (let [reasons (into #{}
                                 (comp (mapcat :because) (map :sentence))
-                                (:support (v/why kb (v/handle-of kb goal 'CxUniverse))))]
+                                (:support (tu/why-root kb (v/handle-of kb goal 'CxUniverse))))]
               (is (contains? reasons (list 'genl mid_t dog_t)))
               (is (contains? reasons (list 'genl chi_t mid_t)))
               (is (not (contains? reasons (list 'genl chi_t dog_t))))))
@@ -544,8 +544,8 @@
         (testing "the firing names the symmetry it was read through"
           (let [reasons (into #{}
                               (comp (mapcat :because) (map :sentence))
-                              (:support (v/why kb (v/handle-of kb (list seen chihuahua_t cat_t)
-                                                               ctx))))]
+                              (:support (tu/why-root kb (v/handle-of kb (list seen chihuahua_t cat_t)
+                                                                     ctx))))]
             (is (contains? reasons (list 'symmetric nearTo)))
             (is (contains? reasons (list nearTo cat_t dog_t)))))
         (testing "withdrawing the symmetry withdraws what only the mirror licensed"
@@ -767,7 +767,7 @@
                     (map (fn [s]
                            [s (into #{}
                                     (comp (mapcat :because) (map :sentence))
-                                    (:support (v/why kb (v/handle-of kb s ctx))))]))
+                                    (:support (tu/why-root kb (v/handle-of kb s ctx))))]))
                     sentences)}))
 
 (defn- shuffled
@@ -847,8 +847,8 @@
            (v/ask? kb (list typicallyLargerThan chihuahua_t maine_coon_t) CxA)])))))
 
 (tu/deftest-kb a-defeated-contrary-claim-gives-the-inherited-firing-back-in-every-order
-  ;; S is `:default`, so the firing is stored with a defeat resting on S (design ruling
-  ;; 25).  The denial's defeat hides S at CxA, so the firing is believed there, as `ask?`
+  ;; S is `:default`, so the firing is stored with a defeat resting on S.  The
+  ;; denial's defeat hides S at CxA, so the firing is believed there, as `ask?`
   ;; reads the inherited claim it joins on.
   (is (= #{[true true true true]}
          (into #{} (map #(read-beside-a-contrary-claim :default %))
@@ -901,7 +901,7 @@
 (tu/deftest-kb a-separated-membership-denies-an-inherited-antecedent-in-every-order
   ;; `(plain lower)` denies `(down lower)`, since no term is a member of two disjoint
   ;; types.  Beside a `:default` reading the firing is made, as for any `:default`
-  ;; contrary claim, with a defeat resting on the membership (design ruling 25), and a
+  ;; contrary claim, with a defeat resting on the membership, and a
   ;; `:monotonic` membership refuses it.  A reading known-true throughout defeats a
   ;; `:default` membership instead (the inherited nogood), and the firing stands.
   (let [orders (for [a [:claim :rule :sep :member] b [:claim :rule :sep :member]

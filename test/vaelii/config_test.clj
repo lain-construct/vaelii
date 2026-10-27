@@ -93,7 +93,8 @@
    ["vaelii.disk.compact-dead-ratio" "half"]
    ["vaelii.disk.compact-dead-ratio" "2"]
    ;; `(= "false" …)` — the one that failed safe, and still says so
-   ["vaelii.disk.lock" "no-thanks"]])
+   ["vaelii.disk.lock" "no-thanks"]
+   ["vaelii.heap.mark" "disabled"]])
 
 (deftest every-switch-refuses-the-value-nothing-reads
   (doseq [[nm value] wrong-values]

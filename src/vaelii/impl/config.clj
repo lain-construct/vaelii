@@ -241,6 +241,14 @@
   []
   (prop-bool "vaelii.disk.lock" true))
 
+(defn heap-mark?
+  "Does `open-kb` arm the heap mark (`vaelii.heap.mark`, default on)?  On, a chaining run
+  refuses `:interrupted :bound :heap` over a nearly full old generation
+  (`caches/arm-heap-mark!`).  Off is for an embedder that sets the old generation's
+  collection-usage threshold itself: the JVM holds one threshold per pool."
+  []
+  (prop-bool "vaelii.heap.mark" true))
+
 (defn index-snapshot?
   "Refuse `vaelii.index.snapshot`, naming the backend that selects the image instead.
 
@@ -400,6 +408,21 @@
   []
   (prop-long "VAELII_ASP_SOLVE_LIMIT" 100000 0 nil))
 
+(def asp-opt-strategies
+  "What the optimization-strategy switch reads, one spelling per strategy, each mapped to
+  the clasp `--opt-strategy` value the backends pass."
+  {"bb" "bb" "usc" "usc,k,0,stratify"})
+
+(defn asp-opt-strategy
+  "The clasp `--opt-strategy` value **every ASP solve** optimizes under
+  (`VAELII_ASP_OPT_STRATEGY`: `bb`, model-guided branch-and-bound, the default; `usc`,
+  core-guided, which clasp spells `usc,k,0,stratify`).  Both backends take it beside the
+  solve limit (`vaelii.impl.asp.clasp/search-args`), so a solve stops at the same point on
+  every machine under either.  docs/asp.md, \"The optimization strategy\"."
+  []
+  (prop-enum "VAELII_ASP_OPT_STRATEGY" asp-opt-strategies "bb"
+             "bb (branch-and-bound) or usc (core-guided)"))
+
 (defn asp-time-limit
   "The seconds **one ASP solve** may run before the backend is interrupted
   (`VAELII_ASP_TIME_LIMIT`, default 60; 0 lifts the limit): the wall-clock backstop
@@ -446,6 +469,20 @@
   []
   (prop-long "VAELII_MAX_QUERY_MS" 30000 0 nil))
 
+(defn integrity-max-work
+  "The most cooperative query units one daemon `:kb-integrity` request may spend
+  (`VAELII_INTEGRITY_MAX_WORK`, default 10000; 0 lifts it).  A request may name a
+  smaller `:max-work` and is refused for naming a larger one (`vaelii.host.serve`)."
+  []
+  (prop-long "VAELII_INTEGRITY_MAX_WORK" 10000 0 nil))
+
+(defn integrity-max-results
+  "The most findings one daemon `:kb-integrity` response may carry
+  (`VAELII_INTEGRITY_MAX_RESULTS`, default 1000; 0 lifts it), held the same way as
+  `integrity-max-work`."
+  []
+  (prop-long "VAELII_INTEGRITY_MAX_RESULTS" 1000 0 nil))
+
 (defn request-paths?
   "May a served request name a path for the server to read or write
   (`VAELII_REQUEST_PATHS`, default off)?  Off, a wire `:kb-diff` side names a KB the
@@ -453,6 +490,14 @@
   (`vaelii.host.serve`), and the browser's `/kbs/load` and `/kbs/export` refuse a `dir`."
   []
   (prop-bool "VAELII_REQUEST_PATHS" false))
+
+(defn max-write-ms
+  "The wall-clock ceiling the daemon holds every chaining write to (`VAELII_MAX_WRITE_MS`,
+  default 0, no ceiling).  Once an operator sets one, a request may name a smaller
+  `:max-ms` and is refused for naming a larger one (`vaelii.host.serve`).  A write the
+  ceiling ends is rolled back (docs/inference.md, *Stopping a run*)."
+  []
+  (prop-long "VAELII_MAX_WRITE_MS" 0 0 nil))
 
 (defn sandbox-max
   "How many browser sandboxes a KB holds at once (`VAELII_SANDBOX_MAX`, default 256).
@@ -468,13 +513,11 @@
   (prop-long "VAELII_SANDBOX_IDLE_MINUTES" 1440 1 nil))
 
 (defn max-query-depth
-  "The rule-expansion ceiling the daemon holds every bounded read to
-  (`VAELII_MAX_QUERY_DEPTH`, default 256; 0 lifts it).  A request may name a smaller
-  `:max-depth` and is refused for naming a larger one (`vaelii.host.serve`).
-
-  256 because it is the largest depth the API's own defaults name — `why`'s — so every
-  documented call sits inside it, and a depth past it is a search a remote caller sized
-  rather than the engine."
+  "The rule-expansion ceiling the daemon holds the reads that take no clock to — `:query`,
+  `:query?`, `:query-status` and `:argue` (`VAELII_MAX_QUERY_DEPTH`, default 256; 0 lifts
+  it).  A request may name a smaller `:max-depth` and is refused for naming a larger one
+  (`vaelii.host.serve/search-bounds`).  A read that takes a clock is held to
+  `max-query-ms` instead, and to no depth."
   []
   (prop-long "VAELII_MAX_QUERY_DEPTH" 256 0 nil))
 
@@ -551,6 +594,7 @@
    {:names ["vaelii.disk.compact-min-interval-ms"]  :reader #'disk-compact-min-interval-ms :read-at :worker}
    {:names ["vaelii.disk.shutdown-unwind-ms"]       :reader #'disk-shutdown-unwind-ms      :read-at :worker}
    {:names ["vaelii.disk.lock"]                     :reader #'disk-lock?                   :read-at :open}
+   {:names ["vaelii.heap.mark"]                     :reader #'heap-mark?                   :read-at :open}
    {:names ["vaelii.index.snapshot"]                :reader #'index-snapshot?              :read-at :open}
    {:names ["vaelii.index.snapshot-drift"]          :reader #'index-snapshot-drift         :read-at :worker}
    {:names ["vaelii.belief.snapshot"]               :reader #'belief-snapshot?             :read-at :open}
@@ -568,9 +612,13 @@
    {:names ["VAELII_CLINGO_MAX_BYTES"]              :reader #'clingo-max-program-bytes     :read-at :worker}
    {:names ["VAELII_ASP_SOLVE_LIMIT"]               :reader #'asp-solve-limit              :read-at :worker}
    {:names ["VAELII_ASP_TIME_LIMIT"]                :reader #'asp-time-limit               :read-at :worker}
+   {:names ["VAELII_ASP_OPT_STRATEGY"]              :reader #'asp-opt-strategy             :read-at :worker}
    {:names ["VAELII_MAX_QUERY_MS"]                  :reader #'max-query-ms                 :read-at :open}
    {:names ["VAELII_MAX_QUERY_DEPTH"]               :reader #'max-query-depth              :read-at :open}
+   {:names ["VAELII_INTEGRITY_MAX_WORK"]            :reader #'integrity-max-work           :read-at :open}
+   {:names ["VAELII_INTEGRITY_MAX_RESULTS"]         :reader #'integrity-max-results        :read-at :open}
    {:names ["VAELII_REQUEST_PATHS"]                 :reader #'request-paths?               :read-at :open}
+   {:names ["VAELII_MAX_WRITE_MS"]                  :reader #'max-write-ms                 :read-at :open}
    {:names ["VAELII_SANDBOX_MAX"]                   :reader #'sandbox-max                  :read-at :worker}
    {:names ["VAELII_SANDBOX_IDLE_MINUTES"]          :reader #'sandbox-idle-minutes         :read-at :worker}
    {:names ["VAELII_CLASSIFY_MAX_CLUSTER_MEMBERS"] :reader #'classify-max-cluster-members :read-at :worker}
@@ -620,6 +668,7 @@
    'falsy               "the same, for off"
    'log-level-spellings "the vocabulary `log-level` is read against"
    'asp-solver-spellings "the vocabulary `asp-solver` is read against"
+   'asp-opt-strategies  "the vocabulary `asp-opt-strategy` is read against"
    'read-at-kinds       "the vocabulary a row's `:read-at` column is held to"
    'switches            "the switch table itself"
    'switch-names        "the switch table's spellings, derived from it"})

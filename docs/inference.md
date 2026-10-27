@@ -139,11 +139,11 @@ the same path as any other rule's.
 **Connected conjunctive antecedents.** Antecedents that share a variable **join** —
 a binding from one match is carried into the next. The starter leans on this:
 `(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))` joins on
-`?y`; a transitive `locatedIn` plus `(implies (and (tangiblePartOf ?part ?whole) (locatedIn
-?whole ?place)) (locatedIn ?part ?place))` puts a part wherever its whole is; and
-`(implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` propagates
-ownership to a whole's parts (its placement is context-sensitive — see
-[contexts.md](contexts.md)). The `vaelii.world-fables` stories derive their morals the
+`?y`. The test world's `(implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns
+?p ?part))` joins on `?whole`, and its placement is context-sensitive
+([contexts.md](contexts.md)). The starter states that reach, and a part's location, as
+`transitiveInArgInverse` declarations along `tangiblePartOf`, which kb-integrity's
+rule-macro pass suggests for a rule of this shape ([integrity.md](integrity.md)). The `vaelii.world-fables` stories derive their morals the
 same way — a 2- or 3-antecedent join over the tale's facts.
 
 **Antecedents nothing stored.** Two kinds of antecedent are satisfied by content that
@@ -183,13 +183,72 @@ only for an antecedent whose sub-predicate closure carries a permuting mark
 (`chain/permuting-antecedent?`), and at a trigger only for a fact whose own predicate
 carries one, so a KB with no such mark pays two empty-table reads per antecedent.
 
-**Recursion guard:** a derived datum carries a depth (`1 + max` antecedent
-depth, held by the TMS as a function of the network:
-[nmtms.md](nmtms.md#derivation-depth)); a derivation past `:max-depth` (default 64) is
-skipped and the run flagged
-`:truncated?`, with `:max-derivations` as a hard backstop. Re-deriving an existing
-sentex only adds a justification (never re-enqueues), so cyclic non-productive
-recursion terminates.
+**Termination.** A function-free rule set terminates on the data. Re-deriving an existing
+sentex only adds a justification and never re-enqueues it, and finitely many constants
+admit finitely many sentences, so a cyclic rule set or a chain of any length runs to its
+fixpoint: a 400-link chain through one recursive rule derives all 400 conclusions
+(`chaining_contracts_test`). A rule that builds terms does not terminate on the data.
+`(implies (num ?x) (num (SuccFn ?x)))` mints a new constant per firing
+([nat.md](nat.md#derivation-path)), and a recursive head existential mints a new witness
+per firing ([skolem.md](skolem.md#termination)).
+
+The **term-nesting bound** `:max-term-depth` (`chain/default-chain-opts`, 8) ends that
+recursion. A term's nesting is 0 for an atom, one more than its deepest argument for a
+compound, and for a reified constant the nesting of the expression its `natFormula` names.
+A constant met again inside its own expression, which two merged formulas can make, counts 1
+there, so the measure ends on a cycle.
+A sentence's nesting is the deepest among its literals' arguments, so a wrapper (`not`,
+`ist`, a rule) adds no level. A firing is not placed when its conclusion nests deeper than
+the bound **and** deeper than every term the firing rests on: the matched facts, the
+binding values and the ground terms the rule writes (`chain/term-cut?`). The run returns
+`:term-cut`, the number of firings the bound refused, and logs it at `:info`.
+
+- A rule that passes an asserted term through is never cut, however deep the term.
+- With finitely many function symbols and constants, every fixpoint under the bound is
+  finite.
+- The cut is a function of the firing's content, the `natFormula` of each constant it
+  names and the bound, so it is order independent and local. Each firing reads the
+  formulas stored when it fires. No record of a cut firing is kept: no later write under
+  the same bound can place it, and a `forward-chain` with a larger bound joins from every
+  believed sentex and places it.
+- An equality merge that changes a constant's `natFormula` after a firing over it was cut
+  does not re-ask that firing unless the merge restates a fact the firing rests on
+  ([equality.md](equality.md#what-a-merge-does)).
+- The bound reads nesting and nothing else. A computed antecedent that binds a new number
+  per firing concludes a new sentence at nesting 0 each time, and no default ends that
+  run; the caller's bound does ([Stopping a run](#stopping-a-run)).
+- `{:max-term-depth nil}` turns the bound off.
+
+`:max-term-depth` is the only bound a run takes by default (`chain/default-chain-opts`).
+`:max-derivations` caps the conclusions and minted writes one run makes, and is a caller's
+bound ([Stopping a run](#stopping-a-run)). `:max-depth` bounds derivation depth (`1 + max`
+antecedent depth, held by the TMS: [nmtms.md](nmtms.md#derivation-depth)). A firing past
+`:max-depth` places nothing and the run goes on; the run returns `:truncated? true` with no
+`:bound` and logs a `:warn`.
+
+**A write's three bounds reach the runs the write starts, its own settle's re-chain
+included.** `chain/call-with-stop` holds them in force (`chain/*bounds*`), and a run takes
+each bound its own options do not name from there. The closure a write derives is
+therefore the same whether a fact or the `genlCx` edge that shows it a rule arrives last
+(`chaining_contracts_test`). A rollback and a settle that closes a call
+(`chain/call-unbounded`), `forward-chain`'s included, drop `:max-derivations` and run under
+the call's `:max-depth` and `:max-term-depth`, which decide the closure a run derives and
+not when it stops. `assert-many`'s closing settle takes the call's `:max-depth` and
+`:max-term-depth` and not its `:max-derivations`, the way it takes no `:max-ms`. A user's
+`with-deferred-settle` block and `bulk-assert-facts!` re-chain at their closing settle
+under the default bounds, and their `:settle` oplog frame records no bounds, so a replay
+re-derives at the defaults too.
+
+**A write a firing makes is chained by the run that fired it.** A firing that mints the
+constant of a reifiable NAT ([nat.md](nat.md#derivation-path)) or a skolem witness
+([skolem.md](skolem.md)) asserts the mint's sentences, and each of those asserts hands
+its seeds to `chain/chain-all`. Inside a run over the same store, `chain-all` queues them
+for that run (`chain/*run-queue*`) and starts none; `chain` takes them onto its agenda
+after the datum whose firing wrote them, ahead of that datum's conclusions, less any a
+refused write took back. A run therefore starts no run inside itself: its bounds and a
+caller's bound reach every firing a mint leads to, `:max-derivations` counts the seeds
+the run takes this way beside the conclusions it places, a line of mints grows the agenda
+rather than the stack, and `chain-stats` counts the one run.
 
 <a id="a-firing-that-restates-its-antecedent"></a>
 **A firing whose conclusion is one of the facts it matched places nothing**
@@ -206,6 +265,96 @@ atemporal)` and `(intersection spatiotemporal spatial temporal)` asserted in `co
 (`starter_test/no-stored-justification-holds-its-own-conclusion-among-its-antecedents`).
 The comparison is on the substituted sentence, so a symmetric conclusion spelled as the
 matched fact's mirror is not dropped.
+
+### Stopping a run
+
+A caller bounds a chaining call with three options: `:max-ms`, wall-clock milliseconds
+from the call; `:stop?`, a function of no arguments whose truthy answer ends the call,
+asked at most every `:progress-every-ms` (250 by default); and `:max-derivations`. A run
+whose stop rolls the write back ends once it has made more conclusions than
+`:max-derivations`, so a write whose closure holds exactly that many stores it. A run
+that keeps what it placed ends once it has made that many. The
+bound is in force for every run the call starts (`chain/call-with-stop`, which binds
+`chain/*stop*`), a mint's own asserts included. A run reads `:max-ms` and `:stop?` at
+three points:
+
+- the agenda loop, before each datum;
+- each firing, before its conclusion is placed (`derive-conclusion`);
+- each join that enumerates firings, before each row it pulls, on every pass over the
+  partial rows (`planned-join`), so a prover a computed antecedent asks is asked no more
+  once the bound is reached.
+
+A join that tests a condition is not cut: an `exceptWhen` guard and `why-not` join
+through `solve-rule`. Once reached, the bound stays reached.
+
+**A write the bound ends is rolled back.** `assert`, `try-assert`, `assert-rule` and the
+adds of `edit!` and `edit-with-consequences!` run their chaining inside
+`chain/*rollback-scope*`, where a run that reaches the bound throws `:interrupted`, with
+`:bound` naming `:max-ms`, `:stop?` or `:max-derivations`. The throw takes the path every
+refusal takes (`undoing-refusal`, `edit!`'s batch rollback, the path a shutdown-stopped
+write takes): the audited premises are retracted, their consequences torn down, and the
+ledgers and the refusal record put back, so the store and belief are as the write found
+them, the handle counter aside. A throw from `:on-progress` takes the same rollback. The
+interrupt is the caller's own cancel and not a judgement on the content, and the same write
+with a larger bound or none stores what it would have stored.
+
+- `assert-many` takes the bound for the whole call. It reads the bound and the heap mark
+  before each sentence (`chain/check-stop!`), since under `:chain? false` an assert runs no
+  agenda loop to read them. The sentence in flight is rolled back,
+  the sentences before it keep their whole closure, the closing settle runs, and the call
+  throws `:interrupted` with `:stored`, their handles. A write under
+  `*bulk-load?*` is audited and rolled back as one outside it is.
+- `bulk-assert-facts!` chains nothing, so it reads the bound and the heap mark before
+  each fact (`chain/check-stop!`). On a stop the facts before it stay, the closing settle
+  runs, and the call throws `:interrupted` with `:stored`, as `assert-many` does.
+- `edit!` honours the bound until its first removal. Past that point the batch is
+  committed, as it is against a shutdown, and the removals and the settle run unbounded.
+- `forward-chain` takes `:on-stop`. Under `:rollback`, the default, it runs inside
+  `chain/*rollback-scope*` as a write does: a run that `:max-ms`, `:stop?`,
+  `:max-derivations` or an `:on-progress` throw ends throws `:interrupted` (`:bound
+  :on-progress` for the throw, which is the cause). The premise audit reaches only the
+  premises the run writes (a mint's projection) and the rule slots a re-asserted rule
+  rewrites, so the rollback also takes a mark when the call starts (`entry/*write-mark*`)
+  and removes every justification and then every sentex stored above it, newest first,
+  before the settle. Under `:keep` the run keeps what it placed, is settled, and returns
+  `:truncated? true` with `:bound` naming `:max-ms`, `:stop?` or `:max-derivations`; an
+  `:on-progress` throw is rethrown after the settle. A kept run is incomplete. Under
+  `:default` rules it can leave a conclusion believed whose defeater the run did not
+  derive, and the conclusion stays believed until a complete run derives the defeater. A later `forward-chain` with no bound joins from
+  every believed sentex and completes the closure. The catalog loader, the browser's chain
+  job and the generator pass `:keep`.
+- `retract!` and `settle-record-edits!` take no bound: a removal is the half no rollback
+  puts back.
+
+A bound limits a call's new work only. A rollback, and a settle that closes a call after the
+bound ended its run, run unbounded (`chain/call-unbounded`). A rollback's settle re-chains
+what the rolled-back write had swept, and any re-chain still owed to a write the call keeps
+(an earlier sentence of `assert-many`). A closing settle re-chains what the writes the call
+keeps are owed. Either settle stopped part-way would leave a store that matches neither the
+state before the call nor the state after it.
+
+A logged write that the bound interrupted marks the operation log unusable, as a
+shutdown-stopped write does, and a logged frame holds the call without its bound
+(`core/unbounded-args`), since a frame describes a write that completed. The daemon holds a
+chaining write to `VAELII_MAX_WRITE_MS` once an operator sets it
+([operations.md](operations.md#operator)).
+
+**A run over a nearly full heap stops.** A collection that leaves the old generation
+over 92% sets `caches/heap-critical?`, through the heap mark every `open-kb` arms or through
+the memory-pressure guard ([caches.md](caches.md#the-heap-mark)). The agenda loop reads it
+before each datum, `derive-conclusion` before each firing, and `cut` before each join row
+under a bound (`chain/heap-check!`). Inside `chain/*rollback-scope*` each read throws
+`:interrupted` with `:bound :heap`, and the write rolls back in the remaining 8%.
+`forward-chain` rolls back on the heap mark under `:on-stop :keep` too: a kept run over a
+nearly full heap would go on to an unbounded settle. A replay (`oplog/*replaying?*`) takes
+no heap stop, in a write, in `bulk-assert-facts!` or in a `forward-chain` frame
+(`chain/heap-stop?`), and runs each logged write to its end, as the logged write ran: the
+log holds a frame only for a write that ended without a stop. Every other run
+outside a rollback scope goes on, since stopping it would leave a removal or a recovery
+that nothing completes: a `retract!`'s settle, `edit!` past its first removal, a rollback
+and `recover`'s re-chains run to their end. This stop is the only one a run takes by
+default, and it prevents an `OutOfMemoryError` rather than judging a cost. No check reads
+the stack depth.
 
 ## Incremental rule matching (`vaelii.impl.rete`)
 
@@ -869,8 +1018,7 @@ not itself behind `plan/*enabled*` — see [the switch](#conjunctive-query-plann
 **Neither answer is a justification.** By default both return binding maps and nothing
 else, and a backward answer is *ephemeral*: it is not stored and has no handle. `query`
 under **`{:proof? true}`** changes the result shape to `[{:bindings … :proof …}]` and
-hands back one justification tree per answer, reading the way `why` does (`:goal` /
-`:via` / `:because`). It needs a depth — without one no rule was expanded and there is
+hands back one justification tree per answer (`:goal` / `:via` / `:because`). It needs a depth — without one no rule was expanded and there is
 no derivation to show — and the tree is a record of that search, not a stored
 justification anything else can read. `proof-tree` replays the answering node's chain of
 rewrites from the query's conjuncts. Where the collapse folded two copies of a literal into
@@ -957,9 +1105,12 @@ small pool — and a caller may write those names too.
 
 `res/freshen-rule` renames each instance clear of every name already in play on the
 path: what the bindings speak for, the goal's own variables, and the conjuncts still
-queued (outer rules' unsolved antecedents). Names come from the `?v'`, `?v''` … series
-rather than a gensym, so the binding maps `prove` returns are the same on every run of
-the same query. Nothing is renamed when nothing clashes, which is the top-level
+queued (outer rules' unsolved antecedents). Each frame carries that set, extended by what
+the frame adds, so an expansion reads it without walking the path. A renamed `?v` is
+`?v'N`, N the size of the set, rather than a gensym, so the binding maps `prove` returns
+are the same on every run of the same query. The set gains every name minted on the path,
+so N differs at each renaming, and an expansion of a chain n deep costs the same at its
+end as at its start. Nothing is renamed when nothing clashes, which is the top-level
 expansion of every query and every rule used once per path.
 
 The node engine has no such shared map — every node carries a namespace of its own, and
@@ -1812,7 +1963,21 @@ costed by `provers/evaluatable-est-override`, and a literal a `SupportingProver`
 by that prover's own estimate (`provers/support-est-override`). A prover that cannot
 enumerate an open argument completely reports `provers/deferred-est` for it, so the
 literal runs after its binders whatever order the rule's facts arrived in, and with the
-ranking off as well (below).
+ranking off as well (below). Both overrides, and the registry's, read the literal under
+the variables the plan has bound (`provers/est-under`): `deferred-est` drops to 1 once
+the inputs the prover reads are bound, so a result-binding evaluatable runs ahead of a
+literal its output binds. The ranking takes a literal an override costs as a test once
+the plan has bound every variable it holds: it costs at most 1 there
+(`plan/override-cost`), so it runs ahead of every literal the model expects to multiply
+the rows in hand. On a tie with another literal the test runs second,
+since the model cannot say whether that literal keeps fewer rows. A check over the
+variables of the first two literals, ahead of a third that multiplies their rows by five,
+is asked once per row of the two (`evaluatable_test`). A literal costed at `deferred-est`
+runs after every literal it ties with, too. A prefix the index counts at no rows ties
+every literal at none, and the count can be wrong: a trigger that binds a commuting
+literal to the spelling the store does not hold reads a row through the commutation that
+the index does not count. Taken there, the computed literal would be asked open, answer
+nothing, and leave the trigger without the firing a full join finds.
 
 **Ordering is a cost decision, never a semantic one.** Four classes of literal are
 placed by readiness rather than by cost, the first two exactly as
@@ -1827,7 +1992,15 @@ placed by readiness rather than by cost, the first two exactly as
   where the storage canonicalization parks them uniformly last.
 - **a rule's recursive literal** runs after the other generators, so the cost model
   cannot reorder a recursion into the shape `prove` prunes after one expansion. No
-  generator follows it except a literal waiting on it for an end (below).
+  generator follows it except a literal waiting on it for an end (below) and a literal
+  the `:est-override` costs at `plan/unbounded` (below) whose inputs only the recursive
+  literal binds: that literal is placed as a deferred literal, after the recursive
+  literal, since ranked among the generators it computes on an open input and the join
+  answers nothing (`plan/hold-computed`). The inputs count as bound when the variables in
+  hand, the other generators, or a computed literal that is itself ready and binds them
+  as output bind them, taken to a fixpoint. A computed literal's inputs are the variables
+  its prover reads: every argument but an evaluatable's `:result` slot, `argN`'s formula,
+  and every argument of any other prover (`provers/input-vars`).
 - **a literal the caller names by `:end-vars`** answers in full only once one end is
   bound: the forward join's `genl` / `genlCx` and `disjoint` antecedent with both ends
   open ([above](#a-genl--genlcx-antecedent-reads-the-closure)). It runs right after the
@@ -1873,7 +2046,9 @@ behind what binds an end, the recursive literal behind the other generators — 
 whether or not the ranking does, because an order that violates it is not slower but
 illegal. A literal the `:est-override` costs at `plan/unbounded` (`provers/deferred-est`:
 a registered evaluatable, or a prover that cannot enumerate an open argument) is computed
-from its bindings too, and unranked it waits until every variable it holds is bound.
+from its bindings too, and unranked it waits until its inputs are bound: the override
+costs it below `plan/unbounded` under the bindings in hand (`provers/est-under`), or
+every variable it holds is bound.
 `[(big_enough ?n) (hasScore ?x ?n)]` with the check ahead of its binder computes on
 nothing and answers empty; a recursive literal ahead of its generators is a rule that may
 not terminate. Neither is a cost, so neither is behind the switch.
@@ -2109,9 +2284,17 @@ antecedents already get ([qcn.md](qcn.md), [inherit.md](inherit.md)):
   `quantityGreaterThan` by any predicate walk, and the facts that would have triggered the
   rule have already arrived — so `chain/fire-rules-for` puts a datum on a
   `support-sources` predicate in front of the rules carrying an antecedent in the
-  `support-functors` of a prover that reads that predicate, and re-joins them in full,
-  exactly as it does for a `(symmetric P)` declaration. That is what makes the firing
-  independent of whether the table or the facts came first.
+  `support-functors` of a prover that reads that predicate, and re-joins them, as it does
+  for a `(symmetric P)` declaration. That is what makes the firing independent of whether
+  the table or the facts came first. Inside a chaining run the re-join is queued behind
+  the datum rather than run, and the datums a run delivers owe each rule one queued
+  re-join (`chain/*computed-rejoins*`). That re-join keeps, past the last computed
+  antecedent in join order, only the rows whose handles hold one of those datums, which
+  the prover's obligation to report every fact its answer moved with makes sound: a row
+  resting on none of them reads an answer they did not move, and the join a predecessor
+  owed placed it. A negated datum, a datum on an edge-installing functor and a relation
+  membership keep every row (`provers/support-delta-source?`), and outside a run the
+  rules re-join in full at once.
 - **A change to a source re-checks every firing of those rules.** A tightest bound narrows
   when a source arrives and widens when one leaves, while every handle the firing names
   stays believed. A datum on a `support-sources` predicate, arriving or leaving, therefore
@@ -2296,10 +2479,19 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   (transitive closure over facts for a declared-`transitive` predicate; `:compute`, **70**
   — it reads the stored facts and the rule conclusions already among them, but not a rule
   that would conclude a further edge), and `SymmetricProver` / `InverseProver` /
-  `ReflexiveProver` (swapped/derived matches; 50, they augment facts). The symmetric
+  `ReflexiveProver` (swapped/derived matches; 50, they augment facts). `ReflexiveProver`
+  answers `(P a a)` only for a term `P`'s `arg` and `argAndRest` declarations admit at
+  both positions (`resolution/arg-admits-fn`, the admission a calculus asks of a typed
+  predicate, read through `res/arg-constraints-at`): a term holding a type disjoint from a
+  declared one is refused, and a term holding no type is admitted. The symmetric
   mirror **delegates** rather than reading storage: `(pred b a)` goes back through the
   registry minus `SymmetricProver` itself, so the mirror of a claim that is *preserved,
   inherited or computed* is an answer, where a raw read finds nothing stored to swap.
+  The delegated list also drops the fact prover when every predicate in the goal's
+  matching fan is symmetric at the reader: the fact read of `(pred a b)` already probed
+  both orders of each, so a symmetric goal reads the store once. A sub-predicate that is
+  not symmetric there (`disjoint` under `diachronicallyDisjoint`) keeps the mirror's fact
+  read, since its stored `(q b a)` answers `(pred b a)` and not `(pred a b)`.
   `InverseProver` does the same with a partner spelling, and the two compose.
   `*mirror-depth*` bounds the re-entry at two levels — the mirror of a mirror is the
   original goal, and a mutual `symmetric`/`inverse` pair would ping between the delegates
@@ -2354,6 +2546,11 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `function` and R's length, cited to the `natFormula` statement, those statements and the
   `genl` path it read ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete
   (50): a stored membership answers beside it.
+- **ResultTypeProver** — `(T (F a…))` over a ground application, answered when a type
+  `F`'s `result` declares, or a `resultArg` position of the application names, reaches
+  `T` through the `genl` edges visible from the context
+  ([nat.md](nat.md#typing-an-application-that-is-never-minted)). Not complete (50): a
+  function that declares no result is open-world.
 - **ArgPositionProver** — `(argN term n formula)`, read off how `formula` is written:
   each position binds `term` to the element there and `n` to the position, 0 being the
   operator. A quoted `formula` answers the positions of the form it names: `(Quote

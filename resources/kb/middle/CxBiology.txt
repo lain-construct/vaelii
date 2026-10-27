@@ -100,6 +100,10 @@
 (genl livesIn locatedIn)
 
 (set/defaultRule (set/forwardRule (implies (and (organism ?x)) (mortal ?x))))
+;; The rule is a default on purpose (life.txt's mortal comment): something known not to
+;; die defeats it.  kb-integrity suggests (genl organism mortal) for it; beside life.txt's
+;; (genl mortal organism) that edge makes the two types one, so the record keeps the rule.
+(declined_rule_macro (genl organism mortal))
 
 ;; ---- warm-bloodedness, read off the class --------------------------------
 ;; Never asserted of any particular animal: the five vertebrate classes are pairwise

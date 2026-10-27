@@ -34,6 +34,36 @@
                     (when (unsatisfiable-as-given? identity entry) pair)))
         net))
 
+(defn components
+  "The connected components of `net`'s constraint graph, each a set of nodes: two nodes
+  share one when a chain of recorded pairs joins them.  In content order, by each
+  component's least node under `nm/print-key`."
+  [net]
+  (let [adj (reduce (fn [m [a b]] (-> m (update a (fnil conj #{}) b) (update b (fnil conj #{}) a)))
+                    {} (keys net))]
+    (loop [todo (set (keys adj)), out []]
+      (if-let [start (first todo)]
+        (let [comp (loop [seen #{start}, frontier [start]]
+                     (if-let [x (peek frontier)]
+                       (let [new (remove seen (adj x))]
+                         (recur (into seen new) (into (pop frontier) new)))
+                       seen))]
+          (recur (reduce disj todo comp) (conj out comp)))
+        (nm/sort-by-content-key #(nm/print-key (nm/min-by-content-key nm/print-key compare %))
+                                compare out)))))
+
+(defn drop-nodes
+  "`m`, a map keyed by `[a b]` pairs, less every pair naming a node in `drop`."
+  [m drop]
+  (if (empty? drop)
+    m
+    (into {} (remove (fn [[[a b]]] (or (contains? drop a) (contains? drop b)))) m)))
+
+(defn select-nodes
+  "`m`, a map keyed by `[a b]` pairs, restricted to the pairs whose two nodes are in `keep`."
+  [m keep]
+  (into {} (filter (fn [[[a b]]] (and (contains? keep a) (contains? keep b)))) m))
+
 ;; ---- bitmask relation sets ----------------------------------------------
 ;; docs/qcn.md, "Bitmasks, not sets".
 

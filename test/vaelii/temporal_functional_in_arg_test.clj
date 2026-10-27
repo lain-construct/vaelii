@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.temporal-functional-in-arg-test
   "A **computed** `genlCx` edge widens which merges a context can see exactly as much as a
-  stated one does — vaelii#56, reported by Lain against the calendar dimension.
+  stated one does — vaelii#56, on the calendar dimension.
 
   `context-nat` materializes `(genlCx <january> <year>)` off a `contextArgSubrelation`
   declaration with nobody asserting it (docs/context-nat.md).  Until this closed, that

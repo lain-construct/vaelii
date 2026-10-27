@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check relative markdown links across the repo's docs resolve to real files.
 
-Scans docs/**.md plus the contributor scaffolding (README, CONTRIBUTING, CONTRIBUTORS,
-the CLAs, SECURITY, the PR template). Reports any [text](path) link whose target
+Scans docs/**.md and handbook/*.md plus the contributor scaffolding (README,
+CONTRIBUTING, CONTRIBUTORS, the CLAs, SECURITY, the PR template). Reports any [text](path) link whose target
 (relative to the linking file) is missing. Skips http(s)/mailto links. Drops ?query
 before resolving. Code-fence contents are skipped so example links don't count.
 
@@ -33,7 +33,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def is_public_doc(path):
     """User-facing doc set the --public-docs check applies to."""
     rel = os.path.relpath(path, ROOT)
-    return rel in SCAFFOLDING or rel.startswith("docs" + os.sep)
+    return rel in SCAFFOLDING or rel.startswith(("docs" + os.sep, "handbook" + os.sep))
 
 
 LINK = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
@@ -112,10 +112,11 @@ def md_files():
         p = os.path.join(ROOT, rel)
         if os.path.exists(p):
             yield p
-    for dirpath, _, names in os.walk(os.path.join(ROOT, "docs")):
-        for n in names:
-            if n.endswith(".md"):
-                yield os.path.join(dirpath, n)
+    for top in ("docs", "handbook"):
+        for dirpath, _, names in os.walk(os.path.join(ROOT, top)):
+            for n in names:
+                if n.endswith(".md"):
+                    yield os.path.join(dirpath, n)
 
 
 def source_files():

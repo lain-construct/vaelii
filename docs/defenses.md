@@ -74,15 +74,22 @@ merely-default context edge, known-true facts under a bare rule conclude `:defau
 same reason — the sighting is as defeasible as the edge that carries it, and a conclusion
 stronger than the wiring it was read over is the same laundering.
 
-The **informant is not in the cap**, though a justification is valid only while its rule
-is believed. That condition is what makes retracting or defeating the rule withdraw
-everything it licensed — a *validity* role, not a ground. A rule takes `:default` unless
-its own assertion says otherwise, exactly as a fact does, so capping on it too would drop
-every datum an ordinary rule licensed to `:default`. This is why a rule's own class
+A **premise informant is not in the cap**, though a justification is valid only while its
+rule is believed. That condition is what makes retracting the rule withdraw everything it
+licensed — a *validity* role, not a ground. A rule takes `:default` unless its own
+assertion says otherwise, exactly as a fact does, so capping on a premise rule too would
+drop every datum an ordinary rule licensed to `:default`. This is why a rule's own class
 (`:strength`, what `defeat-class` answers for its handle) and its defeasibility
 (`:defeasible`, which `set/defaultRule` spells and `chain/rule-fields-of` reads to decide
-what its firings confer) are two slots: only the second moves belief, and nothing in the
-engine defeats a rule, so the first takes part in no contest.
+what its firings confer) are two slots: for a premise rule only the second moves belief,
+and nothing in the engine defeats a premise rule, so the first takes part in no contest.
+
+A **derived informant is in the cap.** A generator's mint has no assertion strength: its
+class is computed from the firing that minted it, so it is the class of the fill. Without
+the cap, a generator over a `:default` fill mints a rule whose firings over known-true
+facts conclude `:monotonic`, and the rule launders the fill as a bare rule would launder a
+`:default` antecedent. The read walk takes a `:monotonic` handle at its label, so a
+laundered conclusion would stay believed after a defeat hid the fill and the mint.
 
 ### The subsumption path is the widest bottleneck, not the shortest route
 
@@ -189,7 +196,7 @@ missing. The last column names the test that asserts the departure, or `none`.
 | order | the browser's listings ([web.md](web.md#a-cap-is-not-an-answer-rank-first-then-cap)) | A listing is in handle order, because paging re-slices one sequence at an offset and a content order moves under every write. | `web_test/a-term-with-thousands-of-sentexes-is-walkable-to-the-end` |
 | order | an ASP solve at the time limit ([asp.md](asp.md#the-time-limit)) | Under an installed `:asp` solver, a solve the wall clock stops decides nothing that round, and which solves it stops depends on the machine's speed and load. `VAELII_ASP_SOLVE_LIMIT` stops a search by its conflict count instead, by default at 100,000, at the same point on every machine ([asp.md](asp.md#the-solve-limit)). The time limit stays as the backstop against a process that does not stop, and is the only limit when the solve limit is set to 0. | `asp_aspif_test/a-solve-past-the-time-limit-is-interrupted-not-answered` |
 | locality | an aggregate over a transitive relation ([aggregate.md](aggregate.md#what-it-costs)) | Every arriving `(ancestorOf a b)` re-joins the rule over every node, and each grouping re-reads its ancestor set. | `none` (`lein bench-aggchain` measures it) |
-| locality | the supersession reconcile ([equality.md](equality.md#what-a-merge-does)) | A `genlCx` edge stored or removed, or a schematic rewrite rule removed, re-examines every superseded datum while any is superseded, since either can retire an entry no class move names (`special/reconcile-move`, `special/reconcile-removed-supersession!`). | `none` |
+| locality | the supersession reconcile ([equality.md](equality.md#what-a-merge-does)) | A `genlCx` edge removed, or a schematic rewrite rule removed, re-examines every superseded datum while any is superseded, since either can retire an entry no class move names (`special/reconcile-removed-supersession!`). A `genlCx` edge stored re-examines the superseded datums stored in a context below its `sub` (`special/reconcile-move`). | `none` |
 | locality | the structural `genlCx` producer ([context-nat.md](context-nat.md#the-structural-genlcx-producer)) | The reconcile re-runs over every context of a declared function, and pairing one sibling group is O(k²) in it. It runs once per edge, on the transition into belief. | `none` |
 | locality | a `conversionFactor` arriving ([quantity.md](quantity.md#what-a-comparison-rests-on)) | The datum re-joins every forward rule with a comparison antecedent, since nothing connects the unit table to a comparison by predicate. | `computed_support_test/the-unit-table-may-arrive-last` |
 | locality | a metric bound's support ([stp.md](stp.md#what-a-derived-bound-rests-on)) | Past the walk bound, a bound rests on every supporter in its network, a sound superset. The walk is bounded because a successor chain can go round a zero-weight cycle without end. | `none` |
@@ -200,7 +207,7 @@ missing. The last column names the test that asserts the departure, or `none`.
 | scoping | the browser's term graph ([web.md](web.md#a-terms-shape-drawn)) | One edge in two contexts is drawn once, and the graph labels no edge with a context. | `none` |
 | belief | levels 0 and 1 ([levels.md](levels.md#operators)) | The two levels answer about storage, so a defeated sentex keeps its handle there. The floor defaults to level 2. | `property_cells_test/levels-read-no-defeated-fact` |
 | belief | `CxEverything` ([contexts.md](contexts.md#cxeverything-syntactic-and-a-named-opt-out-of-belief-filtering)) | The named opt-out reads the store with no belief and no context filter. The as-stored reads (`reads/as-stored-…`, lint E16) and a profile's counts read storage the same way, under names that say so. | `query_context_test/cxeverything-sees-a-defeated-default` |
-| state | the refusal record ([exceptions.md](exceptions.md), [nmtms.md](nmtms.md#3-separated-state)) | Firings a closed extent or a separation refuses, and the `:constraint` and `:lift` entries, are sentences no store holds, so `recover` re-derives them, and a `:constraint` entry of a rule no trigger watches is not re-derived. | `lein lint`'s `derived` check, `HOLDS_CONTENT` |
+| state | the refusal record ([exceptions.md](exceptions.md), [nmtms.md](nmtms.md#3-separated-state)) | Firings a closed extent or a separation refuses, and the `:lift` entries, are sentences no store holds, so `recover` re-derives them. A firing an argument conviction convicts is stored and held OUT by the argument hold. | `lein lint`'s `derived` check, `HOLDS_CONTENT` |
 | state | the rete matcher's alpha memories ([nmtms.md](nmtms.md#3-separated-state)) | Under `VAELII_RETE=1` or `rete/track!`, the matcher keeps stored facts by functor and argument in its own index beside the IndexStore. | `lein lint`'s `derived` check, `OUTSIDE_INDEX` |
 | belief | a reader thread beside the writer ([storage.md](storage.md#the-single-writer-contract)) | A read takes the postings and then belief per candidate, so a match stored or withdrawn between the two reads is missing. Beside a settle, belief is held but the taxonomy closures are read as the settle moves them. One state per read needs a realized answer and a retry, or a versioned store. | `none` |
 
@@ -1154,7 +1161,7 @@ family names members off. The engine takes the smaller rule ([taxonomy.md](taxon
 *A separation answers a denial*).
 
 The checks read the same denial. The cover refutation reads each part's denial through
-the prover registry (`checks/cover-refutations`), and a prover the checks did not read
+the prover registry (`checks/cover-problem`), and a prover the checks did not read
 would split one denial into two readings: `argue` would report a `:contradiction` that
 `contradictions` does not list. A derived denial names no stored sentex by itself, so a
 cover it refutes would have no opposing handle, and the write would be refused where a
@@ -1196,11 +1203,29 @@ dropped for having no placement context.
 
 ### A placeholder is retired by rewriteOf, not equals
 
-Defends [nat.md](nat.md#the-corresponding-predicate). When a corresponding fact names the
-value `V` of an application already minted as `K`, the engine asserts `(rewriteOf V K)`.
-The two sides are not interchangeable: `V` is a name somebody wrote and `K` stands in for
-not knowing it. An `equals` would let the class elect whichever term sorts first, which
-can be `K`, and every use of `V` would then migrate onto the opaque constant.
+Defends [nat.md](nat.md#the-corresponding-predicate). When a `:monotonic` corresponding
+fact names the value `V` of an application already minted as `K`, the engine derives
+`(rewriteOf V K)`. The two sides are not interchangeable: `V` is a name somebody wrote and
+`K` stands in for not knowing it. An `equals` would let the class elect whichever term
+sorts first, which can be `K`, and every use of `V` would then migrate onto the opaque
+constant.
+
+### A `:default` value copies the placeholder's uses instead of merging
+
+Defends [nat.md](nat.md#the-corresponding-predicate). A `:default` corresponding fact
+gives each sentex and rule naming `K` a derived copy with `V` in `K`'s place, and stores
+no `(rewriteOf V K)`. `rewriteOf` stays in the forced-monotonic set
+([nmtms.md](nmtms.md#the-forced-monotonic-set)).
+
+A merge resting on a `:default` fact would be defeasible, and a merge supersedes `K`'s
+spellings. A defeat of the fact would then withdraw the merge and bring `K`'s superseded
+sentexes back IN: the defeat of one fact would add belief. A copy supersedes nothing, so
+`K`'s own sentexes stay believed whatever the fact's label, and a defeat of the fact takes
+only the copies OUT. A write in a context that reads only a `:default` value mints `K` for
+the same reason: a stored sentence spelled `V` keeps that spelling after the fact loses,
+with nothing left to say why it names `V`. The cost is one copy per use and per rule
+naming `K` while the value is visible, and one extra lookup per goal naming the
+application or `K` in a context reading the value.
 
 ### The collision merge reads the merged class, not the whole map
 
@@ -2116,8 +2141,8 @@ different workload with a reason to want it.
 
 ### A search bound may be lowered by a request and not raised
 
-`:max-depth` and `:max-ms` are the two dials a caller sets on a served read, and each is
-held under a ceiling (`config/max-query-depth`, `config/max-query-ms`) that a request may
+`:max-ms` and `:max-depth` are the two dials a caller sets on a served read, and each is
+held under a ceiling (`config/max-query-ms`, `config/max-query-depth`) that a request may
 name a smaller value than and is refused (`:over-ceiling`) for naming a larger one. An
 anytime read that names no clock at all is given the ceiling's, since absent there means
 *no clock*, and the daemon has an answer to "how long may this run" for every other read.
@@ -2129,9 +2154,18 @@ a caller chose is an exponential a caller chose to spend on somebody else's beha
 
 The ceiling is **30 seconds** because that is when the caller stops listening — the
 zero-dep client's own read timeout ([operations.md](operations.md)) — so a read still
-running past it is holding the writer for an answer nobody is waiting for. The depth
-ceiling is **256** because it is the largest depth the API's own defaults name (`why`'s),
-so every documented call sits inside it.
+running past it is holding the writer for an answer nobody is waiting for.
+
+**The clock is the cost bound, and a depth ceiling holds only a read that takes no clock.**
+A depth ceiling refuses a complete answer whose derivation is deeper than the ceiling,
+however little the search would spend reaching it, so a read that takes `:max-ms` is held
+to the clock and to no depth. `:query`, `:query?`, `:query-status` and `:argue` read
+`query`'s key set, which has no clock, and the depth ceiling (**256**) is their only bound.
+`why` reads no bound at all: it returns the reachable justification graph with each
+handle once, so its cost is linear in what it returns ([api.md](api.md)). The rejected
+shape is a tree under a depth cap. A node with two justifications that share an
+antecedent doubles the tree at each level, so the tree grows exponentially under any cap,
+and a cap of 256 still cuts a 300-link chain (`why_test`).
 
 Two shapes were rejected. **Silently clamping** — answering under a lowered bound — hands
 back a partial result labelled as the one that was asked for, which is the anytime

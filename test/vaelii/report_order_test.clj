@@ -48,14 +48,17 @@
         js))
 
 (defn- proof
-  "A `why` tree as content: the sentence at each node, and under it the sentences its
-  justification named, in the order the report puts them.  `:justification` and
-  `:informant` are dropped — both are handles."
+  "`why`'s graph `w` as content from its root: the sentence at each node, and under it
+  the sentences its justification named, in the order the report puts them.
+  `:justification` and `:informant` are dropped — both are handles."
   [w]
-  (cond-> (select-keys w [:sentence :context :believed? :premise? :cycle? :stored?])
-    (:support w)
-    (assoc :support (mapv (fn [s] {:rule (:rule s) :because (mapv proof (:because s))})
-                          (:support w)))))
+  (letfn [(node [h]
+            (let [n ((:nodes w) h)]
+              (cond-> (select-keys n [:sentence :context :believed? :premise? :stored?])
+                (:support n)
+                (assoc :support (mapv (fn [s] {:rule (:rule s) :because (mapv node (:because s))})
+                                      (:support n))))))]
+    (node (:root w))))
 
 (defn- both-orders
   "Run `load!` on a cleared KB once per ordering, and read each back with `read`.

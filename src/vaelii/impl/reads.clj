@@ -411,6 +411,28 @@
   (prof/record-read :predicate-extent)
   (p/family-handles index :shape-tuple [f n] p/every-context))
 
+(defn stored-count-denials-in
+  "How many **stored** negative facts `(not (f …))` there are in the contexts of
+  `contexts`, a set, or `p/every-context` for all of them: `stored-count-denials-global`
+  read at those contexts' leaves.  A positive fact of no argument, `(f)`, sits in the
+  extent and at no stored length, so it counts here too: 0 is exact, and any other
+  answer bounds the denials from above."
+  [index f contexts]
+  (read-in! contexts)
+  (prof/record-read :predicate-extent)
+  (- (long (p/family-count index :predicate-extent [f] contexts))
+     (transduce (map #(long (p/family-count index :shape-tuple [f %] contexts))) +
+                (as-stored-shape-lengths index f))))
+
+(defn as-stored-shape-tuples-in
+  "The handles of the **stored** positive facts of functor `f` holding `n` arguments in
+  the contexts of `contexts` (a set, or `p/every-context`), belief unread.  One context
+  answers its leaf as stored."
+  [index f n contexts]
+  (read-in! contexts)
+  (prof/record-read :predicate-extent)
+  (p/family-handles index :shape-tuple [f n] contexts))
+
 ;; ---- the arity bindings ----------------------------------------------------
 ;; The stored facts binding a relation's length (`sx/arity-binding`), read by the arity
 ;; family, which keeps a reader's by `jtms/in?` and its ancestor set.
@@ -640,6 +662,25 @@
   (prof/record-read :rule-index)
   (boolean (p/family-member? index :rule-antecedent-keys [] k)))
 
+(defn stored-rule-key-test
+  "A membership test for the antecedent keys some **stored** rule takes, or nil when no
+  stored rule takes one: one read, the key count, then one membership test per key the
+  caller asks about."
+  [index]
+  (prof/record-read :rule-index)
+  (when (pos? (long (p/family-child-count index :rule-antecedent-keys [])))
+    (fn [k] (boolean (p/family-member? index :rule-antecedent-keys [] k)))))
+
+(defn as-stored-rule-keys-deferred
+  "`[n keys]`: how many antecedent keys the **stored** rules take, and `as-stored-rule-keys`
+  as a delay, or nil when they take none.  One read, the key count, and the set read only
+  when the caller forces the delay."
+  [index]
+  (prof/record-read :rule-index)
+  (let [n (long (p/family-child-count index :rule-antecedent-keys []))]
+    (when (pos? n)
+      [n (delay (p/family-leaf index :rule-antecedent-keys []))])))
+
 (defn as-stored-rule-keys-meeting
   "The antecedent keys some **stored** rule takes among a caller's candidates, as a vector,
   read from the smaller side in one read.  `within` takes the stored key count and returns
@@ -733,6 +774,13 @@
   [index]
   (prof/record-read :mint)
   (long (p/family-child-count index :mint-in [])))
+
+(defn stored-mint-count-in
+  "How many mints are filed in the contexts `cs`.  One count read per context."
+  [index cs]
+  (read-in! cs)
+  (prof/record-read :mint)
+  (long (p/family-count index :mint-in [] cs)))
 
 (defn as-stored-mints-in
   "Handles of the mints filed in context `c`.  One leaf read."

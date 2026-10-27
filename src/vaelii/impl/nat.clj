@@ -105,54 +105,37 @@
            (kb/sentexes-matching kb (list 'natFormula nat-sym '?e) nat-read/universal-context)))))
 
 (defn- result-targets
-  "The distinct arg2s of believed `(<pred> head ?t)` facts.  Without `context` the read
-  is global, as the mint reads; with it, through the declarations visible from `context`
-  (`res/matches-visible`), as a check reads (docs/nat.md, Typing an application that is
-  never minted)."
+  "The distinct arg2s of believed `(<pred> head ?t)` facts, read globally as the mint
+  reads.  With `context`, through the declarations visible from it
+  (`nat-read/visible-result-targets`), as a check reads (docs/nat.md, Typing an
+  application that is never minted)."
   ([kb pred head]
    (->> (kb/sentexes-matching kb (list pred head '?t) '?ctx)
         (keep #(nth (:sentence %) 2))
         distinct))
   ([kb pred head context]
-   (->> (res/matches-visible kb (list pred head '?t) context)
-        (keep #(get (nth % 1) '?t))
-        distinct)))
-
-(defn- result-arg-types
-  "The symbols application `E` holds at the positions a `(resultArg head n)` declares,
-  `head` being `E`'s function.  A position `E` lacks, or a non-symbol there, names no type.
-  One O(1) functor count on a KB declaring no `resultArg`."
-  [kb E context]
-  (when (pos? (reads/stored-count-with-functor (:index kb) 'resultArg))
-    (let [as (vec (rest E))
-          ns (if context
-               (result-targets kb 'resultArg (first E) context)
-               (result-targets kb 'resultArg (first E)))]
-      (distinct
-       (for [n     ns
-             :let  [t (when (and (integer? n) (<= 1 n (count as))) (nth as (dec n)))]
-             :when (and (symbol? t) (not (sx/variable? t)))]
-         t)))))
+   (nat-read/visible-result-targets kb pred head context)))
 
 (defn- result-arg-declared
   "The positions the `(resultArg f n)` declarations stored anywhere name, behind the
-  functor count `result-arg-types` reads."
+  functor count `nat-read/visible-result-types` reads."
   [kb f]
   (when (pos? (reads/stored-count-with-functor (:index kb) 'resultArg))
     (result-targets kb 'resultArg f)))
 
 (defn result-types
   "Types `T` with `(result head T)`: what an application of `head` is an instance of.
-  Globally, or with `context` through the declarations visible from it.  Given an
-  application `(head a…)` in place of `head`, adds the argument at each position a
-  `(resultArg head n)` declares."
+  Globally, or with `context` through the declarations visible from it
+  (`nat-read/visible-result-types`).  Given an application `(head a…)` in place of
+  `head`, adds the argument at each position a `(resultArg head n)` declares."
   ([kb head] (result-types kb head nil))
   ([kb head context]
-   (let [f  (if (sequential? head) (first head) head)
-         rs (if context (result-targets kb 'result f context) (result-targets kb 'result f))]
-     (if (sequential? head)
-       (distinct (concat rs (result-arg-types kb head context)))
-       rs))))
+   (if context
+     (nat-read/visible-result-types kb head context)
+     (let [rs (result-targets kb 'result (if (sequential? head) (first head) head))]
+       (if (sequential? head)
+         (distinct (concat rs (nat-read/result-arg-types head (result-arg-declared kb (first head)))))
+         rs)))))
 
 (defn genl-result-types
   "Types `T` with `(genlResult head T)`: what an application of `head` is a subtype of.
@@ -162,46 +145,13 @@
   ([kb head context]
    (result-targets kb 'genlResult (if (sequential? head) (first head) head) context)))
 
-(defn any-result-declarations?
-  "Does the KB declare any `result`, `genlResult` or `resultArg`?  Three O(1) functor
-  counts."
-  [kb]
-  (let [ix (:index kb)]
-    (or (pos? (reads/stored-count-with-functor ix 'result))
-        (pos? (reads/stored-count-with-functor ix 'genlResult))
-        (pos? (reads/stored-count-with-functor ix 'resultArg)))))
+(def any-result-declarations?
+  "`nat-read/any-result-declarations?`."
+  nat-read/any-result-declarations?)
 
 ;; ---- the corresponding predicate (docs/nat.md, The corresponding predicate) ---
 
-(defn- value-replacing
-  "The one value the corresponding facts visible from `context` name for `E` beside the
-  constant `k`, spelled under `context`'s merges, or nil when they name none or several,
-  or when `context` already reads `k` as that value."
-  [kb E k context]
-  (let [others (disj (or (nat-read/visible-values kb E context) #{}) (kb/rewrite-term kb k context))]
-    (when (= 1 (count others)) (first others))))
-
-(defn- retire-in!
-  "Merge the constant `k` minted for `E` into the one value `context` reads for `E`
-  beside it (`value-replacing`), by a `(rewriteOf v k)` stated in `context`, so the merge
-  holds where the value is visible (docs/nat.md, The corresponding predicate).  Nothing
-  when `context` reads no such value."
-  [kb E k context]
-  (when-let [v (value-replacing kb E k context)]
-    (wiring/assert-sentence kb (list 'rewriteOf v k) context {:strength :monotonic})))
-
-(defn- retire-onto-values!
-  "`retire-in!` for constant `k` minted for `E` in each context that holds a believed
-  corresponding fact for `E`, most general first."
-  [kb E k]
-  (when-let [goal (nat-read/corresponding-literal kb E '?v)]
-    (let [tx (reasoning/taxonomy kb)]
-      (doseq [c (nm/sort-by-content-key (juxt #(count (tax/context-up tx %)) nm/print-key)
-                                        compare
-                                        (into #{} (map :context) (kb/sentexes-matching kb goal '?ctx)))]
-        (retire-in! kb E k c)))))
-
-(defn- minted-applications
+(defn minted-applications
   "The `[expression constant]` pairs minted for function `f` in argument position, read
   off the inverted term index for `f`."
   [kb f]
@@ -335,33 +285,17 @@
 
 (defn- minted-for
   "The sentences `mint-nat!` writes about the constant `k` it minted for expression `E`,
-  re-derived from the declarations the mint read: `(T k)` per believed `(result F T)`,
-  `(genl k T)` per `(genlResult F T)`, `F` being `E`'s function, and the correspondence
-  projection.  Empty for a `cx/` constant, whose mint writes only its map."
+  re-derived from the declarations the mint read: `(T k)` per believed `(result F T)` and
+  `(genl k T)` per `(genlResult F T)`, `F` being `E`'s function.  Empty for a `cx/`
+  constant, whose mint writes only its map."
   [kb k E]
   (if (nat-read/reified-context-symbol? k)
     #{}
-    (into (if-let [lit (nat-read/corresponding-literal kb E k)] #{lit} #{})
+    (into #{}
           (when (any-result-declarations? kb)
             (let [head (first E)]
               (concat (map #(list % k) (result-types kb head))
                       (map #(list 'genl k %) (genl-result-types kb head))))))))
-
-(defn- computed-genlCx-edge?
-  "Is `sx` a `genlCx` edge the structural producer computed: not a premise, and every
-  support under the `contextArgSubrelation` informant (docs/context-nat.md, Orphan
-  collection)?  Belief is not read."
-  [kb sx]
-  (let [s (:sentence sx)]
-    (and (= 'genlCx (nm/functor s))
-         (= nat-read/universal-context (:context sx))
-         (let [tms (reasoning/tms kb)
-               h   (:id sx)
-               js  (jtms/supports tms h)]
-           (and (not (jtms/premise? tms h))
-                (seq js)
-                (every? #(= 'contextArgSubrelation (:informant (jtms/justification tms %)))
-                        js))))))
 
 (defn- nat-bookkeeping-of?
   "Is `sx` one of constant `k`'s bookkeeping sentexes: its `natFormula` map, or a sentence
@@ -400,20 +334,36 @@
               (nth s 2 nil))))
         sentexes))
 
-(defn- own-sentex-test
+(defn- projected-from?
+  "Is `sx` a projection of a constant's map: not a premise, and every justification
+  drawn under the correspondence (`res/correspondence-predicate`) from a source handle
+  `map?` accepts (docs/nat.md, The corresponding predicate)?"
+  [kb map? sx]
+  (let [tms (reasoning/tms kb)
+        h   (:id sx)
+        js  (keep #(jtms/justification tms %) (jtms/supports tms h))]
+    (and (not (jtms/premise? tms h))
+         (seq js)
+         (every? #(and (= res/correspondence-predicate (:informant %)) (some map? (:antecedents %)))
+                 js))))
+
+(defn own-sentex-test
   "A test of whether a stored sentex naming constant `k` is `k`'s own rather than a use:
-  its bookkeeping (`nat-bookkeeping-of?`), for a context a `genlCx` edge the structural
-  producer computed (`computed-genlCx-edge?`), or a record the argument-type entailment
-  derives from `k`'s own sentexes alone (`entailed-from?`), read transitively over
-  `sentexes`.  `E` is the expression `k` maps to, and `sentexes` the term-index answer
-  for `k`."
+  its bookkeeping (`nat-bookkeeping-of?`), a projection of its map (`projected-from?`),
+  for a context a `genlCx` edge the structural producer computed
+  (`nat-read/computed-genlCx-edge?`), or a record the argument-type entailment derives
+  from `k`'s own sentexes alone (`entailed-from?`), read transitively over `sentexes`.
+  `E` is the expression `k` maps to, and `sentexes` the term-index answer for `k`."
   [kb k E sentexes]
   (let [minted (delay (minted-for kb k E))
         by-id  (delay (into {} (map (juxt :id identity)) sentexes))
+        map?   (fn [h] (when-let [m (get @by-id h)]
+                         (let [s (:sentence m)] (and (= 'natFormula (nm/functor s)) (= k (second s))))))
         ctx?   (nat-read/reified-context-symbol? k)]
     (letfn [(own? [seen sx]
               (or (nat-bookkeeping-of? k minted sx)
-                  (and ctx? (computed-genlCx-edge? kb sx))
+                  (projected-from? kb map? sx)
+                  (and ctx? (nat-read/computed-genlCx-edge? kb sx))
                   (entailed-from? kb
                                   (fn [h] (and (not (contains? seen h))
                                                (when-let [src (get @by-id h)]
@@ -492,10 +442,11 @@
 (defn mint-nat!
   "Mint the reified constant `K` for the ground NAT expression `E` in reify namespace `ns`
   (`cx/` for a context slot, `nat/` for an argument) and return it.  Asserts `(natFormula
-  K E)` in CxUniverse and, for a `nat/` constant, the materialized result types and the
-  correspondence projection, all `:monotonic`.  The result types and the projection
-  chain as `chain?` says; the map chains only when a `resultArg` of `E`'s function is
-  declared (docs/defenses.md, The mint's natFormula fact does not chain)."
+  K E)` in CxUniverse and, for a `nat/` constant, the materialized result types, all
+  `:monotonic`, then queues `K` for the correspondence derivations (`nat-read/note-values`,
+  the projection among them).  The result types chain as `chain?` says; the map chains
+  only when a `resultArg` of `E`'s function is declared (docs/defenses.md, The mint's
+  natFormula fact does not chain)."
   ([kb E] (mint-nat! kb E nat-read/nat-namespace true))
   ([kb E ns chain?]
    (let [head (first E)
@@ -503,19 +454,18 @@
          k    (constant-for ns E)
          univ nat-read/universal-context
          opts {:strength :monotonic :chain? chain?}]
-     ;; a `resultArg` of `head` types `k` off this fact (`checks/result-arg-rows`)
-     (wiring/assert-sentence kb (list 'natFormula k E) univ
-                             (assoc opts :chain? (and chain? (not ctx?)
-                                                      (boolean (seq (result-arg-declared kb head))))))
-     (when-not ctx?
-       (doseq [t (result-types kb head)]
-         (wiring/assert-sentence kb (list t k) univ opts))
-       (doseq [t (genl-result-types kb head)]
-         (wiring/assert-sentence kb (list 'genl k t) univ opts))
-       ;; last: the projection is arg-checked against `k`'s result types
-       (when-let [lit (nat-read/corresponding-literal kb E k)]
-         (wiring/assert-sentence kb lit univ opts)
-         (retire-onto-values! kb E k)))
+     (binding [nat-read/*minting?* true]
+       ;; a `resultArg` of `head` types `k` off this fact (`checks/result-arg-rows`)
+       (wiring/assert-sentence kb (list 'natFormula k E) univ
+                               (assoc opts :chain? (and chain? (not ctx?)
+                                                        (boolean (seq (result-arg-declared kb head))))))
+       (when-not ctx?
+         (doseq [t (result-types kb head)]
+           (wiring/assert-sentence kb (list t k) univ opts))
+         (doseq [t (genl-result-types kb head)]
+           (wiring/assert-sentence kb (list 'genl k t) univ opts))))
+     ;; after the result types, which the projection is arg-checked against
+     (when-not ctx? (nat-read/note-values kb [(list 'natFormula k E)] true))
      k)))
 
 (defn reify-or-mint-nat
@@ -631,47 +581,6 @@
            (seq (tax/equality-edges tx)))
       (merge-collisions! kb (formula-rows-below kb (second sentence))))))
 
-;; ---- correspondence maintenance: whichever of the three arrives last ------
-
-(defn- merge-corresponding-nat!
-  "Retire the constant minted for an application onto the value a just-asserted
-  corresponding fact `sentence` names for it, in the fact's `context`, when that is the
-  one value `context` reads beside the constant (`retire-in!`)."
-  [kb sentence context]
-  (let [args (vec (rest sentence))
-        m    (dec (count args))]
-    (doseq [[f _ n] (res/believed-correspondences kb #(= (first sentence) (second %)))
-            :let    [pos (or n (inc m))]
-            :when   (and (<= 0 m) (<= 1 pos (inc m)) (nat-read/reifiable-function? kb f))
-            :let    [E (apply list f (concat (subvec args 0 (dec pos)) (subvec args pos)))
-                     k (nat-read/dedup-constant kb E nat-read/nat-namespace context)]
-            :when   k]
-      (retire-in! kb E k context))))
-
-(defn- reconcile-declared-correspondence!
-  "Bring the constants minted for function `f` before its correspondence declaration in
-  line with it: each one is projected onto the predicate when CxUniverse reads no value
-  for it, and retired onto the value each context holding a corresponding fact reads
-  (`retire-onto-values!`).  Idempotent."
-  [kb f]
-  (doseq [[E k] (minted-applications kb f)]
-    (when-not (value-replacing kb E k nat-read/universal-context)
-      (when-let [lit (nat-read/corresponding-literal kb E k)]
-        (wiring/assert-sentence kb lit nat-read/universal-context {:strength :monotonic})))
-    (retire-onto-values! kb E k)))
-
-(defn- reconcile-correspondence!
-  "The correspondence maintenance a just-asserted `sentence` calls for: a declaration
-  reconciles the applications minted before it, and a fact on a corresponding predicate
-  reconciles the application it names a value for in its `context`.  One functor count on
-  a KB declaring no correspondence."
-  [kb sentence context]
-  (when (and (res/any-corresponding-predicates? kb) (seq sentence))
-    (if (= res/correspondence-predicate (first sentence))
-      (when (symbol? (second sentence))
-        (reconcile-declared-correspondence! kb (second sentence)))
-      (merge-corresponding-nat! kb sentence context))))
-
 (defn- reconcile-declared-result!
   "Materialize a `(result F T)` or `(genlResult F T)` that arrived *after* constants were
   minted for `F`: each one gets the `(T K)` or `(genl K T)` the mint writes when the
@@ -689,12 +598,11 @@
 
 (defn reconcile-nats!
   "The reified-constant maintenance a just-asserted `sentence` owes, in this order: the
-  collision repair (`merge-colliding-nats!`), the correspondence, then a result declaration
-  reaching the constants minted before it.  `nat-maintenance/reconcile-assert` calls it
-  behind `any-reified-constants?`.  `context` is where `sentence` is stored."
-  [kb sentence context]
+  collision repair (`merge-colliding-nats!`), then a result declaration reaching the
+  constants minted before it.  `nat-maintenance/reconcile-assert` calls it behind
+  `any-reified-constants?`, and queues the correspondence derivations itself."
+  [kb sentence]
   (merge-colliding-nats! kb sentence)
-  (reconcile-correspondence! kb sentence context)
   (reconcile-declared-result! kb sentence))
 
 ;; ---- a reifiable mark moving: the reads `chain/reconcile-reified!` runs on --
@@ -708,7 +616,7 @@
   [kb sentence context]
   (maybe-reify-nats kb (expand-expression kb sentence nat-read/reified-object-symbol?) context))
 
-(defn- applies?
+(defn applies?
   "Does `sentence` hold an application of `f`, at any nesting?"
   [f sentence]
   (boolean (some #(and (sequential? %) (= f (first %))) (tree-seq sequential? seq sentence))))
@@ -790,15 +698,17 @@
 
 (defn names-open-application?
   "Does `form` hold an open application of a `reifiable_function` (the mark read
-  unscoped), outside a mention?  False on a KB declaring none, with no walk."
+  unscoped), outside a mention: a quoting position or a `modal_predicate`'s proposition
+  (`res/open-applications`)?  False on a KB declaring none, with no walk."
   [kb form]
   (and (nat-read/any-reifiable-functions? kb)
        (let [tax (reasoning/taxonomy kb)]
-         (boolean (seq (res/open-applications #(tax/has-prop? tax :reifiable %) form))))))
+         (boolean (seq (res/open-applications (:modal (tax/mention-marks tax))
+                                              #(tax/has-prop? tax :reifiable %) form))))))
 
 (defn held-application?
   "Does stored rule `sx` hold an open application in an antecedent that
-  `res/respell-applications` left as written, so the rule is held in the `:out` forced
+  `res/respell-applications` left as written, so the rule is held in the `:held` forced
   set: one of a `reifiable_function` (the mark read unscoped), or a variable-functor
   application outside a sentence position (`res/holds-variable-application?`)?  The
   consequent is not read: a firing mints its applications (docs/nat.md, Derivation
@@ -811,7 +721,7 @@
 
 (defn held-application-rules
   "The stored rules `held-application?` holds, read off the rule extent of every context
-  (the `:out` forced set is one record every reader shares)."
+  (the `:held` forced set is one record every reader shares)."
   [kb]
   (->> (reads/as-stored-rules-in-global (:index kb) :rule)
        (keep #(p/get-sentex (:records kb) %))
@@ -850,15 +760,17 @@
   "The stored rules with an antecedent or a consequent on one of `preds` that name a
   variable-functor application (`res/names-variable-application?`), in content order:
   the rules whose hold a `formula` position of one of `preds` decides
-  (`held-application?`).  Reads every context: the hold is one record every reader shares."
+  (`held-application?`).  Reads every context, and the `modal_predicate` mark KB-wide
+  (`tax/mention-marks`): the hold is one record every reader shares."
   [kb preds]
-  (let [ix (:index kb)]
+  (let [ix    (:index kb)
+        modal (:modal (tax/mention-marks (reasoning/taxonomy kb)))]
     (->> (sort preds)
          (mapcat #(concat (reads/as-stored-rules-by-antecedent-global ix %)
                           (reads/as-stored-rules-by-consequent-global ix %)))
          distinct
          (keep #(p/get-sentex (:records kb) %))
-         (filter #(res/names-variable-application? (sx/sentence-of %)))
+         (filter #(res/names-variable-application? modal (sx/sentence-of %)))
          (nm/sort-by-content-key #(vector (sx/sentence-of %) (:context %))))))
 
 (defn corresponded-rules

@@ -216,15 +216,16 @@ took a second reporting point to be worth anything: the agenda loop sees a run o
 hold the loop for a minute. So a firing reports too, and the
 interval is wall-clock — about four reports a second — rather than a datum count, since
 datum cost spans microseconds to minutes. A single *unproductive* join is the stretch that
-still says nothing, bounded by the extent it scans. An aborted fixpoint leaves the
+still says nothing, bounded by the extent it scans. The loader runs the pass with `:on-stop
+:keep` ([inference.md](inference.md#stopping-a-run)), so an aborted fixpoint leaves the
 conclusions it had already placed, like every other cancelled phase.
 
-Bounds are still what keep a chained load finite rather than merely interruptible: the
-generator bounds cascade depth at its own layer count and passes the engine's
-`:max-derivations` backstop, which the UI exposes as the derivation cap (a run overshoots
-it by the last datum's fan-out, since the bound is checked between datums). A corpus has
-no layer count to bound a cascade by, so there the cap is the *whole* bound — which is
-why the corpus card carries one of its own.
+The corpus card sets no derivation cap by default, so a chained corpus load runs to its
+fixpoint; a corpus has no layer count to bound a cascade by. The generator bounds cascade
+depth at its own layer count, and a generator card left without a cap takes
+`vaelii.host.io.generate/defaults`' `:max-derivations`. A cap the reader fills in passes the
+engine's `:max-derivations`, and a run overshoots it by the last datum's fan-out, since the
+bound is checked between datums.
 
 **A chained load chains once, at the end.** The generator and the corpus loader assert
 with `:chain? false`, and the pass runs after them: firing rules against a KB whose rules

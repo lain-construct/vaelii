@@ -27,7 +27,7 @@
 # neither takes the mean.
 #
 # Usage:
-#   scripts/test-parallel.sh                 # :default, jobs from scripts/lib/slots.sh
+#   scripts/test-parallel.sh                 # :default, jobs from scripts/lib/slots.sh, at least TEST_MIN_JOBS (3)
 #   scripts/test-parallel.sh :all            # the ^:slow tests too
 #   scripts/test-parallel.sh --jobs 4        # a fixed shard count
 #   scripts/test-parallel.sh :all --jobs 6
@@ -83,7 +83,12 @@ case "${VAELII_TEST_BACKEND:-memory}" in
     exit 2 ;;
 esac
 
-[[ -z "$jobs" ]] && jobs=$(default_slots)   # P-2 minus running vaelii JVMs; see scripts/lib/slots.sh
+# P-2 minus running vaelii JVMs (scripts/lib/slots.sh), floored at TEST_MIN_JOBS: an idle
+# REPL or server counts as a running JVM, and one shard takes the suite past 50 minutes.
+if [[ -z "$jobs" ]]; then
+  jobs=$(default_slots)
+  (( jobs < ${TEST_MIN_JOBS:-3} )) && jobs=${TEST_MIN_JOBS:-3}
+fi
 
 mkdir -p "$OUT" || exit 1
 # The revision the shards are about, read BEFORE the first JVM boots: a sharded

@@ -4,8 +4,9 @@
   `Tallying`, `BulkLoading` and `BulkAnnotating` capabilities, what the three enumerations promise and what a
   handle set costs per handle, the sink an `import!` writes its records through, the eight legal record×index backend pairings and the optional `:sqlite` and
   `:pg` records adapters, nippy serialization, what one fact of a bulk load costs phase by
-  phase, what an open reports of a record nothing supports, what a shutdown waits for,
-  and the single-writer contract.
+  phase, the two routes from a load to the chained closure and what each costs, loading a
+  snapshot that changes over a fixed base, what an open reports of a record nothing
+  supports, what a shutdown waits for, and the single-writer contract.
 - **Not here:** the six index families' key layout and retrieval →
   [indexing.md](indexing.md); the dense/columnar backends that replace the default
   map-based structures → [density.md](density.md).
@@ -222,7 +223,11 @@ a hint the ordinary query does not get.
 live record and `recover` every stored justification; both consume every handle they are
 given, so a hint there can only save round trips and can never waste one. The query path's
 setting exists because a consumer that stops early has over-fetched a chunk — a trade a
-recovery walk does not make. `capabilities/recovery-hint-chunk` is the size.
+recovery walk does not make. `capabilities/recovery-hint-chunk` is the size. The
+membership placement pass hints the same way, a chunk of terms at a time
+([nmtms.md](nmtms.md#the-placement-pass)), and so does the settle's subsumed-mint
+withdrawal, a chunk of candidate mints at a time
+([argtypes.md](argtypes.md#pruning-what-the-kb-says-more-specifically--vaelii_prune_subsumed_mints-on)).
 
 ### The enumerations, and what a handle set costs
 
@@ -932,13 +937,19 @@ and restored (`seal/restore!`): both images install against the fingerprints the
 records, and the frames of the current generation replay through the public write entry
 points, each replayed write checked against the record stored at its handle. A clean close
 seals, so the open after it replays no frame. The restore declines when the log is
-unusable, an image does not install, a replayed write differs from the stored record, or
-the store holds a record no replayed frame accounts for. The directory is then closed
-without writing an image, opened again with the caller's `:recover?`, and sealed. A directory with
-no seal is opened and sealed the same way. A write by a KB opened without `:oplog?`,
-under any disk backend over the directory, renames the seal to `retired.nippy`
-(`seal/retire-unlogged!`): the write reaches the records and no log, and the next open
-with the log opens from the images or the records and seals again. The open
+unusable, the log holds no frame and the records' `belief-fingerprint` differs from the
+seal's (`:records-moved`: a second `:pg` KB over the same schema wrote them), an image
+does not install, a replayed write differs from the stored record, the store holds a
+record no replayed frame accounts for, or after a replay the network and the records
+disagree on a handle: a node or a justification with no record, or a premise mark one of
+the two holds and the other does not (`:records-moved` as well). A replayed frame writes a
+record it finds missing, so a second writer's deletion of a record a frame wrote is undone
+rather than detected. The directory is then closed without writing an image, opened again
+with the caller's `:recover?`, and sealed. A directory with no seal is opened and sealed
+the same way. A write by a KB opened without `:oplog?`, under any disk backend over the
+directory, renames the seal to `retired.nippy` and fsyncs the directory before the write
+runs (`seal/retire-unlogged!`): the write reaches the records and no log, and the next
+open with the log opens from the images or the records and seals again. The open
 logs which path ran, at `:info` for a restore or a directory with no seal and at `:warn`
 for a decline with its reason, and the log keeps the report (`oplog/opened`): `{:restored
 true :frames n :ms t}` or `{:restored false :reason r :ms t}`.
@@ -952,16 +963,17 @@ docstring lists what a crash between those writes leaves. A seal is declined, an
 left as it is, inside an operation, inside `with-deferred-settle` and while a settle holds
 the network; a declined drift or `:seal`-class seal runs after the next operation returns.
 
-**A log becomes unusable**, and the next open rebuilds from the records, on a
-`:seal`-class operation until its seal runs, a configuration call (`set-solver`,
-`add-prover`, `add-evaluatable`, `add-reasoner`) until the next seal, an argument nippy
-cannot freeze, a write a change-feed listener makes, a record write outside every
-operation, a frame inside the log that does not decode, and a `VirtualMachineError` thrown
-by a write after its frame was appended (`[:vm-error op cls]`), which the entry point rolls
-back. A `VirtualMachineError` while a frame is frozen, an `OutOfMemoryError` or a
-`StackOverflowError` on a deeply nested sentence, marks nothing: it propagates as itself,
-no frame is written, and the write does not run. A KB with a registered prover
-or solver cannot be sealed, so its log stays unusable and the next open rebuilds.
+**A log becomes unusable**, and the next open rebuilds from the records, when a write ran
+that its frames do not describe or a frame does not decode. The declined-restore table in
+[operations.md](operations.md#after-a-crash) lists each reason the mark records. A
+`:seal`-class operation's mark holds until its seal runs, and a configuration call's
+(`set-solver`, `add-prover`, `add-evaluatable`, `add-reasoner`) until the next seal. The
+mark is fsynced when it is appended, under `:tick` as under `:each`, so a write after it
+runs only once the mark is on disk. A `VirtualMachineError` while a frame is
+frozen, an `OutOfMemoryError` or a `StackOverflowError` on a deeply nested sentence, marks
+nothing: it propagates as itself, no frame is written, and the write does not run. A KB
+with a registered prover or solver cannot be sealed, so its log stays unusable and the
+next open rebuilds.
 
 **A log that cannot take a frame stops.** A failed append, fsync or truncation latches the
 log's fault, as a record store's does ("A store that stops"): the operation is refused
@@ -1687,8 +1699,8 @@ entry point then rolls the write back as it rolls back a refusal, with the stop 
 off for the rollback, and an operation log marks itself unusable, since its frame
 describes a write that did not complete as logged.  Every other write runs with the stop
 request off and the hook waits for it: `edit!`'s removals and the settle after them, a
-`retract!`, a `with-deferred-settle` batch's closing settle, a write nested in another
-public write, and a `*bulk-load?*` write, which keeps no premise audit to roll back.
+`retract!`, a `with-deferred-settle` batch's closing settle, and a write nested in another
+public write.
 
 **Past both bounds the case equals a crash.**  After the stop request the hook waits up to
 `vaelii.disk.shutdown-unwind-ms` more (default `10000`).  Past that bound it logs
@@ -2029,12 +2041,12 @@ batch pays that over its whole reach. A repair of many records can apply its bat
 the records instead and pay one rebuild after them.
 
 ```clojure
-(def kb (open-kb {:backend :disk :dir d :recover? false}))
+(def kb (open-kb {:backend :disk-log :dir d :recover? false}))
 (def r  (edit-records! kb {:remove hs :direction {rule-h :backward}}))
 ;; => {:removed n :unpremised n :absent n :redirected n :justifications-removed n :seeds [h …]}
 (settle-record-edits! kb {:seeds (:seeds r)})
 ;; => {:rebuilt :recover :unrooted n :removed-sentexes n :removed-justifications n
-;;     :rules-chained n :arg-types {…}}
+;;     :rules-chained n :rechained n :arg-types {…}}
 ```
 
 **`edit-records!` writes records and nothing else.** It runs no check, no dependency sweep
@@ -2044,7 +2056,11 @@ seq of handles, and `:direction`, `{handle direction}` over stored derive rules
 ([inference.md](inference.md#rule-direction-virtual-predicates)). It takes no additions:
 canonicalizing a symmetric or commutative argument, homing a forced-decontextualized
 predicate and deduplicating on a derived index each read belief. An addition goes through
-`edit!` after the settle. Per batch:
+`edit!` after the settle. The handles come from a read of an index: `:disk-log` keeps its
+index on disk, so `handle-of` answers on it opened `{:recover? false}`. `:disk-memory`,
+`:disk-dense`, `:disk-columnar` and `:disk-snapshot` open `{:recover? false}` with
+`:no-index` among their `write-hazards`, and there `handle-of` reads an empty index and
+answers nil, so read the handles before closing the KB that built the index. Per batch:
 
 - A removed record is deleted with its index postings, rule-index and taxonomy-supporter
   postings among them, unless a justification that survives the batch concludes it. Such
@@ -2052,7 +2068,10 @@ predicate and deduplicating on a derived index each read belief. An addition goe
 - A rule's direction is written into its record and its postings moved.
 - Every stored justification resting on a deleted record, and every firing of a rule
   the batch takes off `:forward`, is deleted. The records those firings concluded stay
-  until the sweep.
+  until the sweep. A rule firing that rests on a deleted `genl` or `genlCx` edge stays
+  stored too: the edge was the one route the firing named, and the settle reads the
+  firing's antecedents before it deletes it.
+- A removal naming no stored record, a nil one included, counts under `:absent`.
 - An `except`, `defeat` or `exceptWhen` removal is refused (`:record-edit-unsupported`):
   its departure re-posts what the remaining ones name, which only `edit!` computes. A
   direction on a fact, a choice rule or an absent handle is refused too. Every refusal
@@ -2064,10 +2083,24 @@ recover left out because a record they name is gone (`:unrooted`, [above](#persi
 and sweeps the consequence closure of their conclusions and of `:seeds` as a retraction
 does — every record there that is no premise and is OUT goes, with its justifications —
 then settles. A rule a batch put on `:forward` is among the seeds and is chained over the
-stored facts. Last, `record-arg-types` re-asks every fact an argument declaration reaches,
-which releases a general type mint a removed membership or `genl` edge withheld
-([argtypes.md](argtypes.md)); `{:arg-types? false}` skips it when no batch touched a
-membership, an edge or a declaration.
+stored facts. The antecedents of each unrooted rule firing, less the deleted records, are
+re-chained (`:rechained`), as `edit!` re-chains the antecedents of a firing that named a
+removed edge ([contexts.md](contexts.md)): where a second route still licenses the firing,
+it comes back at a fresh handle. The recover logs each such firing among the
+justifications it leaves out. Last, `record-arg-types` re-asks every fact an argument
+declaration reaches, which releases a general type mint a removed membership or `genl`
+edge withheld ([argtypes.md](argtypes.md)).
+
+**`{:arg-types? false}` leaves that pass to its own call.** The settle then returns a KB
+that is settled and forced to disk, so a copy taken right after it is a consistent one,
+and the pass is owed (`arg-types-owed`): `edit-records!` records it when a batch removes
+anything, and the settle when its sweep removed anything and nothing was owed yet.
+`record-arg-types!` runs it with a budget per fact, stops at a fact boundary and resumes
+from what the store records, under this engine or a later one
+([argtypes.md](argtypes.md#the-pass-over-a-stored-kb)). `:on-progress` reports each phase
+as `{:phase :done :total}`: `:reindex`, `:recover` with the recover's seven steps, and
+`:sweep` with its six, the chain's `:derived` and `:pending` beside; a throw from it lands
+at the next phase boundary.
 
 The believed sentences then equal those the same batches through `edit!` leave, handle
 numbers aside: `edit_test/edit-records-then-settle-believes-what-edit-believes` runs each
@@ -2082,7 +2115,12 @@ run again completes it, counting what is already deleted under `:absent`. Its `:
 are computed from the justifications it deletes, so a caller keeps them with its own
 record of the batch: a re-run after a crash past those deletes returns fewer, and the
 records the lost seeds reached stay stored and OUT, which `unsupported` reports. A crash
-inside `settle-record-edits!` leaves the records and the rebuild repeats.
+inside `settle-record-edits!` leaves the records and the rebuild repeats. A crash inside
+`record-arg-types!` needs no restore either: the records it wrote are durable as written
+(a `:pg` store commits each one; a `:disk` index is forced every few seconds and its open
+repairs a short one), and after the rebuild the next call redraws from its last commit, at
+most `:commit-every-ms` of drawing. A mint torn between its record and its justification
+is stored OUT until that redraw justifies it.
 
 ## What a bulk load costs
 
@@ -2193,6 +2231,73 @@ about a twentieth of the recover's wall time. An open declines the image when th
 source has changed, and then pays the full recover
 ([The reasoning image](#the-reasoning-image)). `scripts/upgrade-kb.sh` pays the recover
 once, ahead of the next open.
+
+## Loading a changing snapshot over a fixed base
+
+A process that reasons over live data loads a snapshot of ground facts, reads an answer,
+and loads the next snapshot. The KB beside the snapshot (vocabulary, rules, the facts
+every snapshot shares) does not change between reads. Each read's cost depends on which
+write route loads the snapshot.
+
+### Two routes to the chained closure
+
+A **chained write** (`assert`, `assert-many`, `edit!`) chains each fact from a seed list
+it builds for that fact (`vaelii.impl.assert-entry`):
+
+- the fact's own handle;
+- the argument-type memberships the fact entails ([argtypes.md](argtypes.md));
+- the stored facts below a `genl` edge the fact adds (`special/subsumption-seeds`);
+- the rule triggers behind a link the fact adds to a declared-transitive predicate
+  (`special/transitive-seeds`);
+- the facts a `genlCx` edge the fact adds brings into a context's view, which the write's
+  settle seeds.
+
+A chained write's cost therefore grows with what the new facts reach.
+
+**`bulk-assert-facts!` builds none of that list.** It stores, indexes and believes the
+facts, and leaves three passes to the caller:
+
+1. `record-arg-types` records the argument-type memberships. It draws every fact of
+   every declared functor, including facts stored before the load. It runs no forward
+   chaining from what it records.
+2. `release-withheld!`, when `owed-releases` is non-zero.
+3. `forward-chain` fires the stored rules over the loaded facts and the recorded
+   memberships. It seeds every believed datum, including the rest of the KB.
+
+After the three passes the KB holds what a chained per-fact load holds. Both
+`record-arg-types` and `forward-chain` read the whole KB, so the bulk route's cost grows
+with the KB and not with the load. The bulk route fits a store whose whole content is
+new: a corpus import, or building the fixed base once. A snapshot loaded over a larger
+KB takes a chained write.
+
+No public entry point chains from a given set of handles. A run seeded with the loaded
+handles alone omits every seed in the list above except the first. A snapshot holding a
+`genl` edge, a `genlCx` edge, a transitive link or an argument-type entailment then
+derives fewer conclusions than the chained write derives.
+
+### Writing the difference between two snapshots
+
+- **Close the base once.** Load the content every read shares, rules included, and
+  bring it to its chained closure before the first snapshot.
+- **Keep one KB across reads.** Hold the snapshot's facts in a context of their own.
+  Write each new snapshot as one `edit!`: `:add` holds the facts that arrived, and
+  `:remove` holds the handles (`handle-of`) of the facts that left. The adds land before
+  the removes and one settle closes the batch, so a conclusion both snapshots support
+  stays IN throughout ([api.md](api.md)). Every add is a chained write, so no pass
+  follows the `edit!`. The batch's cost follows the size of the difference.
+- **An aggregate rule can stay in the base.** One `edit!` against a stored aggregate
+  rule costs 5.1 ms at 10 nodes, against 4.4 ms for the rule asserted after the facts
+  and 21.3 ms for one assert per fact (`lein bench-aggchain`,
+  [aggregate.md](aggregate.md#what-it-costs)).
+- **A fork per read pays a recover per read.** `fork` rebuilds the fork's belief with
+  one `recover` over the base's contents ([overlay.md](overlay.md)), and every read in
+  a fork merges the overlay half with the base. A fork that several hypotheses need is
+  kept open across reads. A process that owns its KB does not need a fork.
+
+`chain-report` gives each forward rule's placed and refused firings, and `chain-stats`
+gives the last run's `:derived`. Forward chaining keeps no beta network
+([inference.md](inference.md)), so each firing re-joins the rule's other antecedents.
+The two reads name the rules a snapshot's chaining time goes to.
 
 ## The single-writer contract
 

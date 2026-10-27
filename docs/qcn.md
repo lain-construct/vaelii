@@ -397,9 +397,9 @@ possible(a, b) ⊆ denotation(P)
 ```
 
 Base predicates denote singletons; **derived** predicates denote disjunctions, and so are
-entailed by more networks than any base one. An emptied constraint anywhere means the
-asserted network is unsatisfiable, and then *no* goal of that calculus is answered: an
-inconsistent theory should not be mined for conclusions.
+entailed by more networks than any base one. An emptied constraint means the connected
+component holding it is unsatisfiable, and then no goal naming a node of that component is
+answered ([below](#unsatisfiability-is-per-component)).
 
 Four goal shapes, on which arguments are bound:
 
@@ -426,12 +426,40 @@ The re-check withdraws a firing whose arguments the declared types no longer adm
 placement context (`chain/entailment-withdrawn?`).
 
 A positive goal on a **super-predicate** of a calculus predicate is answered by lifting:
-`(genl subintervalOf partOf)` makes every entailed `subintervalOf` tuple a `partOf` tuple,
-so a `partOf` goal is solved as one goal per calculus predicate below it that the context
-sees. A lifted goal is answered at completeness 50, beside the super-predicate's stored
+`(genl subintervalOf subtimeOf)` and `(genl subtimeOf partOf)` make every entailed
+`subintervalOf` tuple a `subtimeOf` and a `partOf` tuple, so a `subtimeOf` or `partOf` goal
+is solved as one goal per calculus predicate below it that the context sees. A lifted goal is answered at completeness 50, beside the super-predicate's stored
 tuples and its other specs. Lifting is the prover's alone: forward chaining claims an
 antecedent by a calculus predicate (`qcn-kb/calculus-for`), so a forward rule on `partOf`
 does not join on an entailed `subintervalOf` tuple.
+
+### Unsatisfiability is per component
+
+The constraint graph of a network joins two nodes when a recorded pair names both, and its
+connected components (`qcn/components`) are independent: a pair between two components is
+the universe, and the universe composes to itself, so the pass over one component narrows
+nothing in another. When the pass over the whole network empties a constraint,
+`qcn-kb/split` runs the pass over each component and blocks the nodes of each component
+whose pass empties one (`qcn-kb/blocked-nodes`). No goal naming a blocked node is answered,
+in any of the four shapes, and no variable binds one. Every other goal is answered off the
+pass over the satisfiable components, as in a satisfiable network. An algebra whose
+universe composes to less than itself can leave the satisfiable components unsatisfiable
+together, and the whole network is then one blocked component.
+
+A term no fact names lies in no component, so `(subintervalOf D D)` holds of such a `D`
+beside a contradiction between `A` and `B`. The `reflexive` and `transitive` declarations
+on a calculus predicate keep their provers (`ReflexiveProver`,
+`TransitivePredicateProver`), and those answer no goal naming a blocked node either
+(`provers/unblocked`). A goal that a rule concluding the predicate sends down the union
+path therefore gets the answers the calculus gives alone.
+
+The verdicts on the whole network stay whole: `inconsistent?`, `unsatisfiable-somewhere?`,
+`qualitative-network`'s `:consistent?`, the scenarios and the violations entry report a
+network with one unsatisfiable component as unsatisfiable, and a forward re-join over one
+joins every pair (`join-delta`'s `:all`). The split runs one pass per component when the
+whole network is unsatisfiable and none otherwise. Each component's pass is memoized in
+`:pc-cache` on its network value, and the split is resident beside the network under the
+change clock.
 
 ### A network can have a second reader
 
@@ -465,20 +493,22 @@ Three things make the fold sound rather than merely convenient:
 
 - **It only narrows.** Intersection is commutative and associative, so the network is a
   function of what both readers saw and never of which ran first. A pair the narrowing
-  leaves at the universe it does not record, which is the same claim as recording it. A
-  narrowing whose source is unsatisfiable or refused empties a pair
-  (`stp/unsatisfiable-narrowing`),
-  so the network reading it is unsatisfiable too and answers nothing. Answering nothing
-  from the source instead would widen the network when a fact arrives, and a firing
-  resting on an entailment the widening lost would stay believed, since
-  `chain/entailment-withdrawn?` withdraws on an unsatisfiable network and on a typed
-  argument no longer admitted, not on a widened network. The emptied pair is a
-  **stand-in** for the source's clash, and no fact of the calculus contradicts
-  it, so `qualitative-network`'s `:unsatisfiable` and the ledger entry's `:pairs` leave it
-  out. The narrowing describes the source instead (`qcn-kb/unsatisfiable-sources`), and
-  `qualitative-network` answers the description as `:unsatisfiable-sources`: the source
-  network (`:metric` or `:point`), its pairs unsatisfiable as written, the instants on a
-  negative cycle for `:metric`, and the handles of the facts behind them. A refused
+  leaves at the universe it does not record, which is the same claim as recording it. An
+  unsatisfiable component of the source network, or a refused source, empties pairs
+  joining the nodes whose endpoints it holds (`stp/unsatisfiable-narrowing`), so the
+  component of the network reading it that holds those nodes is unsatisfiable too and
+  answers no goal naming one. Answering nothing from the source instead would widen the
+  network when a fact arrives, and a firing resting on an entailment the widening lost
+  would stay believed, since `chain/entailment-withdrawn?` withdraws on a blocked node and
+  on a typed argument no longer admitted, not on a widened network. The emptied pairs are
+  a **stand-in** for the source's clash, and no fact of the calculus contradicts them, so
+  `qualitative-network`'s `:unsatisfiable` and the ledger entry's `:pairs` leave them out.
+  The narrowing describes the source instead (`qcn-kb/unsatisfiable-sources`), one
+  description per unsatisfiable component of it, and `qualitative-network` answers the
+  descriptions as `:unsatisfiable-sources`: the source network (`:metric` or `:point`),
+  the component's pairs unsatisfiable as written, the instants on a negative cycle for
+  `:metric`, and the handles of the facts behind them. A component of the source network
+  holding no node's endpoint empties nothing and is not described. A refused
   `:metric` source names its `:dimensions` instead of pairs and a cycle.
 - **It carries support.** A pair narrowed by a second reader names the facts *that* reader
   read, so a conclusion drawn through it is withdrawn by retracting one of them, exactly as
@@ -630,7 +660,8 @@ appends a `:qualitative-inconsistency` entry to the KB's violations ledger — t
 and the pairs that are unsatisfiable *as written* (absent when only composition found it).
 When a narrowing's source is unsatisfiable, the entry's `:sources` carries the source
 descriptions `qualitative-network` answers as `:unsatisfiable-sources`.
-Otherwise an impossible KB answers nothing and says nothing about why.
+Otherwise a KB with an impossible component answers nothing about its nodes and says
+nothing about why.
 
 It is deliberately **not** a `wff` check. [why not a wff
 check](defenses.md#an-impossible-network-is-reported-off-the-pass-not-thrown-as-a-wff-check)
@@ -643,8 +674,9 @@ nothing with an empty ledger to explain it. So it hangs off `observe/newly-seen?
 asks whether *this* KB has said *this* about *this* context yet. A query loop still reports
 once, and a change of belief yields a different network and reports again. The network
 reported is the one the believed facts give, never one a goal's nodes extended: a goal
-first tightens the network as read and stops there when it is unsatisfiable, so queries
-naming different goal-only nodes neither re-report nor list those nodes.
+first tightens the network as read, and when that network is unsatisfiable, extends only
+its satisfiable components, which the pass does not report. Queries naming different
+goal-only nodes therefore neither re-report nor list those nodes.
 
 **Cost, completeness, registration.** `cost` is **`:compute`** — a fixpoint over the
 stored facts before the first answer, a closure rather than a search. `completeness` is
@@ -654,6 +686,13 @@ alone and a raw fact match would add nothing it does not already entail. `est-bi
 is bounded by the node count, itself bounded by the number of stored facts on that
 prover's own predicates — a sum of O(1) predicate-extent reads, because an estimate must not
 cost what it estimates.
+
+A believed `(inverse P Q)` between two predicates of one registered calculus leaves the
+prover answering alone when the algebra's converse of `Q`'s base relations lies inside
+`P`'s (`qcn-kb/converse-entailed?`): the network reads both predicates and applies the
+converse itself. An `inverse` naming a predicate outside the calculus is a source the
+network does not read, and `provers/shadowing-channels`' `:inverse` channel sends the goal
+to the union of every applicable prover.
 
 Three caches, answering different questions:
 
@@ -821,7 +860,9 @@ Three things follow, and each needed its own wiring:
   narrowing makes a positive entailment more likely rather than less — so an entailment is
   never lost by learning more. The right to use it is what is lost, when the facts turn out
   unsatisfiable: the supporting facts are all still believed, and some *other* fact made
-  the theory impossible. So such a firing is **blocked**, exactly as an `exceptWhen`-excepted
+  the component holding the antecedent's nodes impossible. So a firing whose calculus
+  antecedent names a blocked node at its placement context
+  ([above](#unsatisfiability-is-per-component)) is **blocked**, exactly as an `exceptWhen`-excepted
   one is (`chain/entailment-withdrawn?`, queued by `special/recheck-on-qualitative`), which
   means it is also *revived* by the same machinery when the clash is retracted. A settle
   puts a standing firing in front of it only while some network is unsatisfiable, or when

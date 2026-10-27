@@ -5,6 +5,7 @@
   partition, and the `different` prover that reads it.  See docs/equality.md."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
@@ -38,16 +39,12 @@
     (and (some? h) (some? (v/sentex kb h)) (not (v/in? kb h)))))
 
 (defn- why-sentences
-  "Every sentence mentioned anywhere in a `why` proof tree — the antecedents, the
-  rules, and the informants' own sentences.  Flattened, because the doc requires that
-  `why` *names* the functional declaration and both facts without saying which slot
-  each lands in."
-  [node]
-  (when (map? node)
-    (concat (when-let [s (:sentence node)] [s])
-            (when-let [r (:rule node)] [r])
-            (mapcat (fn [sup] (cons (:rule sup) (mapcat why-sentences (:because sup))))
-                    (:support node)))))
+  "Every sentence mentioned anywhere in a `why` graph — the nodes' sentences and the
+  rules.  Flattened, because the doc requires that `why` *names* the functional
+  declaration and both facts without saying which slot each lands in."
+  [w]
+  (concat (keep :sentence (vals (:nodes w)))
+          (keep :rule (mapcat :support (vals (:nodes w))))))
 
 (defn- permutations [coll]
   (if (<= (count coll) 1)
@@ -512,8 +509,8 @@
       (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})
       (let [eq (v/handle-of kb (list 'equals lo hi) CxFam)]
         (is (some? eq) "no derived equality to explain")
-        (let [tree (v/why kb eq)
-              said (set (why-sentences tree))]
+        (let [tree (tu/why-root kb eq)
+              said (set (why-sentences (v/why kb eq)))]
           (testing "it is derived, not a premise"
             (is (true?  (:believed? tree)))
             (is (false? (:premise?  tree)))
@@ -1182,6 +1179,56 @@
               "the exemption is gone, so the two are provably different again")
           (is (v/ask? kb (list qRel Aa Bb) 'CxUniverse)
               "and the firing the guard licensed arrives, with no re-assertion"))))))
+
+;; A merge can withdraw a `different` guard and never release one, so it re-decides the
+;; firings binding a term of the merged class and joins the rule nowhere
+;; (`special/recheck-equality-edge`'s `{::merged class}` marker).  Eight firings; one
+;; merge joins the pair of the first, one joins a term of the second to a term no firing
+;; names.
+
+(deftest a-merge-re-decides-only-the-different-guarded-firings-naming-its-class
+  (tu/with-shipped-config
+    (let [join    @#'chain/join-antecedent
+          guard   chain/different-blocks?
+          reading (fn [order count?]
+                    (tu/with-neutral-kb [kb tu/fresh]
+                      (tu/with-terms [pRel qRel Cc]
+                        (let [as     (mapv #(tu/tmp-ind (str "A" %)) (range 8))
+                              bs     (mapv #(tu/tmp-ind (str "B" %)) (range 8))
+                              tally  (atom {:rows 0 :asks 0})
+                              merges #(do (v/assert kb (list 'sameAs (as 0) (bs 0)) 'CxUniverse
+                                                    {:strength :monotonic})
+                                          (v/assert kb (list 'sameAs (as 1) Cc) 'CxUniverse
+                                                    {:strength :monotonic}))]
+                          (v/assert kb (list 'binary_predicate pRel) 'CxUniverse)
+                          (v/assert kb (list 'binary_predicate qRel) 'CxUniverse)
+                          (doseq [op order]
+                            (case op
+                              :rule   (v/assert kb (list 'implies (list 'and (list pRel '?x '?y)
+                                                                        (list 'different '?x '?y))
+                                                         (list qRel '?x '?y))
+                                                'CxUniverse {:direction :forward})
+                              :facts  (doseq [i (range 8)]
+                                        (v/assert kb (list pRel (as i) (bs i)) 'CxUniverse))
+                              :merges (if count?
+                                        (with-redefs-fn
+                                          {#'chain/join-antecedent
+                                           (fn [& a] (let [r (apply join a)]
+                                                       (swap! tally update :rows + (count r)) r))
+                                           #'chain/different-blocks?
+                                           (fn [& a] (swap! tally update :asks inc) (apply guard a))}
+                                          merges)
+                                        (merges))))
+                          {:tally @tally
+                           :believed (vec (for [i (range 8)]
+                                            (v/ask? kb (list qRel (as i) (bs i)) 'CxUniverse)))}))))]
+      (let [{:keys [tally believed]} (reading [:rule :facts :merges] true)]
+        (is (= 0 (:rows tally)) "neither merge joins the rule")
+        (is (<= (:asks tally) 4) "the guard is asked of the two firings naming a merged term")
+        (is (= (into [false] (repeat 7 true)) believed)))
+      (is (= #{(into [false] (repeat 7 true))}
+             (set (map #(:believed (reading % false)) (permutations [:rule :facts :merges]))))
+          "every arrival order believes the same firings"))))
 
 (def ^:private undone {:unmerge :merge :unac :ac :unindet :indet :unedge :edge})
 

@@ -82,7 +82,8 @@ the declaration names.
 `fixed_arity` carries `(arg fixed_arity 1 relation)`, and the `(genl fixed_arity relation)`
 edge that `(partition relation fixed_arity variable_arity)` installs names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
 nothing is disjoint from `relation` for a number, so the declaration's value conviction
-is the only refusal there is; drop it and `(fixed_arity 5)` is accepted. `variable_arity`
+is the only conviction there is: with it `assert` stores `(fixed_arity 5)` inert and
+`try-assert` refuses it, and without it the fact is believed. `variable_arity`
 and the function marks are in the same position and keep theirs.
 
 `instance_relation_predicate` is the other case. Its parent is `binary_predicate`, which
@@ -128,7 +129,23 @@ admitted tail instead: every accepted position of `R` is an instance of `T`. `(a
 T)` is the subtype reading — `argsGenl` to `genlArg` what `args` is to `arg`. `(argAndRest
 R n T)` and `(argAndRestGenl R n T)` type position `n` and every later one, so a relation
 whose head positions carry their own `arg` declarations and whose tail repeats one role is
-typed exactly. `(args R T)` states what `(argAndRest R 1 T)` states.
+typed exactly. `(args R T)` states what `(argAndRest R 1 T)` states, and a forward rule
+in `core.txt` stores that `argAndRest` beside it.
+
+What a position is declared to hold is read through one chokepoint,
+`res/arg-constraints` (the whole list) and `res/arg-constraints-at` (the entries covering
+one position). At the instance level it looks up `arg` and `argAndRest` alone: `args`
+reaches it through the twin its rule stores, and the `argN` projections through the `arg`
+theirs store. The type-level `genlArg`, `argAndRestGenl` and `argsGenl` and the quoted
+`quotedArg` come back on the same entries under their own kind. `ArgTypeProver`, the
+`predAllSpecified` audit, `kb-integrity`'s `:missing-arg` and `:genl-arg-widening` passes
+and the rule-pair quality report read through it. The list is held for one stretch of the
+change clock, so a read-only caller asking per fact reads the store once per predicate.
+The assert-time checks look up the same two at the instance level: `args` is refused,
+and derives memberships, through its stored `argAndRest` twin, whose handle is the support
+an entailment names. Retracting the `args` takes the twin, and everything resting on it,
+with it. A KB that does not load `core.txt` has no such rule, so there an `args`
+declaration types nothing; state `argAndRest` instead.
 
 A valid unbounded tail: a `variable_arity` `herd` with `(arityMin herd 2)` and `(args herd
 animal)` accepts `(herd Rex Bossy)` and `(herd Rex Bossy Clarabelle)` and derives
@@ -178,10 +195,10 @@ entailment is a derived, justified, retractable sentex under truth maintenance.
 
 (v/isa? kb 'Fred 'animal 'CxWorld)          ; => true
 (v/why kb (v/handle-of kb '(animal Fred) 'CxWorld))
-;; {:premise? false
-;;  :support [{:informant arg
-;;             :because [{:sentence (parentOf Fred Mary) :premise? true}
-;;                       {:sentence (arg parentOf 1 animal) :premise? true}]}]}
+;; {:root 7
+;;  :nodes {7 {:premise? false :support [{:informant arg :because [5 6]}]}
+;;          5 {:sentence (parentOf Fred Mary) :premise? true}
+;;          6 {:sentence (arg parentOf 1 animal) :premise? true}}}
 ```
 
 **On by default** (`vaelii.impl.decide.argument/*assertive-arg-types?*`; the root value reads
@@ -294,6 +311,16 @@ membership arrives first:
 releases the fact. `try-assert` refuses the write as `:definitional-clash`
 ([api.md](api.md#refusing-a-clash)).
 
+A rule's conclusion the same conviction convicts is held the same way: the firing stores
+the conclusion with its justification and holds it (`chain/place-fact-conclusion`,
+`checks/constraint-admission`'s `:conviction`). A sentence a rule derives and a caller
+asserts is one held sentex in either arrival order, and a `recover` decides its hold from
+the stored sentex
+(`refused_firing_test/a-convicted-firing-is-held-and-released-alike-live-in-place-and-over-a-fresh-open`,
+`refused_firing_test/a-sentence-derived-and-asserted-is-held-alike-in-both-arrival-orders`).
+A write that moves no hold reads none of the held conclusions (`lein perf --only
+assert-beside-held-firings`).
+
 The settle decides the hold again for every stored fact a write can move
 (`checks/refresh-argument-holds!`): the tuples under a declaration stored, removed or
 relabelled; under the constraint-only reading, the facts naming a term whose membership
@@ -328,7 +355,8 @@ Three cases stay outside the hold:
   argument there is decided only at the fact's own write. A `quotedArg` declaration also
   reads the compounds at its position, when its type is separated from some compound kind.
 - A function application nested inside an argument is checked against its function's
-  declarations at the write (`checks/check-application-inputs`), which refuses it.
+  declarations at the write (`checks/check-application-inputs`), which refuses it. A
+  rule's conclusion convicted the same way is dropped and reported in `violations`.
 - A bulk load runs no argument check, so a bulk-loaded fact under a declaration already
   stored is held only when a later write moves its verdict.
 
@@ -430,7 +458,7 @@ The **check computes it; the post-store slot materializes it.**
 | `special/entail-under-edge`, `special/entail-under-context-edge` | a `genl` or `genlCx` edge arriving over a fact and a declaration already stored |
 | `special/triggered-mints` | a trigger membership of `interArg` or a homogeneity form arriving over a fact and a declaration already stored |
 | `special/except-move-sweeps` | an `except` of an ingredient arriving or leaving |
-| `special/record-arg-types` (`v/record-arg-types`) | the pass over a store loaded without the derivations |
+| `argtype-pass/run-all`, `argtype-pass/run-pass!` (`v/record-arg-types`, `v/record-arg-types!`) | the pass over a store loaded without the derivations, in one call or stoppable and resumable ([below](#the-pass-over-a-stored-kb)) |
 
 Not because a check may not cause a write — `special/deduce-lifts` is a check-shaped
 declaration read that causes a justified write on this very path. The reason is
@@ -568,6 +596,14 @@ statement leaves nothing minted, so both orders store the same records
 (`absent_type_order_test/a-length-arriving-after-a-mint-removes-it-from-the-store`,
 `clash_oracle_test/a-length-arriving-after-a-minting-declaration-reads-as-one-arriving-before-it`).
 
+A type mints only when every IN length admits length one. With `(unary_predicate T)` and
+`(binary_predicate T)` both IN, the binary binding gives `T` a length other than one, so a
+declaration naming `T` mints nothing, and the binary binding arriving after a mint drops
+the mint justifications as above. No order of the two bindings, the declaration and the
+fact stores the mint, before or after `recover`
+(`absent_type_order_test/a-type-with-two-in-lengths-mints-in-no-order`). The two lengths
+stay one `contradicts` ([taxonomy.md](taxonomy.md#arity)).
+
 `entail-existing` puts each stored sentex back through `constraint-entailments` in its
 *own* context, narrowed to the arriving declaration (`checks/declaration-entailments`),
 rather than re-deciding the conditions. The directions must agree about what a
@@ -597,8 +633,8 @@ The starter's `(arg parentOf 1 organism)` lives in CxUniverse (`life.txt`) while
 `CxNaturalWorld`. A toggle-on starter load derives a membership per declared position,
 less the ones pruning withholds (the table under [Cost](#cost)). Each argument position
 of arity 2 and up in the shipped ontology is declared, except the ones `ontology_test`'s
-`undeclared-positions` names: the two `genl` positions, the example predicates' quoted
-sentence and the aggregation operators' slots. `core.txt` says why beside `genl`: `thing`
+`undeclared-positions` names: the two `genl` positions and the example predicates' quoted
+sentence. `core.txt` says why beside `genl`: `thing`
 cannot be a proper subtype of itself, so the constraint the root would fail is the wrong
 constraint rather than a missing one.
 
@@ -764,7 +800,13 @@ edge: a `recover` moves every edge together, and per edge it would walk a subtre
 times as edges leave it. A `recover`'s settle moves the whole store, and while fewer mints
 are stored than sentexes it reads no moved record: it asks each stored mint
 `checks/subsumed-mint`, and reads the `genlCx` edges off the index
-(`record_fetch_cost_test/a-recover-pages-the-mints-not-the-store`).
+(`record_fetch_cost_test/a-recover-pages-the-mints-not-the-store`). The loop over the
+candidates hints the record store 256 at a time with each mint's record and then the
+records `checks/subsumed-mint` can fetch for it (`checks/subsumer-reads`: the term's
+memberships in other unary predicates, or the `genl` edges out of it and their
+supporters), so a store with a fetch cache in front of a round trip reads them in two
+round trips a chunk ([storage.md](storage.md#prefetching--the-optional-hint), `lein
+perf`'s `subsumed-mint-pass-over-a-fetch-cache`).
 
 The family holds exactly the records a stored mint justification concludes.
 `special/entail-arg-type` files a record as it stores the justification, from the sentence
@@ -879,8 +921,105 @@ declarations; the target materialized those entailments when it first became bel
 | a **function application** in the position | `args-problem` / `genls-problem` check it against the function's declared `result` / `genlResult` and refuse where the result misses ([nat.md](nat.md)) — but nothing is minted, a declared result being a claim about the *function* and not about this application, and a compound having no membership to mint |
 | a genuine negation, or a rule | not argument-checked, so not entailed from either |
 | an **inert** fact (`assert-inert`, or `set/inert` in a text file) | nothing, in every arrival order: the fact, a declaration reaching back over it, a forward chain, and a `genlCx` edge each skip it, since an inert sentex claims nothing (`argtype_entail_test/a-declaration-draws-no-type-from-an-inert-fact`) |
+| a `genlCx` edge the structural producer computed: no premise, every support under the `contextArgSubrelation` informant (`nat-read/computed-genlCx-edge?`) | nothing, in every arrival order: the producer places the edge and draws no entailment, and a `genlCx` declaration's sweep (`entail-existing`), asserted or derived again by a rule, skips it. The orphan sweep reads the same edge as the engine's own wiring ([context-nat.md](context-nat.md#orphan-collection-a-context-is-a-place-as-well-as-a-name)), so a mint over it would be one more sentex the order of arrival decides (`context_nat_test/a-re-derived-declaration-draws-no-membership-over-a-computed-edge`) |
 | a **query** | nothing, ever. The entailment is on the store path alone |
-| a bulk or dump load | skipped: `*bulk-load?*` draws none of the four arrival orders (the fact, the declaration, the `genl` edge, and the `genlCx` edge the settle drains), and a dump import writes records directly. `v/record-arg-types`, run once after the load on the recovered KB, records what the stored facts derive, so the store then holds what a per-fact load holds (`argtype_entail_test/a-bulk-loaded-store-records-its-derivations-once`) |
+| a bulk or dump load | skipped: `*bulk-load?*` draws none of the four arrival orders (the fact, the declaration, the `genl` edge, and the `genlCx` edge the settle drains), and a dump import writes records directly. `v/record-arg-types`, run once after the load on the recovered KB, records what the stored facts derive, so the store then holds what a per-fact load holds (`argtype_entail_test/a-bulk-loaded-store-records-its-derivations-once`). The pass holds each mint's admission answer until it writes a mint or brings one IN (`special/*admission-memo*`), so the facts naming one term ask the checks, and their cover arm the provers, once between writes (`argtype_entail_test/a-record-pass-asks-each-terms-admission-once-between-writes`; `argtype_entail_test/a-record-pass-holding-its-checks-stores-and-believes-what-asking-each-afresh-does`). A mint written by every fact asks afresh, and the checks keep that ask cheap: the cover arm proves a part only of a cover that could refuse the mint ([taxonomy.md](taxonomy.md)), and the inheritance prover answers a denial of a part with no stated denial in range without reading the part's extent ([inherit.md](inherit.md#reading-it-back), `lein perf`'s `record-pass-mints-beside-an-inherited-extent`) |
+
+## The pass over a stored KB
+
+`record-arg-types` draws what every stored fact entails in one call. Over a store of
+millions of facts that call runs for hours, says nothing while it runs, and a process
+stopped part-way starts it again from the first fact. `record-arg-types!` is the same pass
+as a run that reports, stops, resumes and sets a slow fact aside:
+
+```clojure
+(record-arg-types! kb {:on-progress progress!})          ; resumes what is owed, 2 s a fact
+;; => {:drawn n :done n :total n :recorded n :violations n :deferred n
+;;     :stopped nil|:requested|:shutdown|:cancelled :complete? bool}
+(arg-types-owed kb)                                      ; => nil, or {:facts :total :swept? :deferred}
+(record-arg-types! kb {:retry-deferred? true :budget-ms 60000})
+(request-stop! kb)                                       ; from another thread
+```
+
+**One order.** Both entry points draw the facts of each functor an entailing declaration
+reaches, the functors in content order (`declared-functors`) and each functor's facts by
+handle, and draw each fact as `deduce-placed` draws one arriving now
+(`special/draw-fact`). The handles of every functor are read when a run starts.
+
+**A mint the fact would leave as it is costs no checks.** Over a store whose mints were
+drawn once, nearly every entailment a fact draws is already stored with that fact's
+justification, and `entail-arg-type` would write nothing for it and cascade nothing. The
+pass passes such a mint over before its admission checks, as `rederive-mints` does
+(`special/unchanged-mint?`): one stored in that context with a support from the same
+declaring predicate over the same antecedents, or one not stored that a believed record
+still subsumes, which would be withheld again. The checks are a mint's cost: beside ten covers a fact
+costs 25 µs passed over and 1.0 ms asked (`lein perf`'s `record-pass-over-recorded-facts`).
+The pass reports no violation of a mint already stored with that support, so a
+violation that content stored after the mint makes goes unreported. A removal from the
+records of a KB without belief adds no content, so it cannot make one. A mint not stored,
+or stored without this support, takes the admission checks, and the pass writes it when
+they admit it.
+
+**What it owes is one record.** The functors drawn whole, by name; the handle reached in
+the next one; the facts set aside; and whether the sweep over the functors has ended. A KB
+with a directory keeps it there as `arg-types-owed.edn`, replaced whole through a temp
+file, an fsync and an atomic rename; a KB without one keeps it in memory. It names stored
+content and nothing else, so a pass stopped under one engine resumes under another.
+`edit-records!` makes the whole pass owed when its batch removes anything, since a removed
+membership or edge may have withheld a mint anywhere; `settle-record-edits!` under
+`{:arg-types? false}` does when its sweep removed anything and nothing was owed.
+`record-arg-types`, a `record-arg-types!` run that ends with nothing set aside, and
+`clear!`, which deletes the records the position names, leave nothing owed. A run that
+finds nothing owed draws from the first fact.
+
+**A stop lands between two facts.** `:stop?`, `request-stop!`, a shutdown
+(`dur/stop-requested?`) and a throw from `:on-progress` — a browser job's cancel — each
+end the run at the next fact boundary. The run asks from its second step on, so every run
+moves the pass on by one.
+
+**A commit comes before the record moves.** The violations drawn since the last commit
+are filed, belief is settled, every registered store is forced to disk, and only then is
+the record written: every `:commit-every-ms` (30 s) and at the end of every run, stopped,
+cancelled or thrown. A stopped pass leaves a settled KB and a record no further on than
+the mints on disk. A process killed between two commits loses no stored mint: once belief
+is rebuilt (`recover`, or `settle-record-edits!`), the next run redraws from the last
+commit, which adds nothing to what the facts after it already wrote. A record carries a
+handle allocated at its commit, and a store that allocates at or below it was restored from
+an older copy: the run refuses it (`:owed-record-ahead`), and `{:resume? false}` starts
+over.
+
+**A fact over its budget is set aside, not waited on.** `:budget-ms` (2000) bounds the
+reads one fact's mints make before they write: the admission checks (`inadmissible`, each
+arm of `checks/constraint-problem` naming itself), the withheld test (`subsumed-mint`),
+the entailments and the declarations below. Only those reads run under it
+(`special/within-fact`, `budget/check-unit!`), and the writes that can draw mints of their
+own — a restatement at a merged term, a dropped route — run outside it, so the signal lands
+before a mint is stored or after it is justified. A fact past its budget is recorded with
+`:phase`, the part of the checks that ran out, and with the mints it brought IN before it
+stopped (`:transitions`), and the run moves on. `{:retry-deferred? true}` draws each again
+once the sweep has ended: the fact, then each of those mints' own entailments and
+restatement, which drawing the fact again would not reach, since the mints are stored and
+justified by then.
+
+A fact set aside is drawn after the facts behind it. Where an admission depends on the
+order facts arrive in — the cover refuted through denials of a type above, where
+`(q_w q_t)` is admitted before the `genl` mint that puts `q_t` under `q_top` and refused
+after it (`argtype_entail_test`'s held-checks reading) — the KB then holds what that order
+draws. Everywhere else the facts set aside and drawn again end where one pass ends.
+
+**The phases a report names**, each as `{:phase :done :total}` in units fixed before it
+starts: `:arg-types`, facts drawn of every fact the declared functors hold; `:releases`,
+once the sweep has ended, the withheld mints the settles of an open or a recover left owed
+(`release-withheld!`); `:deferred`, facts set aside drawn again; `:settle`; `:done`.
+`settle-record-edits!` reports `:reindex`, `:recover` (the recover's seven steps) and
+`:sweep` (its six) the same way.
+
+The tests are `argtype_pass_test`: a pass stopped at every first, second, third and
+seventh boundary, from the progress report, and by a cancel thrown from it, and one whose
+facts are set aside at budgets counted in clock readings and drawn again, each store,
+believe and justify what one uninterrupted pass does; the records path settles without
+the pass, owes it across a close and a reopen, and resumes it; and a killed run redraws
+from each commit it made.
 
 ## Cost
 
@@ -1126,9 +1265,11 @@ of `arg`: where `arg` reads the referent's type, `quotedArg` reads the argument'
 syntax, which is decidable from the value — so it is **checked, never entailed**, there
 being nothing to mint about a term that already is what it is. A compound is judged by the
 kinds its spelling decides ([what a quoted form is](#what-a-quoted-form-is)). Open-world
-about a declared type outside the syntactic lattice, so an imported constraint on a domain
-collection never convicts a value it cannot judge.
-`checks/args-quoted-problem`, behind the same O(1) presence check as `interArg`. Why the kind
+about a declared type outside the syntactic lattice and the expression lattice it sits in,
+so an imported constraint on a domain collection never convicts a value it cannot judge.
+`(quotedArgAndRest P n T)` is its suffix form, as `argAndRest` is of `arg`: position `n`
+and every later one, each taken as written. `checks/args-quoted-problem`, behind the same
+O(1) presence check as `interArg`. Why the kind
 decides at all, rather than every non-symbol being exempt:
 [defenses.md](defenses.md#a-value-is-typed-by-its-kind-and-the-openness-moves-to-the-declared-type).
 
@@ -1211,7 +1352,8 @@ expression lattice are read off how X is written (`provers/shape-kinds`):
 | a symbol | `symbol` |
 | a value | its value kind (`string`, `integer`, …) |
 | a compound under a connective or quantifier head (`not`, `and`, `implies`, `forall`, …) | `open_formula`, or `sentence` when no variable is free in it |
-| a compound under a symbol head | `non_atomic_expression`, beside `open_expression` or `closed_expression` |
+| `(sentexHandle N)`, N a positive integer | `sentex_handle_term`, a `non_atomic_term` |
+| a compound under any other symbol head | `non_atomic_expression`, beside `open_expression` or `closed_expression` |
 | a compound under any other head | `ill_formed_expression`, beside the same |
 
 A variable inside a nested `(Quote …)`, or bound by a quantifier in X, is not free in X
@@ -1279,6 +1421,10 @@ which reaches neither `non_atomic_term` nor `formula`. Under `(quotedArg P 1 str
 `reflection.txt` separating `formula` from `non_atomic_term`. The verdict is the same in
 either arrival order of the declaration and the fact
 (`quoted_arg_test/a-compound-is-held-only-where-one-of-its-kinds-is-separated-from-the-type`).
+A declared kind of `expression` decides a value or a symbol too, every value kind and
+`symbol` sitting in the lattice (`checks/syntactic-type?`): `(quotedArg except 1
+sentex_handle_term)` convicts `(except 212)`, and `(quotedArg comment 1 denotational_term)`
+admits a symbol or a value.
 
 ## Scope
 

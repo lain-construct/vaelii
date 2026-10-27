@@ -36,7 +36,7 @@ literal in the same language as the antecedents, and firing stores it with a jus
 pointing back at the match.
 
 That constraint is what makes everything downstream possible: because a conclusion records
-what it rests on, retracting the premise can withdraw it, `why` can print the tree, and
+what it rests on, retracting the premise can withdraw it, `why` can return the graph of what it rests on, and
 the same rule can be run backward. A rule with side effects has none of those properties.
 
 Where you genuinely need to *make something happen* — enumerate answer sets, materialize a
@@ -60,8 +60,9 @@ Two familiar behaviors fall out rather than being configured:
   ordering to get right.
 
 Forward chaining is a semi-naive fixpoint over one agenda — strict and defeasible rules
-alike, not a two-phase defaults loop. Recursion is bounded by a derived-datum depth
-(`:max-depth`, default 64) with a `:max-derivations` backstop. → [inference.md](inference.md)
+alike, not a two-phase defaults loop. A function-free rule set runs to its fixpoint;
+term-building recursion is bounded by the nesting of the terms it builds
+(`:max-term-depth`, default 8), with a `:max-derivations` backstop. → [inference.md](inference.md)
 
 ## Matching: an alpha network, opt-in, and no beta network
 

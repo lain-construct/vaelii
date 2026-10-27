@@ -823,6 +823,19 @@ most of it, so the spec walk stops at the count (`tax/specs-global-within`), and
 arriving `(not (thing X))` takes the pass instead of one index probe per type in the KB.
 A KB with no rule reads the count alone (`trigger-keys-beside-rules` in `lein perf`).
 
+The other readers of the rule-key set read from the smaller side too, each as one read. A
+`genl` edge's subsumption seeds test each term of the upper end's upward closure and of
+the re-join families for membership (`special/rule-reads-above?`), and intersect the
+lower end's negated fan as `trigger-keys` does (`special/negative-subsumption-seeds`). A
+datum a `SupportingProver` reads intersects the prover's answers (`special/rules-taking`).
+A `genlCx` move reads the key count, and the set only when it builds the fan
+(`special/move-seeds`). `lein perf` holds each flat in the key count:
+`rule-reads-above-beside-rule-keys`, `negative-seeds-beside-rule-keys`,
+`computed-reading-beside-rule-keys` and `visibility-seeds-beside-rule-keys`. The
+stratification graph reads the whole set once per graph for the readers of `not`
+(`checks/stratification-readers`), because no family holds the negated keys apart from
+the rest.
+
 The exception re-check index (§4) keeps its bare-`not` bucket: it is a coarse
 *whether-to-look* set, and both of its sides agree on that spelling.
 

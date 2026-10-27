@@ -131,7 +131,7 @@
 # ^C stops every running suite and then the script.
 #
 # ONE MATRIX AT A TIME, FROM THE PRIMARY.  A run in a linked worktree is refused
-# (`ALLOW_WORKTREE_RUN=1` overrides).  A run that finds another matrix going does not
+# (`ALLOW_WORKTREE_RUN=release` overrides, for the release agent).  A run that finds another matrix going does not
 # start: `--owed` queues its baseline, and the running matrix starts one more over
 # every queued baseline as it ends, logging to `testbench/matrix-queue-<time>.log`
 # (scripts/lib/slots.sh).  `--covered` then answers whether a commit has been run, from

@@ -501,10 +501,10 @@
         (let [r (d/why-marker seat (d/marker source ha))]
           (testing "the marker names WHAT to prove; the proof is the seat's own"
             (is (:resolved? r))
-            (is (map? (:why r)))
-            (is (true? (:believed? (:why r))) "resolved and believed on this seat")
-            (is (= atlas-fact (:sentence (:why r))))
-            (is (true? (:premise? (:why r))) "an asserted fact rests on nothing below it"))))
+            (is (= (:handle r) (:root (:why r))))
+            (is (true? (:believed? (tu/why-root (:why r)))) "resolved and believed on this seat")
+            (is (= atlas-fact (:sentence (tu/why-root (:why r)))))
+            (is (true? (:premise? (tu/why-root (:why r)))) "an asserted fact rests on nothing below it"))))
       (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
 
 ;;; ── a NEGATIVE fact round-trips (a `:false` sentex keeps its `not`) ────

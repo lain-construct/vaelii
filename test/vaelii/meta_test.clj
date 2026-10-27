@@ -148,14 +148,14 @@
     (is (v/ask? kb '(functional birthYearOf)))
     (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
-    ;; the domain relations, orthogonal, negates and diachronicallyDisjoint are the symmetric
-    ;; marks, decontextualized like the other algebraic marks, so they answer the
+    ;; the domain relations, orthogonal, negates, inverse and diachronicallyDisjoint are the
+    ;; symmetric marks, decontextualized like the other algebraic marks, so they answer the
     ;; enumeration wherever CxUniverse is seen.  seeAlso is NOT among them — it is a directional cross-reference, not
     ;; symmetric.  The social relations (CxSocial and CxSocialExtension) are among them:
     ;; their marks are stated in CxUniverse like the rest, and ?ctx is open.
     (is (= '#{siblingOf marriedTo friendOf orthogonal siblingDisjointException
               relativeOf romanticPartnerOf coworkerOf roommateOf
-              nestingPartnerOf chosenSiblingOf diachronicallyDisjoint negates}
+              nestingPartnerOf chosenSiblingOf diachronicallyDisjoint negates inverse}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because core.txt asserts (transitive genl)
     ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached
@@ -171,7 +171,9 @@
     ;; `greaterInMagnitudeThan` is the fourth, over quantities rather than objects.
     ;; `instantBefore` / `instantAfter` are the point algebra's strict orders, transitive
     ;; so a forward join reads a narrative's consecutive links as one ordering.
-    (is (= '#{ancestorOf partOf permanentPartOf tangiblePartOf subSituationOf properPartOf properTangiblePartOf
+    ;; `intangiblePartOf` is `tangiblePartOf`'s twin for things without mass, and
+    ;; `subInformationOf` its spec over information.
+    (is (= '#{ancestorOf partOf permanentPartOf tangiblePartOf intangiblePartOf subInformationOf subSituationOf properPartOf properTangiblePartOf
               properSubSituationOf properPartOfRegion properSubintervalOf locatedIn typeLargerThan instantBefore instantAfter
               causes beforeEvent genl genlCx
               heavierThan tallerThan olderThan greaterInMagnitudeThan}
@@ -1252,12 +1254,15 @@
     ;; a sentex has one key, so whether a predicate sorts its arguments cannot vary by
     ;; reader.  A context-scoped declaration behind a global read would be a mark
     ;; visible from one context and acted on from every one.
+    ;; The term marks (`associative`, `idempotent`, `meetFunctionOf`) are read globally by
+    ;; the same key, below the literal.
     ;; `functionalInArg` is `functional` read at another position, and lifted with it.
     ;; The length bindings are lifted so a relation's length reads the same everywhere.
     (is (= (into '#{functional functionalInArg inverse reflexive symmetric asymmetric transitive
                     irreflexive anti_symmetric anti_transitive equivalence_relation
                     injection surjection bijection
-                    commutative commutativeInArgs commutativeInArgAndRest}
+                    commutative commutativeInArgs commutativeInArgAndRest
+                    associative idempotent meetFunctionOf}
                  sx/arity-binding-functors)
            (v/props kb :decontextualized)))
     (is (= '#{genlCx} (v/props kb :forced-decontextualized))))

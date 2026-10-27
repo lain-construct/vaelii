@@ -659,14 +659,9 @@
 (def no-match
   "The reserved constant a read-mode reify resolves a never-minted NAT to, and a goal's
   application with no correspondence is replaced by.  No stored sentex names it, and it
-  denotes no term, so only the stored-fact prover reads a literal holding it
-  (`provers/applicable-provers`)."
+  denotes no term, so only the stored-fact prover reads a literal holding it at a term
+  position (`res/names-no-match?`)."
   'nat/no-match)
-
-(defn names-no-match?
-  "Is `no-match` a direct argument of literal `goal`?"
-  [goal]
-  (and (seq? goal) (boolean (some #{no-match} (rest goal)))))
 
 (def root-context
   "The context the upper ontology is stored in, every `genlCx` edge with it, and the one
@@ -1572,12 +1567,55 @@
     (sequential? form) (apply list (map #(project-form m %) form))
     :else              form))
 
+;; ---- quoting functions ---------------------------------------------------
+
+(def quote-functor
+  "The quoting function whose argument is a form taken as syntax: `(Quote X)` mentions X.
+  `quasiquote/quote-function` is this symbol."
+  'Quote)
+
+(def quasiquote-functor
+  "The template-constructing quoting function: `(Quasiquote T)` mentions T with its
+  `(Unquote v)` holes spliced.  `quasiquote/quasiquote-function` is this symbol."
+  'Quasiquote)
+
+(def quoting-functors
+  "The quoting functions — `Quote` and `Quasiquote`, fixed by the engine.  A quoting
+  function's arguments are a **mention**, a term named as syntax rather than used: they are
+  held opaque to identity congruence (`res/representative-term` rewrites them by a
+  `rewriteOf` spelling rename only, never by a `sameAs` / `equals` merge), not reified on
+  their own when the application is (`nat/reify-or-mint-nat`), and not typed by what they
+  denote (`checks`).  The set is not declared in the KB and no assertion changes it, so
+  whether an argument is a mention is a fact about the sentence alone."
+  #{quote-functor quasiquote-functor})
+
+(defn quoting-functor?
+  "Is `head` one of the `quoting-functors`?"
+  [head]
+  (contains? quoting-functors head))
+
+(defn quote-form?
+  "Is `form` a `(Quote X)` mention?  `unquoted-free-vars`, `res/unify`, `res/substitute`
+  and the literal cache's renaming all read a form this answers true for as a constant."
+  [form]
+  (and (sequential? form) (= quote-functor (first form)) (= 2 (count form))))
+
 ;; ---- symmetric arguments -------------------------------------------------
 
 (defn ground-term?
   "True when `t` contains no pattern variable anywhere."
   [t]
   (not (some-symbol? variable? t)))
+
+(defn sortable-term?
+  "True when `t` holds no pattern variable outside a `(Quote …)`.  A quoted form is a
+  constant (`quote-form?`), so the permuting sorts order a term whose only variables are
+  quoted as they order a ground one: `(RulePairFn (Quote r1) (Quote r2))` over two quoted
+  rules sorts under `(commutative RulePairFn)`."
+  [t]
+  (cond (quote-form? t) true
+        (sequential? t) (every? sortable-term? t)
+        :else           (not (variable? t))))
 
 (defn form-variables
   "Every variable anywhere in `form`, as a set — `#{}` rather than `symbols-where`'s nil,
@@ -1604,7 +1642,7 @@
   (`res/raw-match` tries both argument orders for a symmetric predicate)."
   [form symmetric?]
   (if (and (symmetric-literal? form symmetric?)
-           (every? ground-term? (rest form)))
+           (every? sortable-term? (rest form)))
     (let [[p x y] form]
       (if (pos? (cmp-term x y)) (list p y x) form))
     form))
@@ -1680,7 +1718,7 @@
   answers nil, and the literal is returned untouched.
 
   **The declaration read comes before the groundness walk.**  This runs on every literal
-  the assert entry point canonicalizes, and `ground-term?` descends the whole argument
+  the assert entry point canonicalizes, and `sortable-term?` descends the whole argument
   list where `groups-of` is one map lookup — so an unmarked predicate, which is all but a
   handful, pays the lookup and a `count` and nothing else.  `sort-symmetric-args` above
   reads the same way round for the same reason, its arity-2 test standing in front of
@@ -1700,7 +1738,7 @@
           comps (commuting-components (groups-of (first form) (count args)) (count args))]
       (if-not (and comps
                    (not-any? #(= dot-marker %) form)
-                   (every? ground-term? args))
+                   (every? sortable-term? args))
         form
         (let [args' (reduce (fn [acc positions]
                               (let [sorted (sort cmp-term (map #(nth acc (dec %)) positions))]
@@ -1736,8 +1774,8 @@
   "Every argument list the terms `ts` of one commuting component may be probed under,
   with the ground terms held in sorted order.  See `commuting-arrangements`."
   [ts]
-  (let [vars   (filterv (complement ground-term?) ts)
-        consts (vec (sort cmp-term (filterv ground-term? ts)))
+  (let [vars   (filterv (complement sortable-term?) ts)
+        consts (vec (sort cmp-term (filterv sortable-term? ts)))
         n      (count ts)]
     (mapv (fn [slots]
             (let [at (zipmap slots vars)]
@@ -1863,15 +1901,124 @@
   (let [[polarity body] (peel-not form)]
     (if (= polarity :negative) (list 'not body) body)))
 
-(defn- normalize-literal
-  "One literal in canonical form.  `marks` carries the two KB reads canonicalization
-  makes — `:symmetric?`, whether a functor is declared symmetric, and `:groups-of`, the
-  commutativity groups it declares at a given arity.  Both default to answering nothing,
-  so a KB-free construction reorders no arguments."
+(defn- permute-args
+  "`form`'s own arguments in the order its permuting marks give a ground application: the
+  symmetric sort, then the commuting sort.  The literal and every compound below it take
+  their argument order from this one list of arms (`canonical-args`)."
   [form {:keys [symmetric? groups-of]}]
+  (-> form (sort-symmetric-args symmetric?) (sort-commuting-args groups-of)))
+
+(defn- held-as-written?
+  "Does the application `form` keep its arguments as written: a quoting functor's
+  argument, which is a mention, or a functor `opaque?` names?"
+  [form opaque?]
+  (let [f (first form)] (or (quoting-functor? f) (boolean (opaque? f)))))
+
+(defn- absorb-args
+  "`args` less every argument another argument lies `below?`, keeping of two arguments
+  below each other the `cmp-term`-least, and of two equal ones the first.  Over a
+  preorder this keeps one argument of each minimal class."
+  [args below?]
+  (let [v (vec args)
+        n (count v)]
+    (into [] (keep-indexed
+              (fn [i x]
+                (when-not (some (fn [j]
+                                  (let [y (v j)]
+                                    (and (not= i j) (below? y x)
+                                         (or (not (below? x y))
+                                             (let [c (cmp-term y x)]
+                                               (or (neg? c) (and (zero? c) (< j i))))))))
+                                (range n))
+                  x)))
+          v)))
+
+(defn- canonical-term
+  "A compound below the literal in canonical form: `permute-args`' order, and for a ground
+  application of a function the term marks name, three arms more.  An `associative?`
+  functor's arguments that apply it are spliced in, before the sort.  An `idempotent?`
+  one drops an argument equal to its neighbour after the sort when it is associative too,
+  and otherwise only collapses an application whose arguments are all equal.  A functor
+  for which `meet-order` gives a comparator drops an argument another lies below
+  (`absorb-args`).  An idempotent or meet application left with one argument is that
+  argument."
+  [form {:keys [associative? idempotent? meet-order] :as marks}]
+  (let [f      (first form)
+        a?     (boolean (and associative? (associative? f)))
+        i?     (boolean (and idempotent? (idempotent? f)))
+        below? (when meet-order (meet-order f))]
+    (if-not (and (or a? i? below?) (symbol? f) (next form)
+                 (not-any? #(= dot-marker %) form)
+                 (every? ground-term? (rest form)))
+      (permute-args form marks)
+      (let [spliced (if a?
+                      (mapcat #(if (and (seq? %) (= f (first %))) (rest %) [%]) (rest form))
+                      (rest form))
+            sorted  (rest (permute-args (apply list f spliced) marks))
+            deduped (cond (not i?)              sorted
+                          a?                    (dedupe sorted)
+                          (apply = sorted)      [(first sorted)]
+                          :else                 sorted)
+            args    (if below? (absorb-args deduped below?) deduped)]
+        (cond
+          (and (= 1 (count args)) (or i? below?)) (first args)
+          (= args (rest form))                    form
+          :else                                   (apply list f args))))))
+
+(defn- canonical-args
+  "`form` with every compound argument, at any depth, in the form `canonical-term` gives
+  it, innermost first, so an arm above compares canonical subterms.  The walk enters list
+  forms only, and stops at an application `held-as-written?`.  `form` itself is returned
+  when nothing below it moved."
+  [form {:keys [opaque?] :as marks}]
+  (let [compound? #(and (seq? %) (seq %))]
+    (if (or (not (compound? form))
+            (not-any? compound? (rest form))
+            (held-as-written? form opaque?))
+      form
+      (let [args  (rest form)
+            args' (mapv (fn [a]
+                          (if (and (compound? a) (not (held-as-written? a opaque?)))
+                            (canonical-term (canonical-args a marks) marks)
+                            a))
+                        args)]
+        (if (every? true? (map identical? args args'))
+          form
+          (apply list (first form) args'))))))
+
+(defn sort-compounds
+  "`form` with every compound below it in the argument order the store gives a ground
+  one (`canonical-args`), and its own arguments as written.  A pattern's ground subterms
+  are matched in this spelling, since a stored fact holds them in it.  `marks` is
+  `sentex`'s canonicalization reads."
+  [form marks]
+  (canonical-args form marks))
+
+(defn compound-functors
+  "The functors whose permuting marks spell `form` (`canonical-args`): its own, and the
+  functor of every list compound below it that the walk enters.  A set; atoms only."
+  [form opaque?]
+  (letfn [(heads [acc t]
+            (if (and (seq? t) (seq t) (not (held-as-written? t opaque?)))
+              (reduce heads (cond-> acc (symbol? (first t)) (conj (first t))) (rest t))
+              acc))]
+    (if (and (seq? form) (seq form))
+      (reduce heads (cond-> #{} (symbol? (first form)) (conj (first form))) (rest form))
+      #{})))
+
+(defn- normalize-literal
+  "One literal in canonical form.  `marks` carries the KB reads canonicalization makes —
+  `:symmetric?`, whether a functor is declared symmetric, `:groups-of`, the commutativity
+  groups it declares at a given arity, `:opaque?`, whether an application of a functor
+  keeps its arguments as written, and the term marks `canonical-term` reads below the
+  literal (`:associative?`, `:idempotent?`, `:meet-order`).  Each defaults to answering
+  nothing, so a KB-free construction reorders no arguments.  The compounds below the
+  literal are put in canonical form first (`canonical-args`), then the literal's own
+  arguments in order."
+  [form marks]
   (-> form elim-double-not fold-comparison sort-naf-conjuncts
-      (sort-symmetric-args symmetric?)
-      (sort-commuting-args groups-of)))
+      (canonical-args marks)
+      (permute-args marks)))
 
 ;; ---- chained comparisons collapse into one variable-arity literal -------
 
@@ -2419,15 +2566,22 @@
   docstring).  Context defaults to 'default; id defaults to nil until the record store
   assigns a handle.
 
-  `opts` may carry the two canonicalization reads: `:symmetric?`, a predicate telling
-  whether a functor is declared symmetric, so its two arguments can be sorted, and
+  `opts` may carry the canonicalization reads: `:symmetric?`, a predicate telling
+  whether a functor is declared symmetric, so its two arguments can be sorted;
   `:groups-of`, `(fn [functor arity] -> groups)` giving the commutativity groups the
-  functor declares, so the arguments inside each component can be.  Without them no
+  functor declares, so the arguments inside each component can be; `:opaque?`, a
+  predicate naming the functors whose applications keep their arguments as written; and
+  the term marks `:associative?`, `:idempotent?` and `:meet-order`, `(fn [functor] ->
+  (fn [a b] a-below-b?))` or nil.  The sorts apply to the literal and to every compound
+  below it, the term marks to the compounds below it (`canonical-term`).  Without them no
   predicate commutes anything (a pure, KB-free construction)."
   ([sentence] (sentex sentence 'default))
   ([sentence context] (sentex sentence context nil))
-  ([sentence context {:keys [symmetric? groups-of]
-                      :or   {symmetric? (constantly false) groups-of (constantly nil)}
+  ([sentence context {:keys [symmetric? groups-of opaque? associative? idempotent? meet-order]
+                      :or   {symmetric?   (constantly false) groups-of   (constantly nil)
+                             opaque?      (constantly false)
+                             associative? (constantly false) idempotent? (constantly false)
+                             meet-order   (constantly nil)}
                       :as   _opts}]
    ;; A `(exceptWhen <query> (sentexHandle H))` meta-sentex is stored **verbatim** as a
    ;; Literal — `peel-rule-wrapper` would otherwise strip the exceptWhen and drop the
@@ -2438,7 +2592,9 @@
    (if (exceptWhen-meta? sentence)
      (sentex-types/->LiteralSentex (canon sentence) (intern-sym context) nil nil)
      (constructed-sentex sentence context
-                         {:symmetric? symmetric? :groups-of groups-of}))))
+                         {:symmetric? symmetric? :groups-of groups-of :opaque? opaque?
+                          :associative? associative? :idempotent? idempotent?
+                          :meet-order meet-order}))))
 
 (defn body
   "The positive atomic form a sentex asserts (a fact's sentence without its `not`);
@@ -2871,37 +3027,6 @@
   test for a sentence with no free variable."
   [sx]
   (not (some-symbol? variable? (sentence-of sx))))
-
-(def quote-functor
-  "The quoting function whose argument is a form taken as syntax: `(Quote X)` mentions X.
-  `quasiquote/quote-function` is this symbol."
-  'Quote)
-
-(def quasiquote-functor
-  "The template-constructing quoting function: `(Quasiquote T)` mentions T with its
-  `(Unquote v)` holes spliced.  `quasiquote/quasiquote-function` is this symbol."
-  'Quasiquote)
-
-(def quoting-functors
-  "The quoting functions — `Quote` and `Quasiquote`, fixed by the engine.  A quoting
-  function's arguments are a **mention**, a term named as syntax rather than used: they are
-  held opaque to identity congruence (`res/representative-term` rewrites them by a
-  `rewriteOf` spelling rename only, never by a `sameAs` / `equals` merge), not reified on
-  their own when the application is (`nat/reify-or-mint-nat`), and not typed by what they
-  denote (`checks`).  The set is not declared in the KB and no assertion changes it, so
-  whether an argument is a mention is a fact about the sentence alone."
-  #{quote-functor quasiquote-functor})
-
-(defn quoting-functor?
-  "Is `head` one of the `quoting-functors`?"
-  [head]
-  (contains? quoting-functors head))
-
-(defn quote-form?
-  "Is `form` a `(Quote X)` mention?  `unquoted-free-vars`, `res/unify`, `res/substitute`
-  and the literal cache's renaming all read a form this answers true for as a constant."
-  [form]
-  (and (sequential? form) (= quote-functor (first form)) (= 2 (count form))))
 
 (defn unquoted-free-vars
   "The variables of `form` free in it: every variable occurrence that no enclosing

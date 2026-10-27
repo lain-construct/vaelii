@@ -119,7 +119,7 @@ can count it. `res/candidate-handles` yields one of seven:
 | `:context-extent` | every argument open in a ground context — the predicate extent's leaf there |
 | `:structural` | a positive pattern with a compound argument, narrowed on the compound's interior |
 | `:functor-extent` | the same shape with `res/*structural-index*` false — the correct looser superset |
-| `:negative-roots` | an open negative with a functor or a ground argument bound |
+| `:negative-roots` | an open negative with a functor or a ground argument bound — the roots hold both polarities, so the positive facts are left out by their stored shape before any is fetched (`res/negative-root-handles`) |
 | `:negative-fan` | an open negative with nothing bound — the `:false` node's own children |
 
 `res/matches-hierarchical`, the set-algebra matcher behind the context-scoped levels,

@@ -32,6 +32,8 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
@@ -365,6 +367,25 @@
       (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgs p 1) U))))
       (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgs p 1 1) U)))))))
 
+(tu/deftest-kb a-function-spelled-fn-takes-each-commuting-mark-in-either-arrival-order
+  ;; `…Fn` names a function by spelling, so the relation slot reads no declaration and the
+  ;; arrival order of `binary_function` decides nothing.
+  (let [groups #(tax/commuting-groups (reasoning/taxonomy kb) %)]
+    (tu/with-terms [PairFn LateFn TailFn Ann]
+      (v/assert kb (list 'binary_function PairFn) U)
+      (v/assert kb (list 'commutative PairFn) U)
+      (is (= #{[:rest 1]} (groups PairFn)))
+      (v/assert kb (list 'commutative LateFn) U)
+      (v/assert kb (list 'binary_function LateFn) U)
+      (is (= #{[:rest 1]} (groups LateFn)))
+      (v/assert kb (list 'commutativeInArgAndRest TailFn 2) U)
+      (v/assert kb (list 'commutativeInArgs TailFn 1 2) U)
+      (is (= #{[:rest 2] [:args [1 2]]} (groups TailFn)))
+      (testing "an individual, a type slot and a predicate-only mark still refuse"
+        (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutative Ann) U))))
+        (is (= :not-well-formed (ex-type #(v/assert kb (list 'genl PairFn 'thing) U))))
+        (is (= :not-well-formed (ex-type #(v/assert kb (list 'symmetric PairFn) U))))))))
+
 (tu/deftest-kb the-written-position-order-does-not-decide-the-entry
   ;; The three arms key on one descriptor however the author wrote the positions, or a
   ;; retraction would miss the entry its assertion installed.
@@ -482,3 +503,243 @@
                      U))
     (is (= 1 (count (handles kb (list covering '?w '?a '?b '?c))))
         "three permutations bulk-loaded are one row")))
+
+;; ---- Quote opacity and nested commutative canonicalization --------------
+;;
+;; A quoted term is opaque, so no inference or canonicalization reaches inside one: a
+;; commutative licence for something quoted has to be stated outside the quote, on a
+;; function term holding the quoted parts.  That is how an acknowledgedFinding
+;; :rule-clash subject names a pair of rules, `(RulePairFn (Quote r1) (Quote r2))` with
+;; RulePairFn commutative (core.txt, docs/integrity.md).
+;;
+;; One table, read by two tests.  Each row is one commutative application, in both
+;; orders, held as an argument of a fact.  Unquoted, the mark licenses folding the two
+;; facts onto one stored sentex; quoted, the two orders are two spellings and stay two
+;; assertions.
+
+(defn- handle-count
+  "How many distinct handles asserting each of `forms` into `kb` gives."
+  [kb forms]
+  (count (into #{} (map #(v/assert kb % U)) forms)))
+
+(defn- or-row
+  "`(p (or (q A) (r A)))` and `(p (or (r A) (q A)))`, with `(commutative or)`."
+  [kb]
+  (tu/with-terms [p q r A]
+    (v/assert kb (list 'commutative 'or) U)
+    {:pair  [(list 'or (list q A) (list r A)) (list 'or (list r A) (list q A))]
+     :embed #(list p %)}))
+
+(defn- and-row
+  "`(p (and (q A) (r A)))` and `(p (and (r A) (q A)))`, with `(commutative and)`."
+  [kb]
+  (tu/with-terms [p q r A]
+    (v/assert kb (list 'commutative 'and) U)
+    {:pair  [(list 'and (list q A) (list r A)) (list 'and (list r A) (list q A))]
+     :embed #(list p %)}))
+
+(defn- predicate-row
+  "`(p (bordersOn Canada Mexico))` and `(p (bordersOn Mexico Canada))`, with a fresh
+  binary predicate marked commutative."
+  [kb]
+  (tu/with-terms [p bordersOn Canada Mexico]
+    (v/assert kb (list 'binary_predicate bordersOn) U)
+    (v/assert kb (list 'commutative bordersOn) U)
+    {:pair  [(list bordersOn Canada Mexico) (list bordersOn Mexico Canada)]
+     :embed #(list p %)}))
+
+(defn- rule-pair-fn-row
+  "`(p (RulePairFn X Y))` and `(p (RulePairFn Y X))`, with `(commutative RulePairFn)`."
+  [kb]
+  (tu/with-terms [p X Y]
+    (v/assert kb (list 'commutative 'RulePairFn) U)
+    {:pair  [(list 'RulePairFn X Y) (list 'RulePairFn Y X)]
+     :embed #(list p %)}))
+
+(defn- quoted-rules-row
+  "`(p (RulePairFn (Quote r1) (Quote r2)))` and the same with the quotes swapped: the
+  application's only variables are quoted, so it sorts as a ground compound."
+  [kb]
+  (tu/with-terms [p bird_kind penguin_kind flies]
+    (v/assert kb (list 'commutative 'RulePairFn) U)
+    (let [r1 (list 'Quote (list 'implies (list bird_kind '?x) (list flies '?x)))
+          r2 (list 'Quote (list 'implies (list penguin_kind '?x) (list 'not (list flies '?x))))]
+      {:pair  [(list 'RulePairFn r1 r2) (list 'RulePairFn r2 r1)]
+       :embed #(list p %)})))
+
+(defn- deep-row
+  "`(p (wrapOne (wrapTwo (h A B))))` and the same with `(h B A)`: a fresh commutative
+  relation three levels down."
+  [kb]
+  (tu/with-terms [p wrapOne wrapTwo h A B]
+    (v/assert kb (list 'commutative h) U)
+    {:pair  [(list h A B) (list h B A)]
+     :embed #(list p (list wrapOne (list wrapTwo %)))}))
+
+(defn- symmetric-row
+  "`(p (bordersOn Ann Bob))` and `(p (bordersOn Bob Ann))`, with `(symmetric bordersOn)`."
+  [kb]
+  (tu/with-terms [p bordersOn Ann Bob]
+    (v/assert kb (list 'symmetric bordersOn) U)
+    {:pair  [(list bordersOn Ann Bob) (list bordersOn Bob Ann)]
+     :embed #(list p %)}))
+
+(defn- commuting-group-row
+  "`(p (coversAll Ann Bob Cid))` and `(p (coversAll Cid Ann Bob))`, with a fresh ternary
+  predicate marked commutative."
+  [kb]
+  (tu/with-terms [p coversAll Ann Bob Cid]
+    (v/assert kb (list 'commutative coversAll) U)
+    {:pair  [(list coversAll Ann Bob Cid) (list coversAll Cid Ann Bob)]
+     :embed #(list p %)}))
+
+(defn- nested-function-row
+  "`(p (PairFn (PairFn Bob Ann) Cid))` and `(p (PairFn Cid (PairFn Ann Bob)))`: one
+  commutative function applied at two levels, each written out of order once."
+  [kb]
+  (tu/with-terms [p PairFn Ann Bob Cid]
+    (v/assert kb (list 'binary_function PairFn) U)
+    (v/assert kb (list 'commutative PairFn) U)
+    {:pair  [(list PairFn (list PairFn Bob Ann) Cid) (list PairFn Cid (list PairFn Ann Bob))]
+     :embed #(list p %)}))
+
+(def ^:private unordered-pair-rows
+  "`[name row-fn]` pairs.  `row-fn` takes `kb`, installs the mark its row needs, and
+  answers `{:pair [x y] :embed f}`: the two orders of one commutative application, and
+  `f`, which builds the fact holding one of them as an argument.  `pair-facts` builds a
+  row's two facts from that, unquoted or quoted."
+  [["(commutative or), nested one level" or-row]
+   ["(commutative and), nested one level" and-row]
+   ["a commutative binary predicate, nested one level" predicate-row]
+   ["RulePairFn, nested one level" rule-pair-fn-row]
+   ["RulePairFn over two quoted rules, nested one level" quoted-rules-row]
+   ["a commutative relation, nested three levels" deep-row]
+   ["a symmetric predicate, nested one level" symmetric-row]
+   ["a commuting group of three, nested one level" commuting-group-row]
+   ["a commutative function inside its own application" nested-function-row]])
+
+(defn- pair-facts
+  "The two facts of a row: `embed` over each order of `pair`, wrapped in `Quote` first
+  when `quoted?`."
+  [{:keys [pair embed]} quoted?]
+  (map #(embed (if quoted? (list 'Quote %) %)) pair))
+
+(tu/deftest-kb a-quoted-commutative-pair-stays-two-assertions
+  ;; A quoted term is syntax, and the two orders are two spellings, whatever the mark.
+  (doseq [[name row-fn] unordered-pair-rows]
+    (is (= 2 (handle-count kb (pair-facts (row-fn kb) true)))
+        (str name ", quoted: two assertions"))))
+
+(tu/deftest-kb an-unquoted-commutative-pair-folds-to-one-assertion
+  ;; The two orders are one proposition under the mark, so they are one sentex.
+  (doseq [[name row-fn] unordered-pair-rows]
+    (is (= 1 (handle-count kb (pair-facts (row-fn kb) false)))
+        (str name ", unquoted: one assertion"))))
+
+(tu/deftest-kb a-quoted-equals-stays-two-assertions
+  ;; `equals` is symmetric in what it means, and still a quoted (equals A B) and a quoted
+  ;; (equals B A) are two spellings, so they are two assertions.
+  (tu/with-terms [p A B]
+    (is (= 2 (handle-count kb [(list p (list 'Quote (list 'equals A B)))
+                               (list p (list 'Quote (list 'equals B A)))])))))
+
+;; ---- compounds below the literal ----------------------------------------
+
+(tu/deftest-kb a-bulk-load-dedups-a-permutation-below-the-literal
+  (tu/with-terms [p PairFn A B]
+    (v/assert kb (list 'binary_function PairFn) U)
+    (v/assert kb (list 'commutative PairFn) U)
+    (binding [v/*bulk-load?* true]
+      (v/assert-many kb [(list p (list PairFn A B)) (list p (list PairFn B A))] U))
+    (is (= 1 (count (handles kb (list p '?x)))))))
+
+(tu/deftest-kb a-goal-names-a-permuted-compound-in-either-order
+  ;; The store holds the compound in its marks' order, and a ground goal is probed in it.
+  (tu/with-terms [p PairFn A B]
+    (v/assert kb (list 'binary_function PairFn) U)
+    (v/assert kb (list 'commutative PairFn) U)
+    (v/assert kb (list p (list PairFn B A)) U)
+    (is (v/ask? kb (list p (list PairFn A B)) U))
+    (is (v/ask? kb (list p (list PairFn B A)) U))))
+
+;; ---- the term marks: a meet function's applications ----------------------
+;;
+;; `(meetFunctionOf MeetFn subintervalOf)` concludes the commutative, associative and
+;; idempotent marks, and absorbs an argument by `subintervalOf`'s registered comparator.
+;; Each row lists the spellings a fact is written in and the one sentence the store holds
+;; for all of them.
+
+(defn- meet-rows
+  "`[name written stored]` rows over the term marks of `meet`, with `p` the predicate each
+  fact applies to the term."
+  [p meet A B C]
+  (let [y2000 '(DatetimeFn "2000")
+        march '(DatetimeFn "2000-03")]
+    [["sorted" [(list p (list meet B A))] (list p (apply list meet (sort-by str [A B])))]
+     ["flattened"
+      [(list p (list meet A (list meet B C))) (list p (list meet (list meet C B) A))]
+      (list p (apply list meet (sort-by str [A B C])))]
+     ["a repeated argument dropped"
+      [(list p (list meet A B A))]
+      (list p (apply list meet (sort-by str [A B])))]
+     ["an argument containing another absorbed"
+      [(list p (list meet y2000 march)) (list p (list meet march y2000))]
+      (list p march)]
+     ["two spellings of one month absorbed to the least"
+      [(list p (list meet '(MonthFn 2000 3) march)) (list p (list meet march '(MonthFn 2000 3)))]
+      (list p march)]
+     ["a Quote holds its argument as written"
+      [(list p (list 'Quote (list meet B A A)))]
+      (list p (list 'Quote (list meet B A A)))]]))
+
+(defn- stored-under
+  "The sentences stored under `p`, as a set."
+  [kb p]
+  (stored kb (list p '?x)))
+
+(tu/deftest-kb a-meet-function-s-applications-canonicalize-in-either-arrival-order
+  (doseq [decl-first? [true false]
+          i (range 6)]
+    (tu/with-terms [p MeetFn A B C]
+      (let [[name written want] (nth (meet-rows p MeetFn A B C) i)
+            decl                (list 'meetFunctionOf MeetFn 'subintervalOf)]
+        (when decl-first? (v/assert kb decl U))
+        (doseq [w written] (v/assert kb w U))
+        (when-not decl-first? (v/assert kb decl U))
+        (is (= #{want} (stored-under kb p))
+            (str name (if decl-first? ", declaration first" ", facts first")))))))
+
+(tu/deftest-kb a-named-time-pair-is-not-absorbed-by-a-stored-order-fact
+  ;; Absorption reads the order's comparator, never a stored `(subintervalOf a b)`.
+  (tu/with-terms [p MeetFn Jan Year]
+    (v/assert kb (list 'subintervalOf Jan Year) U)
+    (v/assert kb (list 'meetFunctionOf MeetFn 'subintervalOf) U)
+    (v/assert kb (list p (list MeetFn Year Jan)) U)
+    (is (= #{(list p (apply list MeetFn (sort-by str [Jan Year])))} (stored-under kb p)))))
+
+(tu/deftest-kb an-order-with-no-registered-comparator-absorbs-nothing
+  (tu/with-terms [p MeetFn withinOf]
+    (v/assert kb (list 'meetFunctionOf MeetFn withinOf) U)
+    (v/assert kb (list p (list MeetFn '(DatetimeFn "2000") '(DatetimeFn "2000-03"))) U)
+    (is (= 1 (count (stored-under kb p))))
+    (is (= 3 (count (second (first (stored-under kb p))))))))
+
+(tu/deftest-kb a-late-meet-declaration-merges-two-stored-rows-into-one-handle
+  (tu/with-terms [p MeetFn A B]
+    (let [h1 (v/assert kb (list p (list MeetFn A B)) U)
+          h2 (v/assert kb (list p (list MeetFn B A)) U)]
+      (is (not= h1 h2))
+      (v/assert kb (list 'meetFunctionOf MeetFn 'subintervalOf) U)
+      (is (= #{(min h1 h2)} (handles kb (list p '?x))))
+      (is (= #{(list p (apply list MeetFn (sort-by str [A B])))} (stored-under kb p))))))
+
+(tu/deftest-kb a-retracted-meet-declaration-splits-the-merged-row-back
+  (tu/with-terms [p MeetFn A B C]
+    (let [d (v/assert kb (list 'meetFunctionOf MeetFn 'subintervalOf) U)]
+      (v/assert kb (list p (list MeetFn A (list MeetFn B C))) U)
+      (v/assert kb (list p (list MeetFn (list MeetFn A B) C)) U)
+      (is (= 1 (count (handles kb (list p '?x)))))
+      (v/retract! kb d)
+      (is (= #{(list p (list MeetFn A (list MeetFn B C)))
+               (list p (list MeetFn (list MeetFn A B) C))}
+             (stored-under kb p))))))

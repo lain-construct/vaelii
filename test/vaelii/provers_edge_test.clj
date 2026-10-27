@@ -101,6 +101,36 @@
     (testing "and a wholly open reflexive goal does not enumerate the universe"
       (is (empty? (v/ask kb (list sameRegionAs '?x '?y) 'CxUniverse))))))
 
+(tu/deftest-kb a-reflexive-predicate-answers-the-diagonal-only-of-a-term-its-arg-types-admit
+  (tu/with-terms [sameRegionAs region person Paris Ann]
+    (v/assert kb (list 'reflexive sameRegionAs) 'CxUniverse)
+    (v/assert kb (list 'arg sameRegionAs 1 region) 'CxUniverse)
+    (v/assert kb (list 'arg sameRegionAs 2 region) 'CxUniverse)
+    (v/assert kb (list 'disjoint person region) 'CxUniverse)
+    (v/assert kb (list person Ann) 'CxUniverse)
+    (testing "a term holding no type is admitted, in all three arms"
+      (is (v/ask? kb (list sameRegionAs Paris Paris) 'CxUniverse))
+      (is (= #{Paris} (binds (v/ask kb (list sameRegionAs Paris '?y) 'CxUniverse) '?y)))
+      (is (= #{Paris} (binds (v/ask kb (list sameRegionAs '?x Paris) 'CxUniverse) '?x))))
+    (testing "a term holding a type disjoint from the declared one is not, in any arm"
+      (is (not (v/ask? kb (list sameRegionAs Ann Ann) 'CxUniverse)))
+      (is (empty? (v/ask kb (list sameRegionAs Ann '?y) 'CxUniverse)))
+      (is (empty? (v/ask kb (list sameRegionAs '?x Ann) 'CxUniverse))))))
+
+(tu/deftest-kb a-reflexive-predicate-reads-argandrest-and-args-declarations-as-arg-ones
+  (tu/with-terms [sameRegionAs sameZoneAs region person Paris Ann]
+    (v/assert kb tu/args-sugar-rule 'CxUniverse)
+    (doseq [p [sameRegionAs sameZoneAs]]
+      (v/assert kb (list 'reflexive p) 'CxUniverse))
+    (v/assert kb (list 'argAndRest sameRegionAs 1 region) 'CxUniverse)
+    (v/assert kb (list 'args sameZoneAs region) 'CxUniverse)
+    (v/assert kb (list 'disjoint person region) 'CxUniverse)
+    (v/assert kb (list person Ann) 'CxUniverse)
+    (doseq [p [sameRegionAs sameZoneAs]]
+      (is (v/ask? kb (list p Paris Paris) 'CxUniverse))
+      (is (not (v/ask? kb (list p Ann Ann) 'CxUniverse)))
+      (is (empty? (v/ask kb (list p Ann '?y) 'CxUniverse))))))
+
 (tu/deftest-kb a-symmetric-predicate-answers-with-either-argument-bound
   (tu/with-terms [siblingOf Ann Bob]
     (v/assert kb (list 'symmetric siblingOf) 'CxUniverse)

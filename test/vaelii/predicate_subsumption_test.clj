@@ -237,7 +237,7 @@
 (defn- because-premises
   "The sentences a stored conclusion's first justification rests on, as a set."
   [kb sentence]
-  (let [w (v/why kb (v/handle-of kb sentence 'CxUniverse))]
+  (let [w (tu/why-root kb (v/handle-of kb sentence 'CxUniverse))]
     (set (map :sentence (:because (first (:support w)))))))
 
 (tu/deftest-kb a-genlInverse-edge-answers-the-swapped-goal
@@ -351,11 +351,11 @@
         (is h)
         (is (nil? (v/handle-of kb (list hasChild Bob Tom) 'CxUniverse))))
       (testing "the justification names the genlInverse edge and the fact"
-        (is (= #{edge fact} (set (map :handle (:because (first (:support (v/why kb h)))))))))
+        (is (= #{edge fact} (set (map :handle (:because (first (:support (tu/why-root kb h)))))))))
       (testing "argue reads the stored conclusion's justification"
         (let [a (v/argue kb (list hasChild Tom Bob) 'CxUniverse)]
           (is (= :true (:verdict a)))
-          (is (some #(= edge (:handle %)) (:because (first (:support (:for-why a))))))))
+          (is (some #(= edge (:handle %)) (:because (first (:support (tu/why-root (:for-why a)))))))))
       (testing "retracting the edge withdraws the conclusion"
         (v/retract! kb edge)
         (is (not (v/ask? kb (list hasChild Tom Bob) 'CxUniverse)))))))
@@ -376,7 +376,7 @@
       (v/assert kb (list childOf Bob Tom) 'CxUniverse {:strength :monotonic})
       (testing "believed: the swapped goal answers, and the conclusion holds at the edge's class"
         (is (v/ask? kb (list parentOf Tom Bob) 'CxUniverse))
-        (is (= :default (:defeat-class (v/why kb (v/handle-of kb (list hasChild Tom Bob) 'CxUniverse))))))
+        (is (= :default (:defeat-class (tu/why-root kb (v/handle-of kb (list hasChild Tom Bob) 'CxUniverse))))))
       (let [hn (v/assert kb (list 'not (list 'genlInverse childOf parentOf)) 'CxUniverse
                          {:strength :monotonic})]
         (testing "defeated: neither the swapped goal nor the conclusion"

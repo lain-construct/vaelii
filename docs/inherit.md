@@ -512,7 +512,10 @@ answers the negation under the same undercutting and strength rules a surviving 
 answers the positive under. A separated membership alone does not answer the negation
 (`inherit/answers?`): the separation that undercuts a claim skips the `:monotonic`-edge
 soundness rule `res/separation-denials` applies, and `DisjointnessNegationProver` answers
-the denials that meet it. The forward join reads claims on a positive antecedent
+the denials that meet it. So a negation is answered only over a stated denial, an
+explicit `(not (P …))` in range or an asymmetric converse, and `answers?` reads those
+first (`stated-denials`): with none in range it reads no verdict, and neither the extent
+nor the product of the claims for the goal. The forward join reads claims on a positive antecedent
 alone: a `(not (P ?x ?y))` antecedent joins on stored denials. Its `cost` is
 `:compute` and its `completeness` 60: it augments facts and rules rather than replacing
 them, since a preserved predicate is still an ordinary predicate whose claims can be
@@ -658,7 +661,7 @@ way ([inference.md](inference.md#forward-chaining)).
 `(typicallyLargerThan chihuahua maine_coon)`, and the general claim is not defeated: it
 does not fire for that pair. Every antecedent of the firing is still stored and
 believed, so the justification cannot express the withdrawal. Which way the firing goes
-depends on the contrary claim's class (design ruling 25). The forward join reads the
+depends on the contrary claim's class. The forward join reads the
 claims with each `:default` contrary set aside (`inherit/*default-contraries-set-aside*`),
 so a firing only `:default` contraries undercut is made and stored, with a guard
 `defeat` of its conclusion at its placement resting on each contrary claim that survives
@@ -828,7 +831,20 @@ reach is held only up to 65,536 terms; past it the walk stops, holds nothing, an
 memberships stay a walk each. The memo's whole reaches come to at most 1,048,576 terms
 together, and past that the least recently read is dropped, since a discovery pass moves
 from goal term to goal term. The memo lives for one question or one discovery pass, and
-is dropped with it.
+is dropped with it. The admission checks of an argument-type mint hold one memo for the
+whole check (`special/entail-arg-type`): its cover arm asks the prover a denial per part,
+and the check writes nothing.
+
+A settle's exception re-check holds one memo for every `{::preserving s}` marker the pass
+queued (`recheck/exception-candidates`): each marker's `moved-goal-test` reads the reach of
+its sentence's arguments, and a batch of `genl` edges into one type reads that type's
+reach once. With `(transitive P)` the reach is joined with `P`'s facts (`reach`), so a
+broad type's is every term of its closure and a `P` literal of each. The test is a
+membership over the reaches the memo holds rather than their union, which would copy the
+closure per marker, and the fact walk cuts each literal's fan of sub-predicates by the slot
+predicate sets whatever its size (`res/*cut-every-fan?*`): a term no fact of `P` names
+costs two slot reads, not a read per member. `lein perf`'s
+`edges-into-a-broad-type-beside-a-preserved-relation` prices it per edge.
 
 The cheaper of two growing costs still grows, and neither path has a ceiling of its own.
 The caller's deadline bounds them instead: under `ask`, `ask?`, `ask-within`, `prove`,

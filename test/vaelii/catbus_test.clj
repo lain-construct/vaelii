@@ -78,7 +78,7 @@
         (is (reported? kb (v/handle-of kb (list tu_bus term) 'CxRealWorld)))))))
 
 (tu/deftest-kb ^:red a-default-separation-yields-to-a-fiction-that-states-the-overlap
-  ;; Ruled 2026-10-24: a disjoint is defeasible unless it separates arg types or defining
+  ;; A disjoint is defeasible unless it separates arg types or defining
   ;; predicate types. CxUniverse states (disjoint animal vehicle) at the default strength,
   ;; so a fiction that states the overlap monotonically defeats it there instead of
   ;; holding an irreducible conflict. Today every disjoint is forced-monotonic, so the

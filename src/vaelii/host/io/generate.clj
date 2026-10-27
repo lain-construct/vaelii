@@ -365,6 +365,8 @@
                      ;; `:truncated?`) rather than a chain that does not come back.
                      (v/forward-chain kb {:max-depth (or (:max-depth p) (inc (:layers p)))
                                           :max-derivations (:max-derivations p)
+                                          ;; the cap truncates the run, as the depth does
+                                          :on-stop :keep
                                           :on-progress chain-report}))]
        (report :done nil)
        {:params  p

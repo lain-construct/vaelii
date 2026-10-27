@@ -192,9 +192,13 @@ of its access control: a `wire` write reaches the daemon with the `:creator` and
 context the caller sent, and a `retract!` from any connection removes any agent's claim.
 
 **A wire ballot proves its voter by the recorded `:principal`.** Under the table the daemon
-records the presenting token's principal in each write's provenance, and no request may
-name that key, with or without a table. `resolve-by-majority` counts a ballot whose recorded
-`:principal` is its voter as it counts an attested one. A wire ballot cast through a daemon
+records the presenting token's principal in each write's provenance. No request may name
+that key, with or without a table. `deref/pull!` drops the key from every provenance map it
+imports (`import!`'s `:drop-principal?`), since no daemon of the pulling seat's operator's
+choosing recorded a peer's principals. A plain `import!` keeps the key. A ballot
+proves its voter only when it is stored in the voter's own context (`identity/context-for`).
+`resolve-by-majority` counts a ballot there whose recorded `:principal` is its voter as it
+counts an attested one. A wire ballot cast through a daemon
 with no table proves no voter, and the resolver refuses a count that includes one.
 
 **The key** is `identity/*attest-key*`: a byte array or a string of at least 32 bytes, or
@@ -433,8 +437,9 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   which is exactly the trust-weighting the identity design forbids, so `resolve-by-majority`
   refuses there (`:koinii/identity-unverified`). Counting stays open for transparency; only
   the ruling requires the proof-tier policy. Under `:proof-tier` it also refuses when any
-  ballot on the claim, a spoiling one included, carries neither an attestation nor a
-  daemon-recorded `:principal` naming its voter, and names those ballots in `:unattested`. `adjudication/cast-ballot` casts the attested ballot through
+  ballot on the claim, a spoiling one included, sits outside its voter's own context or
+  carries neither an attestation nor a daemon-recorded `:principal` naming its voter, and
+  names those ballots in `:unattested`. `adjudication/cast-ballot` casts the attested ballot through
   `identity/ingest`, and a daemon holding a token table records the `:principal` that
   stands in for an attestation; `channel/vote` in process, and over a daemon with no table,
   casts ballots that prove no voter. One such ballot therefore blocks the ruling until it is
@@ -650,9 +655,11 @@ loads any of them, and none of them requires anything under `vaelii.impl`.
   The stored half of that lifecycle — the `:notified` and `:stale` marks — lives in
   `CxDisputes` (`dispute/state-context`), the one well-known place a dispute id is
   looked up in. The marks are bookkeeping rather than channel knowledge, so nothing sees
-  the context by default. The first mark written into a KB loads its seed,
-  `resources/kb/koinii/CxDisputes.txt`, which places it under `CxUniverse` and declares
-  `disputeNotified`, `disputeStale` and the `DisputeFn` term they carry.
+  the context by default. Its seed, `resources/kb/koinii/CxDisputes.txt`, places it under
+  `CxUniverse` and declares `disputeNotified`, `disputeStale` and the `DisputeFn` term they
+  carry. `identity/load-registry` and `speech-acts/load-speech-acts` each load the seed,
+  so a context that sees CxDisputes reads those declarations before any dispute exists. A
+  mark written into a KB that ran neither loader loads the seed first.
 - `vaelii.koinii.adjudication` — the leave-open / arbiter / majority policies, the notify
   and stale sweeps, and the contested-premise reads.
 - `vaelii.koinii.belief` — belief projection, `convene` / `disagreements`, and

@@ -36,8 +36,7 @@
     (is (holds? kb (list qualifies pug pug) U) "and the forward join agrees")
     (testing "the reflexive pair rests on no edge"
       (let [h     (v/handle-of kb (list qualifies pug pug) U)
-            named (set (map :sentence (tree-seq map? #(mapcat :because (:support %))
-                                                (v/why kb h))))]
+            named (set (map :sentence (vals (:nodes (v/why kb h)))))]
         (is (= #{(list qualifies pug pug) (list pairOf pug pug)} named))))))
 
 (tu/deftest-kb a-join-that-binds-both-ends-reads-a-pair-two-edges-apart
@@ -49,7 +48,7 @@
       (is (holds? kb (list qualifies pug mammal) U))
       (testing "the firing names the edges of the path"
         (let [h     (v/handle-of kb (list qualifies pug mammal) U)
-              named (set (tree-seq coll? seq (v/why kb h)))]
+              named (set (keys (:nodes (v/why kb h))))]
           (is (contains? named far))))
       (testing "and a path edge going takes the conclusion"
         (v/retract! kb far)
@@ -152,7 +151,7 @@
       (is (holds? kb (list qualifies CxLow U) U) "two edges apart")
       (testing "the far pair names the edges of the path"
         (let [h (v/handle-of kb (list qualifies CxLow U) U)]
-          (is (contains? (set (tree-seq coll? seq (v/why kb h))) low)))))))
+          (is (contains? (set (keys (:nodes (v/why kb h)))) low)))))))
 
 ;; ---- the planner runs the closure literal after a literal binding an end ----
 ;; Each reading builds its own KB on the isolated space, so a reading's sentences
@@ -280,7 +279,7 @@
       (v/assert kb (separated-rule pairOf qualifies) U)
       (v/assert kb (list pairOf pug qb) U)
       (is (holds? kb (list qualifies pug qb) U))
-      (let [named (set (tree-seq coll? seq (v/why kb (v/handle-of kb (list qualifies pug qb) U))))]
+      (let [named (set (keys (:nodes (v/why kb (v/handle-of kb (list qualifies pug qb) U)))))]
         (is (contains? named decl))
         (is (contains? named edge)))
       (testing "the edge going takes the conclusion"

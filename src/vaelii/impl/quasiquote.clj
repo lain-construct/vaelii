@@ -31,6 +31,7 @@
   pass, so `ensure-quasiquote-functions` (or the marks it asserts) precedes the
   constructions it reduces."
   (:require [vaelii.impl.kb :as kb]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.nat-read :as nat-read]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
@@ -176,17 +177,19 @@
 
 (defn goal-alternatives
   "`goal` as the conjunctions a backward reader answers and merges (a sentence is a
-  conjunction of one), each read through the believed correspondences
-  (`res/goal-alternatives`, docs/nat.md, The corresponding predicate)."
-  [kb goal]
-  (res/goal-alternatives kb (if (vector? goal) goal [goal]) nat-read/no-match))
+  conjunction of one), each read through the correspondences `context` sees
+  (`res/goal-alternatives`, docs/nat.md, The corresponding predicate).  A query context
+  (`nm/query-context?`) passes nil, the variable context's reading."
+  [kb goal context]
+  (res/goal-alternatives kb (if (vector? goal) goal [goal]) nat-read/no-match
+                         (when-not (nm/query-context? context) context)))
 
 (defn prepare-conjunction-for-read
   "`goal` as the one conjunction a reader that merges no answers takes
   (`goal-alternatives`), each goal prepared as `prepare-goal-for-read` prepares it.
   Throws a `:shape` refusal when the goal reads through several declaration shapes."
   [kb goal context]
-  (let [alts (goal-alternatives kb goal)]
+  (let [alts (goal-alternatives kb goal context)]
     (when (< 1 (count alts))
       (throw (ex-info (str "the goal's function applications read through " (count alts)
                            " correspondence declaration shapes, and this entry point merges no"

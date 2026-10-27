@@ -320,6 +320,9 @@
                                       :msg (str "job " id " (" label ") ended without filing a"
                                                 " status; filed :failed")}))
                        (reset! released true)
+                       ;; a settled job keeps `:writes?` and no reference to the KB it
+                       ;; wrote, which its report outlives by up to `finished-ttl-ms`
+                       (update-job! id #(cond-> % (some? (:writes %)) (assoc :writes true)))
                        (Thread/interrupted)))))]
     (update-job! id #(assoc % :future f))
     id))

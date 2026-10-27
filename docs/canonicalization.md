@@ -1,7 +1,8 @@
 # Sentex canonicalization (`vaelii.impl.sentex`)
 
 - **Covers:** how a sentence's variable names, antecedent order, symmetric and commuting
-  arguments, and comparison direction fold to one stored handle, and how a conjunctive
+  arguments at any depth, a declared function's nested, repeated and absorbed arguments,
+  and comparison direction fold to one stored handle, and how a conjunctive
   consequent or a disjunctive antecedent unfolds into several.
 - **Not here:** which spellings are legal for a predicate, individual, type or context →
   [naming.md](naming.md); how the canonical form becomes the trie key →
@@ -254,9 +255,9 @@ context:
   spelling written, and each other spelling read is a `respell` row.
 - **Class.** A `respell` justification confers the as-written row's class
   (`jtms/class-antecedents`). The marks it rests on decide whether it is valid and cap
-  nothing, as a rule informant caps nothing. A reader that believes the mark therefore
-  reads the sorted row, and every firing over it, at the class a KB with no defeat reads,
-  so a defeat below a context moves no class there
+  nothing, as a premise rule informant caps nothing. A reader that believes the mark
+  therefore reads the sorted row, and every firing over it, at the class a KB with no
+  defeat reads, so a defeat below a context moves no class there
   ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)). A reader that does not believe
   the mark reads neither the row nor what rests on it alone. Its verdicts read the classes
   the members' support carries with the mark's defeats in force there forced OUT
@@ -367,6 +368,82 @@ The mark is read off the literal's **exact functor**, like `symmetric`'s, and a 
 edge below a commutative predicate does not make the sub-predicate commutative. A late
 declaration reaches the facts already stored through the same `integrate/commute-existing`
 migration described above.
+
+## Compounds below the literal sorted
+
+The symmetric and commuting sorts apply to every compound below the literal as well as to
+the literal: a function application in an argument, and a literal inside a sentence
+argument. `(holds (PairFn Ann Bob))` and `(holds (PairFn Bob Ann))` store as one sentex
+under `(commutative PairFn)`, and `(believes Ann (bordersOn Cid Bob))` and `(believes Ann
+(bordersOn Bob Cid))` under `(symmetric bordersOn)`. `sentex/canonical-args` walks the
+argument terms and sorts the innermost compound first, so a sort above it compares
+canonical subterms. `sentex/permute-args` lists the sorts, and the literal and each
+compound read that one list.
+
+- **Ground compounds only.** A compound holding a variable keeps its written order, for
+  the reason the literal does. A variable inside a `(Quote …)` does not count, since a
+  quoted form is a constant (`sentex/sortable-term?`): `(RulePairFn (Quote R1) (Quote R2))`
+  over two quoted rules sorts under `(commutative RulePairFn)`, and neither quote is
+  entered. A ground compound inside a pattern is sorted, at the rule
+  write by the same walk, and in a goal at the match entry points
+  (`res/probe-spelling`), so a goal names it in either order.
+- **A pattern below the literal is matched as positioned.** `res/raw-match` fans the
+  literal's own arguments over their permitted arrangements and does not fan a compound
+  below it. `(holds (PairFn Bob ?x))` therefore matches a stored `(holds (PairFn Ann
+  Bob))` only when the store's order puts `Bob` first.
+- **Held as written.** The walk stops at a quoting function, so `(holds (Quote (PairFn
+  Bob Ann)))` and `(holds (Quote (PairFn Ann Bob)))` are two sentexes. It stops at a
+  `natFormula` or `rewriteOf` expression, which is a verbatim NAT payload, and at a
+  `reifiable_function` application, whose constant is named by the expression as written
+  ([nat.md](nat.md#write-path)). A reified NAT is minted before the sort, so
+  `(PairFn Ann Bob)` and `(PairFn Bob Ann)` under a reifiable `PairFn` mint two constants.
+- **An `or` in an argument is a term.** The shipped ontology declares no mark on `or`,
+  so `(believes Ann (or P Q))` and `(believes Ann (or Q P))` are two sentexes
+  ([Where `or` cannot go](#where-or-cannot-go)). A KB stating `(commutative or)` folds
+  them.
+- **A mark arriving or leaving reaches the nested rows.** `integrate/rows-spelled-by`
+  adds the rows the term index keys by the marked functor to the functor's own rows, and
+  `commute-existing` and `chain/reconcile-spellings!` walk that set. A firing the leaving
+  split moves has its antecedents read again by the agenda, since a fold of two
+  conclusions keeps one justification for two bindings.
+- **Every reader reads the store's order below the literal.** The per-reader spelling of
+  [A mark a reader does not believe](#a-mark-a-reader-does-not-believe) reads the marks of
+  the literal's own predicate. A `defeat` or an `except` of a mark on a functor applied
+  below the literal moves no reader's spelling of that compound.
+
+A store written before compounds below the literal were sorted holds them as written, and
+a ground lookup of such a row by its written spelling misses it. `export-text!` then
+`load-text!` re-canonicalizes the store.
+
+## A function's terms reshaped by declaration
+
+Three marks reshape a ground application of a function below the literal, beside the
+sorts. `sentex/canonical-term` applies them, in the walk above, to the compound whose
+functor carries them:
+
+| mark | the application | example |
+|---|---|---|
+| `(associative F)` | an argument applying `F` has its arguments spliced in, before the sort | `(F A (F B C))` → `(F A B C)` |
+| `(idempotent F)` | an argument equal to its neighbour after the sort is dropped when `F` is also associative; otherwise only an application whose arguments are all one term collapses | `(F A B A)` → `(F A B)` |
+| `(meetFunctionOf F R)` | an argument another argument lies below by `R` is dropped; of two arguments below each other, the `cmp-term`-least stays | `(F (DatetimeFn "2000") (DatetimeFn "2000-03"))` → `(DatetimeFn "2000-03")` |
+
+An application of an idempotent or meet function left with one argument is that
+argument. Core.txt's forward rules conclude `commutative`, `associative` and `idempotent`
+from `meetFunctionOf`, so the one declaration gives all four arms.
+
+- **The order's registered comparator decides absorption.** `res/meet-order` reads
+  `datetime/order-comparators`, a pure function of the two terms (`subintervalOf` reads
+  the calendar fields, so `(MonthFn 2000 3)` and `(DatetimeFn "2000-03")` lie below each
+  other). A stored `(R a b)` fact is never read, so a stored form does not move with
+  belief: two named times are not absorbed whatever is stated between them, and an order
+  with no registered comparator absorbs nothing.
+- **The arms keep the walk's limits.** They read the exact functor, unscoped. They
+  touch a ground application only, stop at a quoting function, a NAT payload and a
+  `reifiable_function` application, and reach the stored rows through
+  `integrate/commute-existing` and `chain/reconcile-spellings!` as a commutativity mark
+  does. A pattern holding a variable inside such an application keeps its written shape,
+  so `(holds (F ?x (F B C)))` matches no stored `(holds (F A B C))`, and a `defeat` of a
+  term mark moves no reader's spelling.
 
 ## Comparison siblings folded
 

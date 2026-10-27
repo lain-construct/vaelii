@@ -9,6 +9,7 @@
             [vaelii.core :as v]
             [vaelii.koinii.dispute :as d]
             [vaelii.koinii.identity :as id]
+            [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
 
 (defn- dispute-kb [] (tu/load-core! (tu/fresh)))
@@ -216,7 +217,7 @@
                          kb (list 'disputeStale (d/dispute-term did) '?at '?r) d/state-context)]
         (is (nil? more) "one stale mark for the dispute, so reading it names no order")
         (is (some? sx))
-        (is (:believed? (v/why kb (:id sx))))))
+        (is (:believed? (tu/why-root kb (:id sx))))))
     (testing "reopen! clears it too"
       (is (= 1 (d/reopen! kb did)))
       (is (= :open (d/dispute-state kb did))))))
@@ -240,6 +241,19 @@
       (is (= :open (d/dispute-state kb did)) "the still-live clash is back at :open"))
     (testing "and it is idempotent — a second reopen finds nothing"
       (is (zero? (d/reopen! kb did))))))
+
+(defn- loader-stores-the-mark-declarations [kb load!]
+  (is (not (v/isa? kb 'disputeNotified 'binary d/state-context)))
+  (load! kb)
+  (is (v/sees? kb d/state-context 'CxUniverse))
+  (is (v/isa? kb 'disputeNotified 'binary d/state-context))
+  (is (v/isa? kb 'disputeStale 'ternary d/state-context)))
+
+(tu/deftest-kb load-registry-stores-the-mark-declarations-before-any-mark
+  (loader-stores-the-mark-declarations kb id/load-registry))
+
+(tu/deftest-kb load-speech-acts-stores-the-mark-declarations-before-any-mark
+  (loader-stores-the-mark-declarations kb sa/load-speech-acts))
 
 (tu/deftest-kb the-first-mark-loads-the-declarations-the-marks-are-checked-against
   (cross-agent-clash! kb)

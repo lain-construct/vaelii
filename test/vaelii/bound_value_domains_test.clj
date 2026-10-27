@@ -132,12 +132,13 @@
       (testing "forward-chain refuses a bad chain bound or callback, at the entry point —
                 before any rule fires"
         (doseq [opts [{:max-depth "x"} {:max-derivations "x"} {:max-derivations -1}
-                      {:on-progress 5} {:on-progress :nope} {:progress-every-ms "x"}]]
+                      {:max-term-depth "x"} {:max-term-depth -1} {:on-progress 5} {:on-progress :nope} {:progress-every-ms "x"}
+                      {:max-ms "x"} {:max-ms -1} {:stop? true}]]
           (is (bad-value? (refusal #(v/forward-chain kb opts))) (pr-str opts))))
       (testing "assert refuses the same chain bounds it hands the fixpoint, without a rule
                 needing to fire"
-        (doseq [opts [{:max-depth "x"} {:max-derivations "x"} {:on-progress 5}
-                      {:progress-every-ms "x"}]]
+        (doseq [opts [{:max-depth "x"} {:max-derivations "x"} {:max-term-depth "x"}
+                      {:on-progress 5} {:progress-every-ms "x"}]]
           (is (bad-value? (refusal #(v/assert kb (list dog 'Rex) CxBVD opts))) (pr-str opts))))
       (testing "assert-rule inherits it through assert"
         (is (bad-value? (refusal #(v/assert-rule kb [(list dog '?x)] (list dog '?x) CxBVD

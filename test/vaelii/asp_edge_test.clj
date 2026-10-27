@@ -63,6 +63,19 @@
           (is (contains? #{:optimum :sat} (:status r)))
           (is (= 2 (count (edge/kept-of t r)))))))))
 
+(deftest a-weighted-bound-renders-each-member-at-its-weight-and-prunes-by-them
+  (when asp?
+    (let [content {1 {:sentence '(p a) :context 'C} 2 {:sentence '(p b) :context 'C}
+                   3 {:sentence '(p c) :context 'C} 4 {:sentence '(p d) :context 'C}}
+          card    {:op :at-most :k 5 :members #{1 2 3 4} :weights {1 4 2 3 3 2 4 0}
+                   :hard true :priority 1 :sentence '(sumBound :at-most 5 (p ?x))}
+          t       (edge/translate (solve/program #{1 2 3 4} [] content [card]))]
+      (testing "one headless weight body of lower-bound k+1, a zero weight dropped"
+        (is (re-find #"(?m)^1 0 0 1 6 3 1 4 2 3 3 2$" (:aspif t))))
+      (testing "it prunes by weight: within 5 the most members kept is three (3 + 2 + 0)"
+        (let [r (solver/solve t :label)]
+          (is (= '#{(p b) (p c) (p d)} (sentences content (edge/kept-of t r)))))))))
+
 ;; ---- 1. the encoding, driven directly ----------------------------------
 
 (deftest a-tie-defeats-exactly-one-side

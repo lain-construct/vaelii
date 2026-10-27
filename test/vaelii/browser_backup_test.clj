@@ -80,6 +80,81 @@
   (is (= {:type :backup-failed :left? false}
          (failed-backup {:sealed true :generation 1 :watermark 0} "/nonexistent/store"))))
 
+(defn- backup-into
+  "Run `backup!` of store directory `dir` into `out`, with `v/seal` answering `seal` and
+  `pg_dump` writing `dump` as its file; answer the directory written or the refusal's
+  `:type`."
+  [kb dir out seal dump]
+  (let [cp @#'backup/run-process!]
+    (with-redefs [v/seal                (fn [_] seal)
+                  backup/run-process!   (fn [argv tick]
+                                          (if (= "pg_dump" (first argv))
+                                            (spit (last argv) dump)
+                                            (cp argv tick)))]
+      (try (:dir (backup/backup! kb dir out (fn [_])))
+           (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+
+(deftest backups-in-one-second-write-distinct-directories-and-a-failure-deletes-only-its-own
+  (let [root   (str (Files/createTempDirectory "vaelii-backup" (make-array FileAttribute 0)))
+        store  (str root "/store")
+        out    (backup/backup-dir store (LocalDateTime/of 2026 10 20 16 30 5))
+        sealed {:sealed true :generation 1 :watermark 0}
+        kb     (v/open-kb {:backend :memory})]
+    (.mkdirs (io/file store))
+    (spit (io/file store "x") "x")
+    (try
+      (let [a (backup-into kb store out sealed "dump a")]
+        (is (= out a))
+        (is (= :not-sealed (backup-into kb store out {:sealed false :reason :busy} "-")))
+        (is (= :backup-failed (backup-into kb "/nonexistent/store" out sealed "-")))
+        (let [b (backup-into kb store out sealed "dump b")]
+          (is (= (str out "-2") b) "the failed backup deleted the -2 it created")
+          (is (= "dump a" (slurp (io/file a "records.dump"))) "the first backup is intact")
+          (is (= ["x"] (vec (.list (io/file a "store")))) "and its clone holds no second one")
+          (is (= "dump b" (slurp (io/file b "records.dump"))))))
+      (finally (v/close! kb) (rm-rf! root)))))
+
+(deftest a-failed-backup-deletes-a-link-in-its-clone-and-not-what-it-names
+  ;; the store copy keeps a link as a link; the dump fails after the copy
+  (let [root  (str (Files/createTempDirectory "vaelii-backup" (make-array FileAttribute 0)))
+        store (str root "/store")
+        named (io/file root "named")
+        out   (str root "/store-backup")
+        kb    (v/open-kb {:backend :memory})]
+    (.mkdirs (io/file store))
+    (.mkdirs named)
+    (spit (io/file named "kept") "kept")
+    (Files/createSymbolicLink (.toPath (io/file store "link")) (.toPath named) (make-array FileAttribute 0))
+    (try
+      (with-redefs [v/seal              (fn [_] {:sealed true :generation 1 :watermark 0})
+                    backup/run-process! (let [cp @#'backup/run-process!]
+                                          (fn [argv tick]
+                                            (if (= "pg_dump" (first argv))
+                                              (throw (ex-info "pg_dump failed" {:type :backup-failed}))
+                                              (cp argv tick))))]
+        (is (= :backup-failed (try (backup/backup! kb store out (fn [_])) nil
+                                   (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+      (is (not (.exists (io/file out))))
+      (is (= "kept" (slurp (io/file named "kept"))))
+      (finally (v/close! kb) (rm-rf! root)))))
+
+(deftest the-progress-names-the-directory-the-backup-writes
+  (let [root  (str (Files/createTempDirectory "vaelii-backup" (make-array FileAttribute 0)))
+        store (str root "/store")
+        out   (str root "/store-backup")
+        notes (volatile! [])
+        kb    (v/open-kb {:backend :memory})]
+    (.mkdirs (io/file store))
+    (.mkdirs (io/file out))
+    (try
+      (with-redefs [v/seal               (fn [_] {:sealed true :generation 1 :watermark 0})
+                    backup/run-process!  (let [cp @#'backup/run-process!]
+                                           (fn [argv tick]
+                                             (if (= "pg_dump" (first argv)) (spit (last argv) "-") (cp argv tick))))]
+        (is (= (str out "-2") (:dir (backup/backup! kb store out #(vswap! notes conj (:note %)))))))
+      (is (some #(str/includes? (str %) (str out "-2")) @notes))
+      (finally (v/close! kb) (rm-rf! root)))))
+
 ;; ---- end to end, against a server ----------------------------------------
 
 (defn- sh
@@ -128,7 +203,7 @@
           (let [r (sh "pg_restore" "-h" "localhost" "-d" "vaelii" (str out "/records.dump"))]
             (is (zero? (:exit r)) (:out r)))
           (rm-rf! dir)
-          (is (zero? (:exit (sh "cp" "-cR" (str out "/store") dir))))
+          (is (zero? (:exit (sh "cp" @#'backup/copy-flags (str out "/store") dir))))
           (let [kb (v/open-kb opts)]
             (try
               (is (seq (v/sentexes-matching kb '(likes Ann Bob) 'CxBackupTest))

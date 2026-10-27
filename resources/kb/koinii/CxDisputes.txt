@@ -4,9 +4,9 @@
 ;; explains them and retracting one reopens the dispute.  The marks are bookkeeping about
 ;; clashes, not knowledge a channel reasons with, so nothing sees this context by default.
 ;;
-;; Sees CxUniverse for its vocabulary.  vaelii.koinii.dispute loads this file the first time
-;; it writes a mark into a KB that does not hold it, so the declarations below are in
-;; force where the marks are stored.  Every position is typed as written (quotedArg): the
+;; Sees CxUniverse for its vocabulary.  identity/load-registry and speech-acts/load-speech-acts
+;; load this file, and vaelii.koinii.dispute loads it when it writes a mark into a KB that
+;; does not hold it, so the declarations below are in force where the marks are stored.  Every position is typed as written (quotedArg): the
 ;; DisputeFn term is a mention whose sentexHandle arguments no argument type names, the
 ;; time is the clock's integer and the reason a symbol, and none of them is a thing a
 ;; type membership should be entailed of.
@@ -14,7 +14,8 @@
 (genlCx CxDisputes CxUniverse)  ; CxDisputes speaks CxUniverse's vocabulary
 
 (comment DisputeFn
-         "(DisputeFn (sentexHandle ?h1) (sentexHandle ?h2) …) denotes the dispute over the clash between the sentexes it names, the handles sorted and as many as the clash has: a nogood is a set, and an anti_transitive clash has three members. DisputeFn is an unreifiable_function, so an application stays a structural term inside the mark that carries it and nothing is minted for it. The term is the key the notify and stale sweeps read a mark back by (dispute/dispute-term). No predicate relates a DisputeFn term to the handles it names: the term is a lookup key inside a mark, and no rule reads its arguments.")
+         "(DisputeFn (sentexHandle ?h1) (sentexHandle ?h2) …) denotes the dispute over the clash between the sentexes it names, the handles sorted and as many as the clash has: a nogood is a set, and an anti_transitive clash has three members.")
+(implementationNote DisputeFn "DisputeFn is an unreifiable_function, so an application stays a structural term inside the mark that carries it and nothing is minted for it. The term is the key the notify and stale sweeps read a mark back by (dispute/dispute-term). No predicate relates a DisputeFn term to the handles it names: the term is a lookup key inside a mark, and no rule reads its arguments.")
 (unreifiable_function DisputeFn)
 (variable_arity_function DisputeFn)
 (unbounded_arity_function DisputeFn)

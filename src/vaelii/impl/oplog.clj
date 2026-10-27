@@ -29,9 +29,10 @@
   ## Unusable
 
   A log is **unusable** from the first write it cannot reproduce until a seal starts it
-  again (`rotate!`).  `mark-unusable!` appends an `{:unusable reason}` frame, so the mark
-  outlives the process.  A `:seal` or `:config` operation marks it, and so do arguments
-  nippy cannot freeze, a write a change-feed listener makes (a listener runs part-way
+  again (`rotate!`).  `mark-unusable!` appends an `{:unusable reason}` frame and fsyncs
+  it, so the mark outlives the process, and a write after the mark runs only once the
+  mark is on disk.  A `:seal` or `:config` operation marks it, and so do arguments nippy
+  cannot freeze, a write a change-feed listener makes (a listener runs part-way
   through another operation's settle, where `vaelii.core/dispatch-feed!` binds
   `*listener?*`), a record write outside every operation (`LoggedRecords`), and a
   `VirtualMachineError` thrown by a write after its frame was appended (`[:vm-error op
@@ -240,12 +241,16 @@
   (:opened @(:state log)))
 
 (defn mark-unusable!
-  "Record that `log` cannot be replayed, for `reason`.  The first reason is the one kept.
-  A log whose fault is latched appends nothing."
-  [{:keys [raf lock state path fault]} reason]
+  "Record that `log` cannot be replayed, for `reason`, and fsync the mark before
+  returning.  The first reason is the one kept.  A log whose fault is latched appends
+  nothing."
+  [{:keys [raf lock state path fault] :as log} reason]
   (when-not (:unusable @state)
     (when-not @fault
-      (locking lock (f/with-io-guard fault path true (f/append-record! raf {:unusable reason}))))
+      (locking lock
+        (f/with-io-guard fault path true (f/append-record! raf {:unusable reason}))
+        (force-guarded! log)
+        (swap! state assoc :synced (:ops @state))))
     (swap! state assoc :unusable reason)
     (trove/log! {:level :info :id ::unusable
                  :msg  (str "operation log " path " is unusable from here: " (pr-str reason))

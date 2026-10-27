@@ -389,7 +389,7 @@
     :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
     :exception-not-closed :export-busy :forbidden-context :fork-base-overlap :frozen-base :functional
     :handle-ceiling
-    :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy
+    :incomplete-racer :inter-arg-type :internal-error :interrupted :irreflexive :job-busy
     :labeling-inconsistent :labeling-run-blocked :length-against-shape
     :length-against-spelling
     :malformed-entry :malformed-manifest :malformed-record :manifest-too-large
@@ -400,7 +400,7 @@
     :no-dump :no-foreign-reader :no-records-location :not-a-directory :not-assertible
     :not-checkable :not-edn :not-empty :not-encodable :not-indexable
     :not-a-report :not-found :not-ground :not-in-process :not-pg-snapshot :not-range-restricted :not-sealed :not-stratified
-    :not-watchable :not-well-formed :not-writable :over-ceiling :path-not-served :pattern-too-costly
+    :not-watchable :not-well-formed :not-writable :over-ceiling :owed-record-ahead :path-not-served :pattern-too-costly
     :quantifier-not-local :quoted-arg-type
     :record-edit-unsupported :reset :shape :short-transfer :shutdown-abort :solver-failed
     :solver-unavailable
@@ -411,6 +411,7 @@
     :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :uncleared-forcing
     :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
+    :unknown-owed-record
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unminted-nat
     :unreadable :unreadable-store :unrecovered-kb :unrecovered-premise
@@ -466,7 +467,9 @@
   here — several are two shapes of one condition and have nothing in common —
   but it is a hole in what a `catch` can act on, so each one is named in
   `carries-nothing` with the reason."
-  {:arity                   #{:clashes-with :message :sentence}
+  {:arg-constraint-kind     #{:clashes-with :message :predicate :sentence}
+   :arg-position            #{:clashes-with :message}
+   :arity                   #{:clashes-with :message :sentence}
    :bad-arg                 #{:arg :value}
    :bad-args                #{:op}
    :bad-cursor              #{:cursor :token}

@@ -7,7 +7,8 @@
   `max-gap-ms`, and a closing line.  A line falls due on a
   tick or on a timer, so a step that ticks nothing for 15 s still prints one.  A reporter
   is a value the loop holds and ticks, opened with `with-open`; no dynamic var carries it.
-  See docs/operations.md, \"Progress lines\"."
+  A caller follows the loops started under it through `*observer*`.  See
+  docs/operations.md, \"Progress lines\"."
   (:require [taoensso.trove :as trove])
   (:import (java.util.concurrent Executors Future ScheduledExecutorService ThreadFactory
                                  TimeUnit)
@@ -29,6 +30,17 @@
 (def ^:private check-every-ns
   "The time the next clock read is aimed at, from the rate measured so far."
   100000000)
+
+(def ^:dynamic *observer*
+  "nil, or a function a caller binds to follow the loops started under it: called with
+  `{:id :label :done :total}` from the thread that ticks, at most once each
+  `observe-every-ms` of a loop's run, and once as it closes when it was called before.  A reporter reads the binding
+  in force when it starts.  Beside the log lines, not in place of them."
+  nil)
+
+(def ^:private observe-every-ms
+  "The least time between two calls of a reporter's `*observer*`."
+  1000)
 
 (def ^:private estimate-factor
   "How far, up or down, the projected total time (elapsed plus left) must move from the
@@ -118,16 +130,29 @@
       (.incrementAndGet ^AtomicLong (:lines r))
       (emit! r done elapsed false))))
 
+(defn- observe!
+  "Call `r`'s observer (`*observer*`) with its count `done`, when it has one and
+  `observe-every-ms` has passed since the last call at `elapsed` ns, or when `force?`.
+  The thread that moves `:observed` calls it; any other skips."
+  [r done ^long elapsed force?]
+  (when-let [f (:observer r)]
+    (let [^AtomicLong o (:observed r)
+          prev (.get o)]
+      (when (and (or force? (>= (- elapsed prev) (* (long observe-every-ms) 1000000)))
+                 (.compareAndSet o prev elapsed))
+        (f {:id (:id r) :label (:label r) :done done :total (:total r)})))))
+
 (defn- check!
-  "Read the clock for `r` at `done` items: log a line when the next one is due, and set
-  the count of the next clock read from the rate so far.  The thread that moves
-  `:check-at` reads the clock; any other skips."
+  "Read the clock for `r` at `done` items: log a line when the next one is due, call its
+  observer when one is due (`observe!`), and set the count of the next clock read from
+  the rate so far.  The thread that moves `:check-at` reads the clock; any other skips."
   [r ^long done]
   (let [^AtomicLong at (:check-at r)
         seen (.get at)]
     (when (and (>= done seen) (.compareAndSet at seen Long/MAX_VALUE))
       (let [elapsed (- (long ((:clock r))) (long (:t0 r)))]
         (emit-if-due! r done elapsed)
+        (observe! r done elapsed false)
         (.set at (+ done (long (if (pos? elapsed)
                                  (max 1 (min (long max-stride)
                                              (long (/ (* (double done) check-every-ns) elapsed))))
@@ -183,18 +208,22 @@
     (schedule! r task (- (.get ^AtomicLong (:next-ns r)) elapsed))))
 
 (defn done!
-  "Close the loop `r` reports: stop its timer, and log the closing line when a progress
-  line was logged."
+  "Close the loop `r` reports: stop its timer, log the closing line when a progress line
+  was logged, and call its observer with the count reached when it was called before."
   [r]
   (let [prev (.getAndSet ^AtomicReference (:timer r) ::closed)]
     (when (instance? Future prev) (.cancel ^Future prev false)))
-  (when (pos? (.get ^AtomicLong (:lines r)))
-    (emit! r (.get ^AtomicLong (:done r)) (- (long ((:clock r))) (long (:t0 r))) true))
+  (let [done    (.get ^AtomicLong (:done r))
+        elapsed (- (long ((:clock r))) (long (:t0 r)))]
+    (when (pos? (.get ^AtomicLong (:lines r)))
+      (emit! r done elapsed true))
+    (when (pos? (.get ^AtomicLong (:observed r)))
+      (observe! r done elapsed true)))
   nil)
 
 (defrecord Reporter [id label total clock t0 ^AtomicLong done ^AtomicLong check-at
                      ^AtomicLong next-ns ^AtomicReference shown ^AtomicLong lines
-                     ^AtomicReference timer]
+                     ^AtomicReference timer observer ^AtomicLong observed]
   java.io.Closeable
   (close [r] (done! r)))
 
@@ -205,7 +234,8 @@
   `opts`: `:clock`, a zero-argument fn answering nanoseconds (`System/nanoTime` by
   default), and `:timer?`, whether a timer logs the lines no tick does (by default only
   under the default clock).  The timer logs under the dynamic bindings in force here, so
-  a caller's `binding` of `trove/*log-fn*` sees its lines."
+  a caller's `binding` of `trove/*log-fn*` sees its lines, and the `*observer*` in force
+  here is the reporter's."
   (^java.io.Closeable [id label total] (start id label total nil))
   (^java.io.Closeable [id label total {:keys [clock] :as opts}]
    (let [timer? (get opts :timer? (nil? clock))
@@ -213,7 +243,8 @@
          r      (->Reporter id label (some-> total long) clock (long (clock))
                             (AtomicLong. 0) (AtomicLong. 1)
                             (AtomicLong. (* (long first-line-ms) 1000000))
-                            (AtomicReference. [0 nil]) (AtomicLong. 0) (AtomicReference. nil))]
+                            (AtomicReference. [0 nil]) (AtomicLong. 0) (AtomicReference. nil)
+                            *observer* (AtomicLong. 0))]
      (when timer?
        (let [task (promise)]
          (deliver task (bound-fn* #(on-timer! r @task)))

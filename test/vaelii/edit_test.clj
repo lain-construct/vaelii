@@ -242,7 +242,8 @@
   retraction and a re-assertion) and through `edit-records!` on a reopened KB without
   belief followed by `settle-record-edits!` with `settle-opts`, on two sequential fresh
   KBs.  `scenario` is `{:build (fn [kb]) :remove [[s ctx]] :direction [[[s ctx] bare d]]}`;
-  its `:keeps`, read by the caller, are records `edit!` must leave believed."
+  its `:keeps` and `:entailing?`, read by the caller, are records `edit!` must leave
+  believed and whether the row runs under the entailing argument-type reading."
   [{:keys [build remove direction]} settle-opts]
   (let [handles (fn [kb] (mapv (fn [[s c]] (v/handle-of kb s c)) remove))]
     [(tu/with-cleared-kb [kb tu/fresh]
@@ -262,8 +263,32 @@
          (believed kb2)))]))
 
 (deftest edit-records-then-settle-believes-what-edit-believes
-  (tu/with-terms [p q r s t u w bird flies travels blocked parentOf animal dog needs wanted relativeOf childOf kinOf person A B Tweety Fido Rex Fred Mary CxThe CxWorld CxDogs]
+  (tu/with-terms [p q r s t u w bird flies travels blocked parentOf animal dog needs wanted relativeOf childOf kinOf knows person A B Tweety Fido Rex Fred Mary CxThe CxWorld CxDogs CxRa CxRb CxRm]
     (let [rule (fn [ante conseq] (list 'implies ante conseq))
+          ;; a firing names one route for each reachability it rests on, so removing the
+          ;; edge it named deletes the justification while the second route still
+          ;; licenses the firing; `route-first?` puts the second route before the firing
+          cx-route (fn [route-first?]
+                     (fn [kb]
+                       (let [route #(do (v/assert kb (list 'genlCx CxRm CxRa) 'CxUniverse)
+                                        (v/assert kb (list 'genlCx CxRb CxRm) 'CxUniverse))]
+                         (v/assert kb (list 'genlCx CxRa 'CxUniverse) 'CxUniverse)
+                         (v/assert kb (list 'genlCx CxRb CxRa) 'CxUniverse)
+                         (when route-first? (route))
+                         (v/assert-rule kb [(list p '?x)] (list q '?x) CxRa {:direction :forward})
+                         (v/assert kb (list p A) CxRb)
+                         (when-not route-first? (route)))))
+          genl-route (fn [route-first?]
+                       (fn [kb]
+                         (let [route #(do (v/assert kb (list 'genl childOf kinOf) 'CxUniverse)
+                                          (v/assert kb (list 'genl kinOf relativeOf) 'CxUniverse))]
+                           (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
+                           (v/assert-rule kb [(list relativeOf '?x '?y)] (list knows '?x '?y) CxThe
+                                          {:direction :forward})
+                           (v/assert kb (list 'genl childOf relativeOf) 'CxUniverse)
+                           (when route-first? (route))
+                           (v/assert kb (list childOf Fido Rex) CxThe)
+                           (when-not route-first? (route)))))
           ;; `(animal Fred)` is minted off `(parentOf Fred Mary)` and withheld while
           ;; `(dog Fred)` says it more specifically (docs/argtypes.md)
           withheld (fn [kb]
@@ -330,7 +355,23 @@
                      (v/assert kb (list 'genl kinOf relativeOf) 'CxUniverse)
                      (v/assert kb (list childOf Fido Rex) 'CxUniverse))
             :remove [[(list 'genl childOf relativeOf) 'CxUniverse]]
-            :keeps  [[(list person Fido) 'CxUniverse]]}
+            :keeps  [[(list person Fido) 'CxUniverse]] :entailing? true}
+
+           "a removed genlCx edge leaves the firing a later second route licenses"
+           {:build (cx-route false) :remove [[(list 'genlCx CxRb CxRa) 'CxUniverse]]
+            :keeps [[(list q A) CxRb]]}
+
+           "a removed genlCx edge leaves the firing an earlier second route licenses"
+           {:build (cx-route true) :remove [[(list 'genlCx CxRb CxRa) 'CxUniverse]]
+            :keeps [[(list q A) CxRb]]}
+
+           "a removed genl edge leaves the firing a later second route licenses"
+           {:build (genl-route false) :remove [[(list 'genl childOf relativeOf) 'CxUniverse]]
+            :keeps [[(list knows Fido Rex) CxThe]]}
+
+           "a removed genl edge leaves the firing an earlier second route licenses"
+           {:build (genl-route true) :remove [[(list 'genl childOf relativeOf) 'CxUniverse]]
+            :keeps [[(list knows Fido Rex) CxThe]]}
 
            "a removed premise that a firing also concludes stays, derived"
            {:build (fn [kb]
@@ -358,8 +399,9 @@
             :direction [[[(rule (list p '?x) (list t '?x)) CxThe] (rule (list p '?x) (list t '?x)) :forward]]}}]
       (doseq [[label row] rows]
         (testing label
-          ;; a row's `:keeps` names an argument-type mint, which only the entailing reading makes
-          (let [[via-edit via-records] (if (:keeps row)
+          ;; an `:entailing?` row keeps an argument-type mint, which only the entailing
+          ;; reading makes
+          (let [[via-edit via-records] (if (:entailing? row)
                                          (tu/with-entailing (edit-both-ways row {}))
                                          (edit-both-ways row {}))]
             (doseq [k (:keeps row)]
@@ -388,4 +430,7 @@
             (testing "the same batch run again completes it and counts what is gone"
               (is (= 1 (:removed (v/edit-records! kb2 {:remove [fa]}))))
               (is (= {:removed 0 :absent 1}
-                     (select-keys (v/edit-records! kb2 {:remove [fa]}) [:removed :absent]))))))))))
+                     (select-keys (v/edit-records! kb2 {:remove [fa]}) [:removed :absent]))))
+            (testing "a nil removal, as `handle-of` answers on an index not built, counts as absent"
+              (is (= {:removed 0 :absent 1}
+                     (select-keys (v/edit-records! kb2 {:remove [nil]}) [:removed :absent]))))))))))

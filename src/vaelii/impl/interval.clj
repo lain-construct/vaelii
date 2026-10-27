@@ -5,10 +5,8 @@
   calculus: thirteen base relations, seven derived predicates, the transcribed composition
   table, and the two narrowings, metric (`stp`) and point (`points-narrowing-with-support`).
   See docs/time.md and docs/qcn.md."
-  (:require [clojure.set :as set]
-            [vaelii.impl.naming :as nm]
+  (:require [vaelii.impl.naming :as nm]
             [vaelii.impl.point :as pt]
-            [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.stp :as stp]
             [vaelii.impl.timepoint :as tp]))
@@ -180,58 +178,60 @@
   its `(StartFn X)` is a node of the point network and X is a symbol; a pair's relations
   are those whose `stp/endpoint-signature` every one of the four endpoint comparisons
   still admits, and its support is the four comparisons' support.  Only narrowed pairs
-  are recorded.  An inconsistent point network answers `stp/unsatisfiable-narrowing`,
-  supported by the point network's culprits, its `:point` source naming the point pairs
-  unsatisfiable as written and those culprits.  The comparisons are read off one closed
-  point network and the support off one `qcn-kb/closure-with-support` pass."
+  are recorded.  Each unsatisfiable component of the point network
+  (`qcn-kb/unsatisfiable-components`) answers `stp/unsatisfiable-narrowing` over the things
+  whose points it holds, supported by its culprits, its `:point` source naming its pairs
+  unsatisfiable as written and those culprits.  The comparisons are read off the closed
+  satisfiable components (`qcn-kb/closed-network`) and the support off one
+  `qcn-kb/closure-with-support` pass."
   [kb context]
   (let [calc    pt/instants
         net     (qkb/network kb calc context)
         things  (into #{} (comp (keep tp/thing-of) (filter symbol?)) (qkb/nodes net))
-        closed  (qkb/tighten kb calc context net nil)
+        bad     (qkb/unsatisfiable-components calc kb context)
+        gone    (into #{} (mapcat :nodes) bad)
+        closed  (qkb/closed-network calc kb context)
         pass    (delay (qkb/closure-with-support calc kb context))
         ends    (into {} (map (fn [x] [x {:start (tp/point :start x) :end (tp/point :end x)}]))
                       things)
+        free    (into #{} (remove (fn [x] (some #(contains? gone %) (vals (ends x))))) things)
         between (fn [x y] (for [ex [:start :end] ey [:start :end]]
-                            [[ex ey] [(get-in ends [x ex]) (get-in ends [y ey])]]))]
-    (if (= :inconsistent closed)
-      (let [culprits (:culprits @pass)]
-        (stp/unsatisfiable-narrowing
-         things culprits
-         {:source  :point
-          :pairs   (nm/by-print-key (qcn/unsatisfiable-pairs net (:algebra calc)))
-          :support culprits}))
-      (reduce
-       (fn [acc [x y]]
-         (let [pts  (between x y)
-               cmp  (into {} (map (fn [[k [a b]]] [k (qkb/constraint calc closed a b)])) pts)
-               rels (into #{} (keep (fn [[rel sig]]
-                                      (when (every? (fn [[k r]] (contains? (cmp k) r)) sig)
-                                        rel)))
-                          stp/endpoint-signature)]
-           (if (= rels stp/allen-relations)
-             acc
-             (let [support (:support @pass)]
-               (-> acc
-                   (assoc-in [:net [x y]] rels)
-                   (assoc-in [:support [x y]]
-                             (into #{} (mapcat (fn [[_ ab]] (get support ab #{}))) pts)))))))
-       {:net {} :support {}}
-       (for [x things y things :when (not= x y)] [x y])))))
+                            [[ex ey] [(get-in ends [x ex]) (get-in ends [y ey])]]))
+        stand-ins (for [{:keys [nodes pairs culprits]} bad]
+                    (stp/unsatisfiable-narrowing
+                     (filter (fn [x] (some #(contains? nodes %) (vals (ends x)))) things)
+                     culprits
+                     {:source  :point
+                      :pairs   (nm/by-print-key pairs)
+                      :support culprits}))]
+    (stp/merge-narrowings
+     (cons
+      (when (map? closed)
+        (reduce
+         (fn [acc [x y]]
+           (let [pts  (between x y)
+                 cmp  (into {} (map (fn [[k [a b]]] [k (qkb/constraint calc closed a b)])) pts)
+                 rels (into #{} (keep (fn [[rel sig]]
+                                        (when (every? (fn [[k r]] (contains? (cmp k) r)) sig)
+                                          rel)))
+                            stp/endpoint-signature)]
+             (if (= rels stp/allen-relations)
+               acc
+               (let [support (:support @pass)]
+                 (-> acc
+                     (assoc-in [:net [x y]] rels)
+                     (assoc-in [:support [x y]]
+                               (into #{} (mapcat (fn [[_ ab]] (get support ab #{}))) pts)))))))
+         {:net {} :support {}}
+         (for [x free y free :when (not= x y)] [x y])))
+      stand-ins))))
 
 (defn- both-narrowings
-  "The metric and the point readings intersected pair by pair, their support unioned, and
-  their unsatisfiable sources listed metric first.  An absent pair is the universe in
-  either, so a pair only one of them narrows takes that one's set."
+  "The metric and the point readings merged (`stp/merge-narrowings`), their unsatisfiable
+  sources listed metric first."
   [kb context]
-  (let [m (stp/allen-narrowing-with-support kb context)
-        p (points-narrowing-with-support kb context)]
-    (when (or m p)
-      (cond-> {:net     (merge-with set/intersection (:net m) (:net p))
-               :support (merge-with set/union (:support m) (:support p))}
-        (or (:unsatisfiable-sources m) (:unsatisfiable-sources p))
-        (assoc :unsatisfiable-sources (into (vec (:unsatisfiable-sources m))
-                                            (:unsatisfiable-sources p)))))))
+  (stp/merge-narrowings [(stp/allen-narrowing-with-support kb context)
+                         (points-narrowing-with-support kb context)]))
 
 ;; ---- the calculus, and the glue it shares with every other algebra -------
 
@@ -251,7 +251,7 @@
 
 (defn possible-allen-relations
   "The Allen base relations still possible between intervals `i1` and `i2` given
-  everything believed in `context` — `#{}` when the network is inconsistent."
+  everything believed in `context` — `#{}` when either lies in an unsatisfiable component."
   [kb context i1 i2]
   (qkb/possible allen kb context i1 i2))
 

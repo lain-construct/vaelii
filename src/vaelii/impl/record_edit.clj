@@ -7,6 +7,7 @@
   See docs/storage.md, \"Editing the records of a KB without belief\"."
   (:require [vaelii.impl.capabilities :as cap]
             [vaelii.impl.chain :as chain]
+            [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -18,6 +19,7 @@
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.settle :as settle]
+            [vaelii.impl.special :as special]
             [vaelii.impl.types.reasoning :as reasoning]))
 
 ;; ---- the batch --------------------------------------------------------------------
@@ -124,7 +126,9 @@
   A removed record is deleted with its index postings unless a justification that
   survives the batch concludes it; such a record only loses its premise mark.  A rule's
   direction is written into its record.  Every stored justification resting on a deleted
-  record, and every firing of a rule the batch takes off `:forward`, is deleted.  A
+  record, and every firing of a rule the batch takes off `:forward`, is deleted, except a
+  firing that rests on a deleted `genl` or `genlCx` edge: that one stays stored for
+  `sweep!`, which reads its antecedents as the facts to re-chain and then deletes it.  A
   removal naming no stored record is counted under `:absent`, so the same batch run again
   after a crash completes it.
 
@@ -143,7 +147,10 @@
         index      (:index kb)
         directions (into {} (:direction batch))
         removes    (into [] (distinct) (:remove batch))
-        stored     (into {} (keep #(when-let [sx (p/get-sentex records %)] [% (assoc sx :id %)]))
+        ;; a nil removal, `handle-of`'s answer for a sentence the KB does not hold, names
+        ;; no stored record and counts under `:absent`
+        stored     (into {} (keep #(when-let [sx (and (integer? %) (p/get-sentex records %))]
+                                     [% (assoc sx :id %)]))
                          (concat removes (keys directions)))
         removals   (into #{} (filter stored) removes)]
     ;; every refusal before the first write
@@ -160,6 +167,15 @@
                      (scan-justifications records removals narrowed)
                      {})
           {:keys [delete keep dead]} (plan removals narrowed js)
+          ;; a firing that named a deleted closure edge as its witness may still be
+          ;; licensed by a second route; `recover` leaves it out as `:unrooted`, and
+          ;; `sweep!` reads the facts to re-chain off it before deleting it
+          edges    (into #{} (filter #(special/closure-edge-relation (sx/sentence-of (stored %)))) delete)
+          left     (into #{} (comp (filter (fn [[_ j]] (and (integer? (:informant j))
+                                                            (not (contains? narrowed (:informant j)))
+                                                            (some edges (:antecedents j)))))
+                                   (map key))
+                         dead)
           ;; a rule the batch puts on `:forward` is a seed too, every run, so a run after a
           ;; crash names it again although its record already holds the direction
           seeds    (-> (into (sorted-set) keep)
@@ -180,47 +196,83 @@
       (doseq [h (sort delete)]
         (reindex/unindex-one! index (stored h) h)
         (p/delete-sentex! records h))
-      (run! #(p/delete-justification! records %) (sort (keys dead)))
+      (run! #(p/delete-justification! records %) (sort (remove left (keys dead))))
       (kb/refresh-index-image! kb)
       {:removed                (count delete)
        :unpremised             (count keep)
        :absent                 (- (count removes) (count removals))
        :redirected             (count engines)
-       :justifications-removed (count dead)
+       :justifications-removed (- (count dead) (count left))
        :seeds                  (into [] (filter #(p/get-sentex records %)) seeds)})))
 
 ;; ---- the sweep after the rebuild ----------------------------------------------------
+
+(def ^:private sweep-steps
+  "The steps of `sweep!`, in order."
+  [:unrooted :sweep :settle :chain :rechain :settle-chain])
 
 (defn sweep!
   "Delete the unrooted justifications the last `recover` left out (`:unrooted`), sweep
   the consequence closure of their stored conclusions and of `seeds` as a retraction
   sweeps it — every record there that is not a premise and is OUT goes, with the
   justifications touching it (`jtms/sweep!`), through the removal choke point — and settle;
-  then chain each forward rule among `seeds` over the stored facts and settle again.  Runs
-  over a KB with belief.  Returns `{:unrooted n :removed-sentexes n
-  :removed-justifications n :rules-chained n}`."
-  [kb seeds]
-  (let [records (:records kb)
-        tms     (reasoning/tms kb)
-        unrooted (:unrooted @(:unrecovered kb))
-        concl   (into [] (keep #(:consequence (p/get-justification records %))) unrooted)
-        _       (run! #(p/delete-justification! records %) unrooted)
-        _       (swap! (:unrecovered kb) dissoc :unrooted)
-        seeds   (into #{} (filter #(and (integer? %)
-                                        (jtms/known-datum? tms %)
-                                        (not (recovery/inert-marked? kb %))))
-                      (concat seeds concl))
-        rm      (if (seq seeds) (jtms/sweep! tms seeds) {})
-        _       (settle/apply-removals! kb rm)
-        _       (settle/settle kb)
-        ;; the rules a batch put on `:forward`, joined over the facts as `assert` joins a
-        ;; rule that newly runs forward
-        rules   (into [] (filter #(some-> (p/get-sentex records %) rules/forward-sentex?))
-                      (sort seeds))]
-    (when (seq rules)
-      (chain/chain-all kb rules {})
-      (settle/settle kb))
-    {:unrooted               (count unrooted)
-     :removed-sentexes       (count (:removed-sentexes rm))
-     :removed-justifications (count (:removed-justifications rm))
-     :rules-chained          (count rules)}))
+  then chain each forward rule among `seeds` over the stored facts, re-chain the
+  antecedents of the unrooted rule firings (`special/firing-seeds`, a deleted record
+  standing for the edge each one named), and settle again.  Runs over a KB with belief.
+  Returns `{:unrooted n :removed-sentexes n :removed-justifications n :rules-chained n
+  :rechained n}`.
+
+  `report`, when given, is called with `{:phase :sweep :step k :done i :total 6}` as each
+  step begins (`sweep-steps`), and with the chain's `:derived` and `:pending` beside while
+  it runs."
+  ([kb seeds] (sweep! kb seeds nil))
+  ([kb seeds report]
+   (let [step!   (fn [k & [extra]]
+                   (when report
+                     (report (merge {:phase :sweep :step k
+                                     :done (.indexOf ^java.util.List sweep-steps k)
+                                     :total (count sweep-steps)}
+                                    extra))))
+         _       (step! :unrooted)
+         records (:records kb)
+         tms     (reasoning/tms kb)
+         unrooted (:unrooted @(:unrecovered kb))
+         js      (into [] (keep #(p/get-justification records %)) unrooted)
+         concl   (into [] (keep :consequence) js)
+         gone?   (fn [h] (and (integer? h) (nil? (p/get-sentex records h))))
+         ;; read off the records before they go, as `edit!` reads its seeds off the
+         ;; justifications its sweep removed (`special/resubsumption-seeds`)
+         refire  (special/firing-seeds js gone? gone?)
+         _       (run! #(p/delete-justification! records %) unrooted)
+         _       (swap! (:unrecovered kb) dissoc :unrooted)
+         _       (step! :sweep)
+         seeds   (into #{} (filter #(and (integer? %)
+                                         (jtms/known-datum? tms %)
+                                         (not (recovery/inert-marked? kb %))))
+                       (concat seeds concl))
+         rm      (if (seq seeds) (jtms/sweep! tms seeds) {})
+         _       (integrate/apply-removals! kb rm)
+         _       (step! :settle)
+         _       (settle/settle kb)
+         ;; the rules a batch put on `:forward`, joined over the facts as `assert` joins a
+         ;; rule that newly runs forward
+         rules   (into [] (filter #(some-> (p/get-sentex records %) rules/forward-sentex?))
+                       (sort seeds))]
+     (step! :chain {:rules (count rules)})
+     (when (seq rules)
+       (chain/chain-all kb rules (if report
+                                   {:on-progress #(step! :chain (assoc % :rules (count rules)))}
+                                   {})))
+     (step! :rechain {:firings (count refire)})
+     ;; re-asking firings the removal swept, so one that places nothing is not reported
+     ;; (`chain/*report-no-placement?*`)
+     (when (seq refire)
+       (binding [chain/*report-no-placement?* false] (settle/rechain-seeds kb refire)))
+     (when (or (seq rules) (seq refire))
+       (step! :settle-chain)
+       (settle/settle kb))
+     {:unrooted               (count unrooted)
+      :removed-sentexes       (count (:removed-sentexes rm))
+      :removed-justifications (count (:removed-justifications rm))
+      :rules-chained          (count rules)
+      :rechained              (count refire)})))

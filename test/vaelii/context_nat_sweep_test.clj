@@ -276,26 +276,28 @@
               (tu/clear-kb!)
               (tu/load-core!)
               (sa/load-speech-acts))]
-    (let [atlas (ch/join (ch/local kb2) 'CxDeploy 'AgentAtlas)
-          actx  (:context atlas)
-          h     (ch/assert atlas '(usesDatabase ProdCluster PostgreSQL14))
-          cxfn  (declare-dimension! kb2)
-          expr  (list cxfn 'CxMonad (list 'DatetimeFn "2008"))
-          [hc k] (context-in kb2 '(likes Tom Ann) expr)]
-      (is (= 'CxAtlas actx) "the agent's own context is a name, not a mint")
-      (is (= [false false] [(nat-read/reified-context-symbol? actx)
-                            (nat-read/reified-context-symbol? (:channel atlas))]))
-      (testing "retracting the agent's only assertion leaves its context and the channel"
-        (v/retract! kb2 h)
-        (is (v/sees? kb2 'CxDeploy actx) "still lifted under the channel")
-        (is (v/sees? kb2 actx 'CxSpeechActs) "still rooted in the reply vocabulary")
-        (is (= 'CxAtlas (id/context-for 'AgentAtlas)) "and still the agent's place")
-        (is (seq (v/sentexes-in-context kb2 actx))
-            "the placement mark keeps the context non-empty in any case"))
-      (testing "while the same teardown path does collect a reified context beside it"
-        (v/retract! kb2 hc)
-        (is (not (reified? kb2 k)))
-        (is (v/sees? kb2 'CxDeploy actx) "the agent context is untouched by that sweep")))))
+    (try
+      (let [atlas (ch/join (ch/local kb2) 'CxDeploy 'AgentAtlas)
+            actx  (:context atlas)
+            h     (ch/assert atlas '(usesDatabase ProdCluster PostgreSQL14))
+            cxfn  (declare-dimension! kb2)
+            expr  (list cxfn 'CxMonad (list 'DatetimeFn "2008"))
+            [hc k] (context-in kb2 '(likes Tom Ann) expr)]
+        (is (= 'CxAtlas actx) "the agent's own context is a name, not a mint")
+        (is (= [false false] [(nat-read/reified-context-symbol? actx)
+                              (nat-read/reified-context-symbol? (:channel atlas))]))
+        (testing "retracting the agent's only assertion leaves its context and the channel"
+          (v/retract! kb2 h)
+          (is (v/sees? kb2 'CxDeploy actx) "still lifted under the channel")
+          (is (v/sees? kb2 actx 'CxSpeechActs) "still rooted in the reply vocabulary")
+          (is (= 'CxAtlas (id/context-for 'AgentAtlas)) "and still the agent's place")
+          (is (seq (v/sentexes-in-context kb2 actx))
+              "the placement mark keeps the context non-empty in any case"))
+        (testing "while the same teardown path does collect a reified context beside it"
+          (v/retract! kb2 hc)
+          (is (not (reified? kb2 k)))
+          (is (v/sees? kb2 'CxDeploy actx) "the agent context is untouched by that sweep")))
+      (finally (tu/drop-space! [::koinii 1])))))
 
 ;; ---- the fork ------------------------------------------------------------
 
@@ -310,18 +312,20 @@
   ;; ephemeral space nothing else uses.
   (let [base (doto (v/open-kb {:backend :memory :space [::sweep-base 1] :recover? false})
                (tu/clear-kb!))]
-    (tu/load-core! base)
-    (let [cxfn  (declare-dimension! base)
-          expr  (list cxfn 'CxMonad (list 'DatetimeFn "2009"))
-          [h k] (context-in base '(likes Tom Ann) expr)
-          f     (v/fork base)]
-      (is (reified? f k) "the fork inherits the mapping")
-      (v/retract! f h)
-      (is (not (reified? f k)) "and sweeps the context it emptied")
-      (is (zero? (v/count-in-context f k)))
-      (is (reified? base k) "the base still maps it")
-      (is (= 1 (v/count-in-context base k)) "and still holds the fact")
-      (is (= [{'?x 'Ann}] (v/ask base '(likes Tom ?x) expr))))))
+    (try
+      (tu/load-core! base)
+      (let [cxfn  (declare-dimension! base)
+            expr  (list cxfn 'CxMonad (list 'DatetimeFn "2009"))
+            [h k] (context-in base '(likes Tom Ann) expr)
+            f     (v/fork base)]
+        (is (reified? f k) "the fork inherits the mapping")
+        (v/retract! f h)
+        (is (not (reified? f k)) "and sweeps the context it emptied")
+        (is (zero? (v/count-in-context f k)))
+        (is (reified? base k) "the base still maps it")
+        (is (= 1 (v/count-in-context base k)) "and still holds the fact")
+        (is (= [{'?x 'Ann}] (v/ask base '(likes Tom ?x) expr))))
+      (finally (tu/drop-space! [::sweep-base 1])))))
 
 ;; ---- durability ----------------------------------------------------------
 

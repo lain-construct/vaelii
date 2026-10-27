@@ -7,11 +7,13 @@
   them through `TemporalDistanceProver` (opt-in, `:metric-time`), and bridges the bounds
   onto Allen's intervals through `startOf` / `endOf` for `vaelii.impl.interval` and
   `vaelii.impl.duration`.  See docs/stp.md."
-  (:require [taoensso.trove :as trove]
+  (:require [clojure.set :as set]
+            [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.qcn :as qcn]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.types.prover :as prover-types]
@@ -457,9 +459,9 @@
 
 (defn- build-problem
   "The stated constraints as `{:dimension :unit :net :support}`, nil when none, or
-  `{:mixed dims :handles #{handle}}` when they span more than one dimension.  `:support`
-  is `{[p q] → #{handle}}`, both directions of each stated pair; `:handles` is every
-  stated constraint's support."
+  `{:mixed dims :handles #{handle} :instants #{instant}}` when they span more than one
+  dimension.  `:support` is `{[p q] → #{handle}}`, both directions of each stated pair;
+  `:handles` is every stated constraint's support, `:instants` every instant one names."
   [kb context]
   (let [stated (stated-constraints kb context)
         dims   (set (map first stated))]
@@ -474,7 +476,9 @@
                                              (update-in [:support [q p]] (fnil into #{}) sup)))
                                        {:net {} :support {}} stated)]
                            {:dimension dim :unit unit :net net :support support})
-      :else              {:mixed dims :handles (into #{} (mapcat peek) stated)})))
+      :else              {:mixed    dims
+                          :handles  (into #{} (mapcat peek) stated)
+                          :instants (into #{} (mapcat (fn [[_ p q]] [p q])) stated)})))
 
 (defn- problem-or-refusal
   "`build-problem`'s answer for `context`, the refusal `{:mixed dims :handles}` included,
@@ -681,29 +685,39 @@
   [#'provers/*quantity-tolerance*])
 
 (defn unsatisfiable-narrowing
-  "The narrowing an unsatisfiable or refused source answers over `intervals`: the pair of
-  the two first under `nm/print-key` emptied both ways, `support` behind it.  An empty
-  pair is unsatisfiable as given, so the interval network it is folded into is
-  unsatisfiable and answers nothing.  nil for fewer than two intervals.
+  "The narrowing an unsatisfiable or refused source answers over `intervals`, the intervals
+  its unsatisfiable component bounds: the pair from the first under `nm/print-key` to each
+  other emptied both ways, or the first's diagonal emptied when it is the only one,
+  `support` behind each.  An empty constraint is unsatisfiable as given, so the component
+  of the interval network holding those intervals is unsatisfiable, and no goal naming one
+  is answered (docs/qcn.md, \"Unsatisfiability is per component\").  nil for no intervals.
 
   `:unsatisfiable-sources` carries `source`, the description of the clash in the source
-  network or of its refusal, with the emptied pair as its `:stand-in`: the pair stands in
-  for the source's clash or refusal and is not one any interval fact contradicts
+  network or of its refusal, with the emptied pairs as its `:stand-in`: they stand in for
+  the source's clash or refusal and are not pairs any interval fact contradicts
   (`qcn-kb/unsatisfiable-sources`).
 
-  An unsatisfiable source admits no endpoint ordering, so reading it pair by pair would
-  empty every pair; one emptied pair gives the same verdict.  A refused source (a metric
-  problem spanning more than one dimension) is read the same way (docs/stp.md,
-  \"Constraints are measures\").  Answering nil instead would widen the interval network
-  when a fact arrives, and an entailment drawn through the narrowing would stop holding
-  while the firing that rested on it stayed believed (docs/qcn.md, \"A network can have
-  a second reader\")."
+  Answering nil instead would widen the interval network when a fact arrives, and an
+  entailment drawn through the narrowing would stop holding while the firing that rested
+  on it stayed believed (docs/qcn.md, \"A network can have a second reader\")."
   [intervals support source]
-  (let [[i j] (nm/by-print-key (set intervals))]
-    (when j
-      {:net                   {[i j] #{} [j i] #{}}
-       :support               {[i j] support [j i] support}
-       :unsatisfiable-sources [(assoc source :stand-in #{[i j] [j i]})]})))
+  (let [[i & more] (nm/by-print-key (set intervals))]
+    (when i
+      (let [pairs (if more (into #{} (mapcat (fn [j] [[i j] [j i]])) more) #{[i i]})]
+        {:net                   (zipmap pairs (repeat #{}))
+         :support               (zipmap pairs (repeat support))
+         :unsatisfiable-sources [(assoc source :stand-in pairs)]}))))
+
+(defn merge-narrowings
+  "`narrowings` intersected pair by pair, their support unioned and their unsatisfiable
+  sources listed in order.  An absent pair is the universe in each, so a pair one of them
+  narrows takes that one's set.  nil when every one is nil."
+  [narrowings]
+  (when-let [ns (seq (remove nil? narrowings))]
+    (let [srcs (into [] (mapcat :unsatisfiable-sources) ns)]
+      (cond-> {:net     (or (apply merge-with set/intersection (map :net ns)) {})
+               :support (or (apply merge-with set/union (map :support ns)) {})}
+        (seq srcs) (assoc :unsatisfiable-sources srcs)))))
 
 (defn- inconsistency-source
   "The `:metric` source description of unsatisfiable `prob`: the pairs unsatisfiable as
@@ -721,45 +735,78 @@
                                 hs)))
                     support)}))
 
+(defn- bounded-by
+  "The intervals of `ends` (`intervals-with-endpoints`) with an endpoint in `instants`."
+  [ends instants]
+  (keep (fn [[i [e]]] (when (some #(contains? instants %) e) i)) ends))
+
+(defn- pairwise-narrowing
+  "The Allen relations the closed metric network `closed` leaves between each two
+  intervals of `ends`, only narrowed pairs recorded.  A pair's support is both intervals'
+  endpoint facts and the chains of `net` behind the four `endpoint-gaps`."
+  [closed net support ends]
+  (reduce
+   (fn [acc [[i [ei hi]] [j [ej hj]]]]
+     (let [rels (relations-from-endpoints closed ei ej)]
+       (if (= rels allen-relations)
+         acc
+         (-> acc
+             (assoc-in [:net [i j]] rels)
+             (assoc-in [:support [i j]]
+                       (gaps-support net support (into hi hj)
+                                     (vals (endpoint-gaps ei ej))))))))
+   {:net {} :support {}}
+   (for [a ends b ends :when (not= (key a) (key b))] [a b])))
+
+(defn- per-component-narrowing
+  "The narrowing of unsatisfiable `prob`, one connected component of its network at a
+  time (`qcn/components`): each unsatisfiable component answers `unsatisfiable-narrowing`
+  over the intervals it bounds, its source described by `inconsistency-source` over that
+  component, and the satisfiable rest narrows the intervals no unsatisfiable component
+  bounds as a satisfiable network does."
+  [kb context {:keys [net support] :as prob} ends]
+  (let [bad   (filterv #(= :inconsistent (close (qcn/select-nodes net %) %))
+                       (qcn/components net))
+        gone  (into #{} cat bad)
+        sat   (qcn/drop-nodes net gone)
+        free  (into {} (remove (fn [[_ [e]]] (some #(contains? gone %) e))) ends)
+        rest  (when (>= (count free) 2)
+                (let [closed (closure kb context (assoc prob :net sat)
+                                      (mapcat (comp first val) free))]
+                  (when (map? closed)
+                    (pairwise-narrowing closed sat (qcn/drop-nodes support gone) free))))]
+    (merge-narrowings
+     (cons rest
+           (for [comp bad
+                 :let [sub (qcn/select-nodes support comp)]]
+             (unsatisfiable-narrowing (bounded-by ends comp)
+                                      (into #{} (mapcat val) sub)
+                                      (inconsistency-source
+                                       {:net (qcn/select-nodes net comp) :support sub})))))))
+
 (defn allen-narrowing-with-support
-  "What the metric constraints determine about the interval relations, as
-  `{:net {[i j] → #{base relations}} :support {[i j] → #{handle}}}` — `qcn-kb/build-network`'s
-  shape.  A pair's support is both intervals' endpoint facts and the chains behind the four
-  `endpoint-gaps`.  Only narrowed pairs are recorded.  nil with no constraints or fewer
-  than two intervals with both endpoints.  An inconsistent network answers
-  `unsatisfiable-narrowing`, supported by every constraint read, its source described by
-  `inconsistency-source`.  A problem refused for spanning more than one dimension answers
-  it too, its `:metric` source naming the `:dimensions` (docs/stp.md, \"Constraints are
-  measures\")."
+  "What the metric layer determines about the Allen relations, as
+  `{:net {[i j] → #{base relations}} :support {[i j] → #{handle}}}` in the calculus
+  narrowing shape.  A pair's support is both intervals' endpoint facts and the chains behind
+  the four `endpoint-gaps`.  Only narrowed pairs are recorded.  nil with no constraints, no
+  interval with both endpoints, or one such interval and a satisfiable network.  An
+  unsatisfiable network answers `per-component-narrowing`.  A problem refused for spanning
+  more than one dimension answers `unsatisfiable-narrowing` over the intervals its
+  constraints bound, its `:metric` source naming the `:dimensions` (docs/stp.md,
+  \"Constraints are measures\")."
   [kb context]
-  (when-let [{:keys [net support mixed handles] :as prob} (problem-or-refusal kb context)]
+  (when-let [{:keys [net support mixed handles instants] :as prob} (problem-or-refusal kb context)]
     (let [ends (intervals-with-endpoints kb context)]
-      (when (>= (count ends) 2)
-        (let [closed (when-not mixed (closure kb context prob (mapcat (comp first val) ends)))]
-          (cond
-            mixed
-            (unsatisfiable-narrowing (keys ends) handles
-                                     {:source     :metric
-                                      :dimensions (nm/by-print-key (map first mixed))
-                                      :support    handles})
-
-            (= :inconsistent closed)
-            (unsatisfiable-narrowing (keys ends) (into #{} (mapcat val) support)
-                                     (inconsistency-source prob))
-
-            :else
-            (reduce
-             (fn [acc [[i [ei hi]] [j [ej hj]]]]
-               (let [rels (relations-from-endpoints closed ei ej)]
-                 (if (= rels allen-relations)
-                   acc
-                   (-> acc
-                       (assoc-in [:net [i j]] rels)
-                       (assoc-in [:support [i j]]
-                                 (gaps-support net support (into hi hj)
-                                               (vals (endpoint-gaps ei ej))))))))
-             {:net {} :support {}}
-             (for [a ends b ends :when (not= (key a) (key b))] [a b]))))))))
+      (when (seq ends)
+        (if mixed
+          (unsatisfiable-narrowing (bounded-by ends instants) handles
+                                   {:source     :metric
+                                    :dimensions (nm/by-print-key (map first mixed))
+                                    :support    handles})
+          (let [closed (closure kb context prob (mapcat (comp first val) ends))]
+            (cond
+              (= :inconsistent closed)  (per-component-narrowing kb context prob ends)
+              (>= (count ends) 2)       (pairwise-narrowing closed net support ends))))))))
 
 (defn allen-narrowing
   "`allen-narrowing-with-support`'s relation sets alone."

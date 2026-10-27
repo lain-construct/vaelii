@@ -33,7 +33,8 @@
 (conversionFactor Centimeter Meter 0.01)
 
 (comment conversionFactor
-         "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one, so normalizing a magnitude is a single multiply and never a chain. An ordinary stored fact, read by the quantity provers.")
+         "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one.")
+(implementationNote conversionFactor "The quantity provers read it, so normalizing a magnitude is a single multiply and never a chain. An ordinary stored fact.")
 (ternary_predicate conversionFactor)
 (set/monotonic (time_invariant_relation conversionFactor))
 (arg conversionFactor 1 unit_of_measure)
@@ -45,14 +46,16 @@
 (conversionFactor Day Second 86400)
 
 (comment derivativeOf
-         "(derivativeOf ?rate ?quantity) means that ?rate is the rate at which ?quantity changes. So (derivativeOf NetInflow WaterLevel) says the net inflow is how fast the water level rises. What joins a sign to a trend: the trend of a quantity IS the sign of its rate, so the two are one value read at either end of this edge, and the sign prover carries it both ways — a rate whose sign is known gives the trend, and a stated trend fixes the sign of the rate, which can then be an addend of something else. A rate is a quantity like any other, so the rate of a sum is stated as a sum of the rates rather than read off the sum.")
+         "(derivativeOf ?rate ?quantity) means that ?rate is the rate at which ?quantity changes. So (derivativeOf NetInflow WaterLevel) says the net inflow is how fast the water level rises. What joins a sign to a trend: the trend of a quantity IS the sign of its rate, so the two are one value read at either end of this edge; a rate whose sign is known gives the trend, and a stated trend fixes the sign of the rate, which can then be an addend of something else. A rate is a quantity like any other, so the rate of a sum is stated as a sum of the rates rather than read off the sum.")
+(implementationNote derivativeOf "The sign prover carries the value across the edge in both directions.")
 (set/monotonic (instance_relation_predicate derivativeOf))
 (set/monotonic (time_varying_relation derivativeOf))
 (arg derivativeOf 1 quantity)
 (arg derivativeOf 2 quantity)
 
 (comment dimensionOf
-         "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension, so this is what the quantity provers consult before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
+         "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension.")
+(implementationNote dimensionOf "The quantity provers consult it before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
 (set/monotonic (instance_relation_predicate dimensionOf))
 (set/monotonic (time_invariant_relation dimensionOf))
 (arg dimensionOf 1 unit_of_measure)
@@ -127,7 +130,8 @@
 (set/monotonic (time_invariant_relation physical_dimension))
 
 (comment qualitativeDifference
-         "(qualitativeDifference ?a ?b ?q) means that quantity ?q is ?a minus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers — there are no numbers in the sign theory at all — and what the sign prover reads to give ?q a sign from the signs of ?a and ?b. Read as ?a plus the negation of ?b, so it shares the addition table and its one ambiguity, with the cases turned round: two quantities of the SAME sign are the ambiguous difference, and greaterInMagnitudeThan is what resolves it.")
+         "(qualitativeDifference ?a ?b ?q) means that quantity ?q is ?a minus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers: there are no numbers in the sign theory at all. Read as ?a plus the negation of ?b, so it shares the addition table and its one ambiguity, with the cases turned round: two quantities of the SAME sign are the ambiguous difference, and greaterInMagnitudeThan is what resolves it.")
+(implementationNote qualitativeDifference "The sign prover reads it to give ?q a sign from the signs of ?a and ?b.")
 (ternary_predicate qualitativeDifference)
 (set/monotonic (time_varying_relation qualitativeDifference))
 (arg qualitativeDifference 1 quantity)
@@ -143,7 +147,8 @@
 (arg qualitativeProduct 3 quantity)
 
 (comment qualitativeSum
-         "(qualitativeSum ?a ?b ?q) means that quantity ?q is ?a plus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers. The sign prover reads it to give ?q a sign from the signs of ?a and ?b: two positives give a positive and two negatives a negative, a zero is the identity, and a positive with a negative gives the sign of whichever is larger — which is all three values, and so no answer at all, until a greaterInMagnitudeThan says which. Never a guess between the three.")
+         "(qualitativeSum ?a ?b ?q) means that quantity ?q is ?a plus ?b. A declaration about which quantities stand in the relation, not a sentence about numbers. The sign of ?q follows from the signs of ?a and ?b: two positives give a positive and two negatives a negative, a zero is the identity, and a positive with a negative gives the sign of whichever is larger — which is all three values, and so no answer at all, until a greaterInMagnitudeThan says which.")
+(implementationNote qualitativeSum "The sign prover reads it to give ?q a sign from the signs of ?a and ?b, and never guesses between the three values.")
 (ternary_predicate qualitativeSum)
 (set/monotonic (time_varying_relation qualitativeSum))
 (arg qualitativeSum 1 quantity)
@@ -164,14 +169,18 @@
 (set/monotonic (disjoint quantity situation))
 
 (comment QuantityFn
-         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiable_function application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
+         "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms.")
+(implementationNote QuantityFn "An unreifiable_function application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
 (unreifiable_function QuantityFn)
 (binary_function QuantityFn)
 (functionCorrespondingPredicate QuantityFn measureInUnit)
+(arg QuantityFn 1 number)
+(arg QuantityFn 2 unit_of_measure)
 (result QuantityFn measure)
 
 (comment measureInUnit
-         "(measureInUnit ?magnitude ?unit ?measure) means that ?measure is ?magnitude counted in ?unit, so (measureInUnit 5 Kilogram ?measure) holds of five kilograms. QuantityFn is the corresponding function, and its value is the last argument. The quantity provers read the QuantityFn term and do not answer this predicate. See docs/quantity.md.")
+         "(measureInUnit ?magnitude ?unit ?measure) means that ?measure is ?magnitude counted in ?unit, so (measureInUnit 5 Kilogram ?measure) holds of five kilograms. QuantityFn is the corresponding function, and its value is the last argument. See docs/quantity.md.")
+(implementationNote measureInUnit "The quantity provers read the QuantityFn term and do not answer this predicate.")
 (ternary_predicate measureInUnit)
 (set/monotonic (time_invariant_relation measureInUnit))
 (arg measureInUnit 1 number)
@@ -179,14 +188,16 @@
 (arg measureInUnit 3 measure)
 
 (comment quantityGreaterThan
-         "(quantityGreaterThan ?measure1 ?measure2) means that ?measure1 is greater than ?measure2 once both are normalized to their dimension's base unit. Necessarily greater, so for intervals all of ?measure1 must lie strictly above all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+         "(quantityGreaterThan ?measure1 ?measure2) means that ?measure1 is greater than ?measure2 once both are normalized to their dimension's base unit. Necessarily greater, so for intervals all of ?measure1 must lie strictly above all of ?measure2. Two measures of different dimensions are not comparable rather than unequal.")
+(implementationNote quantityGreaterThan "Computed by the quantity prover and never stored.")
 (set/monotonic (instance_relation_predicate quantityGreaterThan))
 (set/monotonic (time_invariant_relation quantityGreaterThan))
 (arg quantityGreaterThan 1 measure)
 (arg quantityGreaterThan 2 measure)
 
 (comment quantityGreaterThanOrEqual
-         "(quantityGreaterThanOrEqual ?measure1 ?measure2) means that ?measure1 is at least ?measure2 once both are normalized to their dimension's base unit. Necessarily at least, so for intervals every value of ?measure1 must reach every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+         "(quantityGreaterThanOrEqual ?measure1 ?measure2) means that ?measure1 is at least ?measure2 once both are normalized to their dimension's base unit. Necessarily at least, so for intervals every value of ?measure1 must reach every value of ?measure2. Two measures of different dimensions are not comparable rather than unequal.")
+(implementationNote quantityGreaterThanOrEqual "Computed by the quantity prover and never stored.")
 (set/monotonic (instance_relation_predicate quantityGreaterThanOrEqual))
 (set/monotonic (time_invariant_relation quantityGreaterThanOrEqual))
 (arg quantityGreaterThanOrEqual 1 measure)
@@ -197,10 +208,14 @@
 (unreifiable_function QuantityIntervalFn)
 (ternary_function QuantityIntervalFn)
 (functionCorrespondingPredicate QuantityIntervalFn measureRangeInUnit)
+(arg QuantityIntervalFn 1 number)
+(arg QuantityIntervalFn 2 number)
+(arg QuantityIntervalFn 3 unit_of_measure)
 (result QuantityIntervalFn measure)
 
 (comment measureRangeInUnit
-         "(measureRangeInUnit ?lo ?hi ?unit ?measure) means that ?measure is the measure lying somewhere between ?lo and ?hi counted in ?unit, so (measureRangeInUnit 1 2 Meter ?measure) holds of between one and two metres. QuantityIntervalFn is the corresponding function, and its value is the last argument. The quantity provers read the QuantityIntervalFn term and do not answer this predicate. See docs/quantity.md.")
+         "(measureRangeInUnit ?lo ?hi ?unit ?measure) means that ?measure is the measure lying somewhere between ?lo and ?hi counted in ?unit, so (measureRangeInUnit 1 2 Meter ?measure) holds of between one and two metres. QuantityIntervalFn is the corresponding function, and its value is the last argument. See docs/quantity.md.")
+(implementationNote measureRangeInUnit "The quantity provers read the QuantityIntervalFn term and do not answer this predicate.")
 (quaternary_predicate measureRangeInUnit)
 (set/monotonic (time_invariant_relation measureRangeInUnit))
 (arity measureRangeInUnit 4)
@@ -210,21 +225,24 @@
 (arg measureRangeInUnit 4 measure)
 
 (comment quantityLessThan
-         "(quantityLessThan ?measure1 ?measure2) means that ?measure1 is less than ?measure2 once both are normalized to their dimension's base unit. Necessarily less, so for intervals all of ?measure1 must lie strictly below all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+         "(quantityLessThan ?measure1 ?measure2) means that ?measure1 is less than ?measure2 once both are normalized to their dimension's base unit. Necessarily less, so for intervals all of ?measure1 must lie strictly below all of ?measure2. Two measures of different dimensions are not comparable rather than unequal.")
+(implementationNote quantityLessThan "Computed by the quantity prover and never stored.")
 (set/monotonic (instance_relation_predicate quantityLessThan))
 (set/monotonic (time_invariant_relation quantityLessThan))
 (arg quantityLessThan 1 measure)
 (arg quantityLessThan 2 measure)
 
 (comment quantityLessThanOrEqual
-         "(quantityLessThanOrEqual ?measure1 ?measure2) means that ?measure1 is at most ?measure2 once both are normalized to their dimension's base unit. Necessarily at most, so for intervals every value of ?measure1 must stay under every value of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
+         "(quantityLessThanOrEqual ?measure1 ?measure2) means that ?measure1 is at most ?measure2 once both are normalized to their dimension's base unit. Necessarily at most, so for intervals every value of ?measure1 must stay under every value of ?measure2. Two measures of different dimensions are not comparable rather than unequal.")
+(implementationNote quantityLessThanOrEqual "Computed by the quantity prover and never stored.")
 (set/monotonic (instance_relation_predicate quantityLessThanOrEqual))
 (set/monotonic (time_invariant_relation quantityLessThanOrEqual))
 (arg quantityLessThanOrEqual 1 measure)
 (arg quantityLessThanOrEqual 2 measure)
 
 (comment sameQuantity
-         "(sameQuantity ?measure1 ?measure2) means that ?measure1 and ?measure2 are the same quantity once both are normalized to their dimension's base unit. So a thousand grams and one kilogram are the same quantity though they are different terms. Computed by a prover from the dimensionOf and conversionFactor facts, never stored, and never an equality: the equality closure is a partition over symbols and holds no numbers or compounds, so this says two measures agree and not that two names denote one thing.")
+         "(sameQuantity ?measure1 ?measure2) means that ?measure1 and ?measure2 are the same quantity once both are normalized to their dimension's base unit. So a thousand grams and one kilogram are the same quantity though they are different terms. Never an equality: it says two measures agree and not that two names denote one thing.")
+(implementationNote sameQuantity "Computed by the quantity prover from the dimensionOf and conversionFactor facts, and never stored. The equality closure is a partition over symbols and holds no numbers or compounds, so it never holds a sameQuantity pair.")
 (set/monotonic (time_invariant_relation sameQuantity))
 (positiveExample sameQuantity (Quote (sameQuantity (QuantityFn 1000 Gram) (QuantityFn 1 Kilogram))))
 (set/monotonic (instance_relation_predicate sameQuantity))
@@ -236,7 +254,8 @@
 (conversionFactor Second Second 1)
 
 (comment sign_value
-         "One of the three values a quantity's sign takes: SignNegative, SignZero, SignPositive. Jointly exhaustive and pairwise disjoint over the reals — exactly one holds of any quantity — which is what makes a set of them a real constraint rather than an absence of knowledge, and what licenses the sign prover to answer a negated goal by refutation the way a relation algebra does.")
+         "One of the three values a quantity's sign takes: SignNegative, SignZero, SignPositive. Jointly exhaustive and pairwise disjoint over the reals — exactly one holds of any quantity — which is what makes a set of them a real constraint rather than an absence of knowledge.")
+(implementationNote sign_value "Joint exhaustiveness licenses the sign prover to answer a negated goal by refutation, the way a relation algebra does.")
 (genl sign_value quantitative)
 (closed_extent_predicate sign_value)
 (set/monotonic (time_invariant_relation sign_value))
@@ -245,7 +264,8 @@
 (sign_value SignNegative)
 
 (comment signOf
-         "(signOf ?quantity ?sign) means that ?quantity is negative, nil or positive, ?sign being one of SignNegative, SignZero and SignPositive. The coarsest measurement there is, and the one a common-sense KB nearly always has: nobody knows how fast the tap runs, and everybody knows that it runs. Computed by a prover from the stated signs, the three qualitative arithmetic relations, the greaterInMagnitudeThan comparisons and the derivativeOf edges — and a stated one is answered back out of that same reading, so registering the prover never changes what a KB says about what it wrote down. NOT declared functional, though a quantity has one sign: functional merges two symbol arguments through the equality partition, so a KB that had said both positive and negative would have the two sign terms made one instead of the contradiction reported, and the prover reports it as a :sign-inconsistency entry.")
+         "(signOf ?quantity ?sign) means that ?quantity is negative, zero or positive, ?sign being one of SignNegative, SignZero and SignPositive. The coarsest measurement there is, and the one a common-sense KB nearly always has: nobody knows how fast the tap runs, and everybody knows that it runs. Not declared functional, though a quantity has one sign.")
+(implementationNote signOf "Computed by the sign prover from the stated signs, the three qualitative arithmetic relations, the greaterInMagnitudeThan comparisons and the derivativeOf edges. A stated one is answered back out of that same reading, so registering the prover never changes what a KB says about what it wrote down. Not declared functional because functional merges two symbol arguments through the equality partition: a KB that had said both positive and negative would have the two sign terms made one instead of the contradiction reported. The sign prover reports that contradiction as a :sign-inconsistency entry.")
 (set/monotonic (instance_relation_predicate signOf))
 (set/monotonic (time_varying_relation signOf))
 (arg signOf 1 quantity)
@@ -287,7 +307,8 @@
 (conversionFactor Week Second 604800)
 
 (comment weightOf
-         "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time — and two measures are compounds rather than symbols, so a second one is refused outright instead of merging the way two names for one thing would.")
+         "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time, so two different measures of one object contradict each other.")
+(implementationNote weightOf "Two measures are compounds rather than symbols, so a second, different measure of one object is never merged with the first the way two names for one thing are. assert stores it, and the two form a :functional contradiction; try-assert refuses it.")
 (set/monotonic (instance_relation_predicate weightOf))
 (set/monotonic (time_varying_relation weightOf))
 (arg weightOf 1 tangible)

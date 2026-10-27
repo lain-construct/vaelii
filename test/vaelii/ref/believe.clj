@@ -363,7 +363,8 @@
   - a justification confers the weakest of: `:default` when its rule is a
     `set/defaultRule` and `:monotonic` otherwise (the rule's own write strength does not
     cap), the class of each fact it matched, and the class of each sentence supporting a
-    `genl` edge it climbed. The informant is out of the cap; its defeasibility is not;
+    `genl` edge it climbed. The informant, a premise rule in every world this model reads,
+    is out of the cap; its defeasibility is not;
   - a justification whose rule has an `unknown` antecedent or an `exceptWhen` confers
     `:default` whatever the other classes (docs/reference.md, decision 14);
   - the class of a sentence is the strongest of its supports.

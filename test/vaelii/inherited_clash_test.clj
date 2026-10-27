@@ -636,7 +636,7 @@
 
 (tu/deftest-kb a-defeat-of-a-genl-edge-beside-an-inherited-clash-places-the-same-in-every-order
   ;; The reading climbs the known-true route through `mid`, and a placement reads no
-  ;; defeat (ruling 13), so the defeat of G changes no inherited placement whichever
+  ;; defeat, so the defeat of G changes no inherited placement whichever
   ;; arrives first.
   (is (= #{#{'[(contradicts [(genl a hauler) CxBase] [(not (genl a hauler)) CxBase]) CxBase]
              '[(defeat [(genl a hauler) CxBase]) CxBase]

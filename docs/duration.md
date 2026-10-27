@@ -130,11 +130,17 @@ are sound, so the intersection is:
 
 The KB in the second query states no interval relation.
 
-Four properties hold:
+Five properties hold:
 
 * **The metric layer only narrows.** A KB stating no `temporalDistance`, or none reaching
-  these two intervals, or one whose network is unsatisfiable, gets the qualitative answer
-  unchanged. Naming an interval's endpoints is not a constraint.
+  these two intervals, gets the qualitative answer unchanged. Naming an interval's
+  endpoints is not a constraint.
+* **An unsatisfiable metric network sharpens nothing.** While the context's metric network
+  is unsatisfiable, `stp/overlap-window-with-support` gives no overlap window. A negative
+  cycle through instants that bound neither interval leaves the qualitative answer
+  unchanged. An unsatisfiable component holding either interval's instants empties the
+  pair's Allen relations ([stp.md](stp.md#the-bridge-startof-and-endof)),
+  so `overlapDuration` answers nothing, as for an inconsistent interval network.
 * **Dimensions must match.** The overlap window is read in only when its dimension and base unit
   are the lengths'. Gaps in metres never narrow a duration.
 * **A sharpened range renders as a range.** An overlap window that halves the ceiling

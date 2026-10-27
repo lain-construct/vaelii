@@ -162,7 +162,7 @@ one.
 That claim is stopped from over-reaching not by the prover but by the **engine**.
 `provers/sole-prover` asks `provers/shadowing-channels` whether this KB could reach the
 goal by a route no computed prover reads — an `(transitiveInArg P n R)` declaration
-(`:preserving`), a rule concluding the goal's predicate or a spec of it (`:rules`), a
+(`:preserving`), a rule whose consequent unifies with the goal (`:rules`), a
 declared `(inverse P Q)` (`:inverse`), or a **calendar term** in an argument, whose fields
 carry an ordering no stored fact does (`:calendar`, [time.md](time.md)) — and if any of the
 four bears, nobody runs alone and the union runs instead, whatever was claimed. So above

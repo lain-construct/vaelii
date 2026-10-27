@@ -122,9 +122,10 @@ included, since the declaration asks for existence and not for a determinate fil
 ```
 
 Binary on purpose: the required filler type is never restated in the declaration — it is
-**derived from the predicate's own slot contract** (`(arg hasPet 2 pet)` here; a
-`genlArg`-typed slot derives a subtype constraint instead, and multiple constraints
-compose conjunctively). A declaration over a predicate with no visible slot typing is a
+**derived from the predicate's own slot contract** (`(arg hasPet 2 pet)` here, or an
+`argAndRest` / `args` reaching the slot; a `genlArg`-typed slot, or one an
+`argAndRestGenl` / `argsGenl` reaches, derives a subtype constraint instead, and
+multiple constraints compose conjunctively). A declaration over a predicate with no visible slot typing is a
 **declaration-contract gap** the audit reports explicitly, never a silently unconstrained
 audit.
 
@@ -152,6 +153,21 @@ ones that hold — but never a `{:gap …}` — so an empty map is a clean sweep
 cannot pass as one. Both read the KB and store nothing. `predSpecifiedAll` is the
 argument-swapped twin, audited by passing `:first` as the argument position; its filler
 contract derives from slot 1.
+
+The aggregate selects declarations through the prover registry in the querying context,
+then reads each stored Specified declaration's population, slot contract and fillers in
+the context storing that declaration. A descendant-only instance does not enlarge an
+ancestor obligation; a descendant-only filler does not satisfy that obligation. A
+declaration stated in the descendant creates a distinct local obligation. Multiple
+visible definitions with the same `[functor pred indep]` key combine their violation
+sets. A missing slot contract in any defining context remains an explicit gap. The direct `specified-violations` call
+still audits the caller-supplied context. Exists audits retain their querying context.
+
+A native prover can also supply a declaration tuple without a stored definition. Its
+binding map has no defining-context record, so that native-only obligation retains the
+previous behavior: population, contract and fillers are audited in the querying context.
+If the same tuple also has visible stored definitions, their defining contexts apply;
+the native answer does not add a duplicate obligation in the querying context.
 
 The membership arm rides the KB's own reading: with `(arg hasPet 2 pet)` visible,
 argument-type inference types a stored filler off that very declaration, so the
@@ -288,5 +304,5 @@ registration existed does not carry the posting until `recover` rebuilds it.
 ## Where the engine stops
 
 Existential inference is not attempted. Nothing derives a filler from a `predAllExists`
-declaration, so `(thereExists ?x (parts Lain ?x))` is unprovable from one. The placeholder
+declaration, so `(thereExists ?x (parts Ann ?x))` is unprovable from one. The placeholder
 functor is the vocabulary an author uses instead.

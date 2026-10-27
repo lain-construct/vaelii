@@ -49,7 +49,7 @@
       (testing "the edge is an antecedent, beside the fact and the rule"
         (is (contains? (antecedent-sentences kb derived) (list 'genlCx CxLow CxHigh))))
       (testing "so `why` shows it, rather than a proof that skips how the rule was seen"
-        (let [because (->> (v/why kb derived) :support first :because (map :sentence) set)]
+        (let [because (->> (tu/why-root kb derived) :support first :because (map :sentence) set)]
           (is (contains? because (list 'genlCx CxLow CxHigh))))))))
 
 (tu/deftest-kb a-same-context-firing-names-no-edge

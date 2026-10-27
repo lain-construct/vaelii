@@ -360,7 +360,7 @@
 (def ^:private hidden-claim
   "`guarded-claim` with its blocker `:default`: the firing is stored, and its guard defeat at
   the firing's own placement joins the nogood's defeat of the same loser as one `defeat`
-  handle.  The clash stands, since detection reads the network (design rulings 13 and 20)."
+  handle.  The clash stands, since detection reads the network and no placed defeat."
   (assoc-in guarded-claim [7 3] {}))
 
 (defn- hidden-reads
@@ -371,7 +371,7 @@
         d (when f (v/handle-of kb (list 'defeat (list 'sentexHandle f)) 'CxIcBase))]
     {:stored?    (some? f)
      :believed?  (boolean (and f (v/believed? kb f 'CxIcBase)))
-     :informants (into #{} (map :informant) (when d (:support (v/why kb d))))
+     :informants (into #{} (map :informant) (when d (:support (tu/why-root kb d))))
      :standing   (:standing (snapshot kb))}))
 
 (defn- below-reads

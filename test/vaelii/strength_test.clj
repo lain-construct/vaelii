@@ -158,11 +158,11 @@
       (justify tms 102 [1 3] 5 :monotonic)
       (is (= :monotonic (jtms/defeat-class tms 5))))))
 
-(deftest the-informant-is-excluded-from-the-cap
+(deftest a-premise-informant-is-excluded-from-the-cap
   ;; A rule is an antecedent of its own justification (so retracting it withdraws what
-  ;; it licensed), but that is a validity role, not a ground.  Capping on it would put
-  ;; every derived datum at the rule's own assumption strength — :default — and no
-  ;; conclusion could ever be :monotonic.
+  ;; it licensed), but for a premise rule that is a validity role, not a ground.  Capping
+  ;; on it would put every derived datum at the rule's own assumption strength — :default
+  ;; — and no conclusion could ever be :monotonic.
   (let [tms (jtms/create-tms)]
     (premise tms 1 :monotonic)
     (premise tms 99 :default)                     ; the rule sentex itself
@@ -170,6 +170,18 @@
     (jtms/add-justification tms (jtms/->just 101 99 [1 99] 2 {} :monotonic))
     (is (= :monotonic (jtms/defeat-class tms 2))
         "the :default informant is an antecedent but must not cap the conclusion")))
+
+(deftest a-derived-informant-caps-the-conclusion
+  ;; A rule with no premise mark (a generator's mint) holds at the class of its grounds,
+  ;; and its firings are capped there (docs/nmtms.md, "Strength propagates from the
+  ;; antecedents").
+  (let [tms (jtms/create-tms)]
+    (premise tms 1 :monotonic)
+    (premise tms 3 :default)                      ; the generator's fill
+    (justify tms 100 [3] 98)                      ; the mint, a rule sentex
+    (jtms/ensure-node tms 2 2)
+    (jtms/add-justification tms (jtms/->just 101 98 [1 98] 2 {} :monotonic))
+    (is (= [:default :default] [(jtms/defeat-class tms 98) (jtms/defeat-class tms 2)]))))
 
 ;; ---- locality: a region relabel agrees with the whole graph -------------
 

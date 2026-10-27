@@ -653,11 +653,12 @@
   "Open a pulled commit into the (empty) seat `kb`: `v/import!` the dump at `dir`, which
   re-canonicalizes every record through this build's constructor and recovers belief —
   the property that makes this seat compute the same locators as the seat that published.
-  Returns `import!`'s summary."
+  Every provenance `:principal` is dropped (`import!`'s `:drop-principal?`), since no
+  daemon of this seat recorded the publisher's.  Returns `import!`'s summary."
   ([kb dir] (pull! kb dir {}))
   ([kb dir opts]
    (koinii-types/needs-kb! `pull! kb)
-   (v/import! kb dir opts)))
+   (v/import! kb dir (assoc opts :drop-principal? true))))
 
 ;; ---- the marker: the untrusted transport payload -------------------------
 

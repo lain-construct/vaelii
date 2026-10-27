@@ -149,6 +149,26 @@
         (testing "and neither is what it concluded"
           (is (empty? (v/sentexes-matching kb (list dst Fido) 'CxUniverse))))))))
 
+(tu/deftest-kb a-defeated-fill-hides-the-generated-rule-and-its-conclusions
+  ;; The fill is a default a monotonic denial defeats, and the generated rule's own
+  ;; antecedent is monotonic, so the conclusion rests on the fill only through its rule.
+  ;; The defeat hides the fill without taking it OUT in the network, so the conclusion is
+  ;; hidden only when the rule's class caps it (docs/nmtms.md, "Strength propagates from
+  ;; the antecedents").
+  (doseq [generator-first? [true false]]
+    (tu/with-terms [marker src dst Fido]
+      (let [gen  #(v/assert kb (list 'implies (list marker '?p) (list 'implies (list '?p '?x) (list dst '?x)))
+                            'CxUniverse {:strength :monotonic})
+            fill #(v/assert kb (list marker src) 'CxUniverse)
+            fact #(v/assert kb (list src Fido) 'CxUniverse {:strength :monotonic})]
+        (if generator-first? (do (gen) (fill) (fact)) (do (fact) (fill) (gen)))
+        (let [c      (v/handle-of kb (list dst Fido) 'CxUniverse)
+              minted (some #(when (= (list dst '?var0) (:consequent %)) (:id %))
+                           (generated-rules kb 'CxUniverse))]
+          (is (and c minted (v/in? kb c) (v/in? kb minted)) generator-first?)
+          (v/assert kb (list 'not (list marker src)) 'CxUniverse {:strength :monotonic})
+          (is (= [false false] [(v/in? kb minted) (v/in? kb c)]) generator-first?))))))
+
 (tu/deftest-kb a-disbelieved-rule-does-not-fire
   ;; the belief filter on its own, with no generator in sight: this is the property
   ;; `res/rule-believed?` adds, and a mint is only retractable because it holds
@@ -263,7 +283,7 @@
       (is (empty? (v/sentexes-matching kb (list dst Fido) 'CxUniverse))))))
 
 (tu/deftest-kb a-default-blocker-of-a-generator-stores-the-generated-rule-hidden
-  ;; design ruling 25: the generated rule is stored with a guard defeat resting on the
+  ;; The generated rule is stored with a guard defeat resting on the
   ;; blocker, so neither it nor what it concludes is believed
   (tu/with-terms [marker src dst blocked Fido]
     (v/assert kb (list 'exceptWhen (list blocked '?p)

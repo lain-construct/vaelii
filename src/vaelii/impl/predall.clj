@@ -33,10 +33,11 @@
   `SkolemFn` application (docs/skolem.md), detected structurally because a skolem's
   membership is never a stored fact — and a further kind is added with
   `(genl NewKind indeterminate_term)`.  Whether a non-skolem NAT is determinate by default
-  is punted (Pace): a plain individual, a literal and an *Exists* placeholder alike are
+  is not decided: a plain individual, a literal and an *Exists* placeholder alike are
   all treated as determinate here, which is what makes `predAllSpecified` the exact
   antagonist of `predAllExists`."
-  (:require [vaelii.impl.naming :as nm]
+  (:require [vaelii.impl.budget :as budget]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.quasiquote :as quasiquote]
@@ -59,8 +60,8 @@
   other read as stored.
 
   A non-skolem NAT that is not declared an `indeterminate_term`, a bare individual and a
-  literal are all determinate; the blanket non-skolem-NAT determinacy question is punted
-  (Pace)."
+  literal are all determinate; the blanket non-skolem-NAT determinacy question is not
+  decided."
   [kb term ctx]
   (provers/indeterminate-term? kb term ctx))
 
@@ -72,38 +73,26 @@
 
 (defn- slot-typings
   "The visible slot-`n` typing constraints binding `pred`'s tuples in `ctx`, as a set
-  of `{:check :membership|:subtype|:type-position :type t}` entries — one per believed
-  `(arg cp n t)` (membership) and `(genlArg cp n t)` (subtype) over **every predicate
-  `cp` whose declarations bind a `pred` tuple** (`res/constraining-predicates`: `pred`
-  itself plus the super-predicates its `genl` closure reaches, the same union
-  `checks/declaration-reader` realizes for the assert-time checker), plus one
+  of `{:check :membership|:subtype|:type-position :type t}` entries — one per instance
+  constraint (`arg`, or an `argAndRest` / `args` reaching `n`: membership) and per
+  type-level one (`genlArg`, `argAndRestGenl`, `argsGenl`: subtype) the argnum chokepoint
+  answers for slot `n` (`res/arg-constraints-at`), over `pred` and every super-predicate
+  whose declarations bind its tuples, the union the assert-time checker reads; plus one
   `:type-position` entry when `pred` is a believed `type_relation_predicate` — core.txt's
   note beside `genl`: \"the position is not thereby unconstrained: genl is a
   type_relation_predicate, which says of every one of its positions what genlArg says
-  of one.\"
-
-  The per-ancestor reads keep the variable ground where it matters: an open
-  `(arg pred n ?t)` is answered by `FactProver` alone (`MetaConstraintProver` is
-  ground-goal-only), so a single free-variable ask on the bare predicate would miss
-  every inherited declaration — the audit walks the closure itself and asks each
-  constraining predicate for its stored declarations, which is how it reads the same
-  union the checker reads.
+  of one.\"  A `quotedArg` constrains the filler as written, not what it denotes, and
+  is not read here.
 
   A set, because the constraints compose as an unordered conjunction and the same
   constraint reached through two ancestors is one question."
   [kb pred n ctx]
   (into #{}
         cat
-        [(for [cp (res/constraining-predicates kb 'arg pred ctx)
-               b  (quasiquote/ask-prepared kb (list 'arg cp n '?t) ctx)
-               :let [t (get b '?t)]
-               :when (some? t)]
-           {:check :membership :type t})
-         (for [cp (res/constraining-predicates kb 'genlArg pred ctx)
-               b  (quasiquote/ask-prepared kb (list 'genlArg cp n '?t) ctx)
-               :let [t (get b '?t)]
-               :when (some? t)]
-           {:check :subtype :type t})
+        [(for [{:keys [type kind]} (res/arg-constraints-at kb pred ctx n)
+               :let [check (case kind :instance :membership :type :subtype nil)]
+               :when check]
+           {:check check :type type})
          (when (ask? kb (list 'type_relation_predicate pred) ctx)
            [{:check :type-position :type 'thing}])]))
 
@@ -255,13 +244,42 @@
   [xs]
   (sort-by #(apply list %) nm/compare-form (distinct xs)))
 
-(defn- declaration-args
-  "Read the stored binary `(functor pred indep)` declarations in `ctx` as
-  `[pred indep]` tuples, in content order."
+(defn- declaration-contexts
+  "Select declaration tuples through the registry, retaining their stored defining
+  contexts. A native-only answer has no source record and retains the supplied `ctx`."
   [kb functor ctx]
-  (content-ordered
-   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
-     [(get b '?pred) (get b '?indep)])))
+  (map (fn [[pred indep]]
+         (let [stored (content-ordered
+                       (for [[_ _ record] (budget/checked-seq
+                                           (res/matches-visible kb (list functor pred indep) ctx))]
+                         [pred indep (:context record)]))]
+           (if (seq stored) stored [[pred indep ctx]])))
+       (content-ordered
+        (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
+          [(get b '?pred) (get b '?indep)]))))
+
+(defn- merge-specified-results
+  "Combine source-context results without changing the public result shape. A missing
+  slot contract remains an explicit gap; audited violation sets combine by union."
+  [previous result]
+  (cond
+    (= :gap (:status previous)) previous
+    (= :gap (:status result)) result
+    :else (update previous :violations into (:violations result))))
+
+(defn- specified-context-audits
+  "Emit cumulative results after each defining context, so a bounded caller retains
+  completed findings when a later context exhausts the work or time limit."
+  [kb functor arg-pos declarations]
+  (let [[pred indep] (first declarations)
+        declaration [functor pred indep]]
+    (map (fn [result] [declaration result])
+         (rest (reductions
+                (fn [previous [_ _ defining-context]]
+                  (merge-specified-results
+                   previous (specified-violations kb pred indep defining-context arg-pos)))
+                {:status :audited :violations #{}}
+                declarations)))))
 
 (defn- exists-declarations
   "Read the stored *Exists* declarations `(functor pred a b)` in `ctx` as `[functor pred a
@@ -289,6 +307,11 @@
 (defn specified-declaration-audits
   "Every declaration audit as a lazy stream of `[declaration result]` entries.
 
+  A stored Specified declaration audits its population and fillers in its defining
+  context, not the querying descendant. Multiple defining contexts emit cumulative
+  results under the existing canonical declaration key. Native-only registry answers
+  retain the supplied context, since their binding maps carry no defining context.
+
   The open reads are only the unavoidable declaration censuses. Each expensive audit
   after that is focused on one declared predicate and independent collection. Keeping
   the units lazy lets the integrity sweep checkpoint and retain progress between them."
@@ -297,10 +320,8 @@
    (res/lazy-mapcat
     (fn [[functor arg-pos]]
       (res/lazy-mapcat
-       (fn [[pred indep]]
-         (list [[functor pred indep]
-                (specified-violations kb pred indep ctx arg-pos)]))
-       (declaration-args kb functor ctx)))
+       #(specified-context-audits kb functor arg-pos %)
+       (declaration-contexts kb functor ctx)))
     [['predAllSpecified :second] ['predSpecifiedAll :first]])
    (res/lazy-mapcat
     (fn [functor]
@@ -356,7 +377,9 @@
    (fn [[classifier indep]]
      (list [['typeAllSpecified classifier indep]
             (type-specified-violations kb classifier indep ctx)]))
-   (declaration-args kb 'typeAllSpecified ctx)))
+   (content-ordered
+    (for [b (quasiquote/ask-prepared kb '(typeAllSpecified ?classifier ?indep) ctx)]
+      [(get b '?classifier) (get b '?indep)]))))
 
 (defn all-specified-violations
   "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `ctx`,
@@ -374,7 +397,12 @@
   violation set.  Declarations that hold are omitted; a gap never is, so a clean
   sweep is an empty map and a gap cannot pass as one.  This public aggregate and
   `kb-integrity` both fold the same focused per-declaration audit stream; only this
-  function returns its complete aggregate map."
+  function returns its complete aggregate map.
+
+  Each stored Specified declaration reads its population, slot contract and fillers in
+  its defining context. Visible definitions with one canonical key combine their
+  violation sets; a missing slot contract remains an explicit gap. Native-only registry
+  answers without a stored definition retain `ctx`, as do Exists audits."
   [kb ctx]
   (into {}
         (filter (fn [[_ r]] (or (= :gap (:status r)) (seq (:violations r)))))

@@ -170,7 +170,7 @@
                              3 [:suspend (d)]
                              4 [:restrength (d) (str*)]
                              5 [:drop (some-jid)])
-                   14      (let [k ([:mono :out :void] (.nextInt rng 3))]
+                   14      (let [k ([:mono :out :void :held] (.nextInt rng 4))]
                              [:force k
                               (vec (repeatedly (inc (.nextInt rng 2))
                                                #(if (= :void k) (some-jid) (d))))
@@ -563,8 +563,8 @@
   (testing "every field belief reads survives being taken apart and put back"
     ;; The informant (7) is handed over among the antecedents, as a firing's handle list
     ;; has it, and the record keeps it once, as the informant.  It is a *weaker* premise
-    ;; than the rest and the cap does not read it, so 4 comes out :monotonic instead of
-    ;; capped at the rule's own class.  That is the one place the informant is read for
+    ;; than the rest and the cap does not read a premise informant, so 4 comes out
+    ;; :monotonic instead of capped at the rule's own class.  That is the one place the informant is read for
     ;; something other than equality, and the only one that can tell an int column from
     ;; an object one.
     (is (= [10 7 [1 2] 4 :monotonic :monotonic]

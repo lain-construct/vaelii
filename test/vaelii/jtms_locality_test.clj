@@ -361,6 +361,27 @@
           (is (contains? (set (jtms/touched-in tms)) 1)
               (str label ": it reads as newly believed, which it is not")))))))
 
+(deftest every-representation-re-marks-a-premise-at-its-own-strength-without-a-relabel
+  ;; `recovery/rebuild-tms` over a network that already holds its records re-marks every
+  ;; premise, and a relabel of each one's forward closure costs O(n²) over a chain n deep.
+  (doseq [[label make] networks
+          n            sizes]
+    (testing (str label " n=" n)
+      (let [tms    (make)
+            labels #(mapv (fn [d] [(jtms/in? tms d) (jtms/defeat-class tms d)]) (range (inc n)))]
+        (jtms/add-premise tms 0 :default)
+        (dotimes [i n]
+          (jtms/ensure-node tms (inc i) 1)
+          (jtms/add-justification tms (jtms/->just (+ 2000 i) 'rule [i] (inc i) {} :default)))
+        (let [before (labels)]
+          (is (= #{0} (set (touched-by tms #(jtms/add-premise tms 0 :default))))
+              "the re-mark relabelled the premise's forward closure")
+          (is (contains? (set (jtms/touched-in tms)) 0)
+              "the premise is noted as a relabel would note it")
+          (is (= before (labels)))
+          (is (= (inc n) (count (touched-by tms #(jtms/add-premise tms 0 :monotonic))))
+              "a mark at another strength relabels the closure"))))))
+
 ;; ---- the structural half of the same claim ------------------------------
 
 (deftest neither-representation-names-the-store-protocols

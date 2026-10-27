@@ -157,7 +157,7 @@
     (is (true? (v/genl? kb t 'quantitative 'CxUniverse))))
   (is (not (v/genl? kb 'quantity 'quantitative)) "a quantity is temporal and not quantitative"))
 
-;; ---- the orthogonal pairs the disjointness audit ruled -------------------------
+;; ---- the overlapping pairs declared orthogonal ---------------------------------
 
 (tu/deftest-kb the-audited-overlapping-pairs-read-orthogonal
   (doseq [[a b] '[[made vertebrate] [made invertebrate] [made solid]

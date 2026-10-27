@@ -27,6 +27,7 @@
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.impl.abduce :as abduce]
+            [vaelii.impl.argtype-pass :as argpass]
             [vaelii.impl.assert-entry :as entry]
             [vaelii.impl.budget :as budget]
             [vaelii.impl.caches :as caches-impl]
@@ -256,8 +257,9 @@
      (releasing-on-throw spec #(doto (kb/open-kb spec recover reindex) recover)))))
 
 (def default-chain-opts
-  "max-depth bounds derivation depth to catch productive infinite recursion;
-  max-derivations is a hard backstop on a single chain run."
+  "The bounds a chaining run takes when `opts` names none: `:max-term-depth`, the
+  termination bound for term-building recursion, and `:max-derivations`, the cap on one
+  run's writes.  `:max-depth` has no default (docs/inference.md, \"Forward chaining\")."
   chain/default-chain-opts)
 
 ;; ---- the content order ---------------------------------------------------
@@ -1131,8 +1133,8 @@
                    :typed-thing-count n
                    :typed-thing [{:handle :sentence :context :facts} …]}
                ; argument constraints naming a position their predicate does not have.
-               ; :message is the one the check itself wrote, so this map and `check`'s
-               ; answer say the same thing in the same words.  :typed-thing lists the
+               ; :message is the one the check itself wrote, so this map and
+               ; `try-assert`'s refusal say the same thing in the same words.  :typed-thing lists the
                ; declarations typing a position `thing`, which mint nothing, each with
                ; its predicate's stored extent
     :subsumption {:total n :subsumed-count n :truncated? b
@@ -1151,14 +1153,14 @@
   figure the data does not hold.  **This is not a required check either**: a threshold
   on somebody's ontology is not a build failure.
 
-  **`:declarations` is why this reader and not `violations`.**  `(arg parentOf 3 t)` is
-  admitted while `parentOf` has no declared length — the highest position a declaration
-  names is a lower bound on the arity, not a claim about it — and goes inert when a length
-  arrives, whether declared of the predicate or inherited from a super.  It is not
-  refused, because refusing it would make the *binding's* arrival order decide what the KB
-  holds. A wrong-length **fact** is a nogood the settle places (docs/taxonomy.md). A
-  stranded declaration constrains nothing, refuses nothing and mints nothing, and reads
-  the same an hour later — a census question, not a settle one.
+  **Three keys count `kb-integrity` findings.**  `:taxonomy`, `:declarations` and
+  `:clashes` are `vaelii.impl.integrity`'s `taxonomy-coverage`, `stranded-declarations` and
+  `clash-pairs` read over the whole KB — the checks behind kb-integrity's
+  `:taxonomy-island`, `:stranded-declaration`, `:rule-clash` and `:rule-clash-review`
+  categories, which are where a caller wanting a verdict reads them (docs/integrity.md).
+  A stranded declaration constrains nothing, refuses nothing and mints nothing, and reads
+  the same an hour later, which is why it is a sweep question and not a `violations`
+  entry; a wrong-length **fact** is a nogood the settle places (docs/taxonomy.md).
 
   `opts`: `:limit` caps each listed set (default 25 — the counts are the headline, and a
   30,000-entry list is not one); `:on-progress` is called with `{:phase :done :total}` as
@@ -1195,7 +1197,7 @@
   never the KB.  Two terms are not flat — a declaration whose predicate inherits its
   length costs a read per predicate above it, where one carrying its own costs a map read,
   and the two rule-hygiene readings cost a record read per rule and a unification per
-  candidate pair — and `vaelii.impl.quality` says how.
+  candidate pair — and `vaelii.impl.quality` and `vaelii.impl.integrity` say how.
 
   **Read without a snapshot**, like every other reader here: a write landing mid-report can
   leave a count and a list disagreeing by one (a rule enumerated and then retracted is
@@ -1293,10 +1295,12 @@
   no argument-type entailment is drawn, neither the fact's own nor what a declaration, a
   `genl` edge or a `genlCx` edge draws over the stored facts (docs/argtypes.md).
   `record-arg-types` records them afterwards, and a KB loaded this way answers as a
-  per-fact load does once it has run.  Bind it only around a load whose facts are known
-  well-formed and pairwise distinct; normal `assert` (the default) keeps every
-  guarantee.  Pair it with `with-deferred-settle` (one settle at the end) and
-  `{:chain? false}` for the full fast path — `bulk-assert-facts!` does all three."
+  per-fact load does once it has run.  A write the caller's bound or a refusal ends
+  throws and rolls back as it does outside bulk mode (`undoing-refusal`).  Bind it only
+  around a load whose facts are known well-formed and pairwise distinct; normal `assert`
+  (the default) keeps every guarantee.  Pair it with `with-deferred-settle` (one settle
+  at the end) and `{:chain? false}` for the full fast path — `bulk-assert-facts!` does
+  all three."
   false)
 
 ;; ---- writing into a KB whose derived state was never built ---------------
@@ -1532,9 +1536,11 @@
 
   `:strength` is the assumption class, `:chain?` whether to forward-chain, `:direction`
   the programmatic spelling of a `set/*Rule` wrapper, `:creator` / `:provenance` the
-  provenance it records; the rest flow to `chain/chain-all`."
+  provenance it records, `:max-ms` / `:stop?` the caller's bound on the whole call
+  (`chain/call-with-stop`); the rest flow to `chain/chain-all`."
   #{:strength :chain? :direction :creator :provenance
-    :max-depth :max-derivations :on-progress :progress-every-ms})
+    :max-depth :max-term-depth :max-derivations :max-ms :stop? :on-progress
+    :progress-every-ms})
 
 (defn- context-shape-problem
   "The `:shape` problem a context slot of the wrong shape is refused with, or nil.  A
@@ -1883,8 +1889,11 @@
     (do (p/unmark-premise! (:records kb) handle)         ; no longer an asserted premise
         (let [{:keys [removed-sentexes removed-justifications] :as r} (jtms/retract! (reasoning/tms kb) handle)
               ;; fetch each swept record BEFORE tearing it down — the JTMS returns handles,
-              ;; and `sentex-removed!` is what deletes the record
-              gone (into [] (keep #(p/get-sentex (:records kb) %)) removed-sentexes)
+              ;; and `sentex-removed!` is what deletes the record.  The retracted handle
+              ;; goes even when `assert-inert` wrote it, as an inert record's retraction does.
+              ;; Keep the sweep's order: the retracted handle torn down after the n nogoods it
+              ;; sits in costs n² (perf's filler-beside-clashing-fillers).
+              gone (integrate/swept-records kb removed-sentexes handle)
               ;; ...and read the re-chain seeds while the taxonomy still holds the
               ;; departing edges, since it is their spec subtree the seeds come from
               seeds (special/resubsumption-seeds kb gone removed-justifications)
@@ -1901,7 +1910,7 @@
           ;; a premise a derivation still holds up is now the derivation's alone
           (when-not (some #{handle} removed-sentexes)
             (special/note-unpremised! kb handle))
-          {:removed-sentexes   (count removed-sentexes)
+          {:removed-sentexes   (count gone)
            :removed-justifications (count removed-justifications)
            :datum?             true
            :seeds              seeds
@@ -1960,34 +1969,53 @@
 
 (defn- batch-baseline
   "The derived state a batch writes and `rollback-batch!` puts back — the violations
-  ledger, the program and the refusal record — snapshotted before the batch runs, plus
-  `:filed`, the identity set the batch binds `viol/*batch-entries*` to, and the taxonomy
-  value and generations the refusal record's entries were decided under."
+  ledger, the program, the refusal record and the mint queues — snapshotted before the
+  batch runs, plus `:filed`, the identity set the batch binds `viol/*batch-entries*` to,
+  and the taxonomy value and generations the refusal record's entries were decided under."
   [kb]
   {:violations @(reasoning/violations kb)
    :program    @(reasoning/program kb)
    :refused    @(reasoning/refused kb)
+   :queues     (select-keys @(reasoning/mint-queues kb) [:owed :defer-next])
    :filed      (viol/batch-entries)
    :taxonomy   @(reasoning/taxonomy kb)
    :gens       (special/taxonomy-generations kb)
    :conviction (special/conviction-generations kb)})
 
-(defn- rollback-batch!
-  "Put the KB back the way the batch found it, at the handles it wrote: restore the
-  premises it suspended, retract what the audit says the batch created, re-mark at the
-  recorded strength and spellings what was already a premise, settle with the sweep on,
-  and restore what `batch-baseline` snapshotted, the refusal entries under the generations
-  now (`special/advance-refusal-generations!`).  The handle counter stays moved.
-  docs/preview.md.
+(defn- recheck-suspended
+  "Queue the re-checks that suspending or restoring the premise `h` owes: the sentence's
+  exception re-check (`special/recheck-on-sentence`) and, for an `except`, the re-join of
+  the firings it refused (`special/recheck-except`).  These are the posts the removal and
+  arrival entry points make for a stored sentex leaving or arriving
+  (`special/disintegrate-sentex!`, `special/structural-integrate`).  A handle with no
+  record posts nothing."
+  [kb h]
+  (when-let [sx (p/get-sentex (:records kb) h)]
+    (let [sentence (sx/sentence-of sx)]
+      (special/recheck-on-sentence kb sentence)
+      (when (= sx/except-functor (nm/functor sentence))
+        (special/recheck-except kb sx)))))
 
-  Takes that baseline plus `:audit` (the `entry/*premise-audit*` atom the batch ran under),
-  `:suspended` (`[[handle strength] …]`, empty for an entry point that suspends nothing)
-  and an optional `:sink` (`integrate/removal-sink`) that scopes the orphan sweep to the
-  rollback's own removals.  A handle in both sets is restored from `:suspended` and then
-  put back at the audit's record: the adds run before the suspensions, so the audit holds
-  the state the batch found, and the suspension the class an add raised.
-  Runs with the change feed off (docs/feed.md, \"What does not arrive\")."
-  [kb {:keys [audit suspended violations program refused sink filed] :as baseline}]
+(defn- remove-above-mark!
+  "Remove every justification and then every sentex stored at a handle above `h0`, the
+  write's mark (`entry/*write-mark*`), each pass newest first, so each justification's
+  removal relabels the one node of a chain it concludes.  Reads each handle the write
+  allocated twice, as a justification and as a sentex; reads nothing below `h0`."
+  [kb h0]
+  (let [tms     (reasoning/tms kb)
+        records (:records kb)
+        hs      (range (dec (p/next-id records)) h0 -1)]
+    (doseq [h hs :when (p/get-justification records h)]
+      (let [r (jtms/drop-justification! tms h)]
+        (p/delete-justification! records h)
+        (integrate/apply-removals! kb r)))
+    (doseq [h hs :when (p/get-sentex records h)]
+      (integrate/take-out! kb h))))
+
+(defn- rollback-batch-unbounded!
+  "`rollback-batch!`'s body, run under `chain/call-unbounded`."
+  [kb {:keys [audit suspended violations program refused sink filed mark queues]
+       :as baseline}]
   (let [tms     (reasoning/tms kb)
         records (:records kb)]
     ;; both bindings file the rollback's own entries into the batch's set, so the restore
@@ -2001,17 +2029,24 @@
               dur/*abortable?* false]
       (doseq [[h strength] suspended]
         (jtms/add-premise tms h strength)
-        ;; the mirror of the exception re-check the suspension queued
-        (when-let [sx (p/get-sentex records h)]
-          (special/recheck-on-sentence kb (sx/sentence-of sx))))
-      (doseq [[h {:keys [premise? strength spellings]}] @audit]
+        ;; the mirror of the re-checks the suspension queued
+        (recheck-suspended kb h))
+      ;; the rule slots first, so nothing below reads an engine the batch added
+      (doseq [[h {:keys [slots]}] @audit :when slots]
+        (entry/restore-rule-slots! kb h slots))
+      (doseq [[h {:keys [premise? strength spellings] :as e}] @audit
+              :when (contains? e :premise?)]
         (cond
           ;; `put-premise-mark`, not `mark-premise`, whose `strength/max` would keep a
           ;; class the batch raised; the spellings go back so the row hands back no
           ;; spelling the batch folded into it when a permuting mark leaves
           premise?                 (do (entry/put-premise-mark kb h strength)
                                        (integrate/put-spellings! kb h spellings))
-          (p/get-sentex records h) (retract-storage! kb h))))
+          (p/get-sentex records h) (retract-storage! kb h)))
+      ;; what the batch derived from content it did not store, which no premise above
+      ;; holds up; before the settle, which rewrites records below the mark
+      (when-let [h0 (some-> mark deref)]
+        (remove-above-mark! kb h0)))
     ;; no re-chain seeds: what they would re-derive is content the batch created, at
     ;; handles the audit cannot take back
     (binding [feed/*enabled?* false
@@ -2029,30 +2064,70 @@
     ;; the refusal record: an entry the batch's content wrote names handles the rollback
     ;; took away (docs/preview.md, "What the rollback restores")
     (reset! (reasoning/refused kb) refused)
+    (swap! (reasoning/mint-queues kb) #(merge (dissoc % :owed :defer-next) queues))
     (special/advance-refusal-generations! kb baseline)))
 
-(defn- undoing-refusal
-  "Run `f`, the body of one `assert`, under a premise audit, and return what `f` returns;
-  a throw out of it runs `rollback-batch!` over the audit and is rethrown as raised, with
-  a rollback that fails too attached as suppressed (docs/api.md, \"Validating without
-  writing\").
+(defn- rollback-batch!
+  "Put the KB back the way the batch found it, at the handles it wrote: restore the
+  premises it suspended, retract what the audit says the batch created, re-mark at the
+  recorded strength and spellings what was already a premise, settle with the sweep on,
+  and restore what `batch-baseline` snapshotted, the refusal entries under the generations
+  now (`special/advance-refusal-generations!`).  The handle counter stays moved.
+  docs/preview.md.
 
-  An empty audit skips the rollback.  An enclosing audit (`edit!`, `preview`, or the
-  `assert` this one is nested in, such as the mint's own) owns the undo, so this adds
-  none, and under `*bulk-load?*` nothing is audited.  With a change-feed listener
-  installed the call holds the feed (`feed/with-one-event`), since a mint settles before
-  the sentence it serves is checked; after a rollback the held event is empty and not
-  delivered.  The write's stratification checks share one stored graph
-  (`rules/*stratification-memo*`)."
+  Takes that baseline plus `:audit` (the `entry/*premise-audit*` atom the batch ran under),
+  `:suspended` (`[[handle strength] …]`, empty for an entry point that suspends nothing),
+  an optional `:mark` (the `entry/*write-mark*` volatile), above which every record is
+  removed before the settle (`remove-above-mark!`), and an optional `:sink`
+  (`integrate/removal-sink`) that scopes the orphan sweep to the rollback's own removals.
+  The rule slots the audit recorded go back before anything else.  A handle in both sets is restored from `:suspended` and then
+  put back at the audit's record: the adds run before the suspensions, so the audit holds
+  the state the batch found, and the suspension the class an add raised.
+  Runs with the change feed off (docs/feed.md, \"What does not arrive\"), and unbounded
+  (`chain/call-unbounded`)."
+  [kb baseline]
+  (chain/call-unbounded #(rollback-batch-unbounded! kb baseline)))
+
+(defn- write-checked
+  "`f`, run so that `entry/*write-check*`, when bound, is called with the handles `f`'s
+  rule firings concluded once `f` returns.  An enclosing call that bound the sink already
+  checks them, so `f` comes back as it was."
   [kb f]
-  (if (or entry/*premise-audit* *bulk-load?*)
+  (if-let [check (when-not observe/*fired-sink* entry/*write-check*)]
+    (fn []
+      (let [sink (java.util.HashSet.)
+            r    (binding [observe/*fired-sink* sink] (f))]
+        (check kb (set sink))
+        r))
+    f))
+
+(defn- undoing-refusal
+  "Run `f`, the body of one `assert`, under a premise audit and the bound `opts` sets
+  (`chain/call-with-stop`), and return what `f` returns; a throw out of it runs
+  `rollback-batch!` over the audit and is rethrown as raised, with a rollback that fails
+  too attached as suppressed (docs/api.md, \"Validating without writing\").  Under its own
+  audit a run the caller's bound ends throws `:interrupted` (`chain/*rollback-scope*`).
+
+  The write's mark (`entry/*write-mark*`) is bound for the call, and a rollback removes
+  every record above it once taken.  An empty audit and no mark skip the rollback.  An
+  enclosing audit (`edit!`, `preview`, or the `assert` this one is nested in, such as the
+  mint's own) owns the undo, so this adds none.  With a change-feed listener installed the call holds the feed
+  (`feed/with-one-event`), since a mint settles before the sentence it serves is checked;
+  after a rollback the held event is empty and not delivered.  The write's
+  stratification checks share one stored graph (`rules/*stratification-memo*`).  A bound
+  `entry/*write-check*` reads what `f`'s rule firings concluded before the call returns
+  (`write-checked`), and its throw is a refusal like any other."
+  [kb opts f]
+  (if entry/*premise-audit*
     (binding [rules/*stratification-memo* (or rules/*stratification-memo* (volatile! nil))]
-      (f))
+      (chain/call-with-stop opts (write-checked kb f)))
     (let [audit    (atom {})
+          mark     (volatile! nil)
           baseline (batch-baseline kb)
           run      (fn []
                      (try
                        (binding [entry/*premise-audit* audit
+                                 entry/*write-mark*    mark
                                  viol/*batch-entries*  (:filed baseline)
                                  ;; the defeats the write removes, whose targets the
                                  ;; settle reads as moved (`settle/defeat-moves`)
@@ -2061,13 +2136,16 @@
                                      (integrate/removal-sink (exc/placed-reads? kb)))
                                  observe/*write-record* (settle/write-record kb)
                                  rules/*stratification-memo*
-                                 (or rules/*stratification-memo* (volatile! nil))]
-                         ;; the write a rollback takes back whole, so a shutdown may stop it
-                         (dur/as-unit f))
+                                 (or rules/*stratification-memo* (volatile! nil))
+                                 chain/*rollback-scope* true]
+                         ;; the write a rollback takes back whole, so a shutdown or the
+                         ;; caller's bound may stop it
+                         (dur/as-unit #(chain/call-with-stop opts (write-checked kb f))))
                        (catch Throwable t
-                         (when (seq @audit)
+                         (when (or (seq @audit) @mark)
                            (try
                              (rollback-batch! kb (assoc baseline :audit audit :suspended nil
+                                                        :mark mark
                                                         :sink (integrate/removal-sink true)))
                              (catch Throwable r (.addSuppressed t r))))
                          (throw t))))]
@@ -2162,7 +2240,12 @@
 
   **A refusal leaves the KB as the call found it**, the handle counter aside.  A mint, a
   skolem declaration, or the sentence itself can be written before the check that
-  refuses the call, and `undoing-refusal` takes them back before the throw leaves."
+  refuses the call, and `undoing-refusal` takes them back before the throw leaves.
+
+  `:max-ms` bounds the call by wall-clock milliseconds, and `:stop?` is a function of no
+  arguments whose truthy answer ends it.  Either one, and a `:max-derivations` the run
+  reaches, refuses the call (`:interrupted`) and leaves the KB as the call found it
+  (docs/inference.md, *Stopping a run*)."
   ([kb sentence] (assert kb sentence 'CxUniverse nil))
   ([kb sentence context] (assert kb sentence context nil))
   ([kb sentence context opts]
@@ -2187,6 +2270,7 @@
      ;; a reifiable_function, so a KB with none is unaffected.
      (undoing-refusal
       kb
+      opts
       (fn []
         (let [;; A ground application `(CxTimeFn …)` in the context slot reifies to its `cx/`
               ;; constant here — the context-slot twin of the sentence reify below, since the
@@ -2318,7 +2402,12 @@
   would convict a stored, believed rule so, which names the rule in `:clashes-with`; a
   fact whose length breaks its relation's length binding, or a length binding, `genl`
   edge or `:monotonic` metatype membership or edge that would break the length of stored
-  tuples, or an `except` of a binding (`:arity`); a self tuple of an `irreflexive`
+  tuples, or an `except` of a binding (`:arity`); an argument declaration naming a
+  position past its predicate's bound length, or a length binding, `genl` edge or
+  `:monotonic` metatype membership or edge that would strand a stored, believed one so
+  (`:arg-position`); a `genlArg` on an `instance_relation_predicate`, or a membership
+  stating a predicate one over a stored, believed `genlArg` on it
+  (`:arg-constraint-kind`); a self tuple of an `irreflexive`
   relation, or an `irreflexive` mark over stored ones (`:irreflexive`), or the converse
   of a believed tuple of an
   `anti_symmetric` one (`:anti-symmetric`), where the relation is marked or below a
@@ -2514,10 +2603,6 @@
     :arg-genl              a genlArg constraint — the argument is not a subtype of the floor
     :inter-arg-type        an interArg, interArgs or interArgAndRest constraint whose
                            trigger argument holds and whose target argument does not
-    :arg-position          a declaration constraining a position the predicate's
-                           declared length does not have
-    :arg-constraint-kind   a declaration of the wrong family for the predicate's
-                           relation_kind
     :disjoint              a type membership the taxonomy separates
     :functional            a second, irreconcilable value for a functional slot
     :asymmetric            the converse of a claim a declared-asymmetric relation made
@@ -2548,7 +2633,11 @@
   argument that fails its declared type is held inert\"), and `try-assert` refuses it.
   Nor is a rule's own `:arg-variable` conviction, two argument constraints on one of its
   variables that no term satisfies at once: `assert` stores the rule and holds it inert,
-  and `try-assert` refuses it.
+  and `try-assert` refuses it.  Nor is a declaration's `:arg-position` (a position past
+  its predicate's bound length) or `:arg-constraint-kind` (a `genlArg` on an
+  `instance_relation_predicate`): `assert` stores the declaration, a stranded one
+  constrains nothing (docs/taxonomy.md, \"A declaration the arity strands\"), and
+  `try-assert` refuses it.
 
   The stages run in `assert`'s order and stop at the first that finds anything, since
   each later one reads the KB assuming the earlier ones held.  A rule is checked the
@@ -2926,11 +3015,37 @@
   that expands to several — a conjunctive-consequent rule — contributes its vector,
   so the result is `mapv`-shaped, one entry per input sentence).
 
-  For a bulk fact/rule load this is the fast path: N asserts, one settle."
+  For a bulk fact/rule load this is the fast path: N asserts, one settle.
+
+  `:max-ms` and `:stop?` bound the whole call, read before each sentence with the heap
+  mark (`chain/check-stop!`).  The sentence either one interrupts is
+  rolled back as `assert` rolls one back, the sentences before it stay, settled, and the
+  call throws `:interrupted` with `:stored`, their handles (docs/inference.md, *Stopping
+  a run*)."
   ([kb sentences context] (assert-many kb sentences context nil))
   ([kb sentences context opts]
-   (with-deferred-settle kb
-     (mapv #(assert kb % context opts) sentences))))
+   (let [each   (some-> opts (dissoc :max-ms :stop? :progress-every-ms) not-empty)
+         stored (volatile! [])
+         cut    (volatile! nil)]
+     ;; the closing settle's re-chains derive under the call's :max-depth and
+     ;; :max-term-depth, as each assert's own run does
+     (chain/call-with-stop
+      (select-keys opts [:max-depth :max-term-depth])
+      #(with-deferred-settle kb
+         ;; the bound covers the asserts and not the closing settle, so the sentences
+         ;; stored before an interrupted one keep their whole closure
+         (try
+           (chain/call-with-stop
+            opts
+            ;; under `:chain? false` an assert runs no agenda loop, which reads both
+            (fn [] (doseq [sentence sentences]
+                     (chain/check-stop!)
+                     (vswap! stored conj (assert kb sentence context each)))))
+           (catch clojure.lang.ExceptionInfo e
+             (if (= :interrupted (:type (ex-data e))) (vreset! cut e) (throw e))))))
+     (if-let [e @cut]
+       (throw (ex-info (ex-message e) (assoc (ex-data e) :stored @stored) e))
+       @stored))))
 
 (defn bulk-assert-facts!
   "Load a large batch of **known well-formed, pairwise-distinct** ground facts into
@@ -2956,7 +3071,14 @@
   when the well-formedness or the plain-distinctness precondition is in doubt.
 
   `opts` flows to each `assert` (e.g. `:strength :monotonic`); `:chain?` is forced
-  false — a rule/consequent that needs forward firing is not a bulk-fact load.
+  false, so no stored rule fires over the loaded facts.  `record-arg-types` and then
+  `forward-chain` reach the KB a chained per-fact load holds, and both read the whole KB
+  (docs/storage.md, \"Loading a changing snapshot over a fixed base\").
+
+  `:max-ms` and `:stop?` bound the whole call, read before each fact with the memory
+  guard's heap mark (`chain/check-stop!`).  On a stop the fact in flight is rolled back,
+  the facts before it stay and are settled, and the call throws `:interrupted` with
+  `:stored`, their handles, as `assert-many` does (docs/inference.md, *Stopping a run*).
 
   **`:on-progress` is the load's rate, and it is the only thing this entry point reports.**
   The callback is handed `{:phase :loading :done n :elapsed-ms ms :facts-per-sec r}`
@@ -2973,7 +3095,9 @@
    ;; bare cast error where every other entry point answers `:unknown-option`
    (check-assert-opts! opts)
    (let [on-progress (:on-progress opts)
-         opts        (-> opts (dissoc :on-progress) (assoc :chain? false))
+         bound       (select-keys opts [:max-ms :stop? :progress-every-ms])
+         opts        (-> opts (dissoc :on-progress :max-ms :stop? :progress-every-ms)
+                         (assoc :chain? false))
          t0          (System/nanoTime)
          event       (fn [m done]
                        (let [ms (/ (- (System/nanoTime) t0) 1e6)]
@@ -2981,32 +3105,42 @@
                                              :facts-per-sec (if (pos? ms)
                                                               (/ (double done) (/ ms 1000.0))
                                                               0.0)))))
-         hs          (binding [*bulk-load?* true]
-                       (with-deferred-settle kb
-                         (with-open [r (progress/start ::bulk-assert-facts
-                                                       "bulk load: assert the facts"
-                                                       (when (counted? facts) (count facts)))]
-                           ;; the counting arm only when somebody is listening: a load with
-                           ;; no callback pays nothing for the option it did not pass
-                           (if on-progress
-                             (let [n (volatile! 0)]
-                               (mapv (fn [f]
-                                       (let [h (assert kb f context opts)
-                                             i (vswap! n inc)]
-                                         (progress/tick! r)
-                                         (when (zero? (rem i 100000))
-                                           (event {:phase :loading :done i} i))
-                                         h))
-                                     facts))
-                             (mapv (fn [f]
-                                     (let [h (assert kb f context opts)]
-                                       (progress/tick! r)
-                                       h))
-                                   facts)))))]
-     ;; after `with-deferred-settle` returns, so the closing reconciliation is inside
-     ;; the rate rather than outside it
-     (when on-progress (event {:phase :done :total (count hs)} (count hs)))
-     hs)))
+         stored      (volatile! (transient []))
+         cut         (volatile! nil)
+         one!        (fn [f]
+                       (chain/check-stop!)
+                       (vswap! stored conj! (assert kb f context opts)))]
+     (binding [*bulk-load?* true]
+       (with-deferred-settle kb
+         ;; the bound covers the asserts and not the closing settle, so the facts stored
+         ;; before the stop are settled
+         (try
+           (chain/call-with-stop
+            bound
+            #(with-open [r (progress/start ::bulk-assert-facts
+                                           "bulk load: assert the facts"
+                                           (when (counted? facts) (count facts)))]
+               ;; the counting arm only when somebody is listening: a load with no
+               ;; callback pays nothing for the option it did not pass
+               (if on-progress
+                 (let [n (volatile! 0)]
+                   (run! (fn [f]
+                           (one! f)
+                           (let [i (vswap! n inc)]
+                             (progress/tick! r)
+                             (when (zero? (rem i 100000))
+                               (event {:phase :loading :done i} i))))
+                         facts))
+                 (run! (fn [f] (one! f) (progress/tick! r)) facts))))
+           (catch clojure.lang.ExceptionInfo e
+             (if (= :interrupted (:type (ex-data e))) (vreset! cut e) (throw e))))))
+     (let [hs (persistent! @stored)]
+       (when-let [e @cut]
+         (throw (ex-info (ex-message e) (assoc (ex-data e) :stored hs) e)))
+       ;; after `with-deferred-settle` returns, so the closing reconciliation is inside
+       ;; the rate rather than outside it
+       (when on-progress (event {:phase :done :total (count hs)} (count hs)))
+       hs))))
 
 (defn record-arg-types
   "Record the argument-type memberships and `genl` edges the stored facts entail, over a
@@ -3021,12 +3155,86 @@
   what loading the same facts one by one holds, and a later write draws nothing over a
   term it touches that the store did not already hold.  Idempotent, so a second run
   records nothing.  Under `VAELII_ASSERTIVE_ARG_TYPES=0` nothing is derived and nothing
-  is recorded."
+  is recorded.  It runs no forward chaining from what it records: `forward-chain` after
+  it fires the stored rules over the memberships.
+
+  The facts are drawn per declared functor in content order, each functor's by handle,
+  and the run ends with nothing owed (`arg-types-owed`).  `record-arg-types!` draws the
+  same facts in the same order and can stop, resume and set a fact aside."
   [kb]
-  (let [res (special/record-arg-types kb)]
+  (let [res (argpass/run-all kb)]
     (viol/report kb (:violations res))
     (settle/settle kb)
-    {:facts (:facts res) :recorded (count (:new res)) :violations (count (:violations res))}))
+    (argpass/clear-owed! kb)
+    {:facts (:facts res) :recorded (:recorded res) :violations (count (:violations res))}))
+
+(defn record-arg-types!
+  "`record-arg-types` as a run that can stop and resume, for a store where the pass takes
+  hours: each fact's checks run under a budget, a stop lands at a fact boundary, and what
+  the pass still owes is kept in the store (`arg-types-owed`), so the next call resumes
+  it, under this engine or a later one.  docs/argtypes.md, \"The pass over a stored KB\".
+
+  `opts`:
+
+    `:resume?`           default true: carry on from what the store says is owed, or from
+                         the start when nothing is.  false starts from the start.
+    `:budget-ms`         default 2000: how long one fact's checks may run.  A fact past
+                         it is **set aside** — recorded as owed with the part of the checks
+                         that ran out (`:phase`) — and the pass moves on.  nil: no budget.
+    `:retry-deferred?`   default false: once the sweep has ended, draw each fact set
+                         aside again, under this call's `:budget-ms`.
+    `:stop?`             a function of no arguments; truthy stops the pass at the next
+                         fact.  `request-stop!` and a shutdown stop it the same way.
+    `:on-progress`       called at most every `:progress-every-ms` (default 1000) with
+                         `{:phase :done :total :recorded :deferred}`.  `:phase` is
+                         `:arg-types` (facts drawn of every fact the declared functors
+                         hold), `:releases` (the withheld mints owed by the settles of an
+                         open or a recover, `release-withheld!`), `:deferred` (facts set
+                         aside, drawn again), `:settle` and `:done`.  A throw from it stops
+                         the pass as a stop does, and is rethrown once the pass has
+                         committed: a browser job's cancel.
+    `:commit-every-ms`   default 30000: how long the pass draws between two commits.
+
+  **A commit** files the violations drawn, settles, forces the stores to disk and then
+  writes the owed record, so a stop, a cancel or a throw leaves a settled KB and a
+  record no further on than the mints on disk.  A process killed between two commits
+  loses no stored mint: once belief is rebuilt (`recover`, or `settle-record-edits!`),
+  the next call redraws from the last commit, which adds nothing to what was drawn
+  after it.  An owed record written after the records the store holds — a store
+  restored from an older copy — is refused (`:owed-record-ahead`).
+
+  Returns `{:drawn :done :total :recorded :violations :deferred :stopped :complete?}`:
+  facts drawn by this call, facts drawn of `:total`, records created, violations filed,
+  facts set aside still owed, nil or why it stopped (`:requested`, `:shutdown`,
+  `:cancelled`), and whether nothing is owed now.  Refuses a KB without belief
+  (`:unrecovered-kb`)."
+  ([kb] (record-arg-types! kb nil))
+  ([kb opts]
+   (opts/check! opts #{:resume? :budget-ms :retry-deferred? :stop? :on-progress
+                       :progress-every-ms :commit-every-ms}
+                "record-arg-types!"
+                "A key nothing reads would run the pass at a setting nobody chose.")
+   (opts/check-values! opts "record-arg-types!")
+   (check-writable! kb "record-arg-types!")
+   (argpass/run-pass! kb (cond-> (or opts {})
+                           (not (contains? opts :budget-ms)) (assoc :budget-ms argpass/default-budget-ms)))))
+
+(defn request-stop!
+  "Ask the `record-arg-types!` pass running over `kb` to stop at its next fact boundary,
+  from any thread.  True when a pass was running, false when none was; a request is not
+  held for a later pass."
+  [kb]
+  (argpass/request-stop! kb))
+
+(defn arg-types-owed
+  "What the argument-type pass still owes over `kb`, or nil when nothing: `{:facts :total
+  :swept? :deferred}` — the facts drawn and counted at its last commit, whether its sweep
+  over the declared functors has ended, and the facts set aside, each `{:fact :functor
+  :reason :phase :budget-ms :ms}`.  A removal from the records of a KB without belief
+  (`edit-records!`) makes the whole pass owed; `record-arg-types` and a
+  `record-arg-types!` run that completes leave nothing owed."
+  [kb]
+  (argpass/owed kb))
 
 (defn owed-releases
   "How many departures and arrivals the settles of an open, a recover, an upgrade or a
@@ -3053,7 +3261,8 @@
 (def ^:private forward-chain-opt-keys
   "Every key `forward-chain` hands the chaining fixpoint (`chain/chain-all`'s
   destructure) — the key set `check-forward-chain-opts!` holds an opts map to."
-  #{:max-depth :max-derivations :on-progress :progress-every-ms})
+  #{:max-depth :max-term-depth :max-derivations :max-ms :on-progress :progress-every-ms
+    :stop? :on-stop})
 
 (defn- check-forward-chain-opts!
   "Refuse an opts key `forward-chain` does not read, and a non-nil non-map `opts` —
@@ -3071,24 +3280,78 @@
   ;; (`opts/bound-domains`)
   (opts/check-values! opts "forward-chain"))
 
+(defn- progress-interrupts
+  "`on-progress` as `forward-chain` hands it to the run under `:on-stop :rollback`: a throw
+  out of it becomes `:interrupted` with `:bound :on-progress`, carrying the throw as its
+  cause, so the caller's cancel takes the rollback every other bound takes."
+  [on-progress]
+  (fn [m]
+    (try (on-progress m)
+         (catch Throwable t (chain/interrupted! :on-progress t)))))
+
 (defn forward-chain
   "Run forward chaining to a fixpoint over every believed sentex, then settle
-  belief (resolve contradictions).  Returns {:derived n :truncated? bool}.
+  belief (resolve contradictions).  Returns {:derived n :truncated? bool}, with `:bound`
+  naming what ended a run kept under `:on-stop :keep`: `:max-derivations`, `:max-ms` or
+  `:stop?`.
 
-  `opts`: `{:max-depth n :max-derivations n}` bound the run, and `:on-progress` is a
-  callback the fixpoint calls about four times a second (`:progress-every-ms`) with
-  `{:derived n :pending n}` —
-  the only progress report from a phase that otherwise says nothing for minutes.  It may throw to
-  abort the run (a loader cancelling), in which case belief is left unsettled and the KB
-  holds the conclusions the run had already placed.
+  `opts`: `{:max-depth n :max-term-depth n :max-derivations n}` bound the run
+  (`default-chain-opts`); a run in which `:max-term-depth` refused firings also returns
+  `:term-cut`, their count.  A run in which `:max-depth` refused a firing is not stopped:
+  it returns `:truncated? true` with no `:bound`.
+  `:on-progress` is a callback the fixpoint calls about four times a second
+  (`:progress-every-ms`) with `{:derived n :pending n}`, the only progress report from a
+  phase that otherwise says nothing for minutes.  It may throw to stop the run.
+
+  `:max-ms` bounds the call by wall-clock milliseconds, and `:stop?` is a function of no
+  arguments, asked at most every `:progress-every-ms`, whose truthy answer ends the call.
+  `:on-stop` says what a stop leaves (docs/inference.md, *Stopping a run*):
+
+  - `:rollback`, the default: a run that `:max-ms`, `:stop?`, `:max-derivations` or an
+    `:on-progress` throw ends throws `:interrupted` with `:bound` naming it, the throw as
+    the cause for `:on-progress`, and leaves the KB as the call found it, the handle
+    counter aside.
+  - `:keep`: the run keeps what it placed, is settled, and returns `:truncated? true`; an
+    `:on-progress` throw is rethrown as raised after the settle.  A kept run is
+    incomplete: under `:default` rules it can leave a conclusion believed whose defeater
+    the run did not derive.  A later `forward-chain` with no bound completes the closure.
+
+  A nearly full heap (`caches/heap-critical?`) ends the run with `:interrupted :bound
+  :heap` and the rollback under either value, except during a replay of the logged
+  frame (`oplog/*replaying?*`), which takes no heap stop.
 
   An `opts` key this fn does not read is **refused** (`:unknown-option`): every key
   here bounds the run or reports on it, so a misspelt one is a run with no ceiling."
   ([kb] (forward-chain kb nil))
-  ([kb opts] (check-forward-chain-opts! opts)
-             (let [result (chain/chain-all kb (jtms/in-datums (reasoning/tms kb)) opts)]
-               (settle/settle kb)
-               result)))
+  ([kb opts]
+   (check-forward-chain-opts! opts)
+   (let [keep?  (= :keep (:on-stop opts))
+         cb     (:on-progress opts)
+         thrown (volatile! nil)
+         opts   (cond-> (dissoc opts :on-stop)
+                  (and cb keep?)       (assoc :on-progress
+                                              (fn [m] (try (cb m)
+                                                           (catch Throwable t
+                                                             (vreset! thrown t)
+                                                             (throw t)))))
+                  (and cb (not keep?)) (assoc :on-progress (progress-interrupts cb)))
+         result (undoing-refusal
+                 kb opts
+                 (fn []
+                   ;; every record the run creates is above the mark
+                   (entry/take-write-mark! kb)
+                   (let [result (binding [chain/*keep-on-stop* keep?]
+                                  (try (chain/chain-all kb (jtms/in-datums (reasoning/tms kb))
+                                                        opts)
+                                       (catch Throwable t
+                                         (if (identical? t @thrown) nil (throw t)))))]
+                     ;; a replay runs the frame without the clock, and so past where a
+                     ;; kept run cut
+                     (when (and keep? (:oplog kb) (or @thrown (chain/stop-reached?)))
+                       (oplog/mark-unusable! (:oplog kb) [:interrupted :forward-chain]))
+                     (chain/call-unbounded #(settle/settle kb))
+                     result)))]
+     (if-let [t @thrown] (throw t) result))))
 
 ;; ---- the query family: which one to reach for ---------------------------
 ;; Five entry points answer a goal, and the axis that separates them is **how much
@@ -3387,9 +3650,9 @@
   the correspondences (`quasiquote/goal-alternatives`, docs/nat.md, The corresponding
   predicate).  One conjunction answers as `read-alt` does.  Several merge their answers:
   each projected onto the variables every conjunction binds, distinct, at most
-  `max-results` (nil: every one)."
-  [kb goal max-results read-alt]
-  (let [alts     (quasiquote/goal-alternatives kb goal)
+  `max-results` (nil: every one).  `context` is the read's."
+  [kb goal context max-results read-alt]
+  (let [alts     (quasiquote/goal-alternatives kb goal context)
         goals-in (fn [alt] #(quasiquote/prepare-goal-for-read kb alt %))]
     (if (= 1 (count alts))
       (read-alt (goals-in (first alts)))
@@ -4029,7 +4292,7 @@
   (let [[goal context] (ist-goal kb goal context)
         cap #(cond-> % max-results (assoc :max-results max-results))]
     (read-alternatives
-     kb goal max-results
+     kb goal context max-results
      (fn [goals-in]
        (read-in-context
         kb goals-in context
@@ -4148,7 +4411,7 @@
                budget   (assoc opts :max-results 1)]
            (boolean
             (seq (read-alternatives
-                  kb goal 1
+                  kb goal context 1
                   (fn [goals-in]
                     (read-in-context
                      kb goals-in context
@@ -4282,7 +4545,7 @@
   (let [[goal context] (ist-goal kb goal context)
         d (query-depth opts query-opt-keys "query")]
     (read-alternatives
-     kb goal max-results
+     kb goal context max-results
      (fn [goals-in]
        (read-in-context kb goals-in context
                         #(query-at kb goals-in % d opts max-results)
@@ -5039,16 +5302,16 @@
   single pair to blame.
 
   When a network the calculus reads is unsatisfiable — the metric or the point network
-  under `:allen` — `:unsatisfiable-sources` names it, one map per source:
+  under `:allen` — `:unsatisfiable-sources` names it, one map per unsatisfiable component
+  of the source holding an interval's endpoint:
 
     {:source :metric :pairs [[P Q] …] :cycle [P Q R] :support [handle …]}
 
   `:pairs` are that network's pairs unsatisfiable as written, `:cycle` the instants on a
   negative cycle (`:metric` only), `:support` the facts behind them.  A metric problem
   refused for spanning more than one dimension names its `:dimensions` in place of
-  `:pairs` and `:cycle`.  The interval pair emptied to make the interval network
-  unsatisfiable is not in `:unsatisfiable` (docs/qcn.md, \"A network can have a second
-  reader\").
+  `:pairs` and `:cycle`.  The interval pairs emptied to make the component unsatisfiable
+  are not in `:unsatisfiable` (docs/qcn.md, \"A network can have a second reader\").
 
   A variable context reads every context's facts into one diagnostic network, off which
   no goal is answered (docs/qcn.md, \"Which networks it joins against\")."
@@ -5074,8 +5337,9 @@
 (defn possible-relations
   "The base relations `calculus` still allows between `a` and `b`, given everything
   believed in `context` — the set `ask` checks a goal against, exposed directly.  A
-  singleton is a determined arrangement; the full set is total ignorance; `#{}` means the
-  network is unsatisfiable and no goal of that calculus is answered there.
+  singleton is a determined arrangement; the full set is total ignorance; `#{}` means
+  `a` or `b` lies in an unsatisfiable component of the network, and no goal naming it is
+  answered there.
 
   A variable context reads every context's facts into one diagnostic network, which is
   not the set `ask` checks against (docs/qcn.md, \"Which networks it joins against\")."
@@ -5698,10 +5962,8 @@
 
   | entry | means | detail |
   |---|---|---|
-  | `:arg-type` / `:arg-genl` | an argument fails a declared constraint — `arg`'s type, or `genlArg`'s subtype floor | `:arg` `:expected` `:position` `:message` |
+  | `:arg-type` / `:arg-genl` | an argument fails a declared constraint — `arg`'s type, or `genlArg`'s subtype floor.  A rule's conclusion convicted at its own argument is stored and held instead, as `:inert-argument`; one convicted at a function application's input is dropped here | `:arg` `:expected` `:position` `:message` |
   | `:inter-arg-type` | an `interArg` conditional constraint, or an `interArgs` / `interArgAndRest` homogeneity constraint, whose trigger argument holds and whose target argument does not | `:arg` `:expected` `:position` `:trigger` `:trigger-type` `:trigger-position` `:message` |
-  | `:arg-position` | a *declaration* constrains an argument the predicate's declared length does not have | `:predicate` `:position` `:arity` `:via` `:message` |
-  | `:arg-constraint-kind` | a declaration disagrees with the predicate's `relation_kind` — `genlArg` on an instance relation | `:predicate` `:message` |
   | `:disjoint` | an application whose result type is disjoint from a type its argument position demands, before its constant is minted, so no second sentex stands for the pair | the check's problem map |
   | `:not-stratified` | a derived `genl` / `genlCx` edge would put a cycle through negation in the rule set, or a minted generator would feed one | `:cycle` `:message` |
   | `:not-well-formed` | a minted sentence a special predicate's own structure check refuses | `:problems` `:message` |
@@ -5720,11 +5982,11 @@
   | entry | means | detail |
   |---|---|---|
   | `:non-confluent` | two schematic equations disagree about a shared term; the normal form stays deterministic, so nothing is dropped | `:with` `:message` |
-  | `:inert-argument` | a stored fact whose argument fails a declared argument type as `assert` reads it — a value under `arg`, a symbol under the constraint-only reading, a `quotedArg` kind — held in the `:out` forced set, so it is never believed (docs/argtypes.md).  Read off the held facts at each call, not filed: the entry stands while the fact is stored and convicted, and carries no `:run` | the check's problem map |
+  | `:inert-argument` | a stored fact, asserted or concluded by a rule, whose argument fails a declared argument type as `assert` reads it — a value under `arg`, a symbol under the constraint-only reading, a `quotedArg` kind — held in the `:out` forced set, so it is never believed (docs/argtypes.md).  Read off the held facts at each call, not filed: the entry stands while the fact is stored and convicted, and carries no `:run` | the check's problem map |
   | `:inert-rule` | a stored rule, asserted or minted, one of whose variables two argument constraints hold to separated types, so no term fills it: `:detail` is the `:arg-variable` conviction.  The rule is held in the `:out` forced set, so it is never believed and fires nothing (docs/argtypes.md).  Read off the held rules at each call, as `:inert-argument` is | `:variable` `:expected` `:message` |
   | `:forced-conclusion` | a stored firing concluding a forced-monotonic literal, or its denial, from a rule whose antecedents are not all forced-monotonic or that has an `unknown`, `exceptWhen` or `set/defaultRule`: the firing is held void at some reader, so it supports nothing there, and `:not-forced-monotonic` names the rule's antecedent predicates that are not forced-monotonic (docs/nmtms.md).  Read off the stored firings at each call, not filed: the entry stands while the firing is stored and convicted, `:sentence` is the conclusion's stored spelling, and the entry carries no `:run` | `:not-forced-monotonic` `:message` |
   | `:aggregate` | an aggregate prover cannot reduce an extent — values that are not numbers of one dimension, or bounds only partially ordered.  Filed once per distinct error, since a count is recomputed rather than cached | `:message` `:values` |
-  | `:qualitative-inconsistency` | the qualitative network visible from a context is unsatisfiable, so no goal of that calculus is answered there | `:calculus` `:message` `:nodes` `:pairs` `:sources` |
+  | `:qualitative-inconsistency` | the qualitative network visible from a context is unsatisfiable, so no goal naming a node of an unsatisfiable component is answered there | `:calculus` `:message` `:nodes` `:pairs` `:sources` |
   | `:metric-temporal-mixed-dimensions` | the `temporalDistance` facts visible from a context span more than one dimension, so it gets no metric network at all | `:message` `:dimensions` `:units` |
   | `:metric-temporal-inconsistency` | the metric temporal constraints visible from a context cannot all be satisfied | `:message` `:unit` `:nodes` `:pairs` `:cycle` |
   | `:sign-inconsistency` | the sign facts visible from a context leave some quantity with no possible sign at all, so no sign goal is answered there | `:message` `:quantities` |
@@ -5811,13 +6073,16 @@
   a clean audit to `empty?`/`seq` — exactly the silent pass the gap exists to prevent.
   The gap is a declaration-contract diagnostic, reported explicitly rather than
   silently audited unconstrained; it covers the denotation-typing declarations only
-  (`arg` / `genlArg` / a `type_relation_predicate` membership) — a slot typed solely
-  by `quotedArg`, the mention twin, still reads as untyped here.
+  (`arg` / `argAndRest` / `args`, their type-level twins, and a
+  `type_relation_predicate` membership) — a slot typed solely by `quotedArg`, the
+  mention twin, still reads as untyped here.
 
-  The required filler type is **derived** from `pred`'s argument contract, never restated:
-  each visible `(arg cp n t)` — over every constraining predicate `cp`, `pred` plus the
-  super-predicates its `genl` closure reaches, the same union the assert-time checker
-  reads — requires membership in `t`, each visible `(genlArg cp n t)` requires being a
+  The required filler type is **derived** from `pred`'s argument contract, never restated,
+  and read through the argnum chokepoint (`res/arg-constraints-at`): each visible
+  `(arg cp n t)`, or `(argAndRest cp m t)` / `(args cp t)` reaching `n` — over every
+  constraining predicate `cp`, `pred` plus the super-predicates its `genl` closure
+  reaches, the same union the assert-time checker reads — requires membership in `t`,
+  each visible `genlArg`, `argAndRestGenl` or `argsGenl` reaching `n` requires being a
   subtype of `t`, a `type_relation_predicate` membership requires the filler to be
   visibly a type at every position, and the constraints compose conjunctively, as the
   assert-time checker composes them.
@@ -5904,12 +6169,18 @@
   `:all-specified-violations`, `:type-specified-violations`, `:rigidity-correspondence`,
   `:genl-arg-widening`, `:not-under-thing`, `:implicit-genl`, `:implicit-arity-class`,
   `:orthogonal-over-separation`, `:rule-macro`, `:undeclared-arity`,
-  `:uncorresponded-function`, `:twin-genls`, `:derivable-stated-edge`,
-  `:disjoint-could-be-partition` and `:missing-arg`, or `:status :truncated` with its
-  `:reason` and the findings kept when a bound runs out.  `options` takes `:max-work`,
-  `:max-ms` and `:max-results`, and `:categories`, a set of category keys to run.  The four
-  review-only categories `:twin-genls`, `:derivable-stated-edge`,
-  `:disjoint-could-be-partition` and `:missing-arg` run only when `:categories` names them.
+  `:uncorresponded-function`, `:stranded-declaration`, `:rule-clash`, `:twin-genls`,
+  `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
+  `:taxonomy-island`, `:rule-clash-review` and `:rule-macro-review`, or `:status
+  :truncated` with its `:reason`, the `:pass` it stopped in and the findings kept when a
+  bound runs out.  Every answer carries `:work`, the units spent, and `:elapsed-ms`.
+  `options` takes `:max-work`, `:max-ms` and `:max-results`, and `:categories`, a set of
+  category keys to run.  The seven review-only categories `:twin-genls`,
+  `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
+  `:taxonomy-island`, `:rule-clash-review` and `:rule-macro-review` run only when
+  `:categories` names them; a rule-macro or rule-clash finding an `acknowledgedFinding`
+  names is reported under its review category with the reason.  `kb-quality`'s
+  `:taxonomy`, `:declarations` and `:clashes` count the same checks over the whole KB.
   Stores and files nothing.  See docs/integrity.md."
   ([kb candidate-terms context]
    (integrity/kb-integrity kb candidate-terms context nil))
@@ -6211,6 +6482,111 @@
     (swap! (:unrecovered kb) update :unsupported #(into [] (remove (set hs)) %))
     {:marked (count hs) :handles hs}))
 
+(def edit-opt-keys
+  "Every key `edit!` and `edit-with-consequences!` read for the batch as a whole: the
+  caller's bound on the adds' chaining (`chain/call-with-stop`).  An add's own opts are
+  `assert`'s."
+  #{:max-ms :stop? :progress-every-ms})
+
+(defn- apply-edit!
+  "`edit!`'s body, which both its arities call.  The two-argument arity calling the
+  `edit!` var would be a second write inside the first, and a nested write is no unit a
+  shutdown may stop (`dur/as-unit`)."
+  [kb batch]
+  (check-writable! kb "edit!")
+  (check-edit-batch! batch)
+  (let [{:keys [add remove]} batch]
+    ;; The whole batch is held to `check-edit`'s answer before anything is applied, so
+    ;; the dry run predicts the entry point and a refusal never leaves a half-applied batch:
+    ;; an entry's shape (thrown here, reported there, one fn both read), then every
+    ;; `:remove` handle — `:bad-handle` for a non-handle, `:unknown-handle` for an
+    ;; integer naming nothing stored.
+    (doseq [entry add]
+      (check-shape! (add-entry-shape-problem entry)))
+    (doseq [h remove]
+      (when-some [h (the-handle h "edit")]
+        (when (nil? (p/get-sentex (:records kb) h))
+          (throw (ex-info (str "no sentex is stored under handle " h)
+                          {:type :unknown-handle :handle h})))))
+    ;; one event for the batch, for `retract!`'s reason: the teardown settles twice and
+    ;; a feed reports what the batch changed, not what it did on the way
+    (feed/with-one-event kb
+      ;; and one removal record for the batch, for `retract!`'s reason: the orphan sweep
+      ;; asks about the constants this batch stopped referencing, and nothing else — and
+      ;; runs only under the same presence check, so a KB that reifies nothing records
+      ;; nothing.
+      ;;
+      ;; Read **before** the adds, and a batch may declare the KB's first reifiable
+      ;; function among them: the presence check is then false here and true at the
+      ;; sweep, which leaves a nil sink and sends it down the whole-KB arm.  That is the stricter
+      ;; question and the right one — a batch that has just made reification possible has
+      ;; no region-scoped claim to make — and it costs the batch that does it one sweep.
+      (let [sink (teardown-sink kb)]
+        (binding [integrate/*removed-sink* sink
+                  observe/*write-record*   (settle/write-record kb)]
+          (let [audit    (atom {})
+                mark     (volatile! nil)
+                baseline (batch-baseline kb)
+                ;; where the batch is, for the refusal to name once it has been undone
+                at       (volatile! nil)
+                ;; **The refusable phase**, and the whole of it: the adds, which are what
+                ;; an engine check refuses, and then every removal's refusal asked while
+                ;; nothing has been removed.  A throw anywhere in here is put back at the
+                ;; handles it wrote (`rollback-batch!`) and rethrown saying so.
+                added
+                (try
+                  (binding [entry/*premise-audit* audit
+                            entry/*write-mark*    mark
+                            viol/*batch-entries*  (:filed baseline)
+                            *defer-settle?* true
+                            chain/*rollback-scope* true]
+                    ;; a shutdown may stop this phase, which the catch takes back whole
+                    (dur/as-unit
+                     (fn []
+                       (let [added (into [] (map-indexed
+                                             (fn [i entry]
+                                               (vreset! at [:add i entry])
+                                               (let [[sentence context opts] entry]
+                                                 (assert kb sentence context (or opts {})))))
+                                         add)]
+                         (doseq [[i h] (map-indexed vector remove)]
+                           (vreset! at [:remove i h])
+                           (when-some [h (the-handle h "edit")]
+                             (when-let [problem (teardown-refusal kb h "edit!")]
+                               (throw (ex-info (:message problem) (dissoc problem :message))))))
+                         added))))
+                  (catch Throwable t
+                    (rollback-batch! kb (assoc baseline :audit audit :suspended nil
+                                               :mark mark))
+                    (throw (rolled-back t @at))))
+                ;; **The committed phase.**  Nothing here refuses: the removals were
+                ;; cleared above, and what a settle or a teardown sweep raises past this
+                ;; point is a fault rather than a refusal — there is no undo for a swept
+                ;; record, so the batch does not pretend to one.  A shutdown's stop request
+                ;; is off here (`dur/as-unit` covers the phase above only), so a shutdown
+                ;; waits for this phase.
+                ;; the caller's bound ends here: nothing past this point is undone
+                removed
+                (binding [*defer-settle?* true]
+                  (chain/call-unbounded
+                   #(reduce (fn [acc h]
+                              (let [r (retract-storage! kb (the-handle h "edit"))]
+                                (-> acc
+                                    (update :sentences into (:sentences r))
+                                    (update :removed-sentexes   + (:removed-sentexes r))
+                                    (update :removed-justifications + (:removed-justifications r))
+                                    (update :seeds into (:seeds r))
+                                    (update :rederive into (:rederive r)))))
+                            {:removed-sentexes 0 :removed-justifications 0 :seeds []
+                             :rederive [] :sentences []}
+                            remove)))]
+            (chain/call-unbounded
+             (fn []
+               (settle-after-teardown! kb (settle/rechain-owed kb @(reasoning/recheck kb))
+                                       (distinct (:seeds removed)) (:rederive removed))
+               (finish-teardown! kb sink (:sentences removed))))
+            {:added added :removed (dissoc removed :seeds :rederive :sentences)}))))))
+
 (defn edit!
   "Apply a batch of assertions and retractions in **one settle**.
 
@@ -6268,6 +6644,11 @@
   has landed.  (A nil `:remove` entry stays nothing-to-remove, matching `handle-of` of
   an absent sentence.)
 
+  `opts` takes `edit-opt-keys`.  `:max-ms` and `:stop?` bound the adds' chaining: either
+  one ending it, before the first removal, refuses the batch (`:interrupted`) and rolls it
+  back as a refusal is; past that point the batch runs to its end (docs/inference.md,
+  *Stopping a run*).
+
   **An unrecovered KB refuses the whole batch** (`:unrecovered-kb`), before anything is
   applied.  This entry point's headline guarantee is a JTMS claim — belief that survives the
   edit is never swept and rebuilt — and over an empty network there is no belief for it
@@ -6277,93 +6658,11 @@
   ;; reads to name the argument, and a `{:keys [...]}` there names nothing. Its three
   ;; siblings (`check-edit`, `preview`, `edit-with-consequences`) already take it
   ;; positionally; this is the one that did not.
-  [kb batch]
-  (check-writable! kb "edit!")
-  (check-edit-batch! batch)
-  (let [{:keys [add remove]} batch]
-    ;; The whole batch is held to `check-edit`'s answer before anything is applied, so
-    ;; the dry run predicts the entry point and a refusal never leaves a half-applied batch:
-    ;; an entry's shape (thrown here, reported there, one fn both read), then every
-    ;; `:remove` handle — `:bad-handle` for a non-handle, `:unknown-handle` for an
-    ;; integer naming nothing stored.
-    (doseq [entry add]
-      (check-shape! (add-entry-shape-problem entry)))
-    (doseq [h remove]
-      (when-some [h (the-handle h "edit")]
-        (when (nil? (p/get-sentex (:records kb) h))
-          (throw (ex-info (str "no sentex is stored under handle " h)
-                          {:type :unknown-handle :handle h})))))
-    ;; one event for the batch, for `retract!`'s reason: the teardown settles twice and
-    ;; a feed reports what the batch changed, not what it did on the way
-    (feed/with-one-event kb
-      ;; and one removal record for the batch, for `retract!`'s reason: the orphan sweep
-      ;; asks about the constants this batch stopped referencing, and nothing else — and
-      ;; runs only under the same presence check, so a KB that reifies nothing records
-      ;; nothing.
-      ;;
-      ;; Read **before** the adds, and a batch may declare the KB's first reifiable
-      ;; function among them: the presence check is then false here and true at the
-      ;; sweep, which leaves a nil sink and sends it down the whole-KB arm.  That is the stricter
-      ;; question and the right one — a batch that has just made reification possible has
-      ;; no region-scoped claim to make — and it costs the batch that does it one sweep.
-      (let [sink (teardown-sink kb)]
-        (binding [integrate/*removed-sink* sink
-                  observe/*write-record*   (settle/write-record kb)]
-          (let [audit    (atom {})
-                baseline (batch-baseline kb)
-                ;; where the batch is, for the refusal to name once it has been undone
-                at       (volatile! nil)
-                ;; **The refusable phase**, and the whole of it: the adds, which are what
-                ;; an engine check refuses, and then every removal's refusal asked while
-                ;; nothing has been removed.  A throw anywhere in here is put back at the
-                ;; handles it wrote (`rollback-batch!`) and rethrown saying so.
-                added
-                (try
-                  (binding [entry/*premise-audit* audit
-                            viol/*batch-entries*  (:filed baseline)
-                            *defer-settle?* true]
-                    ;; a shutdown may stop this phase, which the catch takes back whole;
-                    ;; a bulk load audits nothing, so its adds are no unit
-                    ((if *bulk-load?* #(%) dur/as-unit)
-                     (fn []
-                       (let [added (into [] (map-indexed
-                                             (fn [i entry]
-                                               (vreset! at [:add i entry])
-                                               (let [[sentence context opts] entry]
-                                                 (assert kb sentence context (or opts {})))))
-                                         add)]
-                         (doseq [[i h] (map-indexed vector remove)]
-                           (vreset! at [:remove i h])
-                           (when-some [h (the-handle h "edit")]
-                             (when-let [problem (teardown-refusal kb h "edit!")]
-                               (throw (ex-info (:message problem) (dissoc problem :message))))))
-                         added))))
-                  (catch Throwable t
-                    (rollback-batch! kb (assoc baseline :audit audit :suspended nil))
-                    (throw (rolled-back t @at))))
-                ;; **The committed phase.**  Nothing here refuses: the removals were
-                ;; cleared above, and what a settle or a teardown sweep raises past this
-                ;; point is a fault rather than a refusal — there is no undo for a swept
-                ;; record, so the batch does not pretend to one.  A shutdown's stop request
-                ;; is off here (`dur/as-unit` covers the phase above only), so a shutdown
-                ;; waits for this phase.
-                removed
-                (binding [*defer-settle?* true]
-                  (reduce (fn [acc h]
-                            (let [r (retract-storage! kb (the-handle h "edit"))]
-                              (-> acc
-                                  (update :sentences into (:sentences r))
-                                  (update :removed-sentexes   + (:removed-sentexes r))
-                                  (update :removed-justifications + (:removed-justifications r))
-                                  (update :seeds into (:seeds r))
-                                  (update :rederive into (:rederive r)))))
-                          {:removed-sentexes 0 :removed-justifications 0 :seeds []
-                           :rederive [] :sentences []}
-                          remove))]
-            (settle-after-teardown! kb (settle/rechain-owed kb @(reasoning/recheck kb))
-                                    (distinct (:seeds removed)) (:rederive removed))
-            (finish-teardown! kb sink (:sentences removed))
-            {:added added :removed (dissoc removed :seeds :rederive :sentences)}))))))
+  ([kb batch] (apply-edit! kb batch))
+  ([kb batch opts]
+   (check-bound-opts! opts edit-opt-keys "edit!")
+   (opts/check-values! opts "edit!")
+   (chain/call-with-stop opts #(apply-edit! kb batch))))
 
 (defn in?
   "Is the sentex handle believed as the context it is stored in reads it: JTMS IN, and
@@ -6573,7 +6872,7 @@
 
 (defn blocked-justifications
   "The ids of the justifications the network currently holds **blocked**: a block their
-  rule carries holds (a closed extent, a withdrawn `different`), so the JTMS has ruled
+  rule carries holds (a closed extent, a withdrawn `different`), so the JTMS holds
   them invalid and they confer nothing — even with every antecedent IN
   (docs/exceptions.md).
 
@@ -6960,7 +7259,7 @@
 
        base))))
 
-;; ---- why: the justification graph as a proof tree ------------------------
+;; ---- why: the justification graph down to premises ------------------------
 ;; `supporting-justifications` gives one hop.  `why` walks the whole way down to
 ;; premises, which is what "why does the KB believe this?" actually asks.
 
@@ -6982,164 +7281,82 @@
   [sx]
   (when sx (sx/sentence-of sx)))
 
-(def ^:private why-max-depth
-  "How deep `why` expands a proof tree before it stops and says so, absent a
-  `:max-depth` option.
-
-  `seen` guards a *cycle*, which is a different thing from depth: a derivation chain
-  down a long transitive closure has no repeated handle and is bounded only by the
-  KB.  `why*` walks that chain over an explicit work stack rather than the JVM stack,
-  so the cap does not save the reader from an overflow — nothing overflows — it bounds
-  the **size of the proof tree returned**: a chain thousands deep would otherwise build
-  a datum thousands deep that a browser or a caller then has to hold and render."
-  256)
-
-(defn- check-why-opts!
-  "Refuse a non-map `opts`, a key `why` does not read, and a `:max-depth` that is not
-  a natural number — the `check-assert-opts!` reasoning at this entry point: an option
-  nothing reads takes the default in silence."
-  [opts]
-  (opts/check! opts #{:max-depth} "why")
-  (when-some [d (:max-depth opts)]
-    (when-not (nat-int? d)
-      (throw (ex-info (str "why's :max-depth must be a natural number, got " (pr-str d))
-                      {:type :unknown-option :mismatch :bad-value :max-depth d :options [:max-depth]})))))
-
-(defn- why*
-  "The proof tree under `handle`, built over an **explicit** work stack so the JVM
-  stack stays O(1) in the tree's depth.  Recursing it would overflow on a chain down
-  a long transitive closure — which repeats no handle, so the cycle guard never fires
-  and only the KB bounds the depth (`why-bounds-its-depth` tests the case).
-
-  Two-phase.  An `:open` frame computes one node; an internal one allocates a child
-  frame per antecedent — a fresh integer id apiece — and pushes a `:close` frame
-  *beneath* those children (the stack is LIFO, so `:close` runs only once every
-  descendant has stored its result).  `:close` reads the children back out of
-  `results` and reassembles them in content order, so the order the stack happened to
-  visit the tree in never reaches the output."
-  [kb handle0 max-depth]
-  (let [results (java.util.HashMap.)               ; frame id → node map
-        work    (java.util.ArrayDeque.)
-        reader  (exc/verdict-reader kb)
-        n       (volatile! 0)
-        fresh   #(vswap! n inc)
-        root    (fresh)]
-    (.push work [:open root handle0 #{} 0])
-    (while (not (.isEmpty work))
-      (let [frame (.pop work)]
-        (case (nth frame 0)
-          :open
-          (let [[_ id handle seen depth] frame
-                sx   (sentex kb handle)
-                base {:handle handle :sentence (readable-sentence sx) :context (:context sx)}
-                read (delay (reader handle (:context sx)))]
-            (cond
-              (nil? sx)                          (.put results id (assoc base :stored? false))
-              (>= (long depth) (long max-depth)) (.put results id (assoc base :truncated? true))
-              ;; The justification graph can cycle (two rules deriving each other, a
-              ;; datum re-derived through its own consequence).  A node already on the
-              ;; current path is reported as a back-edge instead of being expanded again
-              ;; — the tree stays finite and the cycle stays visible rather than pruned.
-              (contains? seen handle)            (.put results id (assoc base :cycle? true))
-              ;; belief as the node's own context reads it, which is what `why-not`
-              ;; answers for the same handle (`res/believed-at?`): a sentex IN in the
-              ;; network and withdrawn where it is stored has no proof tree to show,
-              ;; and a tree citing it would say the KB believes what it disbelieves
-              (not (:believed? @read))
-              (.put results id (assoc base :believed? false))
-
-              (premise? kb handle)
-              (.put results id (assoc base :believed? true
-                                      :defeat-class (defeat-class kb handle)
-                                      :premise? true :strength (:strength sx)))
-
-              :else
-              (let [seen'  (conj seen handle)
-                    depth' (inc (long depth))
-                    vs     (:verdicts @read)
-                    justs  (mapv (fn [j]
-                                   (let [inf   (:informant j)
-                                         rule? (integer? inf)
-                                         ;; the record names the rule in `:informant`
-                                         ;; alone, so the antecedents are the facts
-                                         antes (:antecedents j)]
-                                     {:justification (:id j)
-                                      :informant     inf
-                                      :strength      (:strength j :monotonic)
-                                      :verdict       (get vs (:id j))
-                                      :rule?         rule?
-                                      :rule          (when rule? (readable-sentence (sentex kb inf)))
-                                      :children      (mapv (fn [ante] [(fresh) ante]) antes)}))
-                                 (supporting-justifications kb handle))]
-                (.push work [:close id (assoc base :believed? true
-                                              :defeat-class (defeat-class kb handle)
-                                              :premise? false)
-                             justs])
-                (doseq [j justs, [child-id ante] (:children j)]
-                  (.push work [:open child-id ante seen' depth'])))))
-
-          :close
-          (let [[_ id base justs] frame
-                support (mapv (fn [j]
-                                (cond-> {:justification (:justification j)
-                                         :informant     (:informant j)
-                                         :strength      (:strength j)
-                                         :verdict       (:verdict j)
-                                         :because       (mapv (fn [[cid _]] (.get results cid))
-                                                              (:children j))}
-                                  (:rule? j) (assoc :rule (:rule j))))
-                              justs)]
-            (.put results id (assoc base :support support))))))
-    (.get results root)))
+(defn- why-node
+  "One node of `why`'s graph: `handle`'s sentence, its context and its belief there,
+  and for a believed derived node its justifications with their antecedent handles.
+  `reader` is the walk's `exc/verdict-reader`."
+  [kb reader handle]
+  (let [sx   (sentex kb handle)
+        base {:handle handle :sentence (readable-sentence sx) :context (:context sx)}
+        read (delay (reader handle (:context sx)))]
+    (cond
+      (nil? sx)                 (assoc base :stored? false)
+      ;; belief as the node's own context reads it, which is what `why-not` answers for
+      ;; the same handle (`res/believed-at?`): a sentex IN in the network and withdrawn
+      ;; where it is stored has no support to show
+      (not (:believed? @read)) (assoc base :believed? false)
+      (premise? kb handle)      (assoc base :believed? true :defeat-class (defeat-class kb handle)
+                                       :premise? true :strength (:strength sx))
+      :else
+      (let [vs (:verdicts @read)]
+        (assoc base :believed? true :defeat-class (defeat-class kb handle) :premise? false
+               :support
+               (mapv (fn [j]
+                       (let [inf (:informant j)]
+                         ;; the record names the rule in `:informant` alone, so the
+                         ;; antecedents are the facts
+                         (cond-> {:justification (:id j)
+                                  :informant     inf
+                                  :strength      (:strength j :monotonic)
+                                  :verdict       (get vs (:id j))
+                                  :because       (vec (:antecedents j))}
+                           (integer? inf) (assoc :rule (readable-sentence (sentex kb inf))))))
+                     (supporting-justifications kb handle)))))))
 
 (defn why
-  "Why does the KB believe `handle`?  A **proof tree**, as data:
+  "Why does the KB believe `handle`?  The justification graph reachable from `handle`,
+  as data:
 
-    {:handle h :sentence S :context C :believed? true :defeat-class :default
-     :premise? false
-     :support [{:justification jid :informant <rule handle or symbol>
-                :rule <the rule's sentence> :strength :monotonic :verdict :supports
-                :because [ <the same map, recursively, per antecedent> ]}]}
+    {:root h
+     :nodes {h  {:handle h :sentence S :context C :believed? true :defeat-class :default
+                 :premise? false
+                 :support [{:justification jid :informant <rule handle or symbol>
+                            :rule <the rule's sentence> :strength :monotonic
+                            :verdict :supports :because [h1 h2 …]}]}
+             h1 {…} h2 {…} …}}
 
-  Recursion terminates at **premises**, which are marked `:premise? true` (with the
-  assumption `:strength` they were asserted at) and carry no `:support` — a premise
-  rests on nothing, so there is nothing below it.
+  `:nodes` holds one node per reachable handle, and `:because` names antecedents by
+  handle, so a node two justifications share appears once and the result grows with the
+  reachable graph rather than with the number of paths through it.  A cycle in the
+  justification graph is a cycle in `:nodes`.  The walk is iterative and has no depth
+  bound.
+
+  A **premise** is `:premise? true`, with the `:strength` it was asserted at, and has no
+  `:support`.  A derived node's `:support` is its justifications in content order, and
+  `:because` is each justification's antecedents.  The rule handle is lifted out of the
+  antecedents into `:rule`, its variables in the author's names (`readable-sentence`).
 
   Each `:support` entry's `:verdict` is the reason the node's context reads on that
   justification (`justification-verdicts`): `:supports` for one that carries the node
   there, and a believed node can list one a guard defeat covers (`:guard`) or one its
   rule's exception blocks (`:blocked`) beside it.
 
-  Rule sentences are `originalize`d, so variables read as the author wrote them
-  (`?x`, not the canonical `?var0`).  The rule handle is lifted out of the
-  justification's antecedents into `:rule` rather than recurred into as if it were a
-  fact.
-
-  **Cycles are guarded**: the justification graph may contain them, and a handle
-  already on the current path is emitted as `{:cycle? true}` instead of being
-  expanded again.
-
-  A handle that is stored but not believed yields `{:believed? false}` — ask
-  `why-not` for the reason.  Belief is read as each node's **own context** reads it,
-  the reading `why-not` answers with: a sentex IN in the network and withdrawn where it
-  is stored (an `except`, or a scoped defeat at a vantage its context sees) is
-  `{:believed? false}` here too (docs/nmtms.md).  An unknown handle (nil included) yields
-  `{:stored? false}`.
-
-  **Depth is bounded** — at 256 by default, or at `opts`' `:max-depth` — and a branch
-  that reaches the bound is emitted as `{:truncated? true}` rather than expanded.
-  `:cycle?` guards a repeated handle, which is a different failure: a chain down a
-  long transitive closure repeats nothing and is bounded only by the size of the KB.
-  The walk is iterative — an explicit work stack, not JVM recursion — so the cap
-  bounds the *size of the proof tree returned* rather than the depth of the reader's
-  stack: nothing overflows, and a truncated tree is re-asked whole with a larger
-  `:max-depth`.  A nil or absent `:max-depth` is the default.  An `opts` key `why`
-  does not read is refused (`:unknown-option`), as is a non-map `opts` —
-  `check-assert-opts!`'s reasoning at this entry point."
-  ([kb handle] (why kb handle nil))
-  ([kb handle opts]
-   (check-why-opts! opts)
-   (why* kb (the-handle handle "why") (or (:max-depth opts) why-max-depth))))
+  Belief is read at each node's **own context**, the reading `why-not` answers with.  A
+  stored node that is not believed there (an `except`, or a scoped defeat at a vantage its
+  context sees) is a leaf `{:believed? false}`; ask `why-not` for the reason
+  (docs/nmtms.md).  An unknown handle (nil included) is a node `{:stored? false}`."
+  [kb handle]
+  (let [root   (the-handle handle "why")
+        reader (exc/verdict-reader kb)]
+    (loop [work [root] nodes {}]
+      (if (empty? work)
+        {:root root :nodes nodes}
+        (let [h (peek work), work (pop work)]
+          (if (contains? nodes h)
+            (recur work nodes)
+            (let [node (why-node kb reader h)]
+              (recur (into work (mapcat :because) (:support node))
+                     (assoc nodes h node)))))))))
 
 (defn- contradicted-by-entries
   "`why-not`'s `:contradicted-by` entries for the sentex maps `sxs`, in content order.
@@ -7240,8 +7457,9 @@
                                       :defeat d}))
                                  (exc/defeats-hiding kb handle (:context sx))))
       ;; held OUT by the labeller: a tuple whose length breaks its functor's, or a fact
-      ;; whose argument fails its declared type (docs/nmtms.md)
-      (jtms/forced? (reasoning/tms kb) :out handle)
+      ;; whose argument fails its declared type (docs/nmtms.md); or a rule held unbelieved
+      ;; by an open application its context respells nowhere (docs/nat.md)
+      (let [tms (reasoning/tms kb)] (or (jtms/forced? tms :out handle) (jtms/forced? tms :held handle)))
       (let [b (clashes/inert-binding kb sx)
             v (checks/held-conviction kb sx)]
         (cond-> (assoc base :believed? false :reason :inert)
@@ -7326,13 +7544,14 @@
 
 (defn- antecedent-status
   "A rule's antecedents, under the bindings the goal forces on its consequent, split into
-  the ones the KB can satisfy and the ones it cannot.
+  a set the KB satisfies **jointly** and the rest.
 
-  Each is asked **on its own**, through the prover registry (`ask`, so no rule expands and
-  this cannot recurse into the search that produced the node).  That is a relaxation and is
-  meant as one: the question a reader has is *which antecedent have I not said*, and a
-  satisfied set that does not necessarily join is a better answer to it than silence.  The
-  join is what `query` is for, and `:bindings` is what to run it with.
+  The antecedents are taken in the rule's canonical order, and each is joined onto the
+  ones satisfied before it with `query` and no depth, so no rule expands and this cannot
+  recurse into the search that produced the node.  One that joins goes to `:satisfied`,
+  one that does not to `:missing`.  So the satisfied set holds under one binding of the
+  variables the goal leaves open, and `:missing` is empty only when the whole body joins.
+  The set is maximal, not maximum: adding any missing antecedent breaks the join.
 
   An antecedent the registry **refuses** — a shape it will not take a goal in — counts as
   missing rather than throwing: this is the entry point a reader reaches for when something has
@@ -7343,14 +7562,16 @@
   wrote should not have to translate it first (`readable-sentence` does the same for the
   rule's sentence)."
   [kb antecedents b0 context varmap]
-  (reduce (fn [acc a]
-            (let [g    (sx/canon (res/substitute a b0))
-                  ok   (try (boolean (seq (ask kb g context)))
-                            (catch clojure.lang.ExceptionInfo _ false))
-                  show (cond-> g varmap (sx/originalize varmap))]
-              (update acc (if ok :satisfied :missing) conj show)))
-          {:satisfied [] :missing []}
-          antecedents))
+  (-> (reduce (fn [acc a]
+                (let [g    (sx/canon (res/substitute a b0))
+                      ok   (try (boolean (seq (query kb (conj (:joined acc) g) context)))
+                                (catch clojure.lang.ExceptionInfo _ false))
+                      show (cond-> g varmap (sx/originalize varmap))]
+                  (cond-> (update acc (if ok :satisfied :missing) conj show)
+                    ok (update :joined conj g))))
+              {:satisfied [] :missing [] :joined []}
+              antecedents)
+      (dissoc :joined)))
 
 (defn- nearest-misses
   "The `n` rules that came closest to concluding `sentence` in `context`, read off a bounded
@@ -7483,7 +7704,8 @@
   The fourth arity `(why-not kb sentence context {:nearest n})` runs a **bounded backward
   search** and reports, under `:nearest`, the n rules that came closest — each as
   `{:rule :rule-sentence :satisfied :missing :bindings}`, ranked by how many antecedents
-  are satisfied and tied on content.  `:missing` is the list to read: it is the antecedent
+  are satisfied and tied on content.  `:satisfied` holds under one binding of the variables
+  the goal leaves open, so `:missing` is empty only when the whole body joins.  `:missing` is the list to read: it is the antecedent
   the KB has not been told.
 
   It costs a search, which is why it is **off by default**: `why-not` is called in a loop
@@ -7615,7 +7837,7 @@
   `:reason` as `why-not`'s, and the standing dilemmas subtracted from `:contradictions`.
   A `:refused` line is skipped and the rest of the batch previewed.
 
-  `opts` takes `:max-depth` and `:max-derivations` (chaining) and `:max-results` (a
+  `opts` takes `:max-depth`, `:max-term-depth` and `:max-derivations` (chaining) and `:max-results` (a
   positive integer capping each half); `:bounded?` is true when one of them cut the
   answer.  `:release-withheld?` true runs the withheld-mint release sweep in the preview's
   settle (`:release-path :swept`); by default the settle keeps the releases owed
@@ -7632,7 +7854,8 @@
    ;; a batch `edit` refuses outright is refused here too
    (check-writable! kb "preview")
    (check-edit-batch! batch)
-   (check-bound-opts! opts #{:max-depth :max-derivations :max-results :release-withheld?} "preview")
+   (check-bound-opts! opts #{:max-depth :max-term-depth :max-derivations :max-results
+                             :release-withheld?} "preview")
    (when-some [n (:max-results opts)] (check-limit! n "preview :max-results"))
    (let [tms        (reasoning/tms kb)
          refused    (check-edit kb batch)
@@ -7641,18 +7864,17 @@
          baseline   (batch-baseline kb)
          filed      (:filed baseline)
          audit      (atom {})
+         mark       (volatile! nil)
          touched    (atom #{})
          suspended  (atom [])
          thrown     (atom [])
          truncated? (atom false)
-         chain-opts (select-keys opts [:max-depth :max-derivations])
+         chain-opts (select-keys opts [:max-depth :max-term-depth :max-derivations])
          limit      (:max-results opts)
          sweep?     (boolean (:release-withheld? opts))
          ;; a replayed preview reproduces the handles it allocated; its answer went to the
          ;; caller that logged it
          report?    (not oplog/*replaying?*)
-         ;; the owed releases and the first-settle mark, which the rollback restores
-         queues     (select-keys @(reasoning/mint-queues kb) [:owed :defer-next])
          result     (atom nil)]
      (when sweep? (swap! (reasoning/mint-queues kb) dissoc :defer-next))
      (try
@@ -7667,6 +7889,7 @@
                        #'viol/*batch-entries* filed
                        #'special/*release-withheld?* sweep?}
          (binding [entry/*premise-audit* audit
+                   entry/*write-mark*    mark
                    *defer-settle?* true]
            (doseq [[i entry] (map-indexed vector (:add batch))
                    :when (not (bad-add i))
@@ -7683,10 +7906,9 @@
                    :when (and (not (bad-remove i)) (jtms/premise? tms h))]
              (swap! suspended conj [h (jtms/premise-strength tms h)])
              (jtms/suspend-premise tms h)
-             ;; a real removal queues the exception re-check at the removal choke
-             ;; point; a suspension queues it here
-             (when-let [sx (p/get-sentex (:records kb) h)]
-               (special/recheck-on-sentence kb (sx/sentence-of sx)))))
+             ;; a real removal queues the re-checks at the removal entry point; a
+             ;; suspension queues them here
+             (recheck-suspended kb h)))
          ;; no re-chain seeds: a suspension removes no sentex, and the conclusion a
          ;; suspended edge licensed goes OUT, which `:believed-removed` reports
          (settle-after-teardown! kb (settle/rechain-owed kb @(reasoning/recheck kb)) nil)
@@ -7707,13 +7929,14 @@
                                                                (into (keys @audit))
                                                                (into (map first) @suspended)))
                       :bounded?         @truncated?
-                      :owed-releases    (- (special/owed-releases kb) (count (:owed queues)))
+                      :owed-releases    (- (special/owed-releases kb)
+                                           (count (:owed (:queues baseline))))
                       :release-path     (if sweep? :swept :deferred)}))))
        (finally
          (binding [settle/*relabelled-before?* true
                    special/*release-withheld?* false]
-           (rollback-batch! kb (assoc baseline :audit audit :suspended @suspended)))
-         (swap! (reasoning/mint-queues kb) #(merge (dissoc % :owed :defer-next) queues))))
+           (rollback-batch! kb (assoc baseline :audit audit :suspended @suspended
+                                      :mark mark)))))
      ;; belief before, read on the restored KB (docs/preview.md, "Cost")
      (when report?
        (let [believed-before? #(res/believed-at? kb (:handle %) (:context %))
@@ -7757,19 +7980,20 @@
   in.
 
   The removed half omits what the dependency-directed sweep deleted, which has no record
-  left to describe; `preview` names it.  `opts` is `{:max-results n}`, capping each half
-  as `preview`'s does; an unknown key and a cap that is not a positive integer are refused
-  (`:unknown-option`).  docs/preview.md, \"The other direction\"."
+  left to describe; `preview` names it.  `opts` takes `:max-results n`, capping each half
+  as `preview`'s does, and `edit!`'s `edit-opt-keys`; an unknown key and a cap that is not
+  a positive integer are refused (`:unknown-option`).  docs/preview.md, \"The other
+  direction\"."
   ([kb batch] (edit-with-consequences! kb batch nil))
   ([kb batch opts]
-   (check-bound-opts! opts #{:max-results} "edit-with-consequences")
+   (check-bound-opts! opts (conj edit-opt-keys :max-results) "edit-with-consequences")
    (when-some [n (:max-results opts)]
      (check-limit! n "edit-with-consequences :max-results"))
    (let [touched (atom #{})
          was-in  (atom #{})
          result  (binding [settle/*touched-sink*    touched
                            settle/*touched-in-sink* was-in]
-                   (edit! kb batch))
+                   (edit! kb batch (not-empty (dissoc opts :max-results))))
          limit   (:max-results opts)
          cap     (fn [xs] (cond->> xs (pos-int? limit) (take limit)))
          [added removed] (moved-handles kb @touched @was-in)]
@@ -8132,7 +8356,9 @@
                    `:forward-only` / `:inert` / `:both`, written into its record.
 
   Every justification resting on a deleted record, and every firing of a rule the batch
-  takes off `:forward`, is deleted.  Derived records left without support are not:
+  takes off `:forward`, is deleted, except a rule firing resting on a deleted `genl` or
+  `genlCx` edge, which `settle-record-edits!` reads and deletes.  Derived records left
+  without support are not:
   `:seeds` in the answer names where the settle sweeps from.  A removal naming no stored
   record counts under `:absent`, so the same batch run again after a crash completes it.
 
@@ -8143,37 +8369,87 @@
   all before anything is written.  docs/storage.md, \"Editing the records of a KB without
   belief\"."
   [kb batch]
-  (let [h #(the-handle % "edit-records!")]
-    (record-edit/apply! kb (cond-> batch
-                             (contains? batch :remove)
-                             (update :remove #(into [] (keep h) %))
-                             (contains? batch :direction)
-                             (update :direction #(into {} (map (fn [[k d]] [(h k) d])) %))))))
+  (let [h   #(the-handle % "edit-records!")
+        res (record-edit/apply! kb (cond-> batch
+                                     (contains? batch :remove)
+                                     (update :remove #(into [] (map h) %))
+                                     (contains? batch :direction)
+                                     (update :direction #(into {} (map (fn [[k d]] [(h k) d])) %))))]
+    ;; a removed membership or edge may have withheld a general mint anywhere, so the
+    ;; argument-type pass is owed from the start (`arg-types-owed`)
+    (when (some #(pos? (long (get res % 0))) [:removed :unpremised :redirected :justifications-removed])
+      (argpass/owe-all! kb))
+    res))
 
 (defn settle-record-edits!
   "Settle what `edit-records!` batches left: build belief over the edited records
   (`reindex` when the index was never built, else `recover` when belief was not), delete
   the stored justifications the rebuild found resting on a record the store does not hold,
   sweep the consequence closure of their conclusions and of `:seeds` as a retraction
-  sweeps it, and chain each forward rule among `:seeds` over the stored facts.  Then, unless
-  `:arg-types? false`, `record-arg-types` draws the argument-type mints a removal
-  released: a general mint a removed membership or `genl` edge had withheld.
+  sweeps it, chain each forward rule among `:seeds` over the stored facts, and re-chain
+  the antecedents of the deleted rule firings, which a second route may still license.
+  Then, unless `:arg-types? false`, `record-arg-types` draws the argument-type mints a
+  removal released: a general mint a removed membership or `genl` edge had withheld.
 
-  `opts`: `:seeds`, the union of the batches' `:seeds`; `:arg-types?`, default true.  The
-  believed sentences are then those the same removals and direction changes through
-  `edit!` leave, modulo handles.  Returns `{:rebuilt :reindex|:recover|nil :unrooted n
-  :removed-sentexes n :removed-justifications n :rules-chained n :arg-types {…}}`.
+  `opts`: `:seeds`, the union of the batches' `:seeds`; `:arg-types?`, default true;
+  `:on-progress`, called with `{:phase :done :total}` as each step begins, in units fixed
+  before the phase starts:
+
+    `:reindex`   0 of 1, then the recover's steps;
+    `:recover`   the recover's steps (`:step`, `:label`), of 7, and while a step runs,
+                 `:sub`, `{:id :label :done :total}` of the loop it is in (`:id` its
+                 progress-line keyword), once a second;
+    `:sweep`     its steps (`:step` `:unrooted`, `:sweep`, `:settle`, `:chain`,
+                 `:rechain`, `:settle-chain`), of 6, the chain's `:derived` and
+                 `:pending` beside;
+    `:arg-types` 0 of 1, under `:arg-types? true`.
+
+  A throw from `:on-progress` lands at the next phase boundary and is rethrown there; the
+  KB is then settled as far as the phases before it, and a second call finishes.
+
+  Under `:arg-types? false` the KB is settled and on disk when this returns, and the pass
+  is owed (`arg-types-owed`) whenever an edit or this sweep removed anything:
+  `record-arg-types!` then runs it.  The believed sentences are then those the same
+  removals and direction changes through `edit!` leave, modulo handles.  Returns
+  `{:rebuilt :reindex|:recover|nil :unrooted n :removed-sentexes n :removed-justifications n
+  :rules-chained n :rechained n :arg-types {…}}`, or `:arg-types-owed? bool` in place of `:arg-types`.
   docs/storage.md, \"Editing the records of a KB without belief\"."
   ([kb] (settle-record-edits! kb nil))
   ([kb opts]
-   (opts/check! opts #{:seeds :arg-types?} "settle-record-edits!"
+   (opts/check! opts #{:seeds :arg-types? :on-progress} "settle-record-edits!"
                 "A key nothing reads would leave its sweep or its mints undone.")
-   (let [hz      (kb/write-hazards kb)
-         rebuilt (cond (:no-index hz)                           (do (reindex kb) :reindex)
-                       (or (:no-belief hz) (:stale-belief hz)) (do (recover kb) :recover))
-         swept   (record-edit/sweep! kb (keep #(the-handle % "settle-record-edits!") (:seeds opts)))]
-     (cond-> (assoc swept :rebuilt rebuilt)
-       (get opts :arg-types? true) (assoc :arg-types (record-arg-types kb))))))
+   (opts/check-values! opts "settle-record-edits!")
+   (let [on-progress (:on-progress opts)
+         cancel      (volatile! nil)
+         report!     (fn [m]
+                       (when (and on-progress (nil? @cancel))
+                         (try (on-progress m) (catch Throwable t (vreset! cancel t)))))
+         boundary!   (fn [] (when-let [t @cancel] (throw t)))
+         hz          (kb/write-hazards kb)
+         rebuilt     (binding [recovery/*on-recover-step*
+                               (when on-progress #(report! (assoc % :phase :recover)))]
+                       (cond (:no-index hz)
+                             (do (report! {:phase :reindex :done 0 :total 1}) (reindex kb) :reindex)
+                             (or (:no-belief hz) (:stale-belief hz))
+                             (do (recover kb) :recover)))
+         _           (boundary!)
+         seeds       (keep #(the-handle % "settle-record-edits!") (:seeds opts))
+         swept       (record-edit/sweep! kb seeds (when on-progress report!))
+         _           (boundary!)
+         arg-types?  (get opts :arg-types? true)
+         res         (cond-> (assoc swept :rebuilt rebuilt)
+                       arg-types?
+                       (assoc :arg-types (do (report! {:phase :arg-types :done 0 :total 1})
+                                             (record-arg-types kb))))]
+     (if arg-types?
+       res
+       (do (when (and (nil? (argpass/read-owed kb))
+                      (or (seq seeds)
+                          (some #(pos? (long (get swept % 0)))
+                                [:unrooted :removed-sentexes :removed-justifications])))
+             (argpass/owe-all! kb))
+           (dur/fsync-registered!)
+           (assoc res :arg-types-owed? (some? (argpass/read-owed kb))))))))
 
 (defn write-hazards
   "What makes a write into `kb` wrong, as a map of the hazards that hold:
@@ -8266,10 +8542,10 @@
                                          (cap/some-justification-id rs))))))))
 
 (defn clear!
-  "Wipe the KB's durable stores — every record and every index entry — the
-  backend-agnostic counterpart to `recover`: `recover` rebuilds the in-memory JTMS /
-  taxonomy *from* the stores, this empties the stores.  `!` because it destroys stored
-  knowledge irreversibly.
+  "Wipe the KB's durable stores — every record and every index entry, and the
+  argument-type pass's owed record — the backend-agnostic counterpart to `recover`:
+  `recover` rebuilds the in-memory JTMS / taxonomy *from* the stores, this empties the
+  stores.  `!` because it destroys stored knowledge irreversibly.
 
   It does **not** reset the in-memory JTMS / taxonomy, so call it on a freshly-opened
   KB (an empty in-memory state) or immediately before reloading content — the form a
@@ -8301,6 +8577,9 @@
   ;; entries are handles, the wipe resets the handle counter, and a reload would hand
   ;; handle 42 to a new sentex an old entry still names.
   (some-> (reasoning/mint-queues kb) (reset! {}))
+  ;; ...and the argument-type pass's owed record, a file beside the stores that names a
+  ;; position among the deleted records and a mark the reset counter falls below
+  (argpass/clear-owed! kb)
   ;; ...and back to undetermined, not to "recovered".  This is the reset-and-reload
   ;; shape's own call, and what follows it may be an `import-dump` that lands records
   ;; and skips the recover — so the write-side question has to be re-asked over what
@@ -8401,9 +8680,10 @@
   inverse of `export!`, which is the only reason this is here: a round trip whose two
   halves are not both public is not a round trip.
 
-  `opts`: `{:belief? true|:stored|false :report-every n :on-progress f}`.  With
-  `:belief? true` (the default) the dump lands in the state a restart produces — records,
-  justifications and premise marks stored, index rebuilt, belief recovered.  With
+  `opts`: `{:belief? true|:stored|false :report-every n :on-progress f :drop-principal?
+  bool}`.  With `:belief? true` (the default) the dump lands in the state a restart
+  produces — records, justifications and premise marks stored, index rebuilt, belief
+  recovered.  With
   `:belief? false` every sentex is stored and indexed but no justification stream is read
   and nothing is recovered: browsable, findable and countable, but not belief-queryable.
   That is the path for a corpus past what an in-RAM JTMS scales to.
@@ -8428,6 +8708,10 @@
   decodes are refused mid-stream, and the import empties the store before it throws.  A
   callback that throws, a torn stream or a store failure leaves `kb` holding what had
   already landed.
+
+  Provenance lands as the dump wrote it.  `:drop-principal? true` drops each map's
+  `:principal`, the key a daemon records from its token table
+  ([docs/operations.md](docs/operations.md#the-token-table)); `koinii.deref/pull!` passes it.
 
   Two counts in the summary are disagreements between the dump and this build, and
   neither stops the load: `:naming` is what got stored under a name `assert` would
@@ -8776,7 +9060,7 @@
          (ask kb goal context))))
 
 (defn- argue-justification
-  "The full `why` map for `sentence` in `context` when it is stored and believed, else nil."
+  "The `why` graph for `sentence` in `context` when it is stored and believed, else nil."
   [kb sentence context]
   (when-let [h (handle-of kb sentence context)]
     (when (in? kb h)
@@ -8813,7 +9097,8 @@
 (defn- argue-defeat-class
   "The JTMS defeat-class (`:monotonic` / `:default`) of `sentence` in `context`, or nil."
   [kb sentence context]
-  (:defeat-class (argue-justification kb sentence context)))
+  (let [w (argue-justification kb sentence context)]
+    (get-in w [:nodes (:root w) :defeat-class])))
 
 (defn- argue-resolve-contradiction
   "Argumentation stub for the both-provable case: a `:monotonic` justification beats a
@@ -8837,16 +9122,16 @@
       {:verdict     :true | :false | :unknown | :contradiction
        :for         <results for asent, when provable>
        :against     <results for (not asent), when provable>
-       :for-why     <JTMS justification for asent, when stored and believed>
-       :against-why <JTMS justification for (not asent), when stored and believed>
+       :for-why     <`why`'s graph for asent, when stored and believed>
+       :against-why <`why`'s graph for (not asent), when stored and believed>
        :for-derivation     <the search's proof tree, when a rule answered instead>
        :against-derivation <the same, for (not asent)>}
 
-  **Two kinds of explanation, under two keys.**  `:for-why` is `why`'s JTMS map and
+  **Two kinds of explanation, under two keys.**  `:for-why` is `why`'s JTMS graph and
   explains a *stored* belief; `:for-derivation` is `query`'s `{:proof? true}` tree and
   explains an *ephemeral* one, which is the only explanation a side a rule derived has.
-  They read differently — `:goal` / `:via` / `:because` against `:sentence` /
-  `:informant` / `:support` — and a side carries at most one of them, so a caller reads
+  They read differently — `:goal` / `:via` / `:because` against `:root` / `:nodes` —
+  and a side carries at most one of them, so a caller reads
   whichever key is there rather than discriminating inside a single key.  A derivation
   needs a positive depth and a ground `asent`; `argue-derivation` says why.
 
@@ -8937,11 +9222,20 @@
               abduce/*token*                  (:token inputs)]
       (thunk))))
 
+(defn- unbounded-args
+  "`args` with the caller's bound (`:max-ms`, `:stop?`, `:progress-every-ms`) taken out of
+  every option map: a logged write completed, so its replay takes no clock."
+  [args]
+  (mapv #(if (map? %) (dissoc % :max-ms :stop? :progress-every-ms) %) args))
+
 (defn- logged
   "Write entry point `g`, routed through the operation log as `op` of `class` and counted
   as a write in flight (`dur/call-as-write`), which a shutdown waits for.  A KB with no log
-  retires its directory's seal (`seal/retire-unlogged!`) and calls `g` directly.  A write a shutdown stopped (`:shutdown-abort`) marks the log
-  unusable: its frame describes a write that did not complete as logged."
+  retires its directory's seal (`seal/retire-unlogged!`) and calls `g` directly.  A write
+  a shutdown or the caller's bound stopped (`:shutdown-abort`, `:interrupted`) marks the
+  log unusable: its frame describes a write that did not complete as logged.  The frame
+  holds `args` without the caller's bound (`unbounded-args`), so a replay runs the write
+  to its end."
   [op class g]
   (fn [kb & args]
     (dur/call-as-write
@@ -8951,11 +9245,12 @@
          (do (seal/retire-unlogged! kb)
              (apply g kb args))
          (try
-           (oplog/run-op kb op class (vec args) #(op-inputs op)
+           (oplog/run-op kb op class (unbounded-args args) #(op-inputs op)
                          (fn [inputs] (with-op-inputs inputs #(apply g kb args))))
            (catch clojure.lang.ExceptionInfo e
-             (when (and (= :shutdown-abort (:type (ex-data e))) (not oplog/*in-op?*))
-               (oplog/mark-unusable! (:oplog kb) [:shutdown-abort op]))
+             (when (and (#{:shutdown-abort :interrupted} (:type (ex-data e)))
+                        (not oplog/*in-op?*))
+               (oplog/mark-unusable! (:oplog kb) [(:type (ex-data e)) op]))
              (throw e))))))))
 
 (def ^:private write-ops
@@ -8978,6 +9273,7 @@
    :add-provenance           [:add-provenance :replay]
    :forward-chain            [:forward-chain :replay]
    :record-arg-types         [:record-arg-types :replay]
+   :record-arg-types!        [:record-arg-types-resumable :seal]
    :release-withheld!        [:release-withheld :replay]
    :register-modal-predicate [:register-modal-predicate :replay]
    :retract!                 [:retract :replay]
@@ -9073,7 +9369,7 @@
     :justification-verdicts
     :kb-integrity :kb-quality :last-program :lookup :max-common-specs :max-context-children
     :max-specs :metatype-members :min-common-genls :min-context-parents :min-genls
-    :owed-releases :covers-of :separating-covers
+    :owed-releases :arg-types-owed :covers-of :separating-covers
     :possible-relations
     :premise? :props :provable? :prove :prove-within :provenance
     :qualitative-network :qualitative-scenario :qualitative-scenarios :query

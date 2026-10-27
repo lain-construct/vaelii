@@ -6,10 +6,11 @@
   An argument constraint convicts a sentence when the argument's types have no path to
   the declared one, and `mintable-type?` declines a mint whose type an arity statement
   binds to another length.  Both read the KB as it stands, so each needs a way back for the order
-  where the missing edge or membership arrives later: a dropped rule conclusion and a
-  declined decontextualized copy are remembered and re-asked by `settle` (docs/exceptions.md,
-  \"A refused firing is remembered as bindings\"), and an unminted declaration is read again
-  when its type's own bindings move (`special/mints-on-lengths`).  And a
+  where the missing edge or membership arrives later: a convicted rule conclusion is stored
+  and held by the argument hold (docs/argtypes.md), a declined decontextualized copy is
+  remembered and re-asked by `settle` (docs/exceptions.md, \"A refused firing is remembered
+  as bindings\"), and an unminted declaration is read again when its type's own bindings
+  move (`special/mints-on-lengths`).  And a
   `forced_decontextualized_predicate` declaration moves the extent stored before it.
 
   Each test runs the same sentences in both orders on a fresh KB and compares what the
@@ -26,6 +27,7 @@
             [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.order-independence-test :as oi]
             [vaelii.test-util :as tu]))
 
 (defn- held
@@ -79,9 +81,9 @@
 (tu/deftest-kb a-conclusion-convicted-by-a-missing-edge-is-placed-once-the-edge-arrives
   ;; `(arg ownsPet 2 animal)` is written in CxTheory, above the rule's context, so there
   ;; it constrains without entailing.  Rex is a `poodleKind`, and until the edge
-  ;; `(genl poodleKind animal)` arrives nothing reaches `animal` from there: the firing
-  ;; is dropped.  Arriving first, the same edge lets it through — so a KB that drops it
-  ;; for good believes less in one order than the other.
+  ;; `(genl poodleKind animal)` arrives nothing reaches `animal` from there.  Arriving
+  ;; first, the same edge lets the firing through, so a KB that holds it OUT for good
+  ;; believes less in one order than the other.
   (tu/with-terms [animal poodleKind petOf ownsPet Rex Ann CxTheory CxWorld]
     (let [readings (in-both-orders
                     (fn [kb]
@@ -161,6 +163,33 @@
           (is (= [false false] (mapv :minted readings)) (str decl))
           (is (apply = readings) (str decl " stores the same in both orders")))))))
 
+(tu/deftest-kb a-type-with-two-in-lengths-mints-in-no-order
+  ;; `(unary_predicate t)` and `(binary_predicate t)` both `:default` stay IN as one
+  ;; `contradicts`.  A type mints only when every IN length admits length one, so no
+  ;; order of the two bindings, the declaration and the fact stores the mint, before or
+  ;; after `recover`.
+  (tu/with-entailing
+    (tu/with-terms [t rel Rex Mary widgetKind CxWorld]
+      (doseq [[decl fact minted] [[(list 'arg rel 1 t) (list rel Rex Mary) (list t Rex)]
+                                  [(list 'genlArg rel 2 t) (list rel Rex widgetKind) (list 'genl widgetKind t)]
+                                  [(list 'argArg rel 1 2) (list rel Rex t) (list t Rex)]]]
+        (let [steps    {:unary  #(v/assert % (list 'unary_predicate t) 'CxUniverse)
+                        :binary #(v/assert % (list 'binary_predicate t) 'CxUniverse)
+                        :decl   #(v/assert % decl CxWorld)
+                        :fact   #(v/assert % fact CxWorld)}
+              stored?  #(some? (v/handle-of % minted CxWorld))
+              readings (for [order (oi/permutations [:unary :binary :decl :fact])]
+                         (tu/with-neutral-kb [kb tu/fresh]
+                           (a-context kb CxWorld 'CxUniverse)
+                           (a-type kb t CxWorld)
+                           (a-type kb widgetKind CxWorld)
+                           (doseq [s order] ((steps s) kb))
+                           (let [written (stored? kb)]
+                             (v/recover kb)
+                             [order written (stored? kb)])))]
+          (is (= [] (into [] (filter #(or (second %) (last %))) readings))
+              (str decl ": the orders storing " minted ", as [order written recovered]")))))))
+
 ;; ---- the rebuild after recover ---------------------------------------------------
 
 (tu/deftest-kb a-rebuild-asks-each-stating-context-once-whether-it-sees-the-universe
@@ -235,44 +264,36 @@
                            (update acc kind (fnil conj #{}) k)
                            acc))
                        acc
-                       [:constraint :lift]))
+                       [:lift]))
              {}
              (dissoc m :kinds)))))
 
 (tu/deftest-kb the-kind-index-names-the-handles-a-walk-of-the-record-finds
-  ;; A settle pass reads the constraint and lift entries off the kind index alone, so an
-  ;; entry of a kind under a handle the index does not name is never re-asked.  Each
-  ;; step records or orphans one entry, and the index is compared with a walk of the
-  ;; whole record after it.
-  (tu/with-entailing
-    (tu/with-terms [animal poodleKind petOf ownsPet Rex Ann CxTheory CxWorld]
-      (tu/with-neutral-kb [kb tu/fresh]
-        (let [seen (volatile! [])
-              step (fn [label]
-                     (vswap! seen conj [label (:kinds @(reasoning/refused kb))
-                                        (= (kinds-by-walk kb) (:kinds @(reasoning/refused kb)))]))
-              rule (list 'set/forwardRule
-                         (list 'implies (list petOf '?x '?y) (list ownsPet '?y '?x)))]
-          (a-context kb CxTheory 'CxUniverse)
-          (a-context kb CxWorld CxTheory)
-          (a-type kb animal CxTheory)
-          (a-type kb poodleKind CxTheory)
-          (v/assert kb (list 'disjoint poodleKind animal) CxTheory)
-          (v/assert kb (list 'arg ownsPet 2 animal) CxTheory)
-          ;; the conviction under the constraint-only reading, the one that convicts a
-          ;; symbol
-          (let [rh (tu/without-entailing
-                    (let [rh (v/assert kb rule CxWorld)]
-                      (v/assert kb (list poodleKind Rex) CxWorld)
-                      (v/assert kb (list petOf Rex Ann) CxWorld)
-                      (step :conviction-recorded)
-                      rh))]
-            (v/retract! kb rh)
-            (step :rule-retracted))
-          (let [[[_ k1] [_ k2]] @seen]
-            (is (every? last @seen) (str "the kind index and the walk differ: " (pr-str @seen)))
-            (is (= [#{:constraint} nil] [(set (keys k1)) k2])
-                "each step moved the kind it names")))))))
+  ;; A settle pass reads the lift entries off the kind index alone, so an entry under a
+  ;; handle the index does not name is never re-asked.  Each step records or retires one
+  ;; entry, and the index is compared with a walk of the whole record after it.  An
+  ;; entry whose source fact left is retired when a pass re-asks it, which a `genl` edge
+  ;; moving the generations owes.
+  (tu/with-terms [lanimal other lifted L CxOut]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (let [seen (volatile! [])
+            step (fn [label]
+                   (vswap! seen conj [label (:kinds @(reasoning/refused kb))
+                                      (= (kinds-by-walk kb) (:kinds @(reasoning/refused kb)))]))]
+        ;; a fact in a context outside the topology whose lift into CxUniverse the
+        ;; argument constraint convicts, 5 being a number
+        (a-type kb lanimal 'CxUniverse)
+        (v/assert kb (list 'arg lifted 2 lanimal) 'CxUniverse)
+        (v/assert kb (list 'decontextualized_predicate lifted) CxOut)
+        (v/assert kb (list lifted L 5) CxOut)
+        (step :lift-recorded)
+        (v/retract! kb (v/handle-of kb (list lifted L 5) CxOut))
+        (a-type kb other 'CxUniverse)
+        (step :fact-retracted)
+        (let [[[_ k1] [_ k2]] @seen]
+          (is (every? last @seen) (str "the kind index and the walk differ: " (pr-str @seen)))
+          (is (= [#{:lift} nil] [(set (keys k1)) k2])
+              "each step moved the kind it names"))))))
 
 ;; ---- the whole shipped ontology -----------------------------------------------
 

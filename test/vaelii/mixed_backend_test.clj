@@ -101,8 +101,8 @@
    :terms     (set (map :sentence (v/find-sentexes kb 'Muffet)))
    :count     (v/sentex-count kb)
    :ask       (set (map #(dissoc % :handle) (v/ask kb '(animal ?x) 'CxMixed)))
-   :why-rule  (-> (v/why kb (v/handle-of kb '(mammal Muffet) 'CxMixed))
-                  :support first :rule)})
+   :why-rule  (let [w (v/why kb (v/handle-of kb '(mammal Muffet) 'CxMixed))]
+                (-> w :nodes (get (:root w)) :support first :rule))})
 
 ;; ---- the axis split -------------------------------------------------------
 

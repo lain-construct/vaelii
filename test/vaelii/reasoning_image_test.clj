@@ -58,9 +58,10 @@
 
 (defn- manifest-text [dir] (let [f (manifest dir)] (when (.exists f) (slurp f))))
 
-(def ^:private opened
-  "KB → whether its open installed an image, recorded by `open`."
-  (atom {}))
+(def ^:private ^java.util.Map opened
+  "KB → whether its open installed an image, recorded by `open`.  Weak-keyed, so the map
+  holds no KB a test has finished with."
+  (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))
 
 (defn- open
   "Open `dir` as a `:disk-snapshot` KB and record whether the open installed an image.  An
@@ -72,10 +73,10 @@
    (let [before (manifest-text dir)
          kb     (v/open-kb (cond-> {:backend :disk-snapshot :dir dir}
                              recover? (assoc :recover? recover?)))]
-     (swap! opened assoc kb (and (some? before) (= before (manifest-text dir))))
+     (.put opened kb (and (some? before) (= before (manifest-text dir))))
      kb)))
 
-(defn- installed? [kb] (get @opened kb))
+(defn- installed? [kb] (.get opened kb))
 
 (defn- content!
   "A taxonomy edge, a forward rule that fires through it, a monotonic and a defeasible

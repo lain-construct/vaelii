@@ -15,11 +15,14 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide :as decide]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.decide.membership :as membership]
             [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.reads :as reads]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -105,11 +108,11 @@
           (is (empty? (place! kb [w l] [g])))
           (is (= before (v/sentex-count kb)))
           (is (= 1 (count (v/sentexes-with-functor kb 'contradicts))))
-          (is (= 1 (count (:support (v/why kb (:id (sole (v/sentexes-with-functor kb 'contradicts))))))))))
+          (is (= 1 (count (:support (tu/why-root kb (:id (sole (v/sentexes-with-functor kb 'contradicts))))))))))
       (testing "why names the members, the ground and the genlCx edges CxD sees them over"
         (let [d     (:id (sole (v/sentexes-with-functor kb 'defeat)))
-              antes (into #{} (comp (mapcat :because) (map :handle)) (:support (v/why kb d)))]
-          (is (= [chain/nogood-informant] (mapv :informant (:support (v/why kb d)))))
+              antes (into #{} (comp (mapcat :because) (map :handle)) (:support (tu/why-root kb d)))]
+          (is (= [chain/nogood-informant] (mapv :informant (:support (tu/why-root kb d)))))
           (is (= #{l w g} (into #{} (remove #(= 'genlCx (first (:sentence (v/sentex kb %))))) antes)))
           (is (every? (into #{} (comp (map #(:sentence (v/sentex kb %))) (filter #(= 'genlCx (first %))))
                             antes)
@@ -295,7 +298,7 @@
     (is (= [false false false] (exemption-row :l)))))
 
 (tu/deftest-kb a-defeat-hides-at-read-time-and-sweeps-nothing
-  ;; design.md section A under the ruling: the rule in CxA places M there, the rule in CxD
+  ;; The rule in CxA places M there, the rule in CxD
   ;; places P at CxD, and both stay IN in the network
   (tu/with-terms [cat dog Rex excludesType meows purrs CxA CxD]
     (v/assert kb (list 'set/forwardRule (list 'implies (list cat '?x) (list meows '?x))) CxA)
@@ -320,7 +323,7 @@
           (is (v/ask? kb (list purrs Rex) CxD)))))))
 
 (tu/deftest-kb an-except-reaching-a-member-re-reads-the-class-at-that-reader
-  ;; design.md section C:
+  ;; The context shape:
   ;;   CxD   W = (dog Rex) :monotonic through X, :default through Y; L = (cat Rex) :default
   ;;    └─ CxR  (except X)
   (tu/with-terms [cat dog Rex excludesType pX pY purrs CxD CxR]
@@ -604,7 +607,7 @@
 
   With `wctx` `:d` every CxA line is stated in CxD.  At CxD, D hides L, so the firing
   F = (rr Rex) is placed at CxD.  At CxR the except leaves W :default, the nogood is a
-  dilemma there, L is believed, and the guard holds (design ruling 23).  An except of the
+  dilemma there, L is believed, and the guard holds.  An except of the
   disjointness hides D's ground at CxR, with the same reading."
   [arm wctx target ops]
   (tu/with-neutral-kb [kb tu/fresh]
@@ -754,8 +757,8 @@
           (:ex hs) (assoc :r (at CxR) :s (at CxS)))))))
 
 (tu/deftest-kb a-defeat-dependency-cycle-is-broken-in-content-order
-  ;; Each defeat rests, through a rule-derived :default type edge, on the other's loser
-  ;; (design.md ruling 18).  The defeat whose loser is first in content order is in force:
+  ;; Each defeat rests, through a rule-derived :default type edge, on the other's loser.
+  ;; The defeat whose loser is first in content order is in force:
   ;; its loser and the edge resting on it are hidden, and the other loser is believed.
   (let [readings (into #{} (map breed-cycle) (permutations [:l1 :l2 :r1 :r2]))
         {:keys [first]} (clojure.core/first readings)
@@ -769,18 +772,18 @@
 (defn- excepted-cycle-readings
   "The except at CxR hides the first defeat's ground there, so that defeat is out of force
   at CxR for a reason outside the cycle, while the second defeat's ground and verdict
-  stand: CxR reads the second in force.  CxA and CxS see no except and read ruling 18's
-  answer."
+  stand: CxR reads the second in force.  CxA and CxS see no except and read the
+  content-order answer."
   [orders]
   (let [readings (into #{} (map breed-cycle) orders)
         {:keys [first]} (clojure.core/first readings)
-        ruling   (if (= :l1 first)
+        expected (if (= :l1 first)
                    {:alone [false true true false] :l1-l2 [true false] :l2-l1 [true false]}
                    {:alone [true false false true] :l1-l2 [false true] :l2-l1 [false true]})
         excepted (if (= :l1 first)
                    {:alone [true false false true] :l1-l2 [false true] :l2-l1 [false true]}
                    {:alone [false true true false] :l1-l2 [true false] :l2-l1 [true false]})]
-    (is (= #{(assoc ruling :first first :r excepted :s ruling)} readings))))
+    (is (= #{(assoc expected :first first :r excepted :s expected)} readings))))
 
 (tu/deftest-kb ^:slow a-cycle-whose-first-defeat-is-out-of-force-at-a-reader-puts-the-second-in-force-there
   (excepted-cycle-readings (permutations [:l1 :l2 :r1 :r2 :ex])))
@@ -845,8 +848,8 @@
 
 (tu/deftest-kb a-guard-at-the-firings-own-placement-and-a-nogood-defeat-resting-on-each-other-are-broken-in-content-order
   ;; L is stated where G is placed, so the guard holds at G's own placement.  L is
-  ;; `:default`, so G is stored with a guard defeat at CxA resting on L (design ruling
-  ;; 25), and the walk breaks the cycle in content order in every arrival order, as it
+  ;; `:default`, so G is stored with a guard defeat at CxA resting on L, and the
+  ;; walk breaks the cycle in content order in every arrival order, as it
   ;; does for the two-context shape.
   (doseq [arm [:unknown :except]]
     (testing (name arm)
@@ -1153,6 +1156,28 @@
       (is (= [] misses))
       (is (every? second answers) (pr-str (remove second answers))))))
 
+(tu/deftest-kb the-held-yield-read-answers-as-the-whole-read-after-each-write
+  ;; a forced-monotonic fact stored, its denial stored and retracted, and the declaration
+  ;; retracted: the read held across these writes and the whole read agree after each
+  (tu/with-terms [pkind PA PB PC CxA]
+    (let [held  #(@#'exc/yielding-reads? kb (reasoning/taxonomy kb))
+          whole #(@#'exc/opposed-forced? kb (reasoning/taxonomy kb))
+          at    (atom {})
+          steps [[:declared #(swap! at assoc :decl (v/assert kb (list 'forced_monotonic_predicate pkind)))]
+                 [:a-fact #(v/assert kb (list pkind PA PB))]
+                 [:its-denial #(swap! at assoc :denial (v/assert kb (list 'not (list pkind PA PB)) CxA))]
+                 [:another-fact #(v/assert kb (list pkind PA PC))]
+                 [:the-denial-leaving #(v/retract! kb (:denial @at))]
+                 [:a-denial-again #(v/assert kb (list 'not (list pkind PA PC)) CxA)]
+                 [:the-declaration-leaving #(v/retract! kb (:decl @at))]]]
+      (v/assert kb (list 'genlCx CxA 'CxUniverse))
+      (held)
+      (is (= [[:declared false false] [:a-fact false false] [:its-denial true true]
+              [:another-fact true true] [:the-denial-leaving false false]
+              [:a-denial-again true true] [:the-declaration-leaving false false]]
+             (for [[step write] steps]
+               (do (write) [step (held) (whole)])))))))
+
 (deftest a-release-settles-to-the-same-belief-with-its-reader-frames-kept
   ;; CxC under CxA and CxB.  QM, QE and QO each hold a membership that withholds a mint
   ;; about them; removing the three releases the mints, and rules reading the mints
@@ -1231,3 +1256,106 @@
       (is (false? (exc/walk-reads? kb)))
       (v/assert kb (list 'except (v/sentex-handle d)) CxB)
       (is (true? (exc/walk-reads? kb))))))
+
+(defn- fresh-route-placements
+  "The placements of the nogood over `members` that `routes` give, read as
+  `chain/route-placements` reads them with nothing held across reads: no reading pass is
+  bound, each route reads its keys' supporters itself, and every choice of one supporter
+  per key is taken before the `:strict-keys` test."
+  [kb members routes]
+  (let [tax  (reasoning/taxonomy kb)
+        tms  (reasoning/tms kb)
+        cls  (res/holding-class kb)
+        exc? (tax/sib-exceptions? tax)
+        ctx  #(:context (v/sentex kb %))]
+    (into #{}
+          (for [{:keys [keys links excluded-at strict-links strict-keys pairs] :as route} routes
+                sups (reduce (fn [acc k]
+                               (for [xs acc
+                                     h  (sort (filter #(jtms/in? tms %) (tax/visible-supporters tax k nil)))]
+                                 (conj xs [h (ctx h)])))
+                             [[]] keys)
+                :when (every? (fn [[k [h]]] (or (not (contains? strict-keys k)) (= :monotonic (cls h))))
+                              (map vector (seq keys) sups))
+                :let [[ps m] (@#'chain/placements-over kb links (into (vec members) (map first) sups)
+                                                       (into (mapv ctx members) (map second) sups) nil
+                                                       (when (seq strict-links) (set strict-links)))]
+                pctx ps
+                :when (not (and exc? (tax/route-exempted? tax route pctx)))
+                :when (not (and exc? (seq pairs)
+                                (some #(tax/route-exempted? tax {:pair % :mark? true} pctx) pairs)))
+                :when (every? (fn [[sub super]]
+                                (= :monotonic (tax/reach-strength tax :genl sub super pctx cls)))
+                              strict-links)
+                :when (not (and excluded-at (excluded-at pctx)))]
+            [pctx (-> (set members) (into (map first) sups) (into (get m pctx)))]))))
+
+(defn- membership-placements
+  "`{members placements}` for every membership nogood the candidate index keeps, each
+  read by `(read members routes)`, the nogoods taken in content order or reversed."
+  [kb read reverse?]
+  (let [c   (decide/synced kb)
+        w   (decide/unscoped-closures (reasoning/taxonomy kb))
+        ngs (sort-by #(vec (sort (:members %)))
+                     (mapcat #(membership/nogoods-of c %) (membership/nogoods-terms c)))]
+    (into {} (map (fn [ng] [(:members ng) (read (:members ng) (membership/routes w (:records kb) ng))]))
+          (cond-> ngs reverse? reverse))))
+
+(defn- pass-placements
+  "`membership-placements` read by `chain/route-placements` in one reading pass, as the
+  placement pass reads them: one neighbour cache and one witness memo over every nogood."
+  [kb reverse?]
+  (binding [chain/*witnesses* (volatile! nil)]
+    (tax/with-neighbours
+      (atom {})
+      #(membership-placements kb (fn [ms rs] (@#'chain/route-placements kb ms rs nil)) reverse?))))
+
+(tu/deftest-kb a-reading-pass-places-each-membership-nogood-as-a-fresh-read-does
+  ;;   CxUniverse ─ CxA, CxB, CxD;  CxW under the three;  CxL under CxA;  CxM under CxW, CxL;
+  ;;                CxE under CxW
+  ;;   genl (CxUniverse): a0→a1→a2, ax→a1, b1→b2, s→w, u→t2, f→c, g→c;  CxL: a0→ax, b0→b1
+  ;;   CxD:  disjoint a1-b1, a1-b2, a2-b2;  (covering w p q);  (disjoint d p);
+  ;;         (disjoint_metatype m);  (m t2);  (m p) default;  (sibling_disjoint c);
+  ;;         (siblingDisjointException f g)
+  ;;   CxA and CxD: (disjoint a2 b1);  CxA: (m p);  CxB: (disjoint e q)
+  ;;   CxE: an except of (a0 X)
+  ;;   X: (a0 X) CxA (b0 X) CxB          Y: (s Y) CxA (d Y) CxA (e Y) CxB
+  ;;   Z: (s Z) CxA (not (w Z)) CxB      V: (s V) CxA (u V) CxB (not (q V)) CxB
+  ;;   G: (f G) CxA (g G) CxB
+  (tu/with-terms [a0 a1 a2 ax b0 b1 b2 s w p q d e u t2 m f g c X Y Z V G
+                  CxA CxB CxD CxW CxL CxM CxE]
+    (let [M {:strength :monotonic}
+          U 'CxUniverse]
+      (doseq [[k up] [[CxA U] [CxB U] [CxD U] [CxW CxA] [CxW CxB] [CxW CxD] [CxL CxA]
+                      [CxM CxW] [CxM CxL] [CxE CxW]]]
+        (v/assert kb (list 'genlCx k up) U M))
+      (doseq [[x y cx] [[a0 a1 U] [a1 a2 U] [ax a1 U] [b1 b2 U] [s w U] [u t2 U] [f c U] [g c U]
+                        [a0 ax CxL] [b0 b1 CxL]]]
+        (v/assert kb (list 'genl x y) cx M))
+      (doseq [[sen cx o] [[(list 'disjoint a1 b1) CxD M] [(list 'disjoint a1 b2) CxD M]
+                          [(list 'disjoint a2 b2) CxD M] [(list 'disjoint a2 b1) CxD M]
+                          [(list 'disjoint a2 b1) CxA M] [(list 'covering w p q) CxD M]
+                          [(list 'disjoint d p) CxD M] [(list 'disjoint e q) CxB M]
+                          [(list 'disjoint_metatype m) CxD M] [(list m t2) CxD M]
+                          [(list m p) CxD {}] [(list m p) CxA M] [(list 'sibling_disjoint c) CxD M]
+                          [(list 'siblingDisjointException f g) CxD M]]]
+        (v/assert kb sen cx o))
+      (let [hx (v/assert kb (list a0 X) CxA)]
+        (v/assert kb (list 'except (v/sentex-handle hx)) CxE M))
+      (doseq [[sen cx] [[(list b0 X) CxB] [(list s Y) CxA] [(list d Y) CxA] [(list e Y) CxB]
+                        [(list s Z) CxA] [(list 'not (list w Z)) CxB] [(list s V) CxA]
+                        [(list u V) CxB] [(list 'not (list q V)) CxB] [(list f G) CxA] [(list g G) CxB]]]
+        (v/assert kb sen cx))
+      (let [fresh (membership-placements kb #(fresh-route-placements kb %1 %2) false)
+            c     (decide/synced kb)
+            w     (decide/unscoped-closures (reasoning/taxonomy kb))
+            ngs   (mapcat #(membership/nogoods-of c %) (membership/nogoods-terms c))
+            kinds (into #{} (map :kind) ngs)]
+        (testing "the fixture reads every kind of membership nogood, and places most of them"
+          (is (= #{:disjoint :supertype :cover} kinds))
+          (is (some #(seq (:strict-keys %)) (mapcat #(membership/routes w (:records kb) %) ngs))
+              "a route with strict keys, whose supporters are filtered before the product")
+          (is (<= 5 (count fresh)))
+          (is (<= 4 (count (filter seq (vals fresh))))))
+        (is (= fresh (pass-placements kb false)))
+        (is (= fresh (pass-placements kb true)))))))

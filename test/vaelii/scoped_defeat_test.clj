@@ -531,12 +531,12 @@
                    (mapv #(select-keys % [:handle :vantage]) (:withdrawn-by r))))))
         (testing "why reads it the same way, so the two stay complements"
           (let [ph (v/handle-of kb (list purrs Rex) CxD)]
-            (is (false? (:believed? (v/why kb ph)))
+            (is (false? (:believed? (tu/why-root kb ph)))
                 "the conclusion its own context withdraws has no proof tree")
-            (is (nil? (:support (v/why kb ph))))
-            (is (= (:believed? (v/why kb ph)) (:believed? (v/why-not kb ph))))
-            (is (true? (:believed? (v/why kb h))) "the member is believed in CxA")
-            (is (true? (:premise? (v/why kb h))) "and asserted, so it rests on nothing")))))))
+            (is (nil? (:support (tu/why-root kb ph))))
+            (is (= (:believed? (tu/why-root kb ph)) (:believed? (v/why-not kb ph))))
+            (is (true? (:believed? (tu/why-root kb h))) "the member is believed in CxA")
+            (is (true? (:premise? (tu/why-root kb h))) "and asserted, so it rests on nothing")))))))
 
 (deftest the-reports-of-a-write-name-what-a-scoped-defeat-moved
   ;;   CxUniverse

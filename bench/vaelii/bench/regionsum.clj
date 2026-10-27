@@ -18,7 +18,7 @@
   and no region: `:in` and `:classes` never read it, so the replay measures
   the real rebuild and only the touched bookkeeping (which this does not report) differs.
 
-  Two orders, per item 2: hash order (`p/justification-ids` returns a `set`) against
+  Two orders: hash order (`p/justification-ids` returns a `set`) against
   **sorted id order**, a cheap proxy for derivation/topological order since handles are
   allocated as records are derived.  If sorting collapses `Σ|R_j|` toward M, the fix for
   [08] is a `sort` in `rebuild-tms` and a comment, not a protocol change; if it stays ≫M in
@@ -133,7 +133,7 @@
                        (long (Math/round (* 100.0 (/ (double (:singletons r))
                                                      (max 1.0 (double (:adds r)))))))
                        (long (:maxregion r)) (double (:ms r)))))
-    (println (format "  hash/sorted Σ|R_j|: %.2f×  (>1 ⇒ id order collapses region work — [08] item 2)"
+    (println (format "  hash/sorted Σ|R_j|: %.2f×  (>1 ⇒ id order collapses region work)"
                      (/ (double (:sum h)) (max 1.0 (double (:sum s))))))
     (println "  * loop ms carries a reset-touched! per add (measurement overhead); the decider is Σ/M, not ms")))
 

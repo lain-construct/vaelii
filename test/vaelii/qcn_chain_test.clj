@@ -74,7 +74,7 @@
             h     (:id concl)]
         (is (some? h) "the conclusion arrived")
         (testing "why names both stored steps — the support the network reported"
-          (let [named (set (tree-seq coll? seq (v/why kb h)))]
+          (let [named (set (keys (:nodes (v/why kb h))))]
             (is (contains? named h-ab) "the A-B fact is in the proof")
             (is (contains? named h-bc) "the B-C fact is in the proof")))
         (testing "and it is derived, not a premise"

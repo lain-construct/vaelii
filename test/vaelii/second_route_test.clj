@@ -491,7 +491,7 @@
           "the claim is stored in the order the goal reverses, or this proves nothing")
       ;; the preservation re-check also withdraws the plain firing once no reading holds,
       ;; so what the answers alone cannot show is that the firing rests on the mark
-      (let [sups (mapcat #(:support (v/why kb (:id %)))
+      (let [sups (mapcat #(:support (tu/why-root kb (:id %)))
                          (v/sentexes-matching kb (second goals) '?c))]
         (is (and (seq sups)
                  (every? (fn [s] (some #(= 'symmetric (first (:sentence %))) (:because s))) sups))

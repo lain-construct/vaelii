@@ -218,7 +218,7 @@
   (all-of-kind kb 'time_agnostic_relation '[food] 'CxUniverse)
   (all-of-kind kb 'time_varying_relation '[dwelling] 'CxSocial)
   (all-of-kind kb 'time_invariant_relation
-               '[computational_system command_line_tool mcp_tool information_bearing_thing
+               '[computational_system command_line_tool mcp_tool information
                  digital_artifact media_resource image video]
                'CxTra)
   (all-of-kind kb 'time_varying_relation

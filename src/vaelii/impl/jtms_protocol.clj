@@ -35,13 +35,14 @@
   result of it, or edits its domain:
 
       label(graph, attributes, blocked) -> (in, classes)
-      believed                           = in - superseded
+      believed                           = in - superseded - held
 
   `graph` is the nodes and justifications.  `attributes` are the per-element strengths
-  the class fixpoint reads, and the three **forced** sets the forced-monotonic set
-  writes (docs/nmtms.md, \"The forced-monotonic set\"): `:mono`, premises whose class is
-  `:monotonic` whatever strength they carry; `:out`, datums never IN; and `:void`,
-  justifications that support nothing.  The caller decides each membership from the
+  the class fixpoint reads, and the four **forced** sets the stored content decides
+  (docs/nmtms.md, \"The forced-monotonic set\"): `:mono`, premises whose class is
+  `:monotonic` whatever strength they carry; `:out`, datums never IN; `:void`,
+  justifications that support nothing; and `:held`, datums the fixpoint labels as usual
+  that a believed read subtracts, as it subtracts `superseded`.  The caller decides each membership from the
   stored content and writes it with the element, as it writes a strength.  `blocked` and
   `superseded` are two sets the **caller** computes and replaces whole every settle — the
   network is pure and holds no KB, so it can run neither query that decides them.  `in`
@@ -202,7 +203,8 @@
     diagnostic that enumerates the set (`vaelii.core/violations`); no relabel path calls it.")
   (-set-forced       [tms kind xs on?] "Add each of `xs` to forced set `kind` (`on?`
     true) or take it out, and relabel the region of the members that moved: the datums
-    themselves for `:mono` and `:out`, the consequences for `:void`.  A member need not
+    themselves for `:mono` and `:out`, the consequences for `:void`, and none for `:held`,
+    whose IN members `-touched` and `-touched-in` record as a relabel would.  A member need not
     have a node or a justification yet, so a caller writes it before the element it
     governs and the element never holds a label the set rules out.")
 
@@ -224,11 +226,12 @@
     costs its size.")
 
   ;; ---- :output — what a relabel writes ---------------------------------------
-  (-believed?        [tms datum] "Is `datum` believed (IN, minus supersession)?  Reads
-    `:superseded` as well as `:output`, because `believed = in - superseded` is the
-    definition rather than a filter over it.")
+  (-believed?        [tms datum] "Is `datum` believed (IN, minus supersession and the
+    `:held` forced set)?  Reads `:superseded` and `:attribute` as well as `:output`,
+    because `believed = in - superseded - held` is the definition rather than a filter
+    over it.  An empty `:held` set costs one emptiness check.")
   (-believed         [tms]       "Seq of the believed datums, or nil when none.")
-  (-any-belief?      [tms]       "Is any datum believed (IN, minus supersession)?  Like
+  (-any-belief?      [tms]       "Is any datum believed (IN, minus supersession and `:held`)?  Like
     `-any-node?`, terminates at the first believed datum rather than draining `-believed`.")
   (-defeat-class     [tms datum] "Defeat-class of an IN datum, nil when OUT.  Reads
     `:graph`-resident IN-ness too: `:classes` holds only the datums above the lattice's

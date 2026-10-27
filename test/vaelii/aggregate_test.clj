@@ -233,6 +233,16 @@
                    (v/assert kb (list 'agg/count 1 '?v (list scoreOf Team '?v))
                              'CxWell))))))
 
+(tu/deftest-kb each-slot-of-the-five-is-typed
+  ;; A result, a value and a sentence body.  A count is how many, 0 over nothing.  The
+  ;; other four reduce a number or a measure of one dimension, and no shipped type is
+  ;; their union, so their result and value are a thing of any kind.
+  (doseq [[f result] '{agg/count non_negative_integer agg/sum thing agg/avg thing
+                       agg/min thing agg/max thing}]
+    (is (= [#{result} '#{thing} '#{formula}]
+           (mapv #(into #{} (map :type) (res/arg-constraints-at kb f 'CxUniverse %)) [1 2 3]))
+        (str f "'s result, value and body"))))
+
 ;; ---- in a rule antecedent: grouping and maintenance ----------------------
 
 (defn- ancestor-world!
@@ -544,7 +554,7 @@
     (let [h2 (v/assert kb (list childOf Ann 'C2) CxLeft)]
       (is (= {CxLeft 2} (counts-by-context kb childCount)))
       (let [h    (v/handle-of kb (list childCount Ann 2) CxLeft)
-            why  (v/why kb h)
+            why  (tu/why-root kb h)
             cited (into #{} (map :sentence)
                         (mapcat :because (:support why)))]
         (is (= #{(list person Ann) (list 'genlCx CxLeft CxRoot)} cited)

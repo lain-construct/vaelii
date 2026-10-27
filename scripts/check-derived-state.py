@@ -63,6 +63,8 @@ NOT_DERIVED: dict[tuple[str, str], str] = {
     ("caches.clj", "registry"): "the cache register itself",
     ("caches.clj", "the-profile"): "configuration: the cache scale, pressure and overrides",
     ("caches.clj", "guard"): "the memory-pressure guard's listener state",
+    ("caches.clj", "critical"): "the heap mark's and the guard's reading of the last collection",
+    ("caches.clj", "heap-mark"): "the heap mark's armed pool: JVM-wide listener state",
     ("caches.clj", "guard-lifecycle"): "a lock",
     ("caches.clj", "tallying"): "instrumentation: the derived-state event instrument's state",
     ("columnar.clj", "state-spaces"): "storage: the columnar index spaces",
@@ -82,8 +84,8 @@ NOT_DERIVED: dict[tuple[str, str], str] = {
     ("disk/durability.clj", "writes-in-flight"): "storage lifecycle: the public writes running",
     ("disk/durability.clj", "abort-requested"): "storage lifecycle: a shutdown's stop request",
     ("except.clj", "frame-writes"): "a count of the index writes a reader frame reads by storage, which a pass's kept frames compare",
-    ("except.clj", "yield-writes"): "a count of the forced-monotonic facts leaving the index, which a pass's kept `yielding-reads?` compares",
-    ("except.clj", "yield-stores"): "a bounded log of the functors of the forced-monotonic facts stored, which a pass's kept `yielding-reads?` reads",
+    ("except.clj", "yield-writes"): "a count of the forced-monotonic facts leaving the index, which the held `yielding-reads?` compares",
+    ("except.clj", "yield-stores"): "a bounded log of the functors of the forced-monotonic facts stored, which the held `yielding-reads?` reads",
     ("progress.clj", "timer"): "the executor that logs the progress lines no tick does",
     ("disk/files.clj", "dir-fsync-warned"): "a one-time warning flag",
     ("disk/index_snapshot.clj", "image-state"): "the write cadence of the index image",
@@ -119,7 +121,7 @@ NOT_DERIVED: dict[tuple[str, str], str] = {
 # An entry leaves when its row's content becomes stored sentexes; an entry naming a row
 # that does not declare `:holds-content? true` fails, so the list only shrinks.
 HOLDS_CONTENT: dict[str, str] = {
-    "S5": "closed-extent and separation refusals and the `:constraint` and `:lift` entries",
+    "S5": "closed-extent and separation refusals and the `:lift` entries",
 }
 
 # `row id -> what it indexes`: the rows still holding a belief-free index outside the

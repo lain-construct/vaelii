@@ -205,9 +205,9 @@
 (deftest a-refusal-remembers-the-run-s-depth-bound-not-the-default
   (testing "the bound a release honours travels on the entry, set to the refusing run's"
     ;; `release-refusal!` re-derives in a settle with no run config in scope, so the
-    ;; depth bound has to ride on the entry.  Recorded as the *default* 64 it would place
-    ;; (or drop) a released firing at a ceiling the configured run never set; recorded as
-    ;; the run's own, the release honours what the firing was refused under.
+    ;; depth bound has to ride on the entry.  Recorded as the default (none) it would
+    ;; place a released firing the configured run's bound excludes; recorded as the run's
+    ;; own, the release honours what the firing was refused under.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (member-rule! kb)
       (v/assert kb '(rmember RM1) ctx {:strength :monotonic})
@@ -221,14 +221,11 @@
 
 (deftest a-rebuild-re-records-at-the-default-bound-not-the-live-one
   (testing "a run's max-depth is live-session config no store holds; recover rebuilds at the default"
-    ;; The bound on an entry refines *that session's* releases (`release-refusal!` reads it
-    ;; over the default).  It is not durable: `recover` replays stored justifications but
-    ;; resets derivation depths to 0, and a bound only ever governs future chaining, so the
-    ;; re-fire that rebuilds the record runs at the default.  A KB chained under a smaller
-    ;; bound therefore rebuilds its refusals at the default — documented in
-    ;; docs/exceptions.md as the one place a recovered KB can release differently from the
-    ;; live one, and the reason it is coherent rather than a drift: the recovered KB's
-    ;; reset depths bound future chaining against that same default.
+    ;; The bound on an entry refines *that session's* releases.  It is not durable:
+    ;; `recover` replays stored justifications but resets derivation depths to 0, so the
+    ;; re-fire that rebuilds the record runs at the default, which is no derivation-depth
+    ;; bound.  docs/exceptions.md states this as the one place a recovered KB can release
+    ;; differently from the live one.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (member-rule! kb)
       (v/assert kb '(rmember RM1) ctx {:strength :monotonic})
@@ -237,9 +234,8 @@
           "the live entry carries the run's bound")
       (v/recover kb)
       (is (= 1 (recorded kb)) "the rebuild re-records the standing refusal")
-      (is (= (:max-depth chain/default-chain-opts)
-             (:max-depth (-> @(reasoning/refused kb) vals first first)))
-          "and at the default bound, since the run's bound did not survive the restart"))))
+      (is (nil? (:max-depth (-> @(reasoning/refused kb) vals first first)))
+          "and under no bound, since the run's bound did not survive the restart"))))
 
 (deftest a-refusal-is-not-a-contradiction
   (testing "nothing was believed and nothing conflicts: the rule simply did not fire"
@@ -343,7 +339,7 @@
 
 (deftest a-late-blocker-of-either-class-defeats-the-firing-and-records-nothing
   ;; A blocker sweeps nothing: the firing stays stored with a guard defeat resting on the
-  ;; blocker (design rulings 25 and 30), and each trigger that lifts the block gives it
+  ;; blocker, whichever its class, and each trigger that lifts the block gives it
   ;; back with nothing recorded or re-chained.
   (doseq [[strength trigger expected] [[:monotonic :except [0 true 0 #{}]]
                                        [:monotonic :retract [0 true 0 #{}]]
@@ -352,3 +348,87 @@
                                        [:default :defeat [0 true 0 #{}]]]]
     (testing (str (name strength) " " (name trigger))
       (is (= expected (swept-then-released strength trigger))))))
+
+;; ---- a firing an argument conviction convicts is stored and held ---------------
+
+(defn- convicted-world!
+  "Contexts, types and the declaration `(arg cowns 2 canimal)` above the rule's context.
+  `CRex` is a `cpoodle`, a `cdog` by the edge `release!` removes, and `cdog` is disjoint
+  from `canimal`, so under the constraint-only reading `(cowns CAnn CRex)` is convicted on
+  argument 2 until the edge leaves."
+  [kb]
+  (v/assert kb '(genlCx CxRCTheory CxUniverse) 'CxUniverse {:strength :monotonic})
+  (v/assert kb '(genlCx CxRCWorld CxRCTheory) 'CxUniverse {:strength :monotonic})
+  (v/assert kb '(genl canimal thing) 'CxRCTheory {:strength :monotonic})
+  (v/assert kb '(genl cdog thing) 'CxRCTheory {:strength :monotonic})
+  (v/assert kb '(genl cpoodle thing) 'CxRCTheory {:strength :monotonic})
+  (v/assert kb '(genl cpoodle cdog) 'CxRCTheory {:strength :monotonic})
+  (v/assert kb '(disjoint cdog canimal) 'CxRCTheory {:strength :monotonic})
+  (v/assert kb '(arg cowns 2 canimal) 'CxRCTheory)
+  (v/assert kb '(cpoodle CRex) 'CxRCWorld))
+
+(defn- release!
+  "Retract `(genl cpoodle cdog)`, the edge the conviction of `convicted-world!` reads."
+  [kb]
+  (v/retract! kb (v/handle-of kb '(genl cpoodle cdog) 'CxRCTheory)))
+
+(defn- convicted-firing!
+  "`(cpetOf ?x ?y) => (cowns ?y ?x)` firing on `(cpetOf CRex CAnn)` into `convicted-world!`.
+  The rule carries no re-check condition."
+  [kb]
+  (convicted-world! kb)
+  (v/assert kb '(set/forwardRule (implies (cpetOf ?x ?y) (cowns ?y ?x))) 'CxRCWorld)
+  (v/assert kb '(cpetOf CRex CAnn) 'CxRCWorld))
+
+(defn- held-reading
+  "What `kb` holds of `(cowns CAnn CRex)`: whether it is stored, whether it is believed,
+  and the `:inert-argument` entries `violations` reports for it."
+  [kb]
+  {:stored (some? (v/handle-of kb '(cowns CAnn CRex) 'CxRCWorld))
+   :owns   (boolean (v/ask? kb '(cowns CAnn CRex) 'CxRCWorld))
+   :inert  (count (filter #(and (= :inert-argument (:violation %))
+                                (= '(cowns CAnn CRex) (:sentence %)))
+                          (v/violations kb)))})
+
+(deftest a-convicted-firing-is-held-and-released-alike-live-in-place-and-over-a-fresh-open
+  ;; The release is the retraction of the `genl` edge the conviction reads.  Each reading builds the
+  ;; same content on a cleared store, reaches it the way `reach` names, then asserts the
+  ;; edge.  A watched rule beside it is what makes a recover re-fire, so both rule sets
+  ;; are read.
+  (tu/without-entailing
+   (let [reading (fn [watched? reach]
+                   (tu/with-cleared-kb [kb tu/isolated-fresh]
+                     (when watched? (skip-rule! kb))
+                     (convicted-firing! kb)
+                     (let [kb'    (case reach
+                                    :live     kb
+                                    :in-place (doto kb (v/recover))
+                                    :fresh    (doto (tu/isolated-test-kb) (v/recover)))
+                           before (assoc (held-reading kb') :recorded (recorded kb'))]
+                       (release! kb')
+                       [before (assoc (held-reading kb') :recorded (recorded kb'))])))
+         rows    (for [w [false true] r [:live :in-place :fresh]] [w r])]
+     (is (= (mapv #(conj % [{:stored true :owns false :inert 1 :recorded 0}
+                            {:stored true :owns true :inert 0 :recorded 0}])
+                  rows)
+            (mapv (fn [[w r]] [w r (reading w r)]) rows))
+         "every path stores the conclusion held, records nothing, and the retraction releases it"))))
+
+(deftest a-sentence-derived-and-asserted-is-held-alike-in-both-arrival-orders
+  ;; The same sentence reaches the store by the rule and by `assert`, in both orders.
+  ;; Each order stores one sentex, held, with one `:inert-argument` entry, and the edge
+  ;; retraction releases it.
+  (tu/without-entailing
+   (let [reading (fn [order]
+                   (tu/with-cleared-kb [kb tu/isolated-fresh]
+                     (let [assert! #(v/assert kb '(cowns CAnn CRex) 'CxRCWorld)]
+                       (when (= :asserted-first order) (convicted-world! kb) (assert!))
+                       (convicted-firing! kb)
+                       (when (= :derived-first order) (assert!))
+                       (let [before (held-reading kb)]
+                         (release! kb)
+                         [before (held-reading kb)]))))]
+     (is (= {:asserted-first [{:stored true :owns false :inert 1} {:stored true :owns true :inert 0}]
+             :derived-first  [{:stored true :owns false :inert 1} {:stored true :owns true :inert 0}]}
+            {:asserted-first (reading :asserted-first)
+             :derived-first  (reading :derived-first)})))))

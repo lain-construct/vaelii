@@ -335,7 +335,7 @@
   [kb a b ctx]
   (let [[lo hi] (sort [a b])
         h       (v/handle-of kb (list 'equals lo hi) ctx)]
-    (set (for [s (:support (v/why kb h))
+    (set (for [s (:support (tu/why-root kb h))
                x (:because s)
                :when (= 'anti_symmetric (first (:sentence x)))]
            (:context x)))))

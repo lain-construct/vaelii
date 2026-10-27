@@ -136,13 +136,13 @@
         (is (believed? kb (list person Fred) 'CxUniverse) "the declaration's own predicate")
         (is (believed? kb (list person Ann) 'CxUniverse) "and the sub-predicate")
         (testing "the direct mint rests on the fact and the declaration"
-          (let [sup (first (:support (v/why kb (v/handle-of kb (list person Fred)
-                                                            'CxUniverse))))]
+          (let [sup (first (:support (tu/why-root kb (v/handle-of kb (list person Fred)
+                                                                  'CxUniverse))))]
             (is (= 'arg (:informant sup)))
             (is (= #{ph dh} (set (map :handle (:because sup)))))))
         (testing "the descended one rests on the genl edge as well — or retraction strands it"
-          (let [sup (first (:support (v/why kb (v/handle-of kb (list person Ann)
-                                                            'CxUniverse))))]
+          (let [sup (first (:support (tu/why-root kb (v/handle-of kb (list person Ann)
+                                                                  'CxUniverse))))]
             (is (= #{fh dh eh} (set (map :handle (:because sup)))))))
         (testing "so dropping the edge takes the descended type back and leaves the direct one"
           (v/retract! kb eh)
@@ -405,11 +405,12 @@
   ;; through `:monotonic` `genl` edges to an exact-arity class, and a `:default` membership
   ;; or edge on the path binds nothing (docs/taxonomy.md, "Arity").  Each row reads the
   ;; ternary tuple's belief, `admitsArgnum` at 2 and 3, `describe`'s `:arity` and the
-  ;; `(arg P 3 thing)` check, with the binding before the tuple and after it.  The KB is
+  ;; clash `try-assert` refuses `(arg P 3 thing)` with, with the binding before the tuple
+  ;; and after it.  The KB is
   ;; empty, so each row first states CxUniverse's two `:monotonic` edges the marks read.
   (let [m     {:strength :monotonic}
-        bound [false [true false] 2 [:arg-position]]
-        open  [true [false false] nil []]
+        bound [false [true false] 2 :arg-position]
+        open  [true [false false] nil nil]
         rows  {:binary_predicate  [(fn [_ _ p] [[(list 'binary_predicate p)]]) bound]
                :arity-2           [(fn [_ _ p] [[(list 'arity p 2)]]) bound]
                :kind-mark-mono    [(fn [_ _ p] [[(list 'instance_relation_predicate p) m]]) bound]
@@ -441,7 +442,7 @@
                    [(believed-at? kb tuple 'CxUniverse)
                     (mapv #(v/ask? kb (list 'admitsArgnum pairOf %) 'CxUniverse) [2 3])
                     (:arity (v/describe kb pairOf 'CxUniverse))
-                    (mapv :type (v/check kb (list 'arg pairOf 3 'thing) 'CxUniverse))])
+                    (tu/try-violation kb (list 'arg pairOf 3 'thing) 'CxUniverse)])
                 (str (name label) (if tuple-first? ", tuple first" ", binding first")))))))))
 
 (tu/deftest-kb supers-that-disagree-about-arity-bind-nothing
@@ -548,7 +549,7 @@
       (is (v/same-class? kb lo hi) "two fillers of one motherOf-level slot are one thing")
       (testing "and the merge names the fact, the declaration and the edge"
         (let [eq  (v/handle-of kb (list 'equals lo hi) 'CxUniverse)
-              sup (first (:support (v/why kb eq)))]
+              sup (first (:support (tu/why-root kb eq)))]
           (is (some? eq) "no derived equality to explain")
           (is (= 'functional (:informant sup)))
           (is (contains? (set (map :handle (:because sup))) eh) "the genl edge")
@@ -574,7 +575,7 @@
         (is (v/same-class? kb lo hi) "one parentOf slot, two fillers, merged")
         (testing "and the merge names both descents"
           (let [eq (v/handle-of kb (list 'equals lo hi) 'CxUniverse)
-                because (set (map :handle (:because (first (:support (v/why kb eq))))))]
+                because (set (map :handle (:because (first (:support (tu/why-root kb eq))))))]
             (is (some? eq) "no derived equality to explain")
             (is (contains? because ef) "the arriving sentence's edge")
             (is (contains? because em) "and the stored filler's, equally an ingredient")))
@@ -592,7 +593,7 @@
   ;; the KB does not hold.
   (letfn [(antecedents [kb lo hi]
             (let [eq (v/handle-of kb (list 'equals lo hi) 'CxUniverse)]
-              (mapv :handle (:because (first (:support (v/why kb eq)))))))]
+              (mapv :handle (:because (first (:support (tu/why-root kb eq)))))))]
     (testing "one functor on both sides, so both descents are the same single edge"
       (tu/with-terms [parentOf fatherOf Tom]
         (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
@@ -724,8 +725,7 @@
     (v/assert kb (list 'variable_arity fatherOf) 'CxUniverse)
     (v/assert kb (list 'ternary_predicate fatherOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
-    (is (= :arg-position (ex-type #(v/assert kb (list 'arg parentOf 3 'thing)
-                                             'CxUniverse)))
+    (is (= :arg-position (tu/try-violation kb (list 'arg parentOf 3 'thing) 'CxUniverse))
         "parentOf is binary, whatever its sub-predicates are")
     (is (v/assert kb (list 'arg fatherOf 3 'thing) 'CxUniverse)
         "and fatherOf is ternary, whatever its super-predicates are")))

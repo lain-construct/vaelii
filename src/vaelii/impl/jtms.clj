@@ -60,10 +60,12 @@
       (`network-in?`); `in?` and `in-datums` subtract it.  The map is derived state,
       reconciled by `special/refresh-supersessions`.
 
-    * forced — three sets the forced-monotonic set writes (docs/nmtms.md, \"The
+    * forced — four sets the stored content decides (docs/nmtms.md, \"The
       forced-monotonic set\"): `:mono`, premises whose class is `:monotonic` whatever
       strength they carry; `:out`, datums the fixpoint never adds, a premise included;
-      and `:void`, justifications that support nothing and confer no class.  Each is an
+      `:void`, justifications that support nothing and confer no class; and `:held`,
+      datums labelled as the fixpoint labels them that `in?` subtracts, as it subtracts
+      a superseded one.  Each is an
       **attribute** of the element it names, written by the caller with the element and
       rewritten when the forced-monotonic set moves (`set-forced`), so the stored content keeps the
       strength it was written at and every record a forced set governs stays stored.
@@ -352,26 +354,30 @@
 
 (defn- conferred-class
   "The defeat-class a valid justification confers on its consequence: its own
-  strength, capped by the *weakest* of its antecedents' classes.
+  strength, capped by the *weakest* of its antecedents' classes, and by its rule's
+  class when the informant is a rule handle that is not a premise (a generator's mint,
+  a rule another rule derived).
 
   A conclusion can be no stronger than the weakest thing it rests on — a bare rule
   over a merely-default premise concludes a default, and the same rule over
   known-true facts concludes a monotonic, which is correct: it *is* monotonically
   entailed.
 
-  The **informant is not in the cap**.  A rule-handle informant is a condition of
-  `valid?`, which is what makes retracting or defeating the rule withdraw everything it
-  licensed — a *validity* role, not a ground, and `antecedents` never lists it.
-  Capping on it as well would fold the rule's assumption strength into every
-  conclusion — and a rule takes `:default` unless its own assertion says otherwise,
-  exactly as a fact does, so that alone would put every datum an ordinary rule
-  licensed at `:default`.  The strength a rule contributes
-  is already carried by `:strength` on the justification (`provers/firing-strength`:
-  `:default` for a `set/defaultRule` and for a guarded rule)."
-  [j classes]
-  (reduce (fn [c a] (strength/min c (get classes a :default)))
-          (or (:strength j) :monotonic)
-          (class-antecedents j)))
+  A **premise** rule informant is not in the cap: a rule takes `:default` unless its
+  own assertion says otherwise, so capping on it would put every datum an ordinary rule
+  licensed at `:default`.  A derived rule's class is the class of its grounds, so it
+  caps its firings as a ground does (docs/nmtms.md, \"Strength propagates from the
+  antecedents\").  The strength a rule contributes is carried by `:strength` on the
+  justification (`provers/firing-strength`: `:default` for a `set/defaultRule` and for
+  a guarded rule)."
+  [state j classes]
+  (let [inf (:informant j)
+        c   (reduce (fn [c a] (strength/min c (get classes a :default)))
+                    (or (:strength j) :monotonic)
+                    (class-antecedents j))]
+    (if (and (integer? inf) (not (get-in state [:nodes inf :premise?])))
+      (strength/min c (get classes inf :default))
+      c)))
 
 (defn- node-class
   "The defeat-class of an IN datum: the strongest support it has — its premise
@@ -390,7 +396,7 @@
         strs  (for [jid (:supports n)
                     :let [j (get-in state [:justs jid])]
                     :when (and j (valid? j in blocked void))]
-                (conferred-class j classes))]
+                (conferred-class state j classes))]
     (reduce strength/max :default (remove nil? (cons prem strs)))))
 
 ;; ---- region-local relabelling -------------------------------------------
@@ -565,7 +571,12 @@
         (assoc :classes (region-classes state region in))
         (update :touched (fnil into #{}) region)
         (note-epoch region)
-        (update :touched-in (fnil into #{}) (filter old-in fresh)))))
+        (update :touched-in (fnil into #{})
+                (let [held (forced-set state :held)]
+                  ;; a `:held` member is IN and was not believed
+                  (if (empty? held)
+                    (filter old-in fresh)
+                    (filter #(and (contains? old-in %) (not (contains? held %))) fresh)))))))
 
 (defn- resettle
   "Relabel the region affected by `seeds`."
@@ -590,11 +601,30 @@
   (let [state (assoc state :blocked #{} :superseded {})]
     (relabel-region* state (set (keys (:nodes state))))))
 
-(defn- premise* [state datum strength-kw]
-  (-> (ensure* state datum 0)
-      (assoc-in [:nodes datum :premise?] true)
-      (assoc-in [:nodes datum :premise-strength] (or strength-kw :default))
-      (resettle [datum])))
+(defn- premise*
+  "Mark `datum` a premise at `strength-kw` and relabel its region.
+
+  A mark the node already holds at the same strength, on a node that is IN, relabels
+  nothing: every input of the region's fixpoint is unchanged, so the relabel would write
+  back the labels and classes it read.  `datum` alone is noted touched, as `add-just*`'s
+  fast path notes its consequence.  Without this, re-marking a premise relabels its whole
+  forward closure, and `recovery/rebuild-tms` over a network that already holds a chain n
+  deep re-marks n premises, which costs O(n²)."
+  [state datum strength-kw]
+  (let [state (ensure* state datum 0)
+        s     (or strength-kw :default)
+        node  (get-in state [:nodes datum])]
+    (if (and (:premise? node) (= s (:premise-strength node)) (contains? (:in state #{}) datum))
+      (cond-> (-> state
+                  (update :touched (fnil conj #{}) datum)
+                  (note-epoch [datum]))
+        (not (or (contains? (:touched state #{}) datum)
+                 (contains? (forced-set state :held) datum)))
+        (update :touched-in (fnil conj #{}) datum))
+      (-> state
+          (assoc-in [:nodes datum :premise?] true)
+          (assoc-in [:nodes datum :premise-strength] s)
+          (resettle [datum])))))
 
 (defn- add-just* [state j]
   (let [{:keys [id consequence] :as just} (graph-just j)
@@ -634,7 +664,7 @@
     (if (and (contains? in consequence)
              (or (not (valid? just in (:blocked state #{}) (forced-set state :void)))
                  (let [cls (get (:classes state) consequence :default)]
-                   (= cls (strength/max cls (conferred-class just (:classes state)))))))
+                   (= cls (strength/max cls (conferred-class state just (:classes state)))))))
       (cond-> (-> state
                   (update :touched (fnil conj #{}) consequence)
                   (note-epoch [consequence]))
@@ -774,7 +804,8 @@
         state (-> state
                   (update-in [:forced :void] disj-all dead-jids)
                   (update-in [:forced :mono] disj-all dead)
-                  (update-in [:forced :out] disj-all dead))
+                  (update-in [:forced :out] disj-all dead)
+                  (update-in [:forced :held] disj-all dead))
         ;; a supersession names a datum, so a swept datum must lose it too — an entry
         ;; left behind would hold a future handle OUT for a merge that is long gone
         state (update state :superseded dissoc-all dead)
@@ -857,12 +888,28 @@
 (defn- set-forced*
   "`state` with each of `xs` added to forced set `kind` (`on?`) or taken out of it, and
   the region of the members that moved relabelled: the datums with a node for `:mono`
-  and `:out`, the consequences of the stored justifications for `:void`."
+  and `:out`, the consequences of the stored justifications for `:void`.  A `:held` move
+  relabels nothing: the members that are IN are recorded in the touched sets as a relabel
+  records them, in `touched-in` when one was believed before, and in `touched-out` when
+  one leaves belief."
   [state kind xs on?]
   (let [cur   (forced-set state kind)
         moved (into [] (comp (distinct) (filter #(not= (boolean on?) (contains? cur %)))) xs)]
-    (if (empty? moved)
+    (cond
+      (empty? moved)
       state
+
+      (= :held kind)
+      (let [live (filterv #(contains? (:in state #{}) %) moved)
+            t    (:touched state #{})]
+        (-> state
+            (assoc-in [:forced kind] (if on? (into cur moved) (disj-all cur moved)))
+            (update :touched (fnil into #{}) live)
+            (note-epoch live)
+            (update :touched-in (fnil into #{}) (when on? (remove #(contains? t %) live)))
+            (update :touched-out (fnil into #{}) (when on? live))))
+
+      :else
       (let [region (affected-region state (if (= :void kind)
                                             (keep #(get-in state [:justs % :consequence]) moved)
                                             (filter #(get-in state [:nodes %]) moved)))
@@ -872,6 +919,14 @@
                        (relabel-region* region))]
         ;; what the change took OUT, for `revived` to re-seed if it comes back before the reset
         (update state :touched-out (fnil into #{}) (remove #(contains? (:in state) %)) was)))))
+
+(defn- unbelieved-fn
+  "`(fn [datum])`: is an IN datum of `state` kept from belief, superseded or `:held`?
+  The supersession map itself when nothing is held."
+  [state]
+  (let [sup  (:superseded state {})
+        held (forced-set state :held)]
+    (if (empty? held) sup #(or (contains? sup %) (contains? held %)))))
 
 (defn- swap-with-result!
   "Atomically apply `f` — a pure `state -> [state' result]` fn — to atom `a`,
@@ -933,11 +988,12 @@
   (-believed? [_ datum]
     (let [s (ref-state hold state)]
       (and (contains? (:in s #{}) datum)
-           (not (contains? (:superseded s {}) datum)))))
-  (-believed [_] (let [s (ref-state hold state)] (seq (remove (:superseded s {}) (:in s #{})))))
+           (not (contains? (:superseded s {}) datum))
+           (let [held (forced-set s :held)] (or (empty? held) (not (contains? held datum)))))))
+  (-believed [_] (let [s (ref-state hold state)] (seq (remove (unbelieved-fn s) (:in s #{})))))
   (-any-node?   [_] (boolean (seq (:nodes (ref-state hold state)))))
   (-any-belief? [_] (let [s (ref-state hold state)]
-                      (boolean (first (remove (:superseded s {}) (:in s #{}))))))
+                      (boolean (first (remove (unbelieved-fn s) (:in s #{}))))))
   (-node? [_ datum] (contains? (:nodes (ref-state hold state)) datum))
   (-datums [_] (keys (:nodes (ref-state hold state))))
   (-depth [_ datum] (get-in (ref-state hold state) [:nodes datum :depth] 0))
@@ -1023,7 +1079,7 @@
   (Rules live in the stores as sentexes, not here.)"
   []
   (let [state (atom {:nodes {} :justs {} :blocked #{} :superseded {}
-                     :forced {:mono #{} :out #{} :void #{}}
+                     :forced {:mono #{} :out #{} :void #{} :held #{}}
                      :classes {} :in #{}
                      :touched #{} :touched-in #{} :touched-new #{} :touched-out #{}})
         tms   (->RefTms state (AtomicReference. nil))]
@@ -1049,10 +1105,20 @@
 ;; this line.
 
 (defn in?
-  "Is `datum` believed?  Structural support minus supersession: a datum the equality
-  layer has displaced keeps its place in the fixpoint (its twin is justified by it)
-  but is not believed, so it stops matching and stops answering queries."
+  "Is `datum` believed?  Structural support minus supersession and the `:held` forced
+  set: a datum the equality layer has displaced, or a rule a correspondence holds
+  (docs/nat.md), keeps its place in the fixpoint (a twin or a respelled row is justified
+  by it) but is not believed, so it stops matching and stops answering queries."
   [tms datum] (-believed? tms datum))
+
+(defn raw-in?
+  "Is `datum` believed, or kept from belief with its label IN: superseded, or a member of
+  the `:held` forced set?  The label a boundary datum of a region read takes, since the
+  fixpoint keeps both kinds IN."
+  [tms datum]
+  (or (-believed? tms datum)
+      (contains? (-superseded tms) datum)
+      (-forced? tms :held datum)))
 
 (defn network-in?
   "Is `datum` IN in the network, a superseded spelling included?  The families
@@ -1403,6 +1469,8 @@
   ([tms just k]
    (moving (-add-justification tms just))
    (note-moved! tms [(:consequence just)])
+   (when-let [^java.util.Set s observe/*fired-sink*]
+     (when (integer? (:informant just)) (.add s (:consequence just))))
    ;; keep a bound dedup index in step: extend the one entry this justification lands
    ;; in, when that entry has been built (an absent entry rebuilds from `-supports`,
    ;; which now includes this justification, so absence needs nothing)
@@ -1440,8 +1508,9 @@
 (defn set-forced
   "Add each of `xs` to forced set `kind` (`on?` true) or take it out, and relabel the
   region the members that moved reach.  `:mono` names premises whose class is
-  `:monotonic` whatever strength they carry, `:out` datums never IN, and `:void`
-  justifications that support nothing.  A member may be written before its node or its
+  `:monotonic` whatever strength they carry, `:out` datums never IN, `:void`
+  justifications that support nothing, and `:held` datums the fixpoint labels as usual
+  and `in?` never answers believed, so a `:held` move relabels nothing.  A member may be written before its node or its
   justification exists, so the element never holds a label the set rules out."
   [tms kind xs on?]
   (when (seq xs)
@@ -1537,8 +1606,8 @@
   [tms region belief-only invalid]
   (let [blocked-set (blocked tms)
         ;; raw belief for a boundary datum: reported belief plus the superseded spellings
-        ;; the fixpoint keeps IN (their twin is justified by them).
-        raw-in?     (fn [d] (or (in? tms d) (superseded? tms d)))
+        ;; and held rules the fixpoint keeps IN (a twin or a respelled row rests on them)
+        raw-in?     #(raw-in? tms %)
         ;; an antecedent in the region reads the recomputed set; outside it, live belief
         believed?*  (fn [in d] (if (contains? region d) (contains? in d) (raw-in? d)))]
     (fn [in j] (and (if-let [b (and belief-only (belief-only j))]
@@ -1638,7 +1707,7 @@
         members     (filterv #(contains? in %) region)
         believed?*  (fn [d] (if (contains? region d)
                               (contains? in d)
-                              (or (in? tms d) (superseded? tms d))))
+                              (raw-in? tms d)))
         class-of    (fn [classes d] (if (contains? region d)
                                       (get classes d :default)
                                       (or (defeat-class tms d) :default)))
@@ -1652,9 +1721,11 @@
                                                     (or (not (integer? inf)) (believed?* inf)))
                                                   (not (contains? blocked-set (:id j)))
                                                   (not (forced? tms :void (:id j))))]
-                                   (reduce (fn [c a] (strength/min c (class-of classes a)))
-                                           (or (:strength j) :monotonic)
-                                           (class-antecedents j)))]
+                                   (cond-> (reduce (fn [c a] (strength/min c (class-of classes a)))
+                                                   (or (:strength j) :monotonic)
+                                                   (class-antecedents j))
+                                     (let [inf (:informant j)] (and (integer? inf) (not (premise? tms inf))))
+                                     (strength/min (class-of classes (:informant j)))))]
                         (reduce strength/max :default (remove nil? (cons prem strs)))))]
     (loop [classes (zipmap members (repeat :default))]
       (let [next (reduce (fn [m d] (assoc m d (node-class classes d))) classes members)]

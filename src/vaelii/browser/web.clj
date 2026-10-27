@@ -156,6 +156,13 @@
   [kb]
   (or (catalog/name-of kb) "in-process"))
 
+(defn- removed-owner
+  "Whose removed list `kb` reads and writes (`vaelii.browser.removed`): the printed key and
+  name of the catalog entry holding it, or the KB itself when no entry does, so two KBs
+  never share a list."
+  [kb]
+  (if-let [{:keys [key name]} (catalog/entry-of kb)] (pr-str [key name]) kb))
+
 (defn- jobs-badge
   "How many jobs are running, for the header.  Its own element with an id because the
   header sits outside the region a swap replaces: `/jobs/rows` ships a fresh copy out of
@@ -3745,37 +3752,44 @@
     ;; sentexes the graph reads its ego edges out of, in the same batch
     (prime-belief! env (concat (mapcat #(map :id (:rows %)) pages)
                                (flank-handles groups)))
-    (render env (str "term " text)
-            [:h2 "Term " (term-link env term) " "
-             ;; the label does not name the term: a reified one prints as the opaque
-             ;; constant the page exists not to show (`nat-ref`), and the heading beside
-             ;; this already says which term it is about
-             (edit-link (str "q=" (url-enc (pr-str term)))
-                        "edit what this term is most directly in")
-             (extension-term-actions env term)]
-            (term-actions term)
-            (visit-mark "term" (str "/term?q=" (url-enc (pr-str term))) text
-                        (term-class env term))
-            ;; the picture goes above everything the page says in prose, and the prose
-            ;; below is unchanged: the type lines are the accessible equivalent and the
-            ;; exact answer this approximates
-            (term-graph env term gls sps groups)
-            (closure-actions term gls sps)
-            [:p [:a.action {:href (str "/assert?q=" (url-enc (pr-str term)))} "Assert a sentex"]
-             [:span.muted " — the form opens with this term already in it."]]
-            [:h3 "Sentexes by index "
-             [:span.muted "(arguments, rules, nestings, extents)"] " "
-             (derived-switch env term)]
-            (when-not remainder?
-              [:p.muted "This term reaches more than " (commas remainder-scan)
-               " sentexes, so the page did not walk the term index for what the roots "
-               "below do not claim. The groups it does show are complete."])
-            (if (seq groups)
-              (map-indexed #(index-group env term [%1 %2 (nth pages %1)]) groups)
-              [:p.muted "none"])
-            ;; last on the page, and deliberately: what the KB holds is the page, and
-            ;; what an extension adds is read after it
-            (extension-panels env term))))
+    (let [graph (term-graph env term gls sps groups)]
+      ;; `.term-layout` puts the picture under the heading on a portrait screen and in a
+      ;; column of its own on the right of a landscape one; with no picture the prose
+      ;; keeps the full width
+      (render env (str "term " text)
+              [(if graph :div.term-layout.with-graph :div.term-layout)
+               [:div.term-head
+                [:h2 "Term " (term-link env term) " "
+                 ;; the label does not name the term: a reified one prints as the opaque
+                 ;; constant the page exists not to show (`nat-ref`), and the heading beside
+                 ;; this already says which term it is about
+                 (edit-link (str "q=" (url-enc (pr-str term)))
+                            "edit what this term is most directly in")
+                 (extension-term-actions env term)]
+                (term-actions term)
+                (visit-mark "term" (str "/term?q=" (url-enc (pr-str term))) text
+                            (term-class env term))]
+               ;; the prose beside the picture is unchanged: the type lines are the
+               ;; accessible equivalent and the exact answer the picture approximates
+               (when graph
+                 [:div.term-fig graph (closure-actions term gls sps)])
+               [:div.term-body
+                (when-not graph (closure-actions term gls sps))
+                [:p [:a.action {:href (str "/assert?q=" (url-enc (pr-str term)))} "Assert a sentex"]
+                 [:span.muted " — the form opens with this term already in it."]]
+                [:h3 "Sentexes by index "
+                 [:span.muted "(arguments, rules, nestings, extents)"] " "
+                 (derived-switch env term)]
+                (when-not remainder?
+                  [:p.muted "This term reaches more than " (commas remainder-scan)
+                   " sentexes, so the page did not walk the term index for what the roots "
+                   "below do not claim. The groups it does show are complete."])
+                (if (seq groups)
+                  (map-indexed #(index-group env term [%1 %2 (nth pages %1)]) groups)
+                  [:p.muted "none"])
+                ;; last on the page, and deliberately: what the KB holds is the page, and
+                ;; what an extension adds is read after it
+                (extension-panels env term)]]))))
 
 (defn term-rows-page
   "One more page of rows for index group `g` of `term` — what a group's continuation
@@ -4733,12 +4747,15 @@
 ;; ---- why: the proof tree ------------------------------------------------
 ;;
 ;; The sentex page shows one hop — the justifications that conclude a handle.
-;; `vaelii.core/why` walks the whole way down to premises, cycle-guarded, with rule
-;; sentences read back in the author's variable names, and that whole tree is what
-;; "why does the KB believe this?" actually asks.  Rendering it is a fold over the
-;; recursive map: one `<details>` per derived node, its justifications as branches and
-;; their arguments as the next level, terminating at a premise, a cycle back-edge, or a
-;; node that is not believed (which `why-not` — the sentex page — answers instead).
+;; `vaelii.core/why` returns the whole justification graph down to premises, each handle
+;; once, with rule sentences read back in the author's variable names, and that graph is
+;; what "why does the KB believe this?" actually asks.  The page renders it as a tree from
+;; the root: one `<details>` per derived node, its justifications as branches and their
+;; arguments as the next level.  A derived node expands at its first occurrence in content
+;; order, and every later occurrence (a shared antecedent, or a cycle back to an ancestor)
+;; links to that one.  A derived node first reached `why-nest-depth` levels down continues as
+;; a tree of its own after the first.  A branch ends at a premise or at a node that is not
+;; believed (which `why-not` — the sentex page — answers instead).
 
 (def ^:private why-open-depth
   "How deep the tree opens by default.  A proof's shape is the point, so the first
@@ -4752,67 +4769,106 @@
         (render-form env sentence)
         (when context (list in-cx (term-link env context)))))
 
-(defn- why-node
-  "One node of the proof tree.  A derived node is a `<details>` whose branches are its
-  justifications; every other node is a leaf, and says which kind:
+(defn- why-anchor
+  "The element id of handle `h`'s expanded node on a rendered proof."
+  [h]
+  (str "why-" h))
 
-    premise       asserted, with the assumption strength it was asserted at
-    cycle         already on this branch — the graph may cycle, and `why` reports the
-                  back-edge rather than expanding it again
-    not believed  stored but OUT; `why-not` (the sentex page) is where the reason is
-    not stored    the handle names nothing"
-  [env depth {:keys [handle stored? truncated? cycle? believed? premise? strength defeat-class support]
-              :as node}]
-  (let [head (why-head env node)]
-    (cond
-      (false? stored?)   [:li head " " [:span.tag.tag-not-stored "not stored"]]
-      truncated?         [:li head " " [:span.tag.tag-out "depth bound"]
-                          [:span.muted " — proof continues below the depth shown"]]
-      cycle?             [:li head " " [:span.tag.tag-out "cycle"]
-                          [:span.muted " — already on this branch"]]
-      (false? believed?) [:li head " " [:span.tag.tag-out "not believed"] " "
-                          [:a {:href (str "/sentex/" handle)} "why not"]]
-      premise?           [:li head " " [:span.tag.tag-premise "premise"]
-                          (when strength [:span.tag (str "assumed " (name strength))])]
-      :else
-      [:li [:details (cond-> {} (< depth why-open-depth) (assoc :open "open"))
-            [:summary head " "
-             ;; every <details> node is believed (why expands only believed nodes),
-             ;; so IN is a constant — no KB read
-             [:span.tag.tag-in "IN"] " "
-             (when defeat-class [:span.tag (str "class " (name defeat-class))])
-             [:span.muted " · " (count support)
-              (if (= 1 (count support)) " justification" " justifications")]]
-            [:ul.why
-             ;; a justification is supporting when its verdict at the node's context is
-             ;; `:supports` (`v/why` reads it, `v/justification-verdicts`): every argument
-             ;; believed there, and no exception, guard defeat or declaration voiding it
-             (for [{:keys [justification informant rule strength verdict because]} support]
-               [:li (justification-link justification) " "
-                (if rule
-                  [:span "via " (render-form env rule)]
-                  [:span.muted "via " (pr-str informant)])
-                " " [:span.tag (name (or strength :monotonic))] " "
-                (if (= :supports verdict)
-                  [:span.tag.tag-in {:title "every argument is believed here and nothing blocks it, so this justification currently supports the conclusion"} "supporting"]
-                  [:span.tag.tag-out
-                   {:title (or (verdict-text verdict)
-                               "an argument is not believed here, so this justification is not currently supporting")}
-                   "blocked"])
-                (when (seq because)
-                  [:ul.why (map #(why-node env (inc depth) %) because)])])]]])))
+(def ^:private why-nest-depth
+  "How many proof levels one rendered tree nests before a derived node continues as a tree
+  of its own below it.  hiccup renders nested elements by recursion: a 300-level chain
+  nested whole renders, and a 1,000-level one overflows the stack."
+  64)
+
+(defn- why-tree
+  "`v/why`'s graph `w` as `<ul>` trees: the tree from its root, then one tree per derived
+  node first reached at `why-nest-depth`, in content order.  A node is a leaf, and says
+  which kind, unless it is derived:
+
+    premise         asserted, with the assumption strength it was asserted at
+    not believed    stored but OUT; `why-not` (the sentex page) is where the reason is
+    not stored      the handle names nothing
+    shown above     a derived node already expanded earlier on the page, linked
+    continued below a derived node expanded in a later tree, linked
+
+  A derived node is a `<details>` whose branches are its justifications, expanded once,
+  so the page grows with the graph rather than with its paths."
+  [env w]
+  (let [nodes   (:nodes w)
+        seen    (volatile! #{})                 ; expanded, or queued as a tree of its own
+        done    (volatile! #{})                 ; expanded
+        pending (volatile! clojure.lang.PersistentQueue/EMPTY)
+        link    (fn [h text] [:a {:href (str "#" (why-anchor h))} text])]
+    (letfn [(expand [depth {:keys [handle defeat-class support] :as node}]
+              (vswap! done conj handle)
+              [:details (cond-> {:id (why-anchor handle)}
+                          (< depth why-open-depth) (assoc :open "open"))
+               [:summary (why-head env node) " "
+                ;; every <details> node is believed (why expands only believed nodes), so
+                ;; IN is a constant — no KB read
+                [:span.tag.tag-in "IN"] " "
+                (when defeat-class [:span.tag (str "class " (name defeat-class))])
+                [:span.muted " · " (count support)
+                 (if (= 1 (count support)) " justification" " justifications")]]
+               [:ul.why
+                ;; a justification is supporting when its verdict at the node's context is
+                ;; `:supports` (`v/why` reads it, `v/justification-verdicts`): every
+                ;; argument believed there, and no exception, guard defeat or declaration
+                ;; voiding it.  `doall`: `seen` must fill in content order, and hiccup
+                ;; reads a vector as an element, so the branches are a seq
+                (doall
+                 (map (fn [{:keys [justification informant rule strength verdict because]}]
+                        [:li (justification-link justification) " "
+                         (if rule
+                           [:span "via " (render-form env rule)]
+                           [:span.muted "via " (pr-str informant)])
+                         " " [:span.tag (name (or strength :monotonic))] " "
+                         (if (= :supports verdict)
+                           [:span.tag.tag-in {:title "every argument is believed here and nothing blocks it, so this justification currently supports the conclusion"} "supporting"]
+                           [:span.tag.tag-out
+                            {:title (or (verdict-text verdict)
+                                        "an argument is not believed here, so this justification is not currently supporting")}
+                            "blocked"])
+                         (when (seq because)
+                           [:ul.why (doall (map #(node-li (inc depth) %) because))])])
+                      support))]])
+            (node-li [depth h]
+              (let [{:keys [handle stored? believed? premise? strength] :as node} (get nodes h)
+                    head (why-head env node)]
+                (cond
+                  (false? stored?)   [:li head " " [:span.tag.tag-not-stored "not stored"]]
+                  (false? believed?) [:li head " " [:span.tag.tag-out "not believed"] " "
+                                      [:a {:href (str "/sentex/" handle)} "why not"]]
+                  premise?           [:li head " " [:span.tag.tag-premise "premise"]
+                                      (when strength [:span.tag (str "assumed " (name strength))])]
+                  (@done handle)     [:li head " " (link handle "shown above")]
+                  (@seen handle)     [:li head " " (link handle "continued below")]
+                  (>= depth why-nest-depth)
+                  (do (vswap! seen conj handle)
+                      (vswap! pending conj handle)
+                      [:li head " " (link handle "continued below")])
+                  :else
+                  (do (vswap! seen conj handle)
+                      [:li (expand depth node)]))))]
+      (let [main (node-li 0 (:root w))]
+        (loop [trees [[:ul.why main]]]
+          (if-let [h (peek @pending)]
+            (do (vswap! pending pop)
+                (recur (conj trees [:ul.why [:li (expand 0 (get nodes h))]])))
+            (seq trees)))))))
 
 (defn why-page
   "The whole proof tree for a handle — `vaelii.core/why` rendered, collapsible.  Linked
   from the sentex page, which shows only the first hop."
   [{:keys [kb] :as env} h]
   (if-let [s (v/sentex kb h)]
-    (let [tree (v/why kb h)]
+    (let [w    (v/why kb h)
+          root (get (:nodes w) (:root w))]
       (render env (str "why #" h)
               [:h2 "Why " [:span.muted "#" h]]
               [:p.sx-item (sentex-line env s)]
-              (if (:believed? tree)
-                (let [sup (:support tree)
+              (if (:believed? root)
+                (let [sup (:support root)
                       ;; the verdict the tree's pills show, so the count and the pills agree
                       ok  (count (filter #(= :supports (:verdict %)) sup))]
                   (list
@@ -4823,7 +4879,7 @@
                       "the rest are shown " [:span.tag.tag-out "blocked"] "."])))
                 [:p.muted "This sentex is not believed, so there is no proof to show — "
                  [:a {:href (str "/sentex/" h)} "the sentex page"] " reports why not."])
-              [:ul.why (why-node env 0 tree)]))
+              (why-tree env w)))
     (render env "not found" [:p "No sentex #" h])))
 
 ;; ---- the non-monotonicity demo ------------------------------------------
@@ -4961,20 +5017,19 @@
         "and the defeat hides the conclusion and what rests on it."]])
 
     ;; :believed / :returned
-    (let [tree (v/why kb flight)]
-      [:div.belief
-       [:p [:b "Believed"] " — and nobody asserted it. " (handle-ref env flight)
-        " is a conclusion; the rule that reached it is one line down."]
-       [:ul.why (why-node env 0 tree)]
-       (when (= :returned stage)
-         [:p.demo-point
-          [:b "Look at the handle."] " Step 1 concluded " [:code (str "#" first)]
-          "; this is " [:code (str "#" flight)] ", the " [:i "same record"] ". Retracting "
-          "the penguin claim took the guard defeat's support away, and nothing was "
-          "re-derived: belief is read from what is stored, and the stored record never "
-          "moved."])
-       [:p.muted [:a {:href (str "/why/" flight)} "The whole proof"] " · "
-        [:a {:href (str "/sentex/" flight)} "the record"]]])))
+    [:div.belief
+     [:p [:b "Believed"] " — and nobody asserted it. " (handle-ref env flight)
+      " is a conclusion; the rule that reached it is one line down."]
+     (why-tree env (v/why kb flight))
+     (when (= :returned stage)
+       [:p.demo-point
+        [:b "Look at the handle."] " Step 1 concluded " [:code (str "#" first)]
+        "; this is " [:code (str "#" flight)] ", the " [:i "same record"] ". Retracting "
+        "the penguin claim took the guard defeat's support away, and nothing was "
+        "re-derived: belief is read from what is stored, and the stored record never "
+        "moved."])
+     [:p.muted [:a {:href (str "/why/" flight)} "The whole proof"] " · "
+      [:a {:href (str "/sentex/" flight)} "the record"]]]))
 
 (defn- demo-fact-row
   "One watched sentence and what the KB says about it right now: the record and its
@@ -5285,7 +5340,7 @@
      (if handle
        (list [:details.ex-proof
               [:summary "the rule that reached it"]
-              [:ul.why (why-node env 0 why)]]
+              (why-tree env why)]
              [:p.muted [:a {:href (str "/why/" handle)} "the whole proof"] " · "
               [:a {:href (str "/sentex/" handle)} "the record"]])
        [:p.muted "No record: the answer is computed, so there is no sentex to link. "
@@ -5555,9 +5610,9 @@
   than a request: `forward-chain` reports `{:derived :pending}` about four times a second,
   and a report is where a cancel lands.
 
-  **Cancelling one is safe, and the page says so.**  The conclusions are placed as they
-  are made, so an aborted fixpoint leaves a KB holding a *prefix* of the run rather than a
-  corrupt one — the same open-world condition a cancelled load leaves.
+  **Cancelling one is safe, and the page says so.**  The run is called with `:on-stop
+  :keep`, so a cancel or the cap leaves a KB holding a *prefix* of the run, settled, rather
+  than a corrupt one — the same open-world condition a cancelled load leaves.
 
   `cap` bounds it (`:max-derivations`).  `in-monitor` runs the work inside this process's
   write monitor, on the job's own thread.
@@ -5584,7 +5639,7 @@
         (in-monitor
          (fn []
            (v/forward-chain
-            kb (cond-> {}
+            kb (cond-> {:on-stop :keep}
                  cap    (assoc :max-derivations cap)
                  local? (assoc :on-progress
                                (fn [{:keys [derived pending]}]
@@ -6127,7 +6182,7 @@
                 ;; what the save took out of the store, read after the settle: a removal
                 ;; that is derived stays, and the form over it pairs with nothing
                 {went true kept false} (group-by #(nil? (v/sentex kb (:h %))) removals)
-                _         (removed/note! (kb-name kb) :edit (keep (comp rows :h) went))
+                _         (removed/note! (removed-owner kb) :edit (keep (comp rows :h) went))
                 stayed    (into [] (keep #(v/sentex kb (:h %))) kept)
                 stored    (flatten added)
                 paired    (set (keep #(get by-pos (:pos %)) went))
@@ -6282,7 +6337,7 @@
         doomed   (into (vec handles) swept)
         gone     (into [] (remove #(v/sentex kb %)) doomed)
         went     (filterv (set gone) handles)
-        _        (removed/note! (kb-name kb) :retract (keep rows went))
+        _        (removed/note! (removed-owner kb) :retract (keep rows went))
         stayed   (into [] (keep #(v/sentex kb %)) (remove (set gone) handles))]
     (prime-belief! env (map :id stayed))
     (frag (list [:div.editor
@@ -6320,8 +6375,8 @@
 
 ;; ---- what was removed, to put back ---------------------------------------
 ;;
-;; Every removal the browser makes is noted before it is written (`removed/note!`), so a
-;; retraction the reader regrets is one click from undone rather than a sentence to
+;; Every removal the browser makes is noted after its write returns (`removed/note!`), so
+;; a retraction the reader regrets is one click from undone rather than a sentence to
 ;; retype from memory.
 
 (defn- copy-href
@@ -6336,7 +6391,7 @@
   what the last Put back said."
   [{:keys [kb] :as env} note]
   (let [label (kb-name kb)
-        es    (removed/entries label)]
+        es    (removed/entries (removed-owner kb))]
     (render env "removed"
             [:h2 "Removed"]
             note
@@ -6364,8 +6419,8 @@
   `assert-post` checks a form, and assert it; only an assert that went through drops it
   from the list.  Answers the list, with what happened above it."
   [{:keys [kb] :as env} id]
-  (let [label (kb-name kb)
-        e     (removed/entry label id)]
+  (let [owner (removed-owner kb)
+        e     (removed/entry owner id)]
     (if-not e
       (removed-page env [:p.problem "That removal is not on the list any more."])
       (let [{:keys [entries problems]}
@@ -6384,7 +6439,7 @@
                                   [:ul.edit-errors (map problem-line all)]))
           :else
           (do (v/edit! kb batch)
-              (removed/forget! label id)
+              (removed/forget! owner id)
               (removed-page env [:p.chain-note "Put back in " [:code (:context e)] ": "
                                  [:code (:sentence e)]])))))))
 
@@ -6580,8 +6635,8 @@
     (when (or (seq (:add batch)) (seq (:remove batch)))
       (v/edit! kb batch))
     (when rows
-      (removed/note! (kb-name kb) :term (keep #(when-not (v/sentex kb %) (rows %))
-                                              (:remove batch))))
+      (removed/note! (removed-owner kb) :term (keep #(when-not (v/sentex kb %) (rows %))
+                                                    (:remove batch))))
     {:written (count keep-i)
      :refused (for [i (sort bad)] (pr-str (first (adds i))))}))
 
@@ -6667,7 +6722,7 @@
   "One form control for a source option, from its own description — the generator's
   sliders are `vaelii.host.io.generate/knobs` rendered, so the page cannot disagree with
   the generator about a parameter's range or default."
-  [{:keys [key type label default help choices min max step scale unit]}]
+  [{:keys [key type label default help choices min max step scale unit placeholder]}]
   (let [k (name key)]
     (case type
       :slider [:label.knob
@@ -6687,7 +6742,7 @@
                 (for [[v lbl] choices]
                   [:option (cond-> {:value v} (= v default) (assoc :selected true)) lbl])]]
       :number [:label.kb-opt [:span label " "]
-               [:input {:type "number" :name k :value default
+               [:input {:type "number" :name k :value default :placeholder placeholder
                         :min (or min 0) :max (or max 1000000) :step (or step 1)}]]
       :path   [:label.kb-opt [:span label " "]
                [:input {:type "text" :name k :value (or default "") :placeholder "(memory)"
@@ -9151,7 +9206,7 @@
                                       #(edit-job kb req (str "Retract " (count hs) " in " (kb-name kb))
                                                  in-monitor
                                                  (fn [] (retract-post (render-env kb req) hs)))))))))}]
-         ;; the removals noted before they were written, newest first; putting one back
+         ;; the removals noted once they were written, newest first; putting one back
          ;; is an assert, so a job like every other write
          ["/lists" {:get (fn [req] (lists-page (render-env (current target) req)))}]
          ["/lists/run"

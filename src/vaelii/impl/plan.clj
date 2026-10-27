@@ -394,20 +394,27 @@
 
 (defn- greedy-block
   "Order one block's `pairs` by repeatedly taking the literal whose join onto the prefix
-  has the fewest rows, ties to the earlier index.  Returns `{:pairs :n :s :prune?}`:
-  the order, the rows the block produces, the sum of its prefix rows, and whether every
-  literal's `cost` (`est-matches`) is at most 1."
+  has the fewest rows, ties to a literal `cost` does not call a test under the variables
+  bound so far, then to one it does not cost `unbounded`, then to the earlier index.  A
+  test binds nothing and keeps at most the rows in hand.  On a tie the model cannot say
+  whether the other literal keeps fewer, and a test run ahead of one that does is asked on
+  the rows it would have dropped.  A prefix estimated at no rows ties every literal at
+  none, and a literal computed from its bindings joined there, ahead of the literals that
+  bind it, answers nothing: the join would end empty however many rows the prefix holds.
+  `cost`
+  returns `[est-matches test?]`.  Returns `{:pairs :n :s :prune?}`: the order, the rows
+  the block produces, the sum of its prefix rows, and whether every literal's
+  `est-matches` is at most 1."
   [pairs prefix0 bound0 cost summary-of]
   (loop [remaining pairs, prefix prefix0, bound bound0, acc [], s 0.0, prune? true]
     (if (empty? remaining)
       {:pairs acc :n (:rows prefix) :s s :prune? prune?}
       (let [scored (map (fn [[i l :as pr]]
-                          (let [b      (cost l bound)
-                                joined (clamped-join prefix (summary-of pr) b)]
-                            [(:rows joined) i pr joined b]))
+                          (let [[b test?] (cost l bound)
+                                joined    (clamped-join prefix (summary-of pr) b)]
+                            [(:rows joined) (if test? 1 0) (if (>= b unbounded) 1 0) i pr joined b]))
                         remaining)
-            ;; ties resolve to the literal the caller wrote first
-            [rows _ pick joined b] (first (sort-by (fn [[r i]] [r i]) scored))]
+            [rows _ _ _ pick joined b] (first (sort-by (fn [[r t u i]] [r t u i]) scored))]
         (recur (filterv #(not= (first %) (first pick)) remaining)
                joined
                (into bound (sx/form-variables (second pick)))
@@ -485,13 +492,25 @@
      :recs (filterv (fn [[_ l]] (rec? l)) pairs)
      :defs (filterv (fn [[_ l]] (def? l)) pairs)}))
 
+(defn- runs-bound
+  "The variables bound once literal `l` has run: a deferred literal's inputs and outputs
+  (`sentex/deferred-input-vars`, `sentex/deferred-output-vars`), every variable of any
+  other literal."
+  [l]
+  (if (deferred? l)
+    (into (sx/deferred-input-vars l) (sx/deferred-output-vars l))
+    (sx/form-variables l)))
+
 (defn- ready
-  "The deferred literals in `defs` whose input variables (`sentex/deferred-input-vars`)
-  are all in `bound`, in written order.  `(evaluate ?z (+ ?x ?y))` is ready once `?x`
-  and `?y` are bound: waiting on its output `?z` as well would hold it behind the
-  recursive literal."
-  [defs bound]
-  (filterv (fn [[_ l]] (every? bound (sx/deferred-input-vars l))) defs))
+  "`[ready bound']`: the literals of `defs` that `runs?` lets run under `bound` and the
+  variables the ready literals before them bind (`runs-bound`), in run order, and `bound`
+  with those variables added.  `(evaluate ?z (+ ?x ?y))` is ready once `?x` and `?y` are
+  bound: waiting on its output `?z` as well would hold it behind the recursive literal."
+  [defs bound runs?]
+  (loop [pending defs, bound bound, acc []]
+    (if-let [pick (first (filter (fn [[_ l]] (runs? l bound)) pending))]
+      (recur (filterv #(not= pick %) pending) (into bound (runs-bound (second pick))) (conj acc pick))
+      [acc bound])))
 
 (defn- split-waits
   "Split the literals that wait for a bound end (`:end-vars`) out of the generators
@@ -530,11 +549,11 @@
 
 (defn- thread-computed
   "The generators `pairs`, in execution order, with each literal `computed?` names moved
-  to right after the generator that binds the last of its variables.  Those the
-  generators never bind follow them all, in their written order."
-  [pairs computed? bound]
+  to right after the generators that let `runs?` run it.  Those the generators never let
+  run follow them all, in their written order."
+  [pairs computed? runs? bound]
   (loop [remaining pairs, bound bound, pending [], acc []]
-    (let [ready? (fn [[_ l]] (every? bound (sx/form-variables l)))]
+    (let [ready? (fn [[_ l]] (runs? l bound))]
       (if-let [pick (first (filter ready? pending))]
         (recur remaining (into bound (sx/form-variables (second pick)))
                (filterv #(not= pick %) pending) (conj acc pick))
@@ -544,7 +563,38 @@
             (recur (rest remaining) (into bound (sx/form-variables l)) pending (conj acc pick)))
           (into acc pending))))))
 
+(defn- hold-computed
+  "Split the generators `gens` as `[gens held]`.  With a recursive literal in `recs`, a
+  literal `computed?` names is held when `runs?` does not let it run under the fixpoint
+  of `bound`, the non-computed generators' variables and the variables of each computed
+  literal the fixpoint lets run.  Ranked among the generators, a held literal would run
+  with an input open and answer nothing.  `plan-pairs` threads a held literal in with
+  the deferred literals, so it runs once the recursive literal has bound its inputs."
+  [gens recs bound computed? runs?]
+  (if (empty? recs)
+    [gens []]
+    (let [computed (filterv (comp computed? second) gens)
+          base     (into bound
+                         (comp (remove (comp computed? second))
+                               (mapcat (comp sx/form-variables second)))
+                         gens)
+          [ran _]  (ready computed base runs?)
+          ran      (set ran)
+          held?    (fn [[_ l :as pr]] (and (computed? l) (not (ran pr))))]
+      [(filterv (complement held?) gens) (filterv held? gens)])))
+
 (defn- lits [pairs] (mapv second pairs))
+
+(defn- override-cost
+  "`[estimate test?]` from the `:est-override` for `goal` with the variables in `bound`
+  bound, or nil when it gives none.  An override reads the literal as written, so a
+  literal whose every variable the plan has bound is a test, costed at most 1 as
+  `est-matches` costs one: it runs ahead of the literals the model expects to multiply
+  the rows in hand, where the override's estimate for its open variables would hold it
+  behind every generator."
+  [est-override goal bound]
+  (when-let [e (when est-override (est-override goal bound))]
+    (if (settled-when-run? goal bound) [(min e 1) true] [e false])))
 
 (defn- memo-opts
   "The estimator options for one plan: each of the four index reads behind its own
@@ -566,30 +616,50 @@
   (let [goals (vec goals)]
     (if (< (count goals) 2)
       {:pairs (vec (map-indexed vector goals)) :info {}}
-      (let [{:keys [gens recs defs]} (partition-literals goals consequent-pred
+      (let [bound (set bound)
+            {:keys [gens recs defs]} (partition-literals goals consequent-pred
                                                          (closed-extent-tests kb goals))
-            [gens waits] (split-waits gens recs (set bound) end-vars)
+            computed? (fn [l] (when-let [e (when est-override (est-override l bound))]
+                                (<= unbounded e)))
+            ;; A computed literal runs once every variable is bound, or once the override
+            ;; costs it under the bindings below `unbounded`: its inputs are bound and the
+            ;; computation binds the rest.
+            runs?  (fn [l bnd]
+                     (if (and (not (deferred? l)) (computed? l))
+                       (or (every? bnd (sx/form-variables l))
+                           (let [e (est-override l bnd)] (or (nil? e) (< e unbounded))))
+                       (every? bnd (sx/deferred-input-vars l))))
+            [gens held] (hold-computed gens recs bound computed? runs?)
+            defs   (if (seq held) (vec (sort-by first (into defs held))) defs)
+            [gens waits] (split-waits gens recs bound end-vars)
             drop-i (fn [pending taken]
                      (let [taken (set (map first taken))]
-                       (filterv (fn [[i _]] (not (taken i))) pending)))]
+                       (filterv (fn [[i _]] (not (taken i))) pending)))
+            ;; the literals of `pending` after the recursive and waiting literals, those
+            ;; ready under their bindings first, in run order
+            after  (fn [pending bnd]
+                     (let [[r _] (ready pending
+                                        (into bnd (mapcat (comp sx/form-variables second))
+                                              (concat recs waits))
+                                        runs?)]
+                       (into r (drop-i pending r))))]
         ;; `*enabled*` false skips the ranking only; the readiness discipline runs
         ;; either way.
         (if (or (not *enabled*) (< (count gens) 2))
           ;; written order, with waiting and computed literals behind their binders and
           ;; the ready deferred literals ahead of the recursive one
-          (let [computed? (fn [l] (when-let [e (when est-override (est-override l bound))]
-                                    (<= unbounded e)))
-                [gens late] (thread-waits gens waits (set bound) end-vars)
-                gens   (thread-computed gens computed? (set bound))
-                bound' (into bound (mapcat (comp sx/form-variables second) gens))
-                early  (ready defs bound')]
+          (let [[gens late] (thread-waits gens waits bound end-vars)
+                gens   (thread-computed gens computed? runs? bound)
+                [early bound'] (ready defs (into bound (mapcat (comp sx/form-variables second))
+                                                 gens)
+                                      runs?)]
             {:pairs (vec (concat gens early (recs-then-waits recs late bound' end-vars)
-                                 (drop-i defs early)))
+                                 (after (drop-i defs early) bound')))
              :info  {}})
           (let [opts       (memo-opts context)
                 cost       (fn [g bnd]
-                             (or (when est-override (est-override g bnd))
-                                 (est-matches kb g bnd opts)))
+                             (or (override-cost est-override g bnd)
+                                 [(est-matches kb g bnd opts) false]))
                 ;; A summary does not depend on the bindings in hand, so it is computed
                 ;; once per literal.  An override's summary counts no column, so a join
                 ;; with it divides by what the other side read.
@@ -602,23 +672,22 @@
                                    (vswap! summaries assoc i s)
                                    s)))
                 {:keys [pairs info]} (block-order gens bound cost summary-of
-                                                  (into (set bound)
+                                                  (into bound
                                                         (mapcat (comp sx/form-variables second))
                                                         (concat recs defs waits)))
-                [threaded late] (thread-waits pairs waits (set bound) end-vars)]
+                [threaded late] (thread-waits pairs waits bound end-vars)]
             (loop [remaining threaded
                    bound     bound
                    pending   defs
                    acc       []]
               (if (empty? remaining)
-                (let [early (ready pending bound)]
-                  {:pairs (vec (concat acc early (recs-then-waits recs late bound end-vars)
-                                       (drop-i pending early)))
+                (let [[early bound'] (ready pending bound runs?)]
+                  {:pairs (vec (concat acc early (recs-then-waits recs late bound' end-vars)
+                                       (after (drop-i pending early) bound')))
                    :info  info
                    :opts  opts})
-                (let [[_ l :as pick] (first remaining)
-                      bound'         (into bound (sx/form-variables l))
-                      early          (ready pending bound')]
+                (let [[_ l :as pick]  (first remaining)
+                      [early bound']  (ready pending (into bound (sx/form-variables l)) runs?)]
                   (recur (rest remaining)
                          bound'
                          (drop-i pending early)
@@ -634,10 +703,11 @@
     :consequent-pred  the functor of the rule whose antecedents these are; the literal
                       with that functor is placed after the other generators, and of
                       the generators only an `:end-vars` literal it binds an end of
-                      follows it.
+                      and a computed literal it binds a variable of follow it.
     :est-override     (fn [goal bound]) -> estimate or nil, consulted before the index
                       model.  An estimate of `unbounded` marks a literal computed from
-                      its bindings.
+                      its bindings.  A literal whose every variable the plan has bound
+                      costs at most 1, whatever the override gives (`override-cost`).
     :end-vars         (fn [literal]) -> the end variables of a literal that answers in
                       full only once one end is bound, or nil.  Such a literal waits for
                       the first generator that binds an end, or for the recursive
@@ -673,7 +743,7 @@
                     (fn [g bnd] (when-not (deferred? g) (f g bnd))))
          ;; as in `plan-pairs`: the bound under the bindings in hand, the summary under
          ;; the caller's
-         bound-of (fn [g bnd] (long (or (when override (override g bnd))
+         bound-of (fn [g bnd] (long (or (first (override-cost override g bnd))
                                         (est-matches kb g bnd est-opts))))
          sum-of   (fn [g] (if-let [e (when override (override g bound0))]
                             {:rows (double e) :vars (sx/form-variables g) :distinct {}}

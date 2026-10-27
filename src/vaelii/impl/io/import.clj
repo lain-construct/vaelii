@@ -913,8 +913,9 @@
   `handles` is the whole old→new map, sentexes **and** justifications: `add-provenance`
   writes under whatever handle it is given, so a frame can name either kind, and one
   this map cannot resolve is dropped rather than written under a number now holding
-  something else."
-  [kb dir compression read-fn handles total]
+  something else.  With `drop-principal?` a frame's `:principal` is dropped, and every other
+  key lands as written."
+  [kb dir compression read-fn handles total drop-principal?]
   (let [^java.io.File f (io/file dir frames/provenance-file)]
     (if-not (.exists f)
       0
@@ -936,7 +937,9 @@
                                 (comp (filter #(and (sequential? %) (= 2 (count %))))
                                       (keep (fn [[did prov]]
                                               (let [h (get handles did)]
-                                                (when (and h (map? prov)) [h prov])))))
+                                                (when (and h (map? prov))
+                                                  [h (cond-> prov
+                                                       drop-principal? (dissoc :principal))])))))
                                 chunk)]
               (when (seq entries)
                 (cap/put-all-provenance records entries)
@@ -1267,7 +1270,7 @@
 
 (def ^:private import-opt-keys
   "Every key `import-dump` reads."
-  #{:belief? :report-every :on-progress})
+  #{:belief? :report-every :on-progress :drop-principal?})
 
 (def belief-modes
   "What `:belief?` may be, and what each one loads.
@@ -1363,7 +1366,7 @@
   A foreign reader's `replay-belief!` is looked up before the first write, since the
   reader map is in hand and a map without one refuses the dump whatever its frames hold.
   Returns what the summary reads."
-  [kb dir meta compression read-fn decode ours? tick jprint]
+  [kb dir meta compression read-fn decode ours? tick jprint drop-principal?]
   (let [replay-belief! (when-not ours? (dump-reader-field :replay-belief!))
         ;; the last check that can be decided from the dump alone, and so the last one that
         ;; can be decided before the first write: a `:out` frame refused from inside the
@@ -1423,7 +1426,7 @@
              ;; draw from one counter, so nothing collides
              :provenance (import-provenance-frames!
                           kb dir compression read-fn (merge old->new ids)
-                          (:provenance-count meta))
+                          (:provenance-count meta) drop-principal?)
              :dropped    dropped
              :dropped-orphaned dropped-orphaned})
           ;; a foreign dialect's account, read by its own reader
@@ -1511,8 +1514,9 @@
   dialect's numbering, the destination must be empty, and only the `:records` /
   `:records+index` variants are read.  `:pg-memory` and an unknown variant throw.
 
-  `opts`: `{:belief? true|:stored|false :report-every n :on-progress f}`.  An unknown
-  `:belief?` **value** is refused by name, since anything truthy would otherwise mean
+  `opts`: `{:belief? true|:stored|false :report-every n :on-progress f :drop-principal?
+  bool}`.  `:drop-principal? true` lands every provenance map without its `:principal`.  An
+  unknown `:belief?` **value** is refused by name, since anything truthy would otherwise mean
   `true` and run the recover.  `:on-progress` is called
   every `report-every` frames with `{:phase :done :total}` — the phases a dump has, in
   order: `:sentexes`, then (on the belief path) `:justifications` for one of ours or
@@ -1582,7 +1586,7 @@
   were from a summary, on a load that finished, instead of from a stack trace late into
   one that did not."
   ([kb dir] (import-dump kb dir {}))
-  ([kb dir {:keys [belief? report-every on-progress]
+  ([kb dir {:keys [belief? report-every on-progress drop-principal?]
             :or   {belief? true report-every 500000 on-progress no-progress}
             :as   opts}]
    (check-import-opts! opts)
@@ -1636,7 +1640,7 @@
                   (clearing-on-refusal
                    kb hazards
                    #(land-belief-records! kb dir meta compression read-fn decode ours?
-                                          tick jprint))]
+                                          tick jprint drop-principal?))]
               ;; put the index in place — the dump's own entries when they can be proved
               ;; to describe these records, else rebuilt from them — and then recover the
               ;; JTMS + taxonomy and settle belief.  Recovery reads the *records*, so

@@ -591,7 +591,7 @@
 (defn- supporter-contexts
   "The contexts of every sentex a justification of handle `h` names, as a set."
   [kb h]
-  (set (for [s (:support (v/why kb h)) b (:because s)] (:context b))))
+  (set (for [s (:support (tu/why-root kb h)) b (:because s)] (:context b))))
 
 (tu/deftest-kb a-subrelation-declared-below-cxuniverse-orders-the-contexts
   (tu/with-terms [CxData]
@@ -636,3 +636,37 @@
         (testing "retracting the evidence withdraws the edge"
           (v/retract! kb ev)
           (is (not (v/sees? kb km ky))))))))
+
+(tu/deftest-kb a-re-derived-declaration-draws-no-membership-over-a-computed-edge
+  ;; `(arg genlCx 1 context)` and `(arg genlCx 2 context)` are premises in CxUniverse; a
+  ;; temporary rule derives them again, before or after the producer computes the edge.
+  ;; The edge's placement draws no entailment, so the declaration's sweep over the stored
+  ;; extent draws none from it either, and the emptied contexts are collected.
+  (doseq [order [:edge-then-rule :rule-then-edge]]
+    (tu/with-terms [trigger Pull]
+      (let [cxfn      (declare-datetime-dimension! kb)
+            _         (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+            _         (doseq [n [1 2]]
+                        (v/assert kb (list 'set/forwardRule
+                                           (list 'implies (list trigger '?x) (list 'arg 'genlCx n 'context)))
+                                  'CxUniverse))
+            rederive! #(v/assert kb (list trigger Pull) 'CxUniverse)
+            contexts! #(vector (v/assert kb '(holiday NewYear) (list cxfn 'CxMonad (list 'DatetimeFn "2040")))
+                               (v/assert kb '(weather Cold) (list cxfn 'CxMonad (list 'DatetimeFn "2040-01"))))
+            [hy hm]   (case order
+                        :edge-then-rule (let [hs (contexts!)] (rederive!) hs)
+                        ;; the first firing precedes the edge; retracting and re-asserting
+                        ;; the rule's premise derives the declarations again beside it
+                        :rule-then-edge (let [ht (rederive!) hs (contexts!)]
+                                          (v/retract! kb ht)
+                                          (rederive!)
+                                          hs))
+            [ky km]   (map #(:context (v/sentex kb %)) [hy hm])
+            reified?  #(boolean (seq (v/sentexes-matching kb (list 'natFormula % '?e) 'CxUniverse)))]
+        (is (= [true [] []]
+               [(v/sees? kb km ky)
+                (v/sentexes-matching kb (list 'context km) '?c)
+                (v/sentexes-matching kb (list 'context ky) '?c)])
+            (str order ": the edge stands and no membership is drawn over it"))
+        (is (= [false false] [(do (v/retract! kb hm) (reified? km)) (do (v/retract! kb hy) (reified? ky))])
+            (str order ": each emptied context is collected"))))))

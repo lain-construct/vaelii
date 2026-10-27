@@ -171,6 +171,35 @@ Both backward chainers thread one binding map down a derivation path and hand it
           (is (some #(re-find #"'" (name %)) (sx/form-variables (:consequent a)))
               "nothing here needs renaming, so this is not measuring what it claims"))))))
 
+(tu/deftest-kb a-renamed-name-does-not-grow-with-the-depth-of-its-path
+  ;; `prove-from` hands `freshen-rule` the names its path holds, and those gain every name
+  ;; each expansion mints, so 60 expansions deep the taken set holds 60 renamings of each
+  ;; rule variable.  A name searched for along the `?v'`, `?v''` … series is 60 primes long
+  ;; there, and each expansion of a chain n deep pays O(n) tries for it.
+  (tu/with-terms [parentOf anc CxDeepName]
+    (v/assert-rule kb [(list parentOf '?x '?y) (list anc '?y '?z)] (list anc '?x '?z)
+                   CxDeepName {:direction :backward})
+    (let [rule   (first (provers/candidate-rules kb (list anc 'DeepNameA '?z) CxDeepName))
+          vars-of #(sx/form-variables (cons (:consequent %) (:antecedents %)))
+          taken  (reduce (fn [tk _] (into tk (vars-of (res/freshen-rule rule tk))))
+                         (vars-of rule) (range 60))
+          fresh  (vars-of (res/freshen-rule rule taken))]
+      (is (not-any? taken fresh))
+      (is (every? #(<= (count (name %)) 12) fresh) (pr-str fresh))
+      (testing "a name the query wrote itself is passed over"
+        (let [taken #{'?var0 '?var0'2}]
+          (is (= #{'?var0'2'} (set (filter #(re-find #"^\?var0'" (name %))
+                                           (vars-of (res/freshen-rule rule taken))))))))))
+  (testing "and a backward chain 60 deep is proved to its end"
+    (tu/with-terms [linkTo reach CxDeepChain]
+      (let [nd #(symbol (str "DeepChainN" %))]
+        (v/assert-rule kb [(list linkTo '?x '?y) (list reach '?x)] (list reach '?y) CxDeepChain
+                       {:direction :backward})
+        (doseq [i (range 60)] (v/assert kb (list linkTo (nd i) (nd (inc i))) CxDeepChain))
+        (v/assert kb (list reach (nd 0)) CxDeepChain)
+        (is (= (set (map nd (range 61)))
+               (set (map #(get % '?w) (v/prove kb (list reach '?w) CxDeepChain)))))))))
+
 ;; ---- what a solution is a map over ---------------------------------------
 
 (tu/deftest-kb a-solution-is-a-map-over-the-question-not-over-the-proof

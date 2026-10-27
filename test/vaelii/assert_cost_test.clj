@@ -478,6 +478,12 @@
 ;; removal record; a KB declaring a reifiable function reads the `contextArgSubrelation`
 ;; count instead, for the structural-genlCx revival.
 ;;
+;; **One `:predicate-extent` read per teardown, in a KB declaring a reifiable function, is
+;; the correspondence presence check.**  The removal record's value reconcile
+;; (`nat-read/values-reachable?`) reads the `functionCorrespondingPredicate` count, and a
+;; KB storing no declaration reads nothing further (docs/nat.md, The corresponding
+;; predicate).
+;;
 ;; **Four `:predicate-extent` reads per scoped `genl` read are the taxonomy's census.**  A
 ;; scoped `genls` or `genl?` reads which contexts state a `genl`, `covering`, `separating`
 ;; or `partition` fact, one count read per functor (`tax/visible-ctxs`), and the closure
@@ -655,10 +661,10 @@
 
    ;; **One `:rule-index` read per assert, and no rule posting.**  An arriving negation
    ;; triggers the `[:not q]` keys for the specs `q` of its body's predicate
-   ;; (`rules/trigger-keys`), and those are enumerated from the antecedent keys some stored
-   ;; rule takes (`reads/as-stored-rule-keys`, one set read) rather than from the spec
-   ;; closure — so a KB whose rules read no negation, which is this one, names no key and
-   ;; reads no rule posting.  A positive assert's keys are its supers in the same set, so
+   ;; (`rules/trigger-keys`), and those are the spec closure met with the antecedent keys
+   ;; some stored rule takes (`reads/as-stored-rule-keys-meeting`, one read) — so a KB
+   ;; whose rules read no negation, which is this one, names no key and reads no rule
+   ;; posting.  A positive assert's keys are its supers in the same set, so
    ;; every workload reads it once per assert, and a `genl` edge four more times
    ;; (`taxonomy-edge`, the preserved-edge workloads): the closure re-join, the
    ;; `different` check (`checks/negative-edge-rules`) and the two subsumption seeds each
@@ -836,8 +842,9 @@
    ;; retractions — 108 and 100 per retraction, one pair per standing reified NAT, on a
    ;; teardown naming none of them and collecting none of them, because the sweep read what
    ;; the KB held rather than what the retraction reached.  Narrowed to the removed region
-   ;; it is 7 predicate-extent and 0 term-index per retraction, which is `plain-teardown`'s own
-   ;; cost: a bystander NAT population now costs a teardown nothing at all.  `:trie-lookup`
+   ;; it is 8 predicate-extent and 0 term-index per retraction: `plain-teardown`'s own 7 and
+   ;; the correspondence presence check.  A bystander NAT population costs a teardown
+   ;; nothing.  `:trie-lookup`
    ;; goes to 0 for the same reason.  The other five families are the same removal either
    ;; way and did not move.
    ;;
@@ -848,7 +855,7 @@
     :build   nat-bystander-teardown
     :sentexes 0
     :unindexed 100
-    :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
+    :reads   {:exception-index 100 :opposed 100 :predicate-extent 800
               :tax-support 3900 :trie-counts 300 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1003 :term-names 102 :slots 102 :dead 301}}
@@ -860,7 +867,7 @@
    ;; did.  The reads fell with the scope, exactly as the bystander's did — the first
    ;; measurement read 11,800 predicate-extent and 10,100 term-index, off a *declining* population
    ;; the sweep walked twice per retraction (`:term-index` was 2·(100+99+…+1)).  What is
-   ;; left is the region: 14 predicate-extent and 3 term-index per retraction, for a constant
+   ;; left is the region: 15 predicate-extent and 3 term-index per retraction, for a constant
    ;; the population no longer enters.
    ;;
    ;; The orphan question itself settles on the `natFormula` clause here — a collected
@@ -873,7 +880,7 @@
     :build   nat-orphan-teardown
     :sentexes 0
     :unindexed 200
-    :reads   {:exception-index 200 :opposed 200 :predicate-extent 1400
+    :reads   {:exception-index 200 :opposed 200 :predicate-extent 1500
               :term-index 300 :tax-support 7800 :trie-counts 600 :mint 200}
     :writes  {}
     :retracts {:levels 1200 :terms 1000 :roots 2204 :term-names 303 :slots 402 :dead 802}}

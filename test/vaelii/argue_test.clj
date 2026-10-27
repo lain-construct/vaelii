@@ -91,7 +91,7 @@
     (v/assert kb (list dog Muffet) 'CxUniverse)
     (let [r (v/argue kb (list dog Muffet) 'CxUniverse {:max-depth 3})]
       (is (= :true (:verdict r)))
-      (is (true? (:believed? (:for-why r))))
+      (is (true? (:believed? (tu/why-root (:for-why r)))))
       (is (nil? (:for-derivation r))))))
 
 (tu/deftest-kb argue-derives-no-tree-for-a-pattern-or-at-depth-zero
@@ -136,7 +136,7 @@
     (let [r (v/argue kb (list barks Muffet) 'CxUniverse {:max-depth 3})]
       (is (= :contradiction (:verdict r)))
       (testing "the stored side reads from the JTMS"
-        (is (= :monotonic (:defeat-class (:against-why r))))
+        (is (= :monotonic (:defeat-class (tu/why-root (:against-why r)))))
         (is (nil? (:against-derivation r))))
       (testing "the derived side reads from the search"
         (is (nil? (:for-why r)))
@@ -157,10 +157,10 @@
               (v/assert kb (list 'not (list hungry Muffet)) 'CxUniverse {:strength :default})
               (v/argue kb (list hungry Muffet) 'CxUniverse))
           after (v/argue kb (list hungry Muffet) 'CxUniverse)]
-      (is (= [:monotonic :default] [(:defeat-class (:for-why r)) (:defeat-class (:against-why r))])
+      (is (= [:monotonic :default] [(:defeat-class (tu/why-root (:for-why r))) (:defeat-class (tu/why-root (:against-why r)))])
           "inside the batch each side answers with its class")
       (is (= :true (:verdict r)))
-      (is (= [:monotonic nil] [(:defeat-class (:for-why after)) (:defeat-class (:against-why after))])
+      (is (= [:monotonic nil] [(:defeat-class (tu/why-root (:for-why after))) (:defeat-class (tu/why-root (:against-why after)))])
           "after the settle the default side is withdrawn")
       (is (= :true (:verdict after))))))
 
@@ -200,3 +200,45 @@
         (is (= :true (:verdict (v/argue kb goal 'CxUniverse
                                         {:max-depth 3 :strategy :depth-first}))))
         (is (= :unknown (:verdict (v/argue kb goal 'CxUniverse nil))))))))
+
+;; ---- a retrieval-time transitiveInArg answer --------------------------------
+
+(defn- transitive-skill-kb!
+  "A wren that glides, `(genl gliding moving)` and `(transitiveInArg hasSkill 2 genl)`:
+  `(hasSkill Pip moving)` is answered at retrieval and nothing stores it.  Returns the
+  goal and the three sentences an explanation of it has to name."
+  [kb wren hasSkill gliding moving Pip]
+  (let [fact (list hasSkill Pip gliding)
+        edge (list 'genl gliding moving)
+        decl (list 'transitiveInArg hasSkill 2 'genl)]
+    (v/assert kb (list wren Pip) 'CxUniverse)
+    (v/assert kb fact 'CxUniverse)
+    (v/assert kb edge 'CxUniverse)
+    (v/assert kb decl 'CxUniverse)
+    {:goal (list hasSkill Pip moving) :supports #{fact edge decl}}))
+
+(defn- named-in
+  "Every sentence `argue`'s explanation of the positive side names, at any depth: the
+  JTMS map's `:sentence` and `:rule`, and the derivation's `:goal` and `:sentence`."
+  [r]
+  (->> (tree-seq coll? seq [(:for-why r) (:for-derivation r)])
+       (filter map?)
+       (mapcat (juxt :sentence :goal :rule))
+       (remove nil?)
+       set))
+
+(tu/deftest-kb argue-answers-a-retrieval-time-transitive-in-arg-conclusion
+  (tu/with-terms [wren hasSkill gliding moving Pip]
+    (let [{:keys [goal]} (transitive-skill-kb! kb wren hasSkill gliding moving Pip)]
+      (is (true? (v/ask? kb goal)))
+      (is (= :true (:verdict (v/argue kb goal 'CxUniverse {:max-depth 3})))))))
+
+(tu/deftest-kb ^:red argue-names-the-supports-of-a-retrieval-time-transitive-in-arg-conclusion
+  ;; Red on vaelii#239.  The answer holds (the test above), but no record is stored for
+  ;; it and the search reports it as one `:leaf`, so its explanation names none of the
+  ;; fact it was reached from, the `genl` edge or the declaration that licenses the step.
+  (tu/with-terms [wren hasSkill gliding moving Pip]
+    (let [{:keys [goal supports]} (transitive-skill-kb! kb wren hasSkill gliding moving Pip)
+          r (v/argue kb goal 'CxUniverse {:max-depth 3})]
+      (is (= :true (:verdict r)))
+      (is (= supports (into #{} (filter supports) (named-in r)))))))

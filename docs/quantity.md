@@ -68,7 +68,9 @@ Kilogram)` and `(physical_dimension Mass)` ([argtypes.md](argtypes.md)). `Quanti
 `QuantityIntervalFn` declare `measure` as their result, and every shipped position that
 holds a measure (`weightOf`, `heightOf`, the five comparisons, `time.txt`'s durations) is
 declared `measure`. An application there whose function declares a result that does not
-reach `measure` is refused with `:arg-type`, as is a number or a string.
+reach `measure` is convicted with `:arg-type`, as is a number or a string: `assert` stores
+the fact inert, never believed, and `try-assert` refuses it
+([argtypes.md](argtypes.md#an-argument-that-fails-its-declared-type-is-held-inert)).
 
 ## `normalize-quantity`
 

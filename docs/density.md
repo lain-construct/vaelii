@@ -523,7 +523,7 @@ projection, applied by both representations, so neither keeps a second copy of a
 justification and the two still store equal values. **277 → 85 B each**, and the dense
 network's advantage on a rules-heavy corpus goes 1.61× → 3.26×.
 
-### At corpus scale, and why it is the default (item 09)
+### At corpus scale, and why it is the default
 
 The tables above top out at 109k nodes. `lein bench-scale [n] [rn] [reference|dense]`
 takes the per-node resident cost out to 1M under the real `assert` path, both networks,
@@ -579,7 +579,7 @@ record store's own residue [unattributed](#the-premise-set-is-the-row-that-was-h
 a fourth sample settles both. What follows is its output at the default size, extrapolated
 to 100,000,000 facts against a 40 GB heap.
 
-`:disk-log`, at j/n 1.1 — the ratio [below](#at-corpus-scale-and-why-it-is-the-default-item-09)
+`:disk-log`, at j/n 1.1 — the ratio [below](#at-corpus-scale-and-why-it-is-the-default)
 calls the form a common-sense KB actually takes:
 
 | Structure | At 100M | Shape |

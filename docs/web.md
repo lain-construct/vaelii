@@ -177,7 +177,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (a query with no regex metacharacter is a case-insensitive substring match, so `DOG` finds `dog`; a query carrying one is a regular expression under `re-find`, so `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
 | `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:predicate-extent]`, argument-position `[:argument-slot pos]` (the slot predicate set the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
 | `/sentex/:id` | a **sentex** (atomic or rule): an action bar — Copy, Edit, Remove (below) — then its **belief state** (IN, or the `why-not` reason — superseded / defeated / inert / unsupported — with the restatement, contradictors, the declarations a placed defeat convicts through, the grounds of the length an inert tuple breaks, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), the meta-sentexes naming it by `(sentexHandle id)` (`sentexes-naming`, the first 60), its provenance map, and its terms |
-| `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, cycle-guarded, with rule sentences in the author's variable names |
+| `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, each derived node expanded once, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
 | `/levels?q=<goal>&ctx=<context>` | the **lookup-to-query stack**: what each of the eight levels answers for a goal, which level first does, and — above them — the **query plan**: the provers bearing on the goal with their estimates and which one runs. A **vector** goal is a conjunctive query and gets the join plan instead (below). Links across to `/inference` for the same goal |
 | `/inference?q=<goal>&ctx=<context>&d=<depth>` | the **inference debugger**: the run that plan predicted, one step past `/levels`. The **search tree** the node engine builds for a goal — every node the frontier reached (not only the path that answered), each with the itemized estimate that ordered it, the rewrite that produced it, and the answers that came off it — plus the same goal under several **tacticians side by side**, tabled by the work each did and the answers each found. The identity property (every complete tactician returns the same answer set) is **verified** on the page, not asserted: a differing row is marked. Reads through `search-tree` / `compare-tacticians`, both of which bound their own work (a node budget and a wall-clock), so the page holds no session and works under `--attach`. Needs a depth — the node engine's only termination |
@@ -995,18 +995,20 @@ a directory on the wrong machine is the one failure mode here worth designing ou
 A `:pg-snapshot` store's card on `/kbs` has a **Back up** button, which the browser
 confirms first. The store is in two places: its directory holds the index and reasoning
 images and the operation log, and a Postgres schema holds the records. The backup is both,
-in a new directory beside the store named for the time (`<store>-backup-20261020-163005`):
+in a new directory beside the store named for the time (`<store>-backup-20261020-163005`,
+with `-2`, `-3`, … appended when an earlier backup in the same second holds the name):
 
 | file | |
 |---|---|
-| `store/` | an APFS clone (`cp -c`) of the store directory, without its lock file |
+| `store/` | a copy of the store directory, without its lock file: an APFS clone (`cp -cR`) on macOS and `cp -R` elsewhere |
 | `records.dump` | `pg_dump --format=custom` of the schema `index/records.edn` names |
 | `backup.edn` | the source, the seal, the time, and the restore commands |
 
 The job seals the KB first, so the images name the records as they stand, and holds the
 writer claim and the write monitor until the dump is done, so nothing writes in between.
-`pg_dump` reads its schema in one snapshot. A backup that fails or is cancelled deletes its
-own directory. The card shows where the newest one went, or how a running one is getting on.
+`pg_dump` reads its schema in one snapshot. A backup that fails or is cancelled deletes the
+directory it created, and no other. The card shows where the newest one went, or how a
+running one is getting on.
 
 Restoring is by hand and takes the KB offline: unload it, rename its schema aside,
 `pg_restore` the dump (which recreates the schema under its own name), put `store/` back in
@@ -1393,8 +1395,10 @@ renders first.
   that actually went are noted in the KB's **removed list** (`vaelii.browser.removed`):
   the sentence as the editor prints it, its context and its strength, the newest 50 per
   KB, in an EDN file per KB under `~/.vaelii/removed/` (`vaelii.removed.dir`), outside
-  the store it describes. `/removed` lists them; **Put back** asserts one again through
-  `check-edit` and `edit!` and drops it from the list only once the assert went through.
+  the store it describes. The file is named by a digest of the catalog entry's key and
+  name, and a KB no catalog entry holds keeps its list in memory. `/removed` lists them;
+  **Put back** asserts one again through `check-edit` and `edit!` and drops it from the
+  list only once the assert went through.
   The derived sentexes the sweep took are not noted: they return with what they rest on.
 - **Forward chaining** is a POST form on `/stats`, beside the run counter, the last
   run's derived count, and the violations ledger it fills — so what a load did and what
@@ -1523,14 +1527,19 @@ surfacing later as a page that never appears.
 ## The proof tree
 
 `/sentex/:id` shows one hop: the justifications that conclude a handle.
-`/why/:id` shows the whole argument — `vaelii.core/why` walks down to the premises,
-lifting each justification's rule out of its antecedents and reading it back in the
-author's variable names. Each derived node is a `<details>` (the first three levels
-open, deeper branches one click away) whose branches are its justifications; a branch
-ends at a **premise** (with the strength it was asserted at), at a **cycle** back-edge —
-the justification graph may cycle, and `why` reports the edge rather than expanding it
-again — or at a node that is not believed, which links back to the sentex page where
-`why-not` answers instead.
+`/why/:id` shows the whole argument — `vaelii.core/why` returns the justification graph
+down to the premises, each handle once, with each justification's rule lifted out of its
+antecedents and read back in the author's variable names. The page draws the graph as a
+tree from the root. Each derived node is a `<details>` (the first three levels open,
+deeper branches one click away) whose branches are its justifications. A derived node
+expands at its first occurrence in content order; a later occurrence, whether a shared
+antecedent or a cycle back to an ancestor, links to that one (**shown above**), so the
+page grows with the graph and not with the number of paths through it. A derived node
+first reached 64 levels down continues as a tree of its own after the first (**continued
+below**), so the nesting the renderer recurses through stays bounded on a chain of any
+length. A branch ends at
+a **premise** (with the strength it was asserted at) or at a node that is not believed,
+which links back to the sentex page where `why-not` answers instead.
 
 ## The levels page
 

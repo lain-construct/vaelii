@@ -9,6 +9,8 @@
             [vaelii.impl.decide.argument :as argument]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.resolution :as res]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.prover :as prover-types]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -525,6 +527,37 @@
       (is (= #{K0 K1}
              (set (map #(get % '?x) (v/ask kb (list routesTo '?x '?x) CxA)))))
       (is (empty? (v/ask kb (list routesTo '?x '?x) CxB))))))
+
+(tu/deftest-kb a-symmetric-goal-reads-its-mirror-spelling-only-under-a-sub-predicate-that-is-not-symmetric
+  ;; The fact read of `(nearTo Xa Xb)` probes both orders of each fanned predicate whose
+  ;; own mark the reader believes.  A sub-predicate with no mark, or one whose mark an
+  ;; `except` hides from the reader, is read in the written order alone, so its stored
+  ;; `(touches Xb Xa)` answers only through the mirror's fact read.
+  (doseq [sub-mark [:believed :absent :excepted-at-reader]]
+    (tu/with-terms [nearTo touches Xa Xb CxB]
+      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'symmetric nearTo) 'CxUniverse)
+      (when (not= sub-mark :absent)
+        (let [h (v/assert kb (list 'symmetric touches) 'CxUniverse)]
+          (when (= sub-mark :excepted-at-reader)
+            (v/assert kb (list 'except (sx/sentex-handle h)) CxB))))
+      (v/assert kb (list 'genl touches nearTo) 'CxUniverse)
+      (v/assert kb (list touches Xb Xa) 'CxUniverse)
+      (let [read   (atom [])
+            mv     res/matches-visible
+            goal   (list nearTo Xa Xb)
+            answer (with-redefs [res/matches-visible
+                                 ;; the 3-arity calls the var's 4-arity, which counts
+                                 (fn ([k s c] (mv k s c))
+                                   ([k s c x] (swap! read conj s) (mv k s c x)))]
+                     (doall (provers/solve-goal kb goal CxB)))]
+        (is (= [{}] answer) (str sub-mark))
+        (is (= {goal 1 (list nearTo Xb Xa) (if (= sub-mark :believed) 0 1)}
+               (merge {goal 0 (list nearTo Xb Xa) 0}
+                      (frequencies (filter #(= nearTo (first %)) @read))))
+            (str sub-mark))
+        (is (= #{Xb} (set (map #(get % '?x) (v/ask kb (list nearTo Xa '?x) CxB))))
+            (str sub-mark))))))
 
 (tu/deftest-kb the-open-extent-includes-partner-spelled-pairs
   ;; A wholly-open transitive goal answers from the extent, and the extent speaks both

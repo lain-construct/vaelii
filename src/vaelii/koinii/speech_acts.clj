@@ -40,10 +40,12 @@
   "Load the CxSpeechActs vocabulary into `kb` from resources/kb/koinii/CxSpeechActs.txt.
   Koinii KB files are not auto-discovered (the starter walks only upper/ and middle/),
   so this explicit loader is how the context comes into being.  Requires the upper
-  ontology already loaded (CxSpeechActs wires `(genlCx CxSpeechActs CxUniverse)`).
-  Returns kb."
+  ontology already loaded (CxSpeechActs wires `(genlCx CxSpeechActs CxUniverse)`).  Loads
+  the CxDisputes seed too, so the dispute marks' declarations are stored before the first
+  mark.  Returns kb."
   [kb]
-  (id/load-seed-context kb 'CxSpeechActs))
+  (id/load-seed-context kb 'CxSpeechActs)
+  (id/load-seed-context kb 'CxDisputes))
 
 ;; ---- per-agent context placement (koinii design D8) ----------------------
 

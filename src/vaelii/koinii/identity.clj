@@ -93,11 +93,13 @@
   Koinii KB files are not auto-discovered (the starter only walks upper/ and
   middle/), so this explicit loader is how the registry context comes into being.
   Requires the upper ontology already loaded (CxRegistry wires `(genlCx CxRegistry
-  CxUniverse)`).
+  CxUniverse)`).  Loads the CxDisputes seed too, so the dispute marks' declarations are
+  stored before the first mark.
   Returns kb."
   [kb]
   (koinii-types/needs-kb! `load-registry kb)
-  (load-seed-context kb 'CxRegistry))
+  (load-seed-context kb 'CxRegistry)
+  (load-seed-context kb 'CxDisputes))
 
 ;; ---- per-agent contexts: the identity substrate + write boundary ---------
 

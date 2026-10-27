@@ -404,6 +404,60 @@
     (is (false? (:installed? g)) "and detaches again")
     (is (= 1.0 (:pressure g)) "restoring pressure on the way out")))
 
+(tu/deftest-kb the-heap-mark-sets-on-its-pool-and-clears-under-the-mark
+  ;; `kb` was opened by open-kb, which armed the mark; no guard is installed, so the flag
+  ;; clears by the pool's own collection usage
+  (let [on-threshold @#'caches/on-threshold
+        critical     @#'caches/critical
+        exceeded     java.lang.management.MemoryNotificationInfo/MEMORY_COLLECTION_THRESHOLD_EXCEEDED
+        pool         (:heap-mark (caches/memory-guard))
+        at           (fn [frac] (with-redefs-fn {#'caches/pool-fraction (constantly frac)}
+                                  #(caches/heap-critical?)))]
+    (is (some? pool) "this JVM's collector has an old-generation pool")
+    (is (false? (:installed? (caches/memory-guard))))
+    (try
+      (on-threshold exceeded "Another Pool")
+      (is (false? (at 0.95)) "a notification for another pool sets nothing")
+      (on-threshold java.lang.management.MemoryNotificationInfo/MEMORY_THRESHOLD_EXCEEDED pool)
+      (is (false? (at 0.95)) "a usage-threshold notification sets nothing")
+      (on-threshold exceeded pool)
+      (is (true? (at 0.95)) "the pool's collection threshold sets it")
+      (is (true? (at 0.95)) "and it holds while the pool reads over the mark")
+      (is (false? (at 0.5)) "a reading under the mark clears it")
+      (is (false? (at 0.95)) "and it stays clear until the next notification")
+      (finally (vreset! critical false)))))
+
+(tu/deftest-kb under-the-guard-a-young-collection-reading-over-the-mark-stops-nothing-the-pool-reads-under
+  ;; the guard's after-usage on a young collection counts dead tenured objects, so the flag
+  ;; it sets holds only while the armed pool reads over the mark.  `:installed?` is set on
+  ;; the guard directly so no real collection's listener call races the assertions.
+  (let [on-collection @#'caches/on-collection
+        guard         @#'caches/guard
+        critical      @#'caches/critical
+        p0            (:pressure (v/cache-profile))
+        at            (fn [frac] (with-redefs-fn {#'caches/pool-fraction (constantly frac)}
+                                   #(caches/heap-critical?)))]
+    (is (some? (:heap-mark (caches/memory-guard))))
+    (try
+      (swap! guard assoc :installed? true)
+      (on-collection (doto (java.util.HashMap.)
+                       (.put "G1 Old Gen" (java.lang.management.MemoryUsage. 0 950 1000 1000))))
+      (is (true? (at 0.95)) "the guard's reading sets the flag, which holds over the mark")
+      (is (false? (at 0.5)) "the pool reading under the mark clears it")
+      (finally (swap! guard assoc :installed? false)
+               (vreset! critical false)
+               (@#'caches/set-pressure! p0)))))
+
+(deftest the-pool-reading-is-the-lower-of-the-collection-usage-and-the-usage-now
+  (let [pf   @#'caches/pool-fraction
+        pool (fn [coll now]
+               (reify java.lang.management.MemoryPoolMXBean
+                 (getCollectionUsage [_] (when coll (java.lang.management.MemoryUsage. 0 coll 1000 1000)))
+                 (getUsage [_] (java.lang.management.MemoryUsage. 0 now 1000 1000))))]
+    (is (== 0.4 (pf (pool 950 400) 1000)) "a young collection reclaimed what the last cycle counted")
+    (is (== 0.95 (pf (pool 950 980) 1000)) "a filling pool reads its collection usage")
+    (is (nil? (pf (pool nil 980) 1000)) "a pool with no collection usage reads nil")))
+
 (deftest the-old-generation-fraction-is-read-from-the-tenured-pool
   (let [ogf @#'caches/old-gen-fraction
         m   (doto (java.util.HashMap.)
@@ -658,6 +712,10 @@
    "match-step-budget"   (str "provers.clj — how many characters one `matchesPattern` match "
                               "may read before it is refused too costly; a per-match "
                               "evaluation bound, nothing retained")
+   "gain-term-posting-limit" (str "checks.clj — how many postings a term a `genlCx` move's "
+                                  "gain types may hold for the argument holds to read its "
+                                  "postings in place of the readers' tuples; a per-move "
+                                  "read bound, nothing retained")
    "default-describe-limit" (str "core.clj — how many entries one of `describe`'s bounded "
                                  "lists carries; a per-read truncation of an answer computed "
                                  "fresh each call, nothing retained")})

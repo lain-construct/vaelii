@@ -15,6 +15,7 @@ consults belief, the stored content or the KB's naming policy.
 |------|-----------|----------------------------|----------|
 | predicate | camelCase, lowercase-initial, no `_`, **arity 2+** | `[a-z][a-zA-Z0-9]*` | `parentOf`, `genlCx`, `arg` |
 | individual | CapitalCamelCase | `[A-Z][A-Za-z0-9]*` (not a context) | `Muffet`, `Tom` |
+| function | an individual's spelling ending in `Fn` | `[A-Z][A-Za-z0-9]*Fn` (not a context) | `FatherFn`, `QuantityFn` |
 | type | snake_case, a **unary** predicate | `[a-z][a-z0-9_]*` | `dog`, `physical_object` |
 | **sense** | a type, plus the disambiguator saying *which* sense | `[a-z._][…]*-[a-z0-9][…]*` | `abrasive-grit`, `abandonment-romantic` |
 | context | `Cx` prefix, then CapitalCamelCase; or the `cx` **namespace** | `Cx[A-Z][A-Za-z0-9]*`, or `(namespace x)` = `"cx"` | `CxUniverse`, `CxWell`, a reified context ([context-nat.md](context-nat.md)) |
@@ -61,6 +62,10 @@ consults belief, the stored content or the KB's naming policy.
 - **Overlap is expected.** A plain lowercase word (`dog`, `genl`, `likes`) satisfies both
   `predicate?` and `type-symbol?`, and position and arity decide its role: `genl` is a
   predicate in `(genl dog animal)`, `dog` a type in `(dog Muffet)`.
+- **A function is an individual by spelling as well.** `individual?` answers true for
+  `FatherFn`, and `function-spelled?` is read only where a position names a relation that
+  may be a function, the commutativity marks
+  ([taxonomy.md](taxonomy.md#well-formedness-vaeliiimplwff)).
 - **Accessors.** `functor`, `args`, `arity` destructure a sentence.
 
 ## Enforcement: every literal, and the arity biconditional
@@ -154,7 +159,13 @@ binding's.
 (arity livesIn 1)                    ; refused — camelCase bound to one argument
 (arityMin livesIn 1)                 ; fine — two and more are admitted
 (binary_predicate likes)             ; fine — a bare word takes any length
+(unary_predicate nat/a0IQuAcmzmTCb)  ; fine — a reified constant states no role
 ```
+
+A reified constant (`nm/reified-constant?`, a `nat/` or `cx/` symbol) is held to no
+length, as a binding or as a literal's functor: the engine mints its name, and a mint
+of a function whose `result` is a unary class asserts `(unary_predicate nat/K)`
+([nat.md](nat.md)).
 
 The refusal is `:length-against-spelling`, carrying `:relation`, `:class`
 (`:functor-arity` or `:functor-unary`) and `:binding` (`{:exact n}` or `{:min m}`). It
@@ -423,3 +434,6 @@ camelCase temp to arity 2 and above: the base's capitals are folded out (`parent
 `tmpparentof17`). A test that wants the arity-1 commitment writes the base with an
 underscore and takes a `:type` temp; one that wants arity 2 and above writes the literal
 rather than a temp.
+
+A `:function` temp keeps the `Fn` ending after the gensym (`PairFn` ⇒ `TmpPair17Fn`), so it
+stays `function-spelled?`.

@@ -10,31 +10,23 @@
             [vaelii.test-util :as tu]))
 
 (deftest violations-accumulate-across-chaining-runs
-  ;; Forced to the constraint reading: the entries counted are arg convictions of a symbol
-  ;; argument, which the entailment reading mints instead (docs/argtypes.md).
-  (tu/without-entailing
-   (tu/with-neutral-kb [kb tu/fresh]
-     (tu/with-terms [person rock parentOf looksLike unrelated Boulder Muffet Spot]
-       (v/assert kb (list 'genl person 'thing) 'CxUniverse)
-       (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-       (v/assert kb (list 'disjoint person rock) 'CxUniverse)
-       (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-       (v/assert kb (list rock Boulder) 'CxUniverse)
-       (v/clear-violations! kb)
-       ;; the rule derives (parentOf Boulder Muffet) for the stored (rock Boulder) — under
-       ;; the constraint reading no membership is derived, so there is no opposing sentex
-       ;; to arbitrate against and the conclusion is dropped rather than placed (a disjointness clash *is*
-       ;; arbitrated; see constraint_nogood_test)
-       (v/assert-rule kb [(list rock '?x)] (list parentOf '?x Muffet) 'CxUniverse {:direction :forward})
-       (let [drops (filter #(= :arg-type (:violation %)) (v/violations kb))]
-         (is (seq drops) "the derived inadmissible conclusion was recorded")
-         (is (every? :run drops) "every entry carries its chaining run id"))
-       (testing "a later, unrelated assert no longer erases the ledger"
-         (v/assert kb (list unrelated Spot) 'CxUniverse)
-         (is (seq (filter #(= :arg-type (:violation %)) (v/violations kb)))))
-       (testing "clear-violations! is the one way to empty it"
-         (v/clear-violations! kb)
-         (is (empty? (v/violations kb))))))))
+  ;; The entries counted are `:no-placement` drops: rule and fact live in island
+  ;; contexts with no common descendant, so the firing completes and its conclusion has
+  ;; nowhere to land.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog barksAt unrelated Muffet Spot CxIslandA CxIslandB]
+      (v/assert-rule kb [(list dog '?x)] (list barksAt '?x '?x) CxIslandA {:direction :forward})
+      (v/clear-violations! kb)
+      (v/assert kb (list dog Muffet) CxIslandB)
+      (let [drops (filter #(= :no-placement (:violation %)) (v/violations kb))]
+        (is (seq drops) "the dropped firing was recorded")
+        (is (every? :run drops) "every entry carries its chaining run id"))
+      (testing "a later, unrelated assert no longer erases the ledger"
+        (v/assert kb (list unrelated Spot) 'CxUniverse)
+        (is (seq (filter #(= :no-placement (:violation %)) (v/violations kb)))))
+      (testing "clear-violations! is the one way to empty it"
+        (v/clear-violations! kb)
+        (is (empty? (v/violations kb)))))))
 
 (deftest a-completed-firing-with-no-placement-context-is-recorded
   (tu/with-neutral-kb [kb tu/fresh]

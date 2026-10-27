@@ -143,7 +143,7 @@ ground of the other, would give two readings. The forced-monotonic set rules tha
 `decide/forced-monotonic?` is the one reader of membership. Every reader reads the
 **baseline forced-monotonic set** (`decide/global?`). A declaration stated in any
 context, CxUniverse's included, makes its predicate forced-monotonic at the readers that see it
-and believe it, and at no other (design ruling 28). A reader does not believe a
+and believe it, and at no other. A reader does not believe a
 declaration that an `except` in force there hides, or that a stored `defeat` names whose
 nogood the reader decides against the declaration over the baseline set alone
 (`exc/forced-state`, through `exc/in-force?`). A placed `(contradicts …)` the reader
@@ -160,14 +160,15 @@ recovers under the new one. The decisions that make each group forced-monotonic 
 **Forcing is applied when belief is computed, never when content is stored.** Every write
 is stored as written: a premise at the strength it was written at, a denial of a forced-monotonic
 literal as an ordinary premise, and every rule firing whatever its rule and conclusion. The
-network holds three forced sets beside the strengths (`jtms/set-forced`), each a set lookup
-on the relabel path:
+network holds four forced sets beside the strengths (`jtms/set-forced`), each a set lookup
+on the relabel path or the belief read:
 
 | set | members | what the labeller does |
 |---|---|---|
 | `:mono` | a premise of a `genlCx` edge (`checks/forced-premise?`) | its premise mark confers `:monotonic` |
 | `:out` | a stored tuple that breaks its functor's length, at either strength (`arity/inert-tuple?`, [taxonomy.md](taxonomy.md#arity)), a stored fact whose argument fails its declared argument type (`checks/argument-conviction`, [argtypes.md](argtypes.md#an-argument-that-fails-its-declared-type-is-held-inert)), and a stored rule one of whose variables no term can fill ([argtypes.md](argtypes.md#a-rule-whose-variable-no-term-can-fill-is-held-inert)) | the fixpoint never adds it, so it is never believed, forms no nogood and fires no rule; a firing of a held rule is never valid |
 | `:void` | a firing convicted with its conclusion read against the baseline forced-monotonic set and its antecedents against the union of every reader's set (`checks/network-void?`) | the justification is invalid: it supports nothing and confers no class |
+| `:held` | a stored rule holding an open application its own context respells nowhere (`nat/held-application?`, [nat.md](nat.md#a-rule-or-a-goal-that-names-an-open-application)) | nothing: the rule keeps its label, so the spellings resting on it stay valid, and `in?` subtracts the set, so it is never believed and fires no rule; an empty set costs `in?` one emptiness check |
 
 **The network reads the most permissive forced-monotonic set, and the read walk hides.** A
 denial of a literal forced-monotonic only by a declaration stated outside CxUniverse forms
@@ -190,7 +191,7 @@ classifier rules (`typeOrthogonal`, `partitionedByType`) are of that kind.
 **A verdict is placed at the readers whose forced-monotonic set gives it.** `chain/place-justified!`
 places the verdict the baseline forced-monotonic set gives, which rests on no declaration. A declaration,
 CxUniverse's included, whose predicate a member literal holds is an ingredient of a second placement, as an
-except is of a guard defeat (ruling 23): at the maximal contexts that see the placement
+except is of a guard defeat: at the maximal contexts that see the placement
 and the declaration, resting on it, with the verdict that declaration gives, so a loser
 there has a stored `defeat` (`chain/declared-placements`). A declaration leaving takes
 only the placements resting on it. The inherited family's memo asks again the entries a
@@ -199,8 +200,8 @@ which claims a vantage believes. At a reader, `exc/verdict-at` re-decides with
 that reader's forced-monotonic set, so a `defeat` placed above a declaration is out of force at the
 readers that see the declaration.
 
-`checks/force-sentex!` writes a stored sentex's `:mono` and `:out` memberships before its
-premise mark lands, the arity family's store hook writes the `:out` membership of a
+`checks/force-sentex!` writes a stored sentex's `:mono`, `:out` and `:held` memberships
+before its premise mark lands, the arity family's store hook writes the `:out` membership of a
 breaking tuple that a mint, a lift or a rewrite stores (`decide/note-candidate!`),
 `checks/hold-rule-conviction!` writes the `:out` membership of a convicted rule a
 generator or a `defn*` fact mints before its justification is added, and the
@@ -274,10 +275,27 @@ and every other, which adds belief elsewhere. Because `folk_species` is forced-m
 denial of `(folk_species S)` loses to a believed `(folk_species S)` at either strength, and a rule concluding a forced-monotonic literal
 from `(folk_species ?s)` alone is a forced-monotonic rule.
 
+`core.txt` declares `(forced_monotonic_predicate inverse)`. Its rules type each argument
+of one partner of an `(inverse P Q)` by the swapped argument of the other, reading
+`inverse` beside `arg` or `quotedArg`. `arg` is forced-monotonic, so without the
+declaration every firing concluding an `arg` from an inverse is void. `core.txt` also
+declares `(symmetric inverse)`, so `(inverse P Q)` and `(inverse Q P)` store as one
+sentence, each rule reads it from either partner, and a firing read through the mirror
+names `(symmetric inverse)` among its supports. `inverse` is not on
+the baseline: a KB that does not load `core.txt` holds it defeasible, and a `:monotonic`
+denial there defeats a `:default` inverse. Where the declaration is seen, a denial of
+`(inverse P Q)` loses to a believed `(inverse P Q)` at either strength. `retract!` does
+not refuse the declaration's retraction. An inert `(set/inert (inverse P Q))`, as
+`space.txt` states for each converse pair, is no premise and fires no rule, so no argument
+is typed through it.
+
 **Retracting a declaration is refused where its predicate has no unforced semantics.**
-`retract!` and `edit!` refuse the retraction of every declaration `core.txt` makes except those
-of `injection`, `surjection` and `bijection`, with `:type :uncleared-forcing`, the
-`:predicate` and the `:missing` semantics (`checks/uncleared-forcing`). `genlCx` is always
+`retract!` and `edit!` refuse the retraction of the declarations `checks/uncleared-forcing`
+lists, with `:type :uncleared-forcing`, the `:predicate` and the `:missing` semantics: the
+`forced_monotonic_between_predicates` declaration of `genl`, and the `forced_monotonic_predicate`
+declarations of `genlCx`, `except`, `exceptWhen`, the relation marks, `orthogonal`, the five
+separations, the arity bindings and the equality relations. The retraction of any other
+forcing declaration succeeds. `genlCx` is always
 forced and lifted. The refusal reads the sentence alone.
 
 **A restart rebuilds the sets from the records.** `recover` replays every premise at its
@@ -319,15 +337,22 @@ over a merely-default premise concludes a *default*, the same bare rule over kno
 facts concludes `:monotonic`. **The taxonomy edges a firing names are grounds like the
 facts** — a `genl` edge a subsumed match climbed, a `genlCx` edge the conclusion's context
 reads the rule or the facts over ([contexts.md](contexts.md)) — and cap it the same way.
-The **informant is excluded** from the cap. So are the marks of a `respell` justification,
-which caps its class at its first antecedent, the as-written row, alone
-(`jtms/class-antecedents`, [canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)).
+A **premise** rule informant is excluded from the cap. A rule informant with no premise
+mark, a generator's mint among them, caps it at the rule's own class, which is the class of
+the rule's grounds. A `:monotonic` conclusion therefore rests on no `:default` handle through
+its rule, and the read walk that takes a `:monotonic` handle at its label
+(`except/support-read`) misses no defeat that can hide it. The marks of a `respell`
+justification are excluded from the cap as well: a `respell` justification caps its class
+at its first antecedent, the as-written row, alone (`jtms/class-antecedents`,
+[canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)).
 
 A rule's own class (`:strength` — `opts :strength` at the entry point, what `defeat-class` answers
 for its handle, what a solver is shown) and a rule's defeasibility (bare versus
-`set/defaultRule`, what its firings confer) are two slots, and only the second moves belief;
-nothing in the engine defeats a rule. Why the cap, why the taxonomy edges count, and why the
-informant does not: [why](defenses.md#a-firing-is-capped-by-its-weakest-ground).
+`set/defaultRule`, what its firings confer) are two slots. For a premise rule only the
+second moves belief, and nothing in the engine defeats a premise rule. A derived rule is
+hidden wherever a defeat hides one of its grounds, and its class carries that hiding to its
+firings. Why the cap, why the taxonomy edges count, and why a premise informant does not:
+[why](defenses.md#a-firing-is-capped-by-its-weakest-ground).
 
 This makes the class equation **recursive**: a node's class depends on its
 antecedents' classes. `jtms/region-classes` solves it as a **least fixpoint inside
@@ -422,6 +447,11 @@ downstream of it, so every relabel is scoped to the **affected region** — the
 forward consequence closure of whatever changed — with the rest of the graph held
 fixed as a boundary. Cost is proportional to the region, not to the size of the KB.
 
+Two writes change no input of their region and relabel nothing: a redundant justification
+([why](defenses.md#the-touched-set-is-a-superset-not-the-flip-set)), and a premise mark the
+node already holds at the same strength. A re-assert of a stored fact and an in-session
+`recover` write the second, and each notes only its own handle as touched.
+
 The reconciliation with invariant 1 is the crux: a least fixpoint over the region
 with boundary labels fixed has a **unique** solution, and it is the same one a
 global fixpoint would produce. Uniqueness is why locality costs no order
@@ -501,10 +531,10 @@ can admit.
 Every row declares `:holds-content?`, and the `derived` check fails a row that declares
 true unless the check's `HOLDS_CONTENT` list names it. The list names one row, S5, the
 refusal record ([exceptions.md](exceptions.md), "A refused firing is remembered as
-bindings"): its closed-extent and separation refusals, `:constraint` and `:lift` entries
-are sentences no store holds, so `recover` re-derives them (`chain/rerecord-refusals!`,
-`special/rebuild-pending!`) and a `:constraint` entry of a rule no trigger watches is not
-re-derived.
+bindings"): its closed-extent and separation refusals and its `:lift` entries are sentences
+no store holds, so `recover` re-derives them (`chain/rerecord-refusals!`,
+`special/rebuild-pending!`). A firing an argument conviction convicts is not among them: it
+is a stored sentex the argument hold keeps OUT.
 
 **Belief-free indexes in the IndexStore.** A structure computed in full at the write from
 stored content alone is an index, and belongs in the IndexStore as a count-trie family
@@ -559,8 +589,8 @@ Belief is a least fixpoint, recomputed region-locally rather than accumulated:
 
 ### Derivation depth
 
-A node's depth is what the forward chaining bound reads
-([inference.md](inference.md#forward-chaining), `:max-depth`). The network holds every
+A node's depth is what the forward chaining option `:max-depth` reads
+([inference.md](inference.md#forward-chaining)), which has no default. The network holds every
 depth at the least solution of one equation: a premise sits at 0, and any other node at
 the least, over its justifications, of one more than the justification's deepest
 antecedent. A justification's informant is not one of its antecedents. The solution is a
@@ -1073,6 +1103,13 @@ The distinction exists only at the moment of creation: by the time the relabel r
 new node and one that has been OUT for a hundred settles are both unbelieved nodes about
 to become believed.
 
+A pass reads its region before `chain/place-nogoods!` runs the argument-hold and arity
+refreshes, so a datum either refresh takes out of the `:out` forced set relabels after
+that read. `place-nogoods!` returns those handles as `:released`, and `revived-seeds`
+reads them beside the region. A rule a `disjoint` leaving releases therefore fires over
+the facts stored while the rule was held, at the releasing write, as it does when the
+facts arrive after the release. The added read is the handles the two refreshes moved.
+
 A reader that asks the touched set more than once in one settle takes a mark
 (`jtms/touch-mark`) and reads what the touched set recorded after it (`jtms/touched-since`): a
 datum relabelled again after the mark is in that answer although `touched` held it
@@ -1157,8 +1194,8 @@ firings over them, recovers to the store a fresh KB holds
 ### The set-membership states a node can hold
 
 A node carries two independent descriptions, one persistent and one per-settle. Its
-**belief state** is read from the datum-keyed set `:in` and the `:superseded` map, and it
-survives across settles. Its **touched-set membership** is read from `:touched`, `:touched-in`
+**belief state** is read from the datum-keyed set `:in`, the `:superseded` map and the
+`:held` forced set, and it survives across settles. Its **touched-set membership** is read from `:touched`, `:touched-in`
 `:touched-new` and `:touched-out`, and `reset-touched!` clears those four at
 `settle-finish`, so a touched-set membership exists only during the settle that wrote it.
 `:blocked` and the `:void` forced set are keyed by justification id rather than by datum,
@@ -1166,16 +1203,19 @@ so they name no node state of their own; each reaches a node through `valid?`, w
 it in the fixpoint. A node is OUT exactly when it has no valid derivation or is in the
 `:out` forced set.
 
-Reported belief — the answer `in?` gives — is `:in` minus `:superseded`, because a
-superseded spelling stays in `:in` to keep its rewritten twin's justification valid even
-though it no longer matches. The invariant `superseded ⇒ :in` leaves three belief
-states:
+Reported belief — the answer `in?` gives — is `:in` minus `:superseded` and `:held`,
+because a superseded spelling stays in `:in` to keep its rewritten twin's justification
+valid even though it no longer matches, and a held rule stays in `:in` to keep its
+respelled rows' justifications valid. Setting `:held` relabels nothing; it records the
+moved members in the touched set, so the settle reports the belief change. The
+invariant `superseded ⇒ :in` leaves four belief states:
 
-| belief state | in | superseded | `in?` |
-|---|:--:|:--:|:--:|
-| believed | ● | | yes |
-| superseded | ● | ● | no |
-| no derivation | | | no |
+| belief state | in | superseded | held | `in?` |
+|---|:--:|:--:|:--:|:--:|
+| believed | ● | | | yes |
+| superseded | ● | ● | | no |
+| held | ● | | ● | no |
+| no derivation | | | | no |
 
 A `believed` node is a premise or a datum with a valid justification, and not in the
 `:out` forced set. A node with `no derivation` has no premise and no valid justification,
@@ -1903,14 +1943,18 @@ the resulting belief set depend on which rule fired first, and the engine's stan
 that contradictions are soft. A failing conclusion is *dropped* — no sentex, no
 justification, nothing believed — logged at `:warn`, and recorded in
 `(core/violations kb)` as `{:violation <kind> :sentence :context :rule :detail}`, the
-kind naming which check refused (`:arg-type`, `:arg-genl`, `:inter-arg-type` and the rest
-of the argument-constraint family). A disjointness or functionality clash is placed and
+kind naming which check refused. A disjointness or functionality clash is placed and
 arbitrated rather than dropped ([Which entry point the content came
-through](#which-entry-point-the-content-came-through)). An argument-constraint drop convicts on a type
-the taxonomy separates from the declared one, so it is also remembered and re-asked once a
-`genl` or `genlCx` edge, a separation (`tax/separation-inputs`), or a membership of the
-convicted term stored or removed can have lifted it; placed then, its ledger entry is
-withdrawn ([exceptions.md](exceptions.md), "A refused firing is remembered as bindings"). Two more kinds ride the same path: a completed firing
+through](#which-entry-point-the-content-came-through)). An argument conviction `assert`
+holds inert drops nothing either: the conclusion is stored with its justification and held
+in the `:out` forced set, `violations` lists it as `:inert-argument`, and the settle's
+argument-hold refresh releases it once a `genl` or `genlCx` edge, a separation or a
+membership lifts the conviction ([argtypes.md](argtypes.md#an-argument-that-fails-its-declared-type-is-held-inert)).
+The derivation path and `assert` therefore store the same set in either arrival order, and
+a `recover` decides the hold from the stored sentex. A conviction of a function
+application's input is dropped as `:arg-type`, `:arg-genl`, `:inter-arg-type` or
+`:quoted-arg-type`, since `assert` refuses the same sentence
+(`checks/check-application-inputs`). Two more kinds ride the same path: a completed firing
 with **no placement context** is recorded as `:no-placement`, and a *derived*
 `genl`/`genlCx` edge that would close a cycle through negation is dropped and recorded as
 `:not-stratified`. A rule a **generator** minted and the rule checks refuse is dropped
@@ -2176,8 +2220,12 @@ and `genlcx_move_oracle_test` check the reading against belief at every step
 (`test-util/verdict-violations`).
 
 **A pass's reader states.** A pass that reads many handles between its own writes binds
-`exc/*reader-states*` (`exc/with-reader-states`): the settle, the withheld-mint release
-and the argument-hold refresh. It keeps each context's reader state while the change clock
+`exc/*reader-states*` (`exc/with-reader-states`): the settle, the withheld-mint release,
+the argument-hold refresh and the argument-type pass over stored facts
+(`special/call-with-pass-caches`, which `record-arg-types` and `record-arg-types!` run;
+an entailment whose mint the fact would leave as it is is passed over before its checks,
+`special/unchanged-mint?`, [argtypes.md](argtypes.md#the-pass-over-a-stored-kb)). It
+keeps each context's reader state while the change clock
 stands, and the state's frame (`exc/reader-frame`) across writes that move nothing the
 frame reads. A frame reads the stored facts of the defeat, except, conflict, sibling
 exception, equality and forced-monotonic declaration functors and the stored rules, which
@@ -2185,9 +2233,9 @@ exception, equality and forced-monotonic declaration functors and the stored rul
 forced-monotonic sets, which `frame-inputs` compares; and the labels of the stored excepts
 and declarations, which it reads again for the watched handles the touched sets record
 (`jtms/touched-since`). A defeat naming a declaration makes the frame read belief beyond
-these, so while one is stored a frame lasts one clock value. `yielding-reads?` is kept
-apart: a forced-monotonic fact leaving makes it read whole, and one stored makes it ask
-that fact's functor alone (`exc/held-yield`). A release of n withheld mints that each read
+these, so while one is stored a frame lasts one clock value. `yielding-reads?` is held
+apart, in the taxonomy's closure memo and across writes: a forced-monotonic fact leaving
+the index makes it read whole, and one stored makes it ask that fact's functor alone. A release of n withheld mints that each read
 belief through the walk builds one frame where it built one per check (`perf`'s
 `release-beside-forced-declarations`), and every state a pass reads equals the one a fresh
 build answers
@@ -2387,7 +2435,7 @@ D1 defeats L1 and rests on G1; D2 defeats L2 and rests on G2
 
 D1 in force hides L1, which hides G2 and takes D2 out of force; D2 in force does the
 mirror. Both readings are consistent, and nothing in the sentences prefers one. The walk
-breaks the cycle in content order (design ruling 18). It keeps each defeat it reads open
+breaks the cycle in content order. It keeps each defeat it reads open
 (`exc/in-force-once`). A defeat met again while open answers false, and a value that met a
 defeat open below its own is provisional and is not kept. The defeats left provisional when
 the first of them closes form the cycle, and `exc/close-cycle` orders them by the handle
@@ -2442,7 +2490,7 @@ since the guard is checked in the network and stores its defeat in every order
 ([exceptions.md](exceptions.md#stratification)).
 
 The guard at a firing's own placement takes the same reading for a blocker of either
-class (design rulings 25 and 30): the firing is stored and its guard defeat placed beside
+class, `:default` or `:monotonic`: the firing is stored and its guard defeat placed beside
 it.
 A guard whose blocker is the loser of a nogood grounded on the firing's conclusion, all in
 one context, is the two-defeat cycle above, and the walk reads it in content order in
@@ -2674,6 +2722,20 @@ many subsumptions climb through it
 The reads hold the walks' sorted neighbours and edge supporters (`tax/with-neighbours`),
 and a witness walk past its first expansions keeps only the types under its target
 ([taxonomy.md](taxonomy.md#strength-of-a-subsumption-path)).
+The same cache holds the reads a route repeats that no write between them can move
+(`tax/pass-held`): the maximal common descendants of a context set under the reading, a
+reader's scope, a flat-cache key's believed supporters and whether an except reaches a
+handle. The nogoods of one family name few context sets, so a pass reads each once and not
+once a route, and a route's supporters are read key by key, a strict key's
+`:monotonic` ones before the product (`placed_nogood_test/a-reading-pass-places-each-membership-nogood-as-a-fresh-read-does`,
+`lein perf`'s `membership-placement-beside-wide-contexts`). The membership read logs its
+progress a nogood at a time.
+The membership family hints the record store a chunk of terms at a time with the records
+its two loops read for them: each nogood's members, the sentexes naming them and the
+antecedents of their placement justifications (`chain/placement-hinter`), so a store with
+a fetch cache in front of a round trip reads them in one round trip a chunk
+([storage.md](storage.md#prefetching--the-optional-hint), `lein perf`'s
+`membership-placement-over-a-fetch-cache`).
 A `defeat` the pass stores posts its
 target's re-check before the drain (step 6), and a target a removed defeat gives back is
 re-chained only when the taxonomy derives an answer from it (`tax/derives-from?`): the
@@ -2709,18 +2771,22 @@ placed `contradicts` (`clashes/read-clashes`).
    forced-monotonic set does not hold moved in belief. The write path reconciles every supersession a
    stored or removed sentence moves, so a settle that moved no equality premise reconciles
    none ([equality.md](equality.md#what-a-merge-does)).
-4. `refresh-beliefs` again whenever a supersession entry changed since the last settle,
+4. The values step, off on a rebuild: the corresponding facts whose belief or visibility
+   the settle moved, and the uses an `except` hid or showed, queue their constants
+   (`nat-read/note-values`) for `chain/sync-values!`
+   ([nat.md](nat.md#the-corresponding-predicate)).
+5. `refresh-beliefs` again whenever a supersession entry changed since the last settle,
    over the region plus those data (`special/take-supersession-moves!`). A merge
    supersedes a `genl` or `disjoint` declaration with no label moving, and step 2 read
    the region alone. The spellings an un-merge gave back go to `settle`'s re-seed
    ([the other half](#the-other-half-a-spelling-an-un-merge-gives-back)).
-5. The published set: the region, the supersession flips, the twins step 2 stored, and the
+6. The published set: the region, the supersession flips, the twins step 2 stored, and the
    handles a `defeat` stored, removed or standing before the write reaches, read at their
    own context ([The published set](#the-published-set)), handed to
    `*touched-sink*`, `*touched-in-sink*` and the change feed. The sets are built only when
    a sink is bound or a listener is registered, and the feed is skipped on a rebuild,
    whose region is the whole KB.
-6. `reset-touched!`.
+7. `reset-touched!`.
 
 `jtms/touched` is read once, into a delay every step shares, because the dense network
 copies its bitmap into a set on each read.
@@ -2799,7 +2865,7 @@ another. These checks hold invariant 2 end to end:
 | a `genl` edge deep in a chain, one `genl` edge or `inverse` declaration defeated and revived beside n `disjoint` declarations (the relabel and `refresh-beliefs`), and a `symmetric` mark defeated and revived below its facts beside the facts under another mark | `taxonomy-depth`, `taxonomy-belief-flip`, `flat-cache-belief-flip`, `permuting-mark-defeat-flip` |
 | a write on a KB whose marks the fact does not reach | `unrelated-fact-under-marked-kb-fanout`, `constraint-exposure-shared-arg`, `constraint-genl-edge-unmarked` (2.5×) |
 | a membership or a `genl` edge into a `sibling_disjoint` clique, in the clique's size | `disjoint-clique-membership`, `sibling-disjoint-new-spec` |
-| a `genl` or `genlCx` edge, in the graph, the excepted rules, the firings and the readers it does not reach, the `genl` edges its `sub` already sees, the stored `genlCx` edges beside an `except` no edge rests on, the functors under an arity conflict it is not above, the rules reading above it when no rule concludes below it, and in the spec closures of the rules its stratification walk reaches | `genl-edge-negation-recheck`, `genl-edge-beside-arity-conflicts`, `edge-stratification-unreached`, `edge-stratification-unconcluded`, `edge-stratification-walk`, `genl-defeat-rejoin` (4.0×), `genl-crossing-many` (3.0×), `genlcx-edge-reader-fan` (3.0×), `genlcx-edge-under-a-seen-taxonomy`, `genlcx-edge-beside-declared-facts`, `genlcx-edge-beside-excepted-declarations`, `genlcx-edge-beside-seen-excepts`, `genlcx-edge-revealing-one-except`, `genlcx-edge-beside-stored-context-edges`, `retract-context-cycle-scaling`, `retract-context-cycle-beside-cycle`, `assert-context-edge-beside-cycle` |
+| a `genl` or `genlCx` edge, in the graph, the excepted rules, the firings, the readers and the merges it does not reach, the functional facts its `super` already sees, the `genl` edges its `sub` already sees, the stored `genlCx` edges beside an `except` no edge rests on, the functors under an arity conflict it is not above, the rules reading above it when no rule concludes below it, and in the spec closures of the rules its stratification walk reaches | `genl-edge-negation-recheck`, `genl-edge-beside-arity-conflicts`, `edge-stratification-unreached`, `edge-stratification-unconcluded`, `edge-stratification-walk`, `genl-defeat-rejoin` (4.0×), `genl-crossing-many` (3.0×), `genlcx-edge-reader-fan` (3.0×), `genlcx-edge-under-a-seen-taxonomy`, `genlcx-edge-beside-declared-facts`, `genlcx-edge-beside-distant-merges`, `genlcx-edge-beside-seen-functional-facts`, `genlcx-edge-beside-excepted-declarations`, `genlcx-edge-beside-seen-excepts`, `genlcx-edge-revealing-one-except`, `genlcx-edge-beside-stored-context-edges`, `retract-context-cycle-scaling`, `retract-context-cycle-beside-cycle`, `assert-context-edge-beside-cycle` |
 | an un-merge of one class beside standing merges it does not touch, a merging assert in a deferred batch, a merge withdrawing its spelling's firing beside standing merges whose firings were withdrawn, a write beside the subsumed mints the KB withholds, the settle after a `genl` edge beside declarations waiting on a type bound to another length, and an `arg` declaration over stored facts beside a deeper declared type | `unmerge-over-standing-merges` (3.0×), `deferred-merge-batch` (3.0×), `merge-withdrawing-a-firing` (3.0×), `mint-withdrawal-under-busy-term`, `settle-beside-withheld-mints`, `mint-release-after-genl-move`, `arg-declaration-over-facts` |
 | a recover's rebuilds, per claim, declaration, fact or negation pair each re-reads: the inherited discovery's questions and the placements they give, the lifts, the closing settle's placements, the membership index's first sync over a kept term's types under a deep ancestor set, the discovery's denial probes over a type with many supertypes and its probes that match nothing beside forced-monotonic declarations; and the first write after a recover | `recover-inherited-discovery`, `recover-discovery-own-out`, `recover-discovery-separated-term`, `recover-membership-cover-sync`, `recover-preserved-negated-fan`, `recover-preserved-empty-probes`, `lift-rebuild`, `recover-negation-pairs`, `first-write-after-recover` |
 | an `exceptWhen` rule-membership check, a write beside believed `except`s it does not reach ([contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree)), an `except` beside the firings that do not rest on its target, a write beside refused firings ([the refused-firing record](exceptions.md#a-refused-firing-is-remembered-as-bindings)), a retraction releasing a firing beside a guarded rule's firings ([what is re-chained](exceptions.md#re-chaining-what-was-released-not-what-was-touched)), a first read below an `exceptWhen` rule's context ([asked at every reader](naf.md#evaluated-in-the-placement-context-not-the-join)), a scoped read beside what the `except`s hide, and an `except` of a guard's blocker beside the guarded rule's other firings | `watched-rule-membership`, `assert-over-standing-excepts` (3.0×), `assert-beside-naf-refusals`, `released-refusal-beside-guarded-firings` (4.0×), `guarded-firings-read-below`, `visibility-reading`, `except-beside-unrelated-firings`, `except-of-a-guard-blocker` |
@@ -2904,7 +2970,8 @@ known-true), `fixed` (known-true background referenced by a contradiction, assum
 not decided), `contradictions` (nogoods with priorities and sentences), `content`
 (`{handle {:sentence s :context c}}`, so a tie-break keys on what an assumption says
 rather than on its handle), and `cardinalities` (at-most / at-least bounds over contested
-heads, which only `solve-context` fills, from `asp/atMost` / `asp/atLeast` rules). A
+heads, which only `solve-context` fills, from `asp/atMost` / `asp/atLeast` rules and their
+weighted `…Sum` forms). A
 backend renders it to ASP:
 
 - default nodes → choice/`{a}` atoms;

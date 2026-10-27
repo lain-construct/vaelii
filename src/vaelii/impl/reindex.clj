@@ -35,48 +35,23 @@
             [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]))
 
-(defn- index-rule-entry
-  "Register a rule the way `special/index-rule-sentex` does: under all its
-  antecedent and consequent predicates, plus the re-check index when it carries an
-  `(unknown S)` NAF antecedent.  An `exceptWhen` exception rides a separate
-  meta-sentex, re-posted by `index-exceptWhen-entry`.  The recheck *queue* is
-  deliberately not touched — that is settle-time state, and the settle after
-  `recover` re-evaluates exceptions anyway — which is why this stays a separate fn
-  taking the index store rather than a kb.  Kept in lockstep by `reindex_test`'s
-  equivalence check."
-  [index handle rule-sentex]
-  (rules/index-rule index handle
-                    (rules/antecedent-keys (:antecedent rule-sentex))
-                    (rules/consequent-index-pred rule-sentex)
-                    (:context rule-sentex))
-  (when (rules/rechecked? rule-sentex)
-    (rules/index-exception index handle (rules/recheck-predicates rule-sentex))))
-
-(defn- index-exceptWhen-entry
-  "Register an exceptWhen meta-sentex's exception the way
-  `special/index-exceptWhen-meta` does: post the rule it names under each predicate
-  its query mentions (and into the `:rules` set).  No recheck queue, like the rule
-  entry above."
-  [index meta-sentex]
-  (let [rh    (sx/exceptWhen-rule-handle (:sentence meta-sentex))
-        preds (rules/watched-predicates
-               (sx/exception-query-conjuncts (:sentence meta-sentex)))]
-    (when rh (rules/index-exception index rh preds))))
-
 (defn index-one!
   "Index one stored sentex `sx` at handle `h` into `index`: its positional / term / root
-  entry (`index-sentex`), plus — when `sx` is a rule — the rule-predicate entry, or — when
-  it is an `exceptWhen` meta-sentex — the exception entry.  This is the per-sentex core
-  `reindex` folds over every live handle, *and* the core the importer's inline bulk load
-  calls with the record already in hand, so a rebuilt index and a freshly-loaded one can
-  never drift.  Returns true iff `sx` is a rule (the caller's rule tally)."
+  entry (`index-sentex`), plus, when `sx` is a rule, the rule-predicate entry
+  `special/index-rule-sentex` posts.  The re-check index is posted once every record is
+  in (`special/post-taxonomy-supporters!`), since a rule's keys read the taxonomy.  This
+  is the per-sentex core `reindex` folds over every live handle, and the core the
+  importer's inline bulk load calls with the record already in hand.  Returns true iff
+  `sx` is a rule (the caller's rule tally)."
   [index sx h]
   (p/index-sentex index sx h)
   (exc/note-stored! nil sx true)
   (let [rule? (rules/rule? sx)]
-    (cond
-      rule?                                (index-rule-entry index h sx)
-      (sx/exceptWhen-meta? (:sentence sx)) (index-exceptWhen-entry index sx))
+    (when rule?
+      (rules/index-rule index h
+                        (rules/antecedent-keys (:antecedent sx))
+                        (rules/consequent-index-pred sx)
+                        (:context sx)))
     rule?))
 
 (defn unindex-one!
@@ -116,9 +91,9 @@
 (defn reindex
   "Flush the index store and rebuild every entry from the stored sentexes: each record's
   own entries (`index-one!`) and its mint family entry, then the taxonomy's supporter
-  families (`special/post-taxonomy-supporters!`).  The mint family is read from the stored
-  justifications, walked first, so each mint is posted from the record the sentex walk
-  holds.  Returns {:sentexes n :rules n}."
+  families and the re-check index (`special/post-taxonomy-supporters!`).  The mint
+  family is read from the stored justifications, walked first, so each mint is posted
+  from the record the sentex walk holds.  Returns {:sentexes n :rules n}."
   [kb]
   (let [records (:records kb)
         index   (:index kb)

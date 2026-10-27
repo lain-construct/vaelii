@@ -273,25 +273,28 @@
   ;; One chain's root arriving and one leaving relabel that chain — root, middle, leaf —
   ;; at 20 chains and at 400, on either network, over the KV index, the columnar trie,
   ;; and a fork whose chains all sit in its base.
-  (doseq [tms [:reference :dense]
-          [label open] [["memory" #(v/open-kb {:backend :memory :space [::loc :m tms %]
-                                               :recover? false :tms tms})]
-                        ["memory-columnar" #(v/open-kb {:backend :memory-columnar
-                                                        :space [::loc :c tms %]
-                                                        :recover? false :tms tms})]
-                        ["fork" #(v/fork (doto (v/open-kb {:backend :memory
-                                                           :space [::loc :base tms %]
-                                                           :recover? false :tms tms})
-                                           (tu/clear-kb!) (chains! %))
-                                         ;; the default space, an ephemeral one nothing
-                                         ;; else uses: a named one would hold a previous
-                                         ;; run's writes on a second run in one JVM
-                                         {:tms tms})]]]
-    (testing (str label " on the " (name tms) " network")
-      (is (= [3 3 3 3]
-             (into [] (mapcat (fn [n]
-                                (let [kb (open n)]
-                                  (when-not (= "fork" label) (tu/clear-kb! kb) (chains! kb n))
-                                  [(count (touched-by-settles #(v/assert kb '(lp_root LpNew) C)))
-                                   (count (touched-by-settles #(v/retract! kb (v/handle-of kb '(lp_root Lp3) C))))])))
-                   [20 400]))))))
+  (try
+    (doseq [tms [:reference :dense]
+            [label open] [["memory" #(v/open-kb {:backend :memory :space [::loc :m tms %]
+                                                 :recover? false :tms tms})]
+                          ["memory-columnar" #(v/open-kb {:backend :memory-columnar
+                                                          :space [::loc :c tms %]
+                                                          :recover? false :tms tms})]
+                          ["fork" #(v/fork (doto (v/open-kb {:backend :memory
+                                                             :space [::loc :base tms %]
+                                                             :recover? false :tms tms})
+                                             (tu/clear-kb!) (chains! %))
+                                           ;; the default space, an ephemeral one nothing
+                                           ;; else uses: a named one would hold a previous
+                                           ;; run's writes on a second run in one JVM
+                                           {:tms tms})]]]
+      (testing (str label " on the " (name tms) " network")
+        (is (= [3 3 3 3]
+               (into [] (mapcat (fn [n]
+                                  (let [kb (open n)]
+                                    (when-not (= "fork" label) (tu/clear-kb! kb) (chains! kb n))
+                                    [(count (touched-by-settles #(v/assert kb '(lp_root LpNew) C)))
+                                     (count (touched-by-settles #(v/retract! kb (v/handle-of kb '(lp_root Lp3) C))))])))
+                     [20 400])))))
+    (finally (doseq [tms [:reference :dense], k [:m :c :base], n [20 400]]
+               (tu/drop-space! [::loc k tms n])))))

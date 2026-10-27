@@ -39,7 +39,7 @@
           (is (nat-int? h1) "the shipped flight rule concluded it into the sandbox")
           (is (v/in? kb h1))
           (is (not (v/premise? kb h1)) "derived, not something the reader wrote")
-          (is (seq (:support (v/why kb h1))) "and it has a proof"))
+          (is (seq (:support (tu/why-root kb h1))) "and it has a proof"))
 
         (v/assert kb penguin sbx)
         (testing "step 2 — one more true thing, and the conclusion is not believed"
@@ -63,8 +63,8 @@
             (is (= h1 h2) "the defeat's support left, and nothing was re-derived")
             (is (v/ask? kb travel sbx) "and the hierarchy answer returns — travelling answerable again"))
           (testing "the proof is identical, which is the other half of the point"
-            (let [rule-of #(-> (v/why kb %) :support first :rule)
-                  from-of #(-> (v/why kb %) :support first :because first :handle)]
+            (let [rule-of #(-> (tu/why-root kb %) :support first :rule)
+                  from-of #(-> (tu/why-root kb %) :support first :because first :handle)]
               (is (= (rule-of h2) '(implies (bird ?x) (hasCapability ?x flying))))
               (is (= (from-of h2) (v/handle-of kb bird sbx)))))))
       (finally (sandbox/reset! kb sbx)))))

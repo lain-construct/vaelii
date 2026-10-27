@@ -146,7 +146,7 @@ choice report `:no-choices`.
 | | `set/assumptionRule` | `set/solveRule` | `set/hardConstraint` / `softConstraint` | `asp/atMost` / `atLeast` |
 |---|---|---|---|---|
 | **in base** | chains in neither direction | as its direction wrappers say | chains in neither direction | chains in neither direction |
-| **body read over** | `Base` belief, the whole body | program literals over the atoms, the rest over `Base` | program literals over the atoms, the rest over `Base` | one pattern over the atoms |
+| **body read over** | `Base` belief, the whole body | program literals over the atoms, the rest over `Base` | program literals over the atoms, the rest over `Base` | one pattern over the atoms; a `…Sum` body's other literals over `Base` |
 | **reads a derived atom** | no | yes | yes | yes |
 | **in the program** | `{h}.` per ground head | `h :- a1, .., not ak` per ground instance | `:- body` per binding, or a violation atom and a `#minimize` | one weight-body statement per group |
 | **in a labeling** | `(h)` / `(not h)` | `(h)` / `(not h)` | nothing | nothing |
@@ -274,12 +274,31 @@ solve enumerates. A cardinality bound has to be a **solver** cardinality atom th
 inside the search — which is what `atMost` / `atLeast` translate to, and `agg/count` is not
 in that path.
 
-**Every head weighs one.** A cardinality bound is `#count` — the unit-weight case
-of `#sum`, which is the aggregate `edge/translate`'s weight body actually emits (each
-member rides at weight 1). There is no weighted bound — no `asp/atMostSum` /
-`asp/atLeastSum`, where each head would contribute a weight read from a fact, so a bound
-on total tonnage rather than headcount cannot be stated. The encoding layer carries
-arbitrary weights; the surface and the grounding carry none.
+### `atMostSum` / `atLeastSum` — a weighted bound
+
+A weighted bound sums a weight per head where `atMost` counts heads:
+
+```clojure
+(asp/atMostSum 9 ?w ?c (and (load ?c) (tons ?c ?w)))      ; at most 9 tons loaded
+(asp/atMostSum 5 ?w ?c (and (onto ?c ?t) (tons ?c ?w)))   ; at most 5 tons per truck ?t
+(asp/atLeastSum 4 ?w ?u (and (deploy ?u) (power ?u ?w)))  ; deployed strength at least 4
+(asp/softAtMostSum 9 ?w ?c (and (load ?c) (tons ?c ?w)))  ; the soft twins cost once, as above
+```
+
+`?w` is the weight variable and `?c` the counted one, and the body's other variables are
+the group, as for `atMost`. The body names exactly one choice or derived literal, the head
+the weight counts toward, and binds `?w` off background facts, as an `asp/minimize` body
+does. Each distinct binding of the weight, counted and group variables adds its weight to
+its head, the way `#sum{W,C : …}` sums distinct tuples, so a head that two facts weigh
+counts both weights. The entry renders as the weight body an unweighted bound renders as,
+each member at its weight (`edge/card-encoding`): `atMost` is the case of every weight 1.
+
+A weight is data, so the solve that grounds the bound checks it. The solve refuses a
+negative or non-integer weight, a group whose weights total past the solver's 32-bit range,
+and a body naming no program literal or several, each as `:not-well-formed`. A zero weight
+is dropped from the weight body. A weighted bound over integer *variables* (a start time,
+a quantity the solve picks) does not exist: a weight is a fact about a head, and the head is
+the only thing the solve decides ([asp.md](asp.md#where-the-asp-layer-stops)).
 
 ## `minimize` / soft-constraint priorities — the objective surface
 
@@ -339,7 +358,8 @@ that). Bounding the problem's size removes it.
 `core/assert-inert` stores and indexes a sentex but **skips the belief step**
 (`add-premise` / `mark-premise`). The sentex lives in the record store and in the index
 (trie, `[:context-root ctx]` root, term index), is inspectable via `sentexes-in-context`, and survives
-`recover` — but it is **not a JTMS premise**, so it is never IN.
+`recover` — but it is **not a JTMS premise**, so it is IN only while a derivation
+concludes its sentence (below).
 
 This is what makes labelings coexist, and it needs no ATMS. Every belief-filtered read —
 `sentexes-matching`, `in?`, and the nogood placement (`chain/place-nogoods!`) — sees only
@@ -349,6 +369,13 @@ IN sentexes. So an inert `(not head)` sitting in a context that sees a believed 
 ```clojure
 (assert-inert kb '(color Item red) 'CxRedWorld)   ; stored, inspectable, never IN
 ```
+
+A derivation reaches an inert sentex as it reaches any stored sentex. A rule firing that
+concludes the sentence, or a `decontextualized_predicate` lift into CxUniverse, gives the
+record a node and a justification, and the record is IN while that justification holds.
+A sweep that drops the justification removes the node and keeps the record, which carries
+the `:inert` provenance mark (`integrate/swept-records`). `retract!` of the record's own
+handle deletes the record.
 
 **A rule is refused here** (`:not-indexable`), and the reason is that this entry point does not
 index one. A rule fires because `index-rule-sentex` posted its predicates, which happens
@@ -388,7 +415,13 @@ therefore fetches one record per solve rule in that ancestor set and none of its
    partition, `(lessThan ?x 10)` — is a legal antecedent, not something the caller must
    pre-project into stored candidate facts. (The leaf costs a prover-answered conjunct by
    the prover's own `est-bindings`, so an open relation plans last rather than enumerating
-   first.) A rule's `exceptWhen` guard is honored per binding, evaluated in `Base` —
+   first.) A `transitive` predicate's literal answers from the closure once the join has
+   bound one end, as at `query`: `(ancestorOf ?x Cal)` grounds every `?x` above `Cal`.
+   With both ends still open when the join reaches it, the literal answers from the
+   stored edges alone ([taxonomy.md](taxonomy.md#predicate-metadata)), and the result's
+   `:unenumerated` names the predicate (`:unenumerated-in-guards` the subset read inside
+   an `exceptWhen` guard). A conjunct that binds one end, such as `(and (person ?y)
+   (ancestorOf ?x ?y))`, makes the join read the closure. A rule's `exceptWhen` guard is honored per binding, evaluated in `Base` —
    grounding is a fourth consumer of a rule's firing beside the three chainers, and a
    choice the exception holds of is not offered. That is how a candidate menu is
    filtered declaratively ("any cell may take any value, except one already ruled

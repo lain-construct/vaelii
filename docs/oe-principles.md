@@ -4,7 +4,7 @@
 - **Not here:** why a particular piece of the shipped ontology is shaped as it is → [oe-defenses.md](oe-defenses.md). The vocabulary itself → [taxonomy.md](taxonomy.md).
 - **Assumes:** you know the KB's metatypes (`genl`, `disjoint`, `partition`, `arg`) from [taxonomy.md](taxonomy.md).
 
-Working rules for adding vocabulary and knowledge to a vaelii KB, collected from Pace Heart's ontology reviews. Each principle has a short handle, used to cite it, with its full name below; `genlPrinciple` and `specPrinciple` relate a special case to the principle it specializes. Most end with an audit step to run on a vocab PR before it ships.
+Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle has a short handle, used to cite it, with its full name below; `genlPrinciple` and `specPrinciple` relate a special case to the principle it specializes. Most end with an audit step to run on a vocab PR before it ships.
 
 ## strongest form
 *State knowledge in its strongest form*
@@ -130,6 +130,16 @@ When ontologizing a type, check its siblings: everything it is `disjoint` with, 
 **genlPrinciple:** strongest form
 A special case of **strongest form**. For every `(disjoint A B)`, look for a C whose members are exactly A ∪ B (plus any other pairwise-disjoint siblings). If the parts cover C, state `(partition C A B …)` and drop the disjoints it implies.
 
+## measure a removed separation
+*Measure a removed separation before shipping it*
+Removing or narrowing a `disjoint`, `partition` or `separating` changes what the KB rules out, often far below the pair it names: dropping `(disjoint organism artifact)` turned 320 pairs unknown, `dog × building` among them. Run `disjointness-audit` before and after, list the pairs that turn unknown, and restate at the tightest true level the ones that still hold (see **strongest form** and **classify before you constrain**). `disjointness-coverage-ratchet` fails a drop; lowering its floor names the pairs given up.
+
+**Audit:** the PR states the disjoint and unknown pair counts before and after, and names the lost pairs it does not restate.
+
+## top unknowns
+*A disjointness audit always reports the top unknowns*
+Alongside inconsistencies, list the top 5 type pairs whose relationship is unknown (neither disjoint, nor genl-related, nor declared `orthogonal` or witnessed by a shared instance), ranked by how many open pairs one decision would settle, each with a proposed decision.
+
 ## does it have rules?
 *Include X in concept Y? Compare what's true of each side*
 **genlPrinciple:** no OE calligraphy
@@ -152,6 +162,12 @@ A type says what a thing *is*, not what it's for. A type defined by purpose, cap
 It looks like a natural kind and is far slipperier. Temporal and spatial slices of a thing ("Einstein while at the patent office", "Einstein minus his left pinky toe") behave almost exactly like the thing. Don't make discreteness a type's differentia; pick one that slices and parts inherit (made, grown, alive, has mass), or say explicitly how they're treated.
 
 **Example:** "discrete objects whose form came from being made" excludes a slice of a made thing. `made`'s differentia, being shaped by an agent's action (found with **differentia from near-misses**), holds of a slice as of the whole.
+
+## what ends a member
+*Can one thing be both? Ask what ends a member of each*
+Before stating an `orthogonal` between two kinds, or removing a `disjoint` between them, ask what ends a member of each. An organism ends at death; an artifact survives breakage as a defective one (a sunk ship is still a ship). Kinds whose members persist under incompatible conditions share no instance, and a case that seems to be both is one kind plus a relation: an engineered bacterium is an organism with an `engineeredBy`, and a bamboo fence is a plant in a role. Being made on purpose doesn't change what a thing is. (Symons, "The Individuality of Artifacts and Organisms", 2010; OntoClean's incompatible identity criteria.)
+
+**Audit:** every `orthogonal` between kinds names a witness and says what ends it under each kind.
 
 ## differentia from near-misses
 *Find a type's differentia from its complement*

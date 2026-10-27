@@ -84,8 +84,8 @@
         (is (= :default (v/defeat-class kb h)))))))
 
 ;; ---- 3. a holding exception stores the conclusion with a guard defeat ----
-;; DECISION (design rulings 25 and 30): a blocker of either class is one a placed defeat
-;; hides, so the firing is stored, in either order, with `(defeat (sentexHandle F))`
+;; A blocker of either class, `:default` or `:monotonic`, is one a placed defeat hides,
+;; so the firing is stored, in either order, with `(defeat (sentexHandle F))`
 ;; resting on the blocker at the firing's own context, and the read walk decides belief.
 
 (tu/deftest-kb a-blocker-stores-the-conclusion-with-a-defeat-resting-on-it

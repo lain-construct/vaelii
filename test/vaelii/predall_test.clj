@@ -12,8 +12,7 @@
   The *Exists* relations (predAllExists / predExistsAll / predExistsInstance /
   predInstanceExists) are inferentially INERT: each declaration is a stored, queryable
   record beside a sanctioned per-cell full-arg placeholder functor an author may use for
-  the unnamed filler.  The engine derives nothing — no skolem witness, no defn, no rule
-  (Pace, \"skolems suck\").
+  the unnamed filler.  The engine derives nothing — no skolem witness, no defn, no rule.
 
   The *Specified* relations (predAllSpecified / predSpecifiedAll) are an integrity AUDIT
   that reports the instances with no *determinate* filler.  Indeterminate = a member of the
@@ -22,7 +21,7 @@
   exact antagonist of the *Exists* class.  The same category drives the UNA identity
   exemption: the unique-name assumption is suspended for an unmerged indeterminate term.
 
-  The tracer is predAllInstance on Pace's `sign` / `-212` example.  The generator's
+  The tracer is predAllInstance on the `sign` / `-212` example.  The generator's
   generated rule (defeasible, direction `:both` — `set/defaultRule`'s default) fires on a
   believed membership, and its backward arm closes the keystone: bare-literal membership
   derives (the evaluative defnSufficient provers, #59) and is discharged inside a
@@ -44,7 +43,7 @@
   (boolean (seq (v/sentexes-matching kb sentence ctx))))
 
 ;; ==== the -212 subtlety, isolated ==========================================
-;; Pace named -212 the keystone: (sign -212 "negative") should be provable from the BARE
+;; -212 is the keystone: (sign -212 "negative") should be provable from the BARE
 ;; literal, with membership DERIVED, not hand-asserted.  Both halves hold: membership
 ;; derives via the evaluative defnSufficient prover (#59), and the generated defaultRule's
 ;; backward arm discharges that antecedent inside a query/prove proof — see
@@ -62,7 +61,7 @@
 ;; ==== Instance class: real inference =======================================
 
 (tu/deftest-kb pred-all-instance-mechanism-fires-on-a-believed-membership
-  ;; the generator's generated defaultRule (bidirectional), on Pace's sign/-212 predicates:
+  ;; the generator's generated defaultRule (bidirectional), on the sign/-212 predicates:
   ;; once (negative_integer -212) is believed — here asserted directly, exercising the
   ;; forward arm on its own; the keystone test below covers the backward, query-time
   ;; path — the rule concludes (sign -212 "negative") and binds the fixed position.
@@ -93,7 +92,7 @@
       "ask answers false by contract — the registry expands no rule; use query/prove"))
 
 (tu/deftest-kb pred-all-instance-on-a-kind-without-a-defn
-  ;; Pace: also cover a kind whose membership is asserted directly, not derived through a
+  ;; A kind whose membership is asserted directly, not derived through a
   ;; defnNecessary/defnSufficient expansion.  A gensym'd type has no defn at all.
   (tu/with-terms [color widget Blueish W1]
     (v/assert kb (list 'binary_predicate color) 'CxUniverse)
@@ -172,11 +171,9 @@
         "Alice enjoys every hobby")))
 
 ;; ==== Exists class: pure record, inferentially inert =======================
-;; Pace's ruling (2026-09-03): everything with "exist" in the name is inferentially
-;; inert — a stored, queryable record plus a sanctioned per-cell placeholder functor
-;; for authors, and the engine derives NOTHING.  This supersedes the earlier generator
-;; design that materialized (?pred ?x P) over the members; inertness is also what makes
-;; the two pure-existential cross-cells expressible (nothing to generate, so no range
+;; Everything with "exist" in the name is inferentially inert — a stored, queryable
+;; record plus a sanctioned per-cell placeholder functor for authors, and the engine
+;; derives NOTHING.  Inertness is what makes the two pure-existential cross-cells expressible (nothing to generate, so no range
 ;; restriction to fail and no variable-functor rule to pollute the planner with).
 
 (tu/deftest-kb an-exists-declaration-is-a-record-and-derives-nothing
@@ -302,7 +299,7 @@
   ;; the per-cell full-arg functor is the author's term for the unnamed filler: usable in
   ;; hand-asserted sentences, structural (unreifiable), and distinct per cell — the
   ;; predAllExists and predExistsAll placeholders over the same (rel, dog) are two terms,
-  ;; not one shared filler (Pace, "eventually it will matter that they're distinct")
+  ;; not one shared filler
   (tu/with-terms [rel person dog Alice]
     (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (v/assert kb (list 'unary_predicate person) 'CxUniverse)
@@ -324,23 +321,18 @@
       (is (= 2 (count (into #{} (map '?y) (v/ask kb (list dog '?y) 'CxUniverse))))
           "the two cells' placeholders are two distinct dog members, not one shared term"))))
 
-;; The aspirational existential-inference test (Pace, 2026-08-29 — KEEP, do NOT delete).
 ;; Under pure-record inert semantics nothing at all is derivable from the declaration,
-;; so no existential filler for `(parts Lain ?x)` is provable.  That is the expected
-;; outcome and it is asserted here as a standing marker for future existential-inference
-;; work rather than as a passing feature.
-;;
-;; Cyc taught us that skolems suck, so we're not prioritizing this line of inference
+;; so no existential filler for `(parts Ann ?x)` is provable.
 (tu/deftest-kb exists-inference-from-a-predAllExists-is-not-yet-supported
-  (tu/with-terms [parts construct mind Lain]
+  (tu/with-terms [parts construct mind Ann]
     (v/assert kb (list 'binary_predicate parts) 'CxUniverse)
     (v/assert kb (list 'unary_predicate construct) 'CxUniverse)
     (v/assert kb (list 'unary_predicate mind) 'CxUniverse)
     (v/assert kb (list 'predAllExists parts construct mind) 'CxUniverse)
     (is (not (v/ask? kb (list 'thereExists '?x
-                              (list 'and (list mind '?x) (list parts Lain '?x)))
+                              (list 'and (list mind '?x) (list parts Ann '?x)))
                      'CxUniverse))
-        "no existential mind part of Lain is derivable from the inert record — pending")))
+        "no existential mind part of Ann is derivable from the inert record")))
 
 ;; ==== Specified class: an integrity audit ==================================
 
@@ -390,19 +382,18 @@
           (str "the retired ternary " functor " spelling is read OUT")))))
 
 (tu/deftest-kb argn-spellings-share-args-declaration-checks
-  ;; the binary projections run arg's own declaration
-  ;; arms at the projected position, so a declaration the ternary spelling refuses is
-  ;; refused identically under the binary one instead of storing believed-but-inert.
+  ;; the binary projections run arg's own declaration arms at the projected position, so
+  ;; `try-assert` refuses a declaration under the binary spelling as under the ternary
+  ;; one, and `assert` stores both spellings of it.
   (tu/with-terms [owns dog]
     (v/assert kb (list 'binary_predicate owns) 'CxUniverse)
     (v/assert kb (list 'unary_predicate dog) 'CxUniverse)
-    (try (v/assert kb (list 'arg3 owns dog) 'CxUniverse)
-         (is false "arg3 on a binary predicate must refuse — the ternary spelling does")
-         (catch clojure.lang.ExceptionInfo e
-           (is (= :arg-position (:type (ex-data e)))
-               "same arm, same typed reason as (arg owns 3 dog)")))
-    (is (not (v/ask? kb (list 'arg3 owns '?t) 'CxUniverse))
-        "and nothing stored a believed-but-inert binary spelling")
+    (is (= [:arg-position :arg-position]
+           (mapv #(tu/try-violation kb % 'CxUniverse)
+                 [(list 'arg3 owns dog) (list 'arg owns 3 dog)])))
+    (v/assert kb (list 'arg3 owns dog) 'CxUniverse)
+    (is (v/ask? kb (list 'arg owns 3 dog) 'CxUniverse)
+        "assert stores the binary spelling, and its ternary twin is derived")
     (tu/with-terms [kindOf]
       (v/assert kb (list 'type_relation_predicate kindOf) 'CxUniverse)
       (is (v/assert kb (list 'arg1 kindOf 'unary_predicate) 'CxUniverse)
@@ -410,10 +401,10 @@
       (is (= [] (mapv :type (v/check kb (list 'interArg kindOf 1 dog 2 dog) 'CxUniverse)))
           "and so is an interArg over the same relation"))))
 
-(tu/deftest-kb args-entails-argAndRest-from-the-first-position
+(tu/deftest-kb args-derives-argAndRest-from-the-first-position
   ;; `(args P T)` states what `(argAndRest P 1 T)` states, so asking the tail form of a
-  ;; relation declared through the every-position form is answered — proved at query time,
-  ;; so the store keeps the one declaration that was written.
+  ;; relation declared through the every-position form is answered — by the twin a
+  ;; forward rule stores, which is the one the chokepoint (`res/arg-constraints`) reads.
   (tu/with-terms [tally animal]
     (v/assert kb (list 'variable_arity_predicate tally) 'CxUniverse)
     (v/assert kb (list 'genl animal 'thing) 'CxUniverse)
@@ -421,8 +412,9 @@
     (is (= [{'?n 1 '?t animal}]
            (v/query kb (list 'argAndRest tally '?n '?t) 'CxUniverse {:max-depth 3}))
         "args entails argAndRest at 1, and only at 1")
-    (is (empty? (v/sentexes-matching kb (list 'argAndRest tally '?n '?t) 'CxUniverse))
-        "and nothing is stored, so the covering check reads the declaration once")))
+    (is (= [(list 'argAndRest tally 1 animal)]
+           (map :sentence (v/sentexes-matching kb (list 'argAndRest tally '?n '?t) 'CxUniverse)))
+        "and the twin is stored")))
 
 (tu/deftest-kb a-declaration-without-slot-typing-is-a-reported-gap
   ;; missing slot typing is an explicit declaration-contract diagnostic, never a silent
@@ -465,31 +457,57 @@
       (is (not (contains? (:violations r) Bob)) "Bob's filler satisfies it")
       (is (contains? (:violations r) Alice) "and Alice, fathering nothing, violates"))))
 
+(tu/deftest-kb tail-slot-typing-reaches-the-audit
+  ;; the audit reads the slot's contract through `res/arg-constraints-at`, so a slot an
+  ;; `argAndRest` or `args` types is typed, as the assert-time checker reads it
+  (tu/with-terms [likes admires person Alice Bob Carol]
+    (v/assert kb (list 'unary_predicate person) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate likes) 'CxUniverse)
+    (v/assert kb (list 'argAndRest likes 2 person) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate admires) 'CxUniverse)
+    (v/assert kb (list 'args admires person) 'CxUniverse)
+    (doseq [x [Alice Bob Carol]] (v/assert kb (list person x) 'CxUniverse))
+    (v/assert kb (list likes Alice Bob) 'CxUniverse)
+    (v/assert kb (list admires Bob Carol) 'CxUniverse)
+    (v/assert kb (list 'predAllSpecified likes person) 'CxUniverse)
+    (v/assert kb (list 'predAllSpecified admires person) 'CxUniverse)
+    (let [r (predall/specified-violations kb likes person 'CxUniverse)]
+      (is (= :audited (:status r)) "argAndRest from 2 types the audited slot")
+      (is (= #{Bob Carol} (:violations r))))
+    (let [r (predall/specified-violations kb admires person 'CxUniverse)]
+      (is (= :audited (:status r)) "args types every slot, the audited one included")
+      (is (= #{Alice Carol} (:violations r))))))
+
 (tu/deftest-kb a-type-relation-slot-audits-the-type-position-arm
   ;; the type_relation_predicate arm in isolation, content and all: the checker has no
   ;; ground-fact arm for a type-level position, so the audit's constraint is the union
   ;; of the two type readings — a kind under thing passes, a declared-but-unplaced
   ;; unary_predicate passes, and a bare individual with no type evidence violates.
-  (tu/with-terms [governsKind meta_kind placed_kind orphan_kind M1 M2 M3 NotAType]
-    (v/assert kb (list 'unary_predicate meta_kind) 'CxUniverse)
-    (v/assert kb (list 'binary_predicate governsKind) 'CxUniverse)
-    (v/assert kb (list 'type_relation_predicate governsKind) 'CxUniverse)
-    (v/assert kb (list 'predAllSpecified governsKind meta_kind) 'CxUniverse)
-    (v/assert kb (list meta_kind M1) 'CxUniverse)
-    (v/assert kb (list meta_kind M2) 'CxUniverse)
-    (v/assert kb (list meta_kind M3) 'CxUniverse)
-    (v/assert kb (list 'genl placed_kind 'thing) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate orphan_kind) 'CxUniverse)
-    (v/assert kb (list governsKind M1 placed_kind) 'CxUniverse)  ; genl reading
-    (v/assert kb (list governsKind M2 orphan_kind) 'CxUniverse)  ; membership reading
-    (v/assert kb (list governsKind M3 NotAType) 'CxUniverse)     ; neither
-    (let [r (predall/specified-violations kb governsKind meta_kind 'CxUniverse)]
-      (is (= :audited (:status r)) "a trp membership is a real slot contract, not a gap")
-      (is (not (contains? (:violations r) M1)) "a kind under thing passes the genl reading")
-      (is (not (contains? (:violations r) M2))
-          "a declared-but-unplaced unary_predicate passes the membership reading")
-      (is (contains? (:violations r) M3)
-          "a filler with no type evidence of any kind violates"))))
+  ;; core.txt's (type_relation_predicate ?r) → (args ?r predicate) also gives the slot a
+  ;; membership constraint on predicate.  The entailing reading derives (predicate y) off
+  ;; each stored filler, so the type-position arm decides M1 and M2; the constraint-only
+  ;; reading derives nothing, and M1's placed_kind fails the membership constraint.
+  (tu/with-entailing
+    (tu/with-terms [governsKind meta_kind placed_kind orphan_kind M1 M2 M3 NotAType]
+      (v/assert kb (list 'unary_predicate meta_kind) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate governsKind) 'CxUniverse)
+      (v/assert kb (list 'type_relation_predicate governsKind) 'CxUniverse)
+      (v/assert kb (list 'predAllSpecified governsKind meta_kind) 'CxUniverse)
+      (v/assert kb (list meta_kind M1) 'CxUniverse)
+      (v/assert kb (list meta_kind M2) 'CxUniverse)
+      (v/assert kb (list meta_kind M3) 'CxUniverse)
+      (v/assert kb (list 'genl placed_kind 'thing) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate orphan_kind) 'CxUniverse)
+      (v/assert kb (list governsKind M1 placed_kind) 'CxUniverse)  ; genl reading
+      (v/assert kb (list governsKind M2 orphan_kind) 'CxUniverse)  ; membership reading
+      (v/assert kb (list governsKind M3 NotAType) 'CxUniverse)     ; neither
+      (let [r (predall/specified-violations kb governsKind meta_kind 'CxUniverse)]
+        (is (= :audited (:status r)) "a trp membership is a real slot contract, not a gap")
+        (is (not (contains? (:violations r) M1)) "a kind under thing passes the genl reading")
+        (is (not (contains? (:violations r) M2))
+            "a declared-but-unplaced unary_predicate passes the membership reading")
+        (is (contains? (:violations r) M3)
+            "a filler with no type evidence of any kind violates")))))
 
 (tu/deftest-kb constraints-compose-as-a-conjunction-not-a-disjunction
   ;; The composition is `every?`, and it CANNOT be distinguished from `some` on stored
@@ -665,11 +683,11 @@
   ;; than the product of the two.  Nothing about the ANSWER changes if the derivation
   ;; moves back inside the loop — the same violations come out — and the growth stays
   ;; linear in the members either way, so neither the suite nor a perf ratio would see
-  ;; it.  The count is the instrument that does: two reaches, one for `arg` and one for
-  ;; `genlArg`, whatever the collection's size.
+  ;; it.  The count is the instrument that does: one reach per declaration functor the
+  ;; chokepoint reads (`res/arg-constraints`, seven), whatever the collection's size.
   (let [small (contract-derivations 10)
         large (contract-derivations 200)]
-    (is (= 2 small) "one reach per constraining declaration functor, and no more")
+    (is (= 7 small) "one reach per constraining declaration functor, and no more")
     (is (= small large)
         (str "20x the audited members derives the contract the same number of times — "
              small " against " large))))
@@ -870,16 +888,13 @@
       (is (contains? (:violations (get report ['predAllSpecified hasPet person])) Bob)
           "and carries its violating instances"))))
 
-;; ==== the acceptance fixture: Pace's KE packet, normalized ================
-;; The declarations from the 2026-09-04 predAllSpecified KE packet that survived the
-;; thread's rulings, normalized to the binary (pred, collection) form.  Parked lines are
-;; deliberately absent: the at_least_* collections (await the arity vocabulary lane), the
-;; all-functions fcp audit (known unreifiable noise), and the arityMin family (its own
-;; vocabulary-only PR).  This section asserts that each surviving declaration is
+;; ==== the acceptance fixture: four predAllSpecified declarations ===========
+;; Four predAllSpecified declarations in the binary (pred, collection) form.  This
+;; section asserts that each surviving declaration is
 ;; assertable against the shipped core vocabulary and audits — deriving a real slot
 ;; contract, not a gap.
 
-(tu/deftest-kb the-ke-packet-declarations-assert-and-audit-over-core
+(tu/deftest-kb the-specified-declarations-assert-and-audit-over-core
   (doseq [[pred indep] [['arg1    'predicate]        ; every relation types argument 1
                         ['result  'function]         ; every function types its result
                         ['comment 'thing]            ; everything is documented
@@ -896,7 +911,7 @@
   (is (v/ask? kb '(type_relation_predicate genl) 'CxUniverse)
       "the arm the genl declaration audits through is a believed membership")
   ;; content of the type_relation_predicate arm is asserted in isolation by
-  ;; a-type-relation-slot-audits-the-type-position-arm; here the packet declaration
+  ;; a-type-relation-slot-audits-the-type-position-arm; here the genl declaration
   ;; only has to assert and audit rather than gap.
   (is (= :audited (:status (predall/specified-violations kb 'genl 'unary_predicate
                                                          'CxUniverse)))
@@ -907,17 +922,13 @@
 ;; different, a term is never different from itself) but is SUSPENDED for an unmerged
 ;; indeterminate_term: neither equals nor different is provable of it against a determinate
 ;; term until a merge identifies it.  Built data-driven over the grid rather than N hand-written
-;; cases (Pace, "DRY it").
+;; cases.
 ;;
-;; FLAGGED for a future ruling: (1) the design notes also want a non-evaluatable
-;; *unreifiable* NAT (MotherFn JFK) treated as indeterminate; that rests on the
-;; NAT-determinacy question explicitly PUNTED ("for now only skolem is a
-;; member; flag the NAT call"), so the category here is skolem + whatever is declared
-;; (genl _ indeterminate_term), and the generic-NAT cell is left to that ruling.  (2)
-;; a rewriteOf merge restores UNA for a skolem (below), but for an explicitly-declared
-;; indeterminate kind the equality merge MIGRATES the kind membership onto the winner, so
-;; the winner inherits the indeterminacy — restoring UNA for that row needs a signal that
-;; survives the merge (a Pace design call).
+;; The category is skolem plus whatever is declared (genl _ indeterminate_term); a
+;; non-evaluatable unreifiable NAT is determinate.  A rewriteOf merge restores UNA for a
+;; skolem (below), but for an explicitly-declared indeterminate kind the equality merge
+;; MIGRATES the kind membership onto the winner, so the winner inherits the
+;; indeterminacy.
 
 (defn- a-skolem
   "Skolemize a witness through a head-existential rule and return the minted skolem
@@ -988,8 +999,7 @@
           "control: the determinate rewrite target was never exempt"))))
 
 (tu/deftest-kb negative-zero-permutations-are-canonicalized
-  ;; Pace's Cyc-canonicalizer check: -0.0 must not be a distinct term from 0.0 (the
-  ;; Allegro bug).  Scope note: (= 0.0 -0.0) is true in Clojure, so the -0.0 rows
+  ;; -0.0 must not be a distinct term from 0.0.  Scope note: (= 0.0 -0.0) is true in Clojure, so the -0.0 rows
   ;; are settled by =-level canonicalization before the equality closure is ever
   ;; consulted — this asserts the reader-and-equality layer, not a closure read.  (An
   ;; integer -0 literal reads as 0 and is pure reflexivity, so it is not a row.)
@@ -1082,3 +1092,209 @@
     (v/assert kb (list hasPet Bob Rex) 'CxUniverse)
     (is (= {} (v/all-specified-violations kb 'CxUniverse))
         "and a requirement that holds is omitted, so a clean sweep is an empty map")))
+
+(defn- specified-note [functor pred member]
+  (if (= functor 'predAllSpecified)
+    (list pred member "A determinate fixture description.")
+    (list pred "A determinate fixture description." member)))
+
+(defn- specified-result [kb functor pred kind context]
+  (get (v/all-specified-violations kb context) [functor pred kind]
+       {:status :audited :violations #{}}))
+
+(defn- specified-contexts [kb functor pred kind parent child nested sibling]
+  (doseq [[sub super] [[parent 'CxUniverse] [child parent] [nested child] [sibling parent]]]
+    (v/assert kb (list 'genlCx sub super) 'CxUniverse))
+  (v/assert kb (list 'binary_predicate pred) 'CxUniverse)
+  (v/assert kb (list 'unary_predicate kind) 'CxUniverse)
+  (v/assert kb (list 'arg pred (if (= functor 'predAllSpecified) 2 1) 'string) 'CxUniverse))
+
+(defn- native-specified [kb functor pred kind]
+  ;; Registry answers carry binding maps, not defining-context records.
+  (let [census (list functor '?pred '?indep)]
+    (v/add-prover kb
+                  (v/prover {:applicable? (fn [_ goal _] (= census goal))
+                             :solve (fn [_ _ _] [{'?pred pred '?indep kind}])}))))
+
+(tu/deftest-kb native-specified-declarations-retain-contract-gaps
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind CxDefined CxChild]
+      (v/assert kb (list 'genlCx CxDefined 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxChild CxDefined) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate notes) 'CxUniverse)
+      (v/assert kb (list 'unary_predicate item_kind) 'CxUniverse)
+      (native-specified kb functor notes item_kind)
+      (let [result (specified-result kb functor notes item_kind CxChild)]
+        (is (= :gap (:status result)))
+        (is (= :missing-slot-typing (:gap result)))
+        (is (= (if (= functor 'predAllSpecified) 2 1) (:position result)))))))
+
+(tu/deftest-kb native-only-specified-declarations-use-the-supplied-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (native-specified kb functor notes item_kind)
+      (v/assert kb (list item_kind Base) CxDefined)
+      (v/assert kb (specified-note functor notes Base) CxDefined)
+      (v/assert kb (list item_kind Child) CxChild)
+      (is (= {:status :audited :violations #{}}
+             (specified-result kb functor notes item_kind CxDefined)))
+      (doseq [context [CxChild CxNested]]
+        (is (= {:status :audited :violations #{Child}}
+               (specified-result kb functor notes item_kind context))))
+      (v/assert kb (specified-note functor notes Child) CxNested)
+      (is (= {:status :audited :violations #{}}
+             (specified-result kb functor notes item_kind CxNested)))
+      (is (= {:status :audited :violations #{Child}}
+             (specified-result kb functor notes item_kind CxChild))
+          "the native-only audit reads fillers in its supplied context"))))
+
+(tu/deftest-kb native-and-stored-specified-tuples-use-the-stored-defining-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (native-specified kb functor notes item_kind)
+      (v/assert kb (list functor notes item_kind) CxDefined)
+      (v/assert kb (list item_kind Base) CxDefined)
+      (v/assert kb (list item_kind Child) CxChild)
+      (v/assert kb (specified-note functor notes Base) CxChild)
+      (let [key [functor notes item_kind]
+            entries (filter #(= key (first %))
+                            (predall/specified-declaration-audits kb CxChild))]
+        (is (= 1 (count entries)) "one tuple has one source obligation, not a native duplicate")
+        (is (= {:status :audited :violations #{Base}} (second (first entries)))
+            "a duplicate native answer neither expands the stored population nor heals it")))))
+
+(tu/deftest-kb specified-populations-use-the-declarations-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)]
+        (v/assert kb declaration CxDefined)
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (specified-note functor notes Base) CxDefined)
+        (v/assert kb (list item_kind Child) CxChild)
+        (doseq [context [CxDefined CxChild CxNested CxSibling]]
+          (is (v/ask? kb declaration context) "the obligation is visible")
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind context))
+              "a descendant-only instance does not expand the ancestor obligation"))))))
+
+(tu/deftest-kb specified-fillers-use-the-declarations-context
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)]
+        (v/assert kb declaration CxDefined)
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (specified-note functor notes Base) CxChild)
+        (doseq [context [CxDefined CxChild CxNested CxSibling]]
+          (is (= {:status :audited :violations #{Base}}
+                 (specified-result kb functor notes item_kind context))
+              "a descendant-only filler does not satisfy an ancestor obligation"))
+        (let [filler (v/assert kb (specified-note functor notes Base) CxDefined)]
+          (v/assert kb (list 'except (list 'sentexHandle filler)) CxChild)
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxNested))
+              "a descendant except does not remove a filler from its defining context"))))))
+
+(tu/deftest-kb specified-declarations-retain-distinct-contexts-and-canonical-duplicates
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base Child CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)
+            parent (v/assert kb declaration CxDefined)
+            child (v/assert kb declaration CxChild)]
+        (is (= child (v/assert kb declaration CxChild)) "a duplicate has the existing handle")
+        (is (not= parent child) "different defining contexts remain distinct")
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (list item_kind Child) CxChild)
+        (v/assert kb (specified-note functor notes Base) CxChild)
+        (doseq [context [CxChild CxNested]]
+          (is (= {:status :audited :violations #{Base Child}}
+                 (specified-result kb functor notes item_kind context))
+              "an ancestor failure and a local failure survive the shared public key"))
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxSibling)))
+        (v/retract! kb child)
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxChild)))
+        (v/retract! kb parent)
+        (is (not (v/ask? kb declaration CxChild)))
+        (is (= {:status :audited :violations #{}}
+               (specified-result kb functor notes item_kind CxChild)))))))
+
+(tu/deftest-kb specified-declaration-selection-filters-excepted-and-defeated-records
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)
+            handle (v/assert kb declaration CxDefined)]
+        (v/assert kb (list item_kind Base) CxDefined)
+        (let [except (v/assert kb (list 'except (list 'sentexHandle handle)) CxChild)]
+          (doseq [context [CxChild CxNested]]
+            (is (not (v/ask? kb declaration context)))
+            (is (= {:status :audited :violations #{}}
+                   (specified-result kb functor notes item_kind context))))
+          (is (= {:status :audited :violations #{Base}}
+                 (specified-result kb functor notes item_kind CxSibling)))
+          (v/retract! kb except))
+        (let [denial (v/assert kb (list 'not declaration) CxDefined {:strength :monotonic})]
+          (is (not (v/in? kb handle)) "the default declaration is defeated, not erased")
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxChild)))
+          (v/retract! kb denial))
+        (let [denial (v/assert kb (list 'not declaration) CxChild {:strength :monotonic})]
+          (is (not (v/ask? kb declaration CxChild)))
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxNested)))
+          (is (= {:status :audited :violations #{Base}}
+                 (specified-result kb functor notes item_kind CxSibling)))
+          (v/retract! kb denial))
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxChild)))))))
+
+(tu/deftest-kb specified-declarations-use-believed-derived-and-subpredicate-records
+  (doseq [functor '[predAllSpecified predSpecifiedAll]
+          mode [:derived :subpredicate]]
+    (tu/with-terms [notes item_kind needs_notes Request Base Child localAll
+                    CxDefined CxChild CxNested CxSibling]
+      (specified-contexts kb functor notes item_kind CxDefined CxChild CxNested CxSibling)
+      (let [declaration (list functor notes item_kind)
+            source (if (= mode :derived)
+                     (do (v/assert kb (list 'unary_predicate needs_notes) 'CxUniverse)
+                         (v/assert kb (list 'set/forwardRule
+                                            (list 'implies (list needs_notes Request) declaration))
+                                   CxDefined)
+                         (v/assert kb (list needs_notes Request) CxDefined))
+                     (do (v/assert kb (list 'binary_predicate localAll) 'CxUniverse)
+                         (v/assert kb (list 'genl localAll functor) 'CxUniverse)
+                         (v/assert kb (list localAll notes item_kind) CxDefined)))]
+        (is (v/ask? kb declaration CxChild))
+        (v/assert kb (list item_kind Base) CxDefined)
+        (v/assert kb (list item_kind Child) CxChild)
+        (let [filler (v/assert kb (specified-note functor notes Base) CxDefined)]
+          (is (= {:status :audited :violations #{}}
+                 (specified-result kb functor notes item_kind CxNested)))
+          (v/retract! kb filler))
+        (is (= {:status :audited :violations #{Base}}
+               (specified-result kb functor notes item_kind CxChild))
+            "the audit retains non-premise and type-aware declarations")
+        (v/retract! kb source)
+        (is (not (v/ask? kb declaration CxChild)))
+        (is (= {:status :audited :violations #{}}
+               (specified-result kb functor notes item_kind CxChild)))))))
+
+(tu/deftest-kb an-ancestor-slot-contract-gap-is-not-healed-by-descendant-typing
+  (doseq [functor '[predAllSpecified predSpecifiedAll]]
+    (tu/with-terms [notes item_kind Base CxDefined CxChild]
+      (doseq [form [(list 'binary_predicate notes) (list 'unary_predicate item_kind)
+                    (list 'genlCx CxDefined 'CxUniverse) (list 'genlCx CxChild CxDefined)]]
+        (v/assert kb form 'CxUniverse))
+      (v/assert kb (list functor notes item_kind) CxDefined)
+      (v/assert kb (list functor notes item_kind) CxChild)
+      (v/assert kb (list item_kind Base) CxDefined)
+      (let [slot (if (= functor 'predAllSpecified) 2 1)]
+        (v/assert kb (list 'arg notes slot 'string) CxChild)
+        (is (= {:status :gap :gap :missing-slot-typing :pred notes :position slot}
+               (specified-result kb functor notes item_kind CxChild)))))))

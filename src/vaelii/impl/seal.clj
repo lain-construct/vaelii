@@ -41,10 +41,12 @@
   image written under other engine source installs and is kept, as `:recover? :trust`
   keeps one (`recovery/trust-installed!`), and the seals after it record that source.  It
   declines — returning a reason and leaving the caller to rebuild from the records — when
-  there is no seal, the log is unusable, an image does not install, a replayed write
-  differs from the record stored at its handle, or the store holds a record at or above
-  the last handle the replay allocated, which a write whose frame never reached the disk
-  left behind.
+  there is no seal, the log is unusable, the log holds no frame and the records'
+  fingerprint differs from the seal's, an image does not install, a replayed write
+  differs from the record stored at its handle, the store holds a record at or above the
+  last handle the replay allocated, which a write whose frame never reached the disk left
+  behind, or after a replay of at least one frame the network and the records disagree on
+  a handle (`dense/record-mismatch`).
 
   A decline after the images installed leaves replayed state in the KB.  `restore!` then
   withdraws the directory's image writers and notes the `:no-belief` and `:no-index`
@@ -59,6 +61,7 @@
   (`oplog/opened`)."
   (:require [clojure.java.io :as io]
             [taoensso.trove :as trove]
+            [vaelii.impl.dense-jtms :as dense]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.index-snapshot :as snapshot]
@@ -234,6 +237,13 @@
                    idx    (snapshot/load! dir (:index kb) (constantly (:index-fp s)))
                    empty? (= :empty (get-in s [:index :reason]))]
                (cond
+                 ;; with no frame to replay, the records stand as the seal left them,
+                 ;; unless a writer with no path to the seal moved them (`retire-unlogged!`
+                 ;; reaches every writer of a directory, not a second `:pg` KB's)
+                 (and (not-any? :op frames)
+                      (not= (:reasoning-fp s) (p/belief-fingerprint (oplog/inner-records (:records kb)))))
+                 (decline :records-moved true)
+
                  (not (or (= :mapped (:index idx)) (and empty? (= :absent (:reason idx)))))
                  (decline [:index (:reason idx)] true)
 
@@ -259,6 +269,16 @@
                                          (oplog/replay-next (:records lkb)))
                          (decline :extra-records false)
 
+                         ;; the frames' writes move the records' fingerprint off the seal's,
+                         ;; so a write with no path to the seal is detected here, as a
+                         ;; handle on which the network and the records disagree
+                         (and (some :op frames)
+                              (let [inner (oplog/inner-records (:records lkb))]
+                                (dense/record-mismatch (reasoning/tms lkb) (p/sentex-ids inner)
+                                                       (p/justification-ids inner)
+                                                       (p/premise-ids inner))))
+                         (decline :records-moved false)
+
                          :else
                          (do (oplog/finish-replay! lkb)
                              (install-writers! lkb)
@@ -268,17 +288,18 @@
              (throw t))))))))
 
 (defn retire-unlogged!
-  "Rename the seal of `kb`'s directory to `retired.nippy` before `kb`, which keeps no
-  operation log, writes.  The write reaches the records and no log, so a restore from
-  that seal would answer without it; with no seal, the next logged open opens from the
-  images or the records and seals again, at a generation above the retired one.  Any
-  durable directory counts, not only an image's: a non-snapshot disk backend opened over
-  a sealed directory writes the records and leaves the seal's images as they were.  One
-  file stat on a KB with a directory, and nothing on any other."
+  "Rename the seal of `kb`'s directory to `retired.nippy` and fsync the directory before
+  `kb`, which keeps no operation log, writes.  The write reaches the records and no log,
+  so a restore from that seal would answer without it; with no seal, the next logged
+  open opens from the images or the records and seals again, at a generation above the
+  retired one.  Any durable directory counts, not only an image's: a non-snapshot disk
+  backend opened over a sealed directory writes the records and leaves the seal's images
+  as they were.  One file stat on a KB with a directory, and nothing on any other."
   [kb]
   (when-let [dir (or (:snapshot-dir kb) (:dir kb))]
     (let [s (io/file (seal-path dir))]
       (when (and (.exists s) (.renameTo s (io/file (retired-path dir))))
+        (f/fsync-dir! (retired-path dir))
         (trove/log! {:level :info :id ::retired
                      :msg (str dir " written without its operation log: its seal is"
                                " retired, and the next open with :oplog? seals it again")})))))

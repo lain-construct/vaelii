@@ -26,7 +26,7 @@
   "What `arg-derived` answers for a membership an argument declaration types."
   [] (if argument/*assertive-arg-types?* #{'arg} #{}))
 
-;; ---- connected conjunctive antecedents in the starter -------------------
+;; ---- connected conjunctive antecedents: the test world's join rules -----
 
 (tu/deftest-kb a-part-is-located-where-its-whole-is
   ;; (implies (and (tangiblePartOf ?part ?whole) (locatedIn ?whole ?place)) (locatedIn ?part ?place))

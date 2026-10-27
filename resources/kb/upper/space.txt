@@ -56,9 +56,8 @@
 ;; two frames of reference apart. See docs/space.md.
 ;;
 ;; Each converse pair is stated inert, as (set/inert (inverse P Q)), so the pair is
-;; written down where a reader looks. The algebra computes every converse itself. A
-;; believed inverse would be a source the calculus prover does not read, and the engine
-;; would then stop letting that prover answer a goal alone.
+;; written down where a reader looks. The algebra computes every converse itself, so a
+;; believed copy adds no answer, and the calculus prover still answers a goal alone.
 
 (comment atSomeDistanceFrom
          "(atSomeDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are some distance apart. Any class of the distance chain but the zero one, so it is the complement of coLocatedWith and holds of nothing and itself.")

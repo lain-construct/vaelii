@@ -83,7 +83,7 @@
     (testing "with nothing indexable to lead with, nothing bounds it"
       (is (< (plan/est-matches kb (list '?c Muffet) #{})
              (plan/est-matches kb '(?c ?x) #{}))))
-    (testing "a concrete unary functor fans over its subtype closure, though animal has no instance"
+    (testing "a concrete unary functor fans over its subtype closure"
       (is (> (plan/est-matches kb (list animal '?x) #{})
              (plan/est-matches kb (list dog '?x) #{}))))
     (testing "a negated open functor is costed by the same argument root"

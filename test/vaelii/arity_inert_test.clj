@@ -624,6 +624,20 @@
           (v/assert kb (list 'not (list 'genl motherOf parentOf)) 'CxUniverse M)
           (is (not (v/believed? kb t 'CxUniverse))))))))
 
+(deftest a-binding-leaving-fires-over-the-tuple-it-released-at-that-write-in-either-order
+  (tu/with-neutral-kb [kb tu/isolated-fresh]
+    (doseq [tuple-first? [true false]]
+      (tu/with-terms [q r A B C]
+        (v/assert kb (list 'set/forwardRule (list 'implies (list q '?x '?y '?z) (list r '?x '?z)))
+                  'CxUniverse)
+        (let [b     (v/assert kb (list 'arity q 2) 'CxUniverse)
+              tuple #(v/assert kb (list q A B C) 'CxUniverse)
+              free  #(v/retract! kb b)]
+          (if tuple-first? (do (tuple) (free)) (do (free) (tuple)))
+          (let [c (v/handle-of kb (list r A C) 'CxUniverse)]
+            (is (and c (v/in? kb c))
+                (if tuple-first? "the tuple before the release" "the release before the tuple"))))))))
+
 (defn- descension-pairs
   "Six predicates bound to three arguments under one bound to two, every binding and
   edge a `:monotonic` premise in CxUniverse: six `:arity-descension` pairs."

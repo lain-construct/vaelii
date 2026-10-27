@@ -24,7 +24,7 @@
   right; density is the variable.
 
   ```
-    nodes / premises / in / blocked / forced mono, out, void
+    nodes / premises / in / blocked / forced mono, out, void, held
     touched / touched-in / touched-new / touched-out           RoaringBitmap
     depths                                    Int2IntOpenHashMap  (absent => 0)
     supports / consequences   Int2ObjectOpenHashMap<IntPostings>  (absent => empty)
@@ -125,6 +125,16 @@
   costs a perfectly-predicted branch on the engine's hottest call."
   [^RoaringBitmap r d]
   (and (integer? d) (.contains r (int d))))
+
+(defn- not-held?
+  "Is `d` outside `held`, the `:held` forced set?  One emptiness check when it is empty."
+  [^RoaringBitmap held d]
+  (or (.isEmpty held) (not (rb-has? held d))))
+
+(defn- without-held
+  "`bits` less the members of `held`, a new bitmap; `bits` itself when `held` is empty."
+  ^RoaringBitmap [^RoaringBitmap bits ^RoaringBitmap held]
+  (if (.isEmpty held) bits (RoaringBitmap/andNot bits held)))
 
 (defn- rb-longs
   "The members as a vector of Longs — the engine's handle type, so what leaves this
@@ -261,10 +271,11 @@
                    ^RoaringBitmap touched-out
                    ^RoaringBitmap mono
                    ;; the forced sets (`jtms-protocol/-forced?`): premises held `:monotonic`,
-                   ;; datums held OUT, justifications held void
+                   ;; datums held OUT, justifications held void, datums IN and not believed
                    ^RoaringBitmap f-mono
                    ^RoaringBitmap f-out
                    ^RoaringBitmap f-void
+                   ^RoaringBitmap f-held
                    ^clojure.lang.Atom superseded
                    ;; nil, or the open hold: `observe/new-hold`'s map plus `:touched`,
                    ;; `:in` and `:mono` bitmaps holding the labels as they were before the
@@ -291,13 +302,15 @@
   (-believed? [this datum]
     (opt-read lock
               (if-let [h (reader-hold this)]
-                (and (held-in? this h datum) (not (contains? (:superseded h) datum)))
-                (and (rb-has? in datum) (not (contains? @superseded datum))))))
+                (and (held-in? this h datum) (not (contains? (:superseded h) datum))
+                     (not-held? (held-forced this :held) datum))
+                (and (rb-has? in datum) (not (contains? @superseded datum))
+                     (not-held? f-held datum)))))
   (-believed [this]
     (with-read lock
       (if-let [h (reader-hold this)]
-        (seq (remove (:superseded h) (rb-longs (held-in this h))))
-        (seq (remove @superseded (rb-longs in))))))
+        (seq (remove (:superseded h) (rb-longs (without-held (held-in this h) (held-forced this :held)))))
+        (seq (remove @superseded (rb-longs (without-held in f-held)))))))
   (-node? [_ datum] (opt-read lock (rb-has? nodes datum)))
   (-datums [_] (with-read lock (seq (rb-longs nodes))))
   ;; O(1)/early-terminating boolean checks — a poll on the render path must neither
@@ -307,7 +320,7 @@
   (-any-belief? [this]
     (with-read lock
       (let [h   (reader-hold this)
-            ^RoaringBitmap bits (if h (held-in this h) in)
+            ^RoaringBitmap bits (without-held (if h (held-in this h) in) (held-forced this :held))
             sup (if h (:superseded h) @superseded)]
         (and (not (.isEmpty bits))
              (or (empty? sup)
@@ -424,6 +437,7 @@
                    :forced-mono (AtomicReference. nil)
                    :forced-out  (AtomicReference. nil)
                    :forced-void (AtomicReference. nil)
+                   :forced-held (AtomicReference. nil)
                    :superseded @^clojure.lang.Atom (.-superseded this)})
           true))))
 
@@ -460,7 +474,7 @@
     (.or ^RoaringBitmap (:in st))))
 
 (def ^:private forced-hold-key
-  {:mono :forced-mono :out :forced-out :void :forced-void})
+  {:mono :forced-mono :out :forced-out :void :forced-void :held :forced-held})
 
 (defn- forced-bitmap
   "The live bitmap of forced set `kind`."
@@ -468,7 +482,8 @@
   (case kind
     :mono (.-f-mono this)
     :out  (.-f-out this)
-    :void (.-f-void this)))
+    :void (.-f-void this)
+    :held (.-f-held this)))
 
 (defn- held-forced
   "Forced set `kind` as the current thread reads it: the copy an open hold kept, for a
@@ -514,6 +529,7 @@
                                     :forced-mono (AtomicReference. nil)
                                     :forced-out  (AtomicReference. nil)
                                     :forced-void (AtomicReference. nil)
+                                    :forced-held (AtomicReference. nil)
                                     :superseded  @^clojure.lang.Atom (.-superseded this)
                                     :premises    (java.util.HashMap.)
                                     :nodes       (java.util.HashMap.)
@@ -621,18 +637,24 @@
 
 (defn- conferred-class
   "The class a valid justification confers: its own strength, capped by the weakest of
-  its antecedents' classes.  A rule-handle informant is not in `j-antes`, so the cap
-  never reads it: a rule is a condition of *validity*, not a ground.  Under
-  `jtms/respell-informant` only the first antecedent caps it (`jtms/class-antecedents`)."
+  its antecedents' classes, and by its rule's class when the informant is a rule handle
+  that is not a premise.  Under `jtms/respell-informant` only the first antecedent caps
+  it (`jtms/class-antecedents`)."
   [^DenseTms this jid ^RoaringBitmap classes]
   (let [antes (j-antecedents this jid)
+        inf   (j-informant-int this jid)
         n     (if (and (> (alength antes) 1)
-                       (== no-informant (j-informant-int this jid))
+                       (== no-informant inf)
                        (= jtms/respell-informant
                           (.get ^Int2ObjectOpenHashMap (.-j-inf-sym this) (int jid))))
                 1
-                (alength antes))]
-    (loop [i 0, acc (if (rb-has? ^RoaringBitmap (.-j-mono this) jid) :monotonic :default)]
+                (alength antes))
+        acc   (if (and (not (== no-informant inf))
+                       (not (rb-has? ^RoaringBitmap (.-premises this) inf))
+                       (rb-has? ^RoaringBitmap (.-j-mono this) jid))
+                (if (.contains classes (int inf)) :monotonic :default)
+                (if (rb-has? ^RoaringBitmap (.-j-mono this) jid) :monotonic :default))]
+    (loop [i 0, acc acc]
       (if (== i n)
         acc
         (recur (unchecked-inc i)
@@ -775,7 +797,8 @@
         ;; believed *now* — read FIRST, because the fixpoint below overwrites the region's
         ;; labels in place and the prior ones are then gone.  See `jtms/touched-in`.
         fresh    (RoaringBitmap/andNot region ^RoaringBitmap (.-touched this))
-        fresh-in (RoaringBitmap/and fresh in)]
+        ;; a `:held` member is IN and was not believed
+        fresh-in (without-held (RoaringBitmap/and fresh in) (.-f-held this))]
     ;; ...and the same record for an open hold, whose readers read the labels as they
     ;; were before its first relabel moved them, and for the open write record — read
     ;; FIRST for the same reason
@@ -890,14 +913,27 @@
           (.setDepth cols d (int depth))))
     nil))
 
-(defn- premise! [^DenseTms this datum strength-kw]
+(defn- premise!
+  "Mark `datum` a premise and relabel its region, except where the mark is one the node
+  already holds at the same class and the node is IN: `jtms/premise*`'s fast path, which
+  relabels nothing and notes `datum` alone as touched."
+  [^DenseTms this datum strength-kw]
   (ensure! this datum 0)
-  (keep-premise! this datum)
-  (rb-add! ^RoaringBitmap (.-premises this) datum)
-  (if (= :monotonic strength-kw)
-    (rb-add! ^RoaringBitmap (.-mono-premises this) datum)
-    (rb-del! ^RoaringBitmap (.-mono-premises this) datum))
-  (resettle! this [datum]))
+  (let [mono?    (= :monotonic strength-kw)
+        premises ^RoaringBitmap (.-premises this)
+        monos    ^RoaringBitmap (.-mono-premises this)]
+    (if (and (rb-has? premises datum)
+             (= mono? (rb-has? monos datum))
+             (rb-has? ^RoaringBitmap (.-in this) datum))
+      (let [t ^RoaringBitmap (.-touched this)]
+        (when-not (or (rb-has? t datum) (rb-has? ^RoaringBitmap (.-f-held this) datum))
+          (rb-add! ^RoaringBitmap (.-touched-in this) datum))
+        (rb-add! t datum)
+        (when-let [e (open-epoch this)] (rb-add! e datum)))
+      (do (keep-premise! this datum)
+          (rb-add! premises datum)
+          (if mono? (rb-add! monos datum) (rb-del! monos datum))
+          (resettle! this [datum])))))
 
 (defn- suspend-premise!
   "Drop the premise mark and relabel the affected closure — `retract-datum!` without
@@ -1012,7 +1048,8 @@
 (defn- set-forced!
   "Add each of `xs` to forced set `kind` (`on?`) or take it out, and relabel the region
   the moved members reach: the datums with a node for `:mono` and `:out`, the
-  consequences of the stored justifications for `:void`."
+  consequences of the stored justifications for `:void`.  A `:held` move relabels
+  nothing and records its IN members in the touched sets (`jtms/set-forced*`)."
   [^DenseTms this kind xs on?]
   (let [r     (forced-bitmap this kind)
         on?   (boolean on?)
@@ -1020,13 +1057,21 @@
     (when (seq moved)
       (keep-held! this (forced-hold-key kind) r)
       (doseq [x moved] (if on? (rb-add! r x) (rb-del! r x)))
-      (let [region (affected-region this (if (= :void kind)
-                                           (into [] (keep #(consequence-or-nil this %)) moved)
-                                           (filterv #(rb-has? ^RoaringBitmap (.-nodes this) %) moved)))
-            was    (RoaringBitmap/and region ^RoaringBitmap (.-in this))]
-        (relabel-region! this region)
-        ;; what the change took OUT, for `jtms/revived` to re-seed if it comes back
-        (.or ^RoaringBitmap (.-touched-out this) (RoaringBitmap/andNot was ^RoaringBitmap (.-in this)))))))
+      (if (= :held kind)
+        (let [live    (doto ^RoaringBitmap (reduce rb-add! (rb) moved) (.and ^RoaringBitmap (.-in this)))
+              touched ^RoaringBitmap (.-touched this)]
+          (when on?
+            (.or ^RoaringBitmap (.-touched-in this) (RoaringBitmap/andNot live touched))
+            (.or ^RoaringBitmap (.-touched-out this) live))
+          (.or touched live)
+          (when-let [e (open-epoch this)] (.or e live)))
+        (let [region (affected-region this (if (= :void kind)
+                                             (into [] (keep #(consequence-or-nil this %)) moved)
+                                             (filterv #(rb-has? ^RoaringBitmap (.-nodes this) %) moved)))
+              was    (RoaringBitmap/and region ^RoaringBitmap (.-in this))]
+          (relabel-region! this region)
+          ;; what the change took OUT, for `jtms/revived` to re-seed if it comes back
+          (.or ^RoaringBitmap (.-touched-out this) (RoaringBitmap/andNot was ^RoaringBitmap (.-in this))))))))
 
 (defn- relabel-all!
   "Whole-graph relabel — no engine path calls it, so this is the differential oracle's
@@ -1110,6 +1155,9 @@
       (when (rb-has? ^RoaringBitmap (.-f-out this) d)
         (keep-held! this :forced-out (.-f-out this))
         (rb-del! ^RoaringBitmap (.-f-out this) d))
+      (when (rb-has? ^RoaringBitmap (.-f-held this) d)
+        (keep-held! this :forced-held (.-f-held this))
+        (rb-del! ^RoaringBitmap (.-f-held this) d))
       ;; the swept nodes were OUT, so dropping them cannot move any survivor's label —
       ;; only the bookkeeping needs the removal
       (rb-del! ^RoaringBitmap (.-in this) d)
@@ -1199,7 +1247,8 @@
           (and (if (rb-has? t d)
                  (rb-has? (:in st) d)
                  (opt-read lock (rb-has? (.-in this) d)))
-               (not (contains? (:superseded st) d))))
+               (not (contains? (:superseded st) d))
+               (opt-read lock (not-held? (kept :forced-held (.-f-held this)) d))))
         (-defeat-class [_ d]
           (if (rb-has? t d)
             (when (rb-has? (:in st) d) (if (rb-has? (:mono st) d) :monotonic :default))
@@ -1279,7 +1328,7 @@
 (def image-version
   "The byte image's layout number.  `read-image!` refuses any other, so an image of
   another layout is discarded rather than misread."
-  5)
+  6)
 
 (def ^:private ^:const image-magic 0x76544D53)
 
@@ -1287,7 +1336,7 @@
   "The bitmaps an image carries, in the order it writes them."
   [^DenseTms t]
   [(.-nodes t) (.-premises t) (.-mono-premises t) (.-jids t) (.-j-mono t)
-   (.-in t) (.-blocked t) (.-mono t) (.-f-mono t) (.-f-out t) (.-f-void t)])
+   (.-in t) (.-blocked t) (.-mono t) (.-f-mono t) (.-f-out t) (.-f-void t) (.-f-held t)])
 
 (defn- sorted-keys ^ints [m]
   (let [^ints a (if (instance? Int2IntOpenHashMap m)
@@ -1435,6 +1484,29 @@
   ^long [^DenseTms t]
   (with-read (.-lock t) (.getLongCardinality ^RoaringBitmap (.-nodes t))))
 
+(defn record-mismatch
+  "Where dense network `t` and a record store's handle sets disagree, or nil:
+  `[:sentex h]` for a node `sentexes` lacks, `[:justification h]` for a justification
+  `justifications` lacks, and `[:premise h]` for a node that is a premise in one of `t`
+  and `premises` and not in the other.  Each set is a `java.util.Set` of Long handles, as
+  `p/sentex-ids` answers.  One pass over `t`'s node, justification and premise bitmaps and
+  over `premises`, under a read lock."
+  [^DenseTms t ^java.util.Set sentexes ^java.util.Set justifications ^java.util.Set premises]
+  (with-read (.-lock t)
+    (let [^RoaringBitmap nodes (.-nodes t)
+          ^RoaringBitmap prems (.-premises t)
+          absent (fn [kind ^RoaringBitmap r ^java.util.Set s]
+                   (let [it (.getIntIterator r)]
+                     (loop []
+                       (when (.hasNext it)
+                         (let [h (long (.next it))]
+                           (if (.contains s h) (recur) [kind h]))))))]
+      (or (absent :sentex nodes sentexes)
+          (absent :justification (.-jids t) justifications)
+          (absent :premise prems premises)
+          (some #(when (and (rb-has? nodes %) (not (rb-has? prems %))) [:premise (long %)])
+                premises)))))
+
 (defn unsupported-nodes
   "The nodes of dense network `t` that are no premise and that no justification
   concludes, ascending, as Longs: the premise bitmap subtracted from the node bitmap, then
@@ -1524,7 +1596,8 @@
      :superseded @^clojure.lang.Atom (.-superseded this)
      :forced     {:mono (rb-set ^RoaringBitmap (.-f-mono this))
                   :out  (rb-set ^RoaringBitmap (.-f-out this))
-                  :void (rb-set ^RoaringBitmap (.-f-void this))}
+                  :void (rb-set ^RoaringBitmap (.-f-void this))
+                  :held (rb-set ^RoaringBitmap (.-f-held this))}
      :classes    (into {} (map (fn [d] [d :monotonic]))
                        (rb-longs ^RoaringBitmap (.-mono this)))
      :in         (rb-set ^RoaringBitmap (.-in this))
@@ -1548,7 +1621,7 @@
               (rb)                                             ; j-mono
               (rb) (rb) (rb) (rb) (rb) (rb) (rb)               ; in blocked touched touched-in
                                                                ; touched-new touched-out mono
-              (rb) (rb) (rb)                                   ; f-mono f-out f-void
+              (rb) (rb) (rb) (rb)                              ; f-mono f-out f-void f-held
               (atom {})
               (AtomicReference. nil)
               (AtomicReference. {:gen 0 :epochs []})))

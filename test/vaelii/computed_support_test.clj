@@ -26,6 +26,7 @@
       not withdraw anything."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.interval :as iv]
             [vaelii.impl.rules :as vr]
@@ -58,7 +59,7 @@
   "The sentences `why` names as supporting `sentence` — one justification's `:because`."
   [kb pred sentence]
   (set (map :sentence
-            (:because (first (:support (v/why kb (handle-of kb pred sentence))))))))
+            (:because (first (:support (tu/why-root kb (handle-of kb pred sentence))))))))
 
 ;; ---- how long between two events -----------------------------------------
 
@@ -395,6 +396,94 @@
     (is (= #{{'?y Bob} {'?y Cy}} (set (v/ask kb (list outranks Ann '?y) C))))
     (is (v/ask? kb (list outranks Bob Cy) C))
     (is (not (v/ask? kb (list outranks Cy Ann) C)))))
+
+;; A datum on a source owes the rule a re-join (`chain/owe-computed-rejoins`).  A run
+;; joins the rule once, behind every datum that owed it, and keeps past the computed
+;; antecedent only the rows whose answer rests on one of them: the firings the datum made
+;; answerable.  Ranks 0 to 4 arriving one by one make 0, 1, 2, 3 and 4 new firings.
+
+(tu/deftest-kb a-source-datum-re-joins-only-the-rows-resting-on-it
+  (tu/with-shipped-config
+    (let [derive  @#'chain/derive-conclusion
+          rejoin  @#'chain/rejoin-in-full
+          load!   (fn [kb {:keys [rankOf outranks above person people rule]} order chain?]
+                    (doseq [step order]
+                      (case step
+                        :rule    (vreset! rule (v/assert kb (fwd [(list person '?x)
+                                                                  (list outranks '?x '?y)]
+                                                                 (list above '?x '?y))
+                                                         C))
+                        :persons (doseq [p people] (v/assert kb (list person p) C))
+                        :ranks   (doseq [[i p] (map-indexed vector people)]
+                                   (v/assert kb (list rankOf p i) C {:chain? chain?})))))
+          terms!  (fn [kb]
+                    (tu/with-terms [rankOf outranks above person Ann Bob Cy Dee Eve]
+                      (v/add-prover kb (ranking-prover rankOf outranks))
+                      {:rankOf rankOf :outranks outranks :above above :person person
+                       :people [Ann Bob Cy Dee Eve] :rule (volatile! nil)}))
+          wanted  (fn [{:keys [above people]}]
+                    (set (for [i (range 5) j (range i)] (list above (people i) (people j)))))]
+      (testing "ranks asserted one at a time after the rule join one row per new firing"
+        (let [t    (terms! kb)
+              rows (atom 0)]
+          (load! kb t [:rule :persons] true)
+          (with-redefs-fn {#'chain/derive-conclusion (fn [& a] (swap! rows inc) (apply derive a))}
+            #(load! kb t [:ranks] true))
+          (is (= 10 @rows))
+          (is (= (wanted t) (believed kb (:above t))))))
+      (testing "a forward chain over ranks stored unchained re-joins the rule once"
+        (let [t     (terms! kb)
+              joins (atom 0)]
+          (load! kb t [:rule :persons :ranks] false)
+          (with-redefs-fn {#'chain/rejoin-in-full
+                           (fn [& a]
+                             (swap! joins + (count (filter #{@(:rule t)} (second a))))
+                             (apply rejoin a))}
+            #(v/forward-chain kb {}))
+          (is (= 1 @joins))
+          (is (= (wanted t) (believed kb (:above t))))))
+      (testing "and every arrival order believes the same firings"
+        (doseq [order [[:rule :persons :ranks] [:rule :ranks :persons] [:persons :rule :ranks]
+                       [:persons :ranks :rule] [:ranks :rule :persons] [:ranks :persons :rule]]]
+          (let [t (terms! kb)]
+            (load! kb t order true)
+            (is (= (wanted t) (believed kb (:above t))) (pr-str order))))))))
+
+(tu/deftest-kb a-run-re-solves-a-quoted-kind-antecedent-a-fixed-number-of-times-whatever-its-data
+  ;; Every `genl` edge is a datum `ExpressionKindProver` reads, so each owes the rule a
+  ;; re-join.  The count is of the solves inside the rule's own re-joins: one run solves
+  ;; the k quoted forms at most twice whatever n is, where a re-join per datum is n·k.
+  (tu/with-shipped-config
+    (let [solve  @#'chain/solve-computed
+          rejoin @#'chain/rejoin-in-full
+          k      3
+          solves (fn [n]
+                   (tu/with-terms [quoted formula_mark]
+                     (let [forms (vec (repeatedly k #(list 'Quote (list 'genl (tu/tmp-type)
+                                                                        (tu/tmp-type)))))
+                           rh    (v/assert kb (fwd [(list quoted '?s) '(formula ?s)]
+                                                   (list formula_mark '?s))
+                                           C)
+                           in?   (volatile! false)
+                           calls (atom 0)]
+                       (doseq [f forms] (v/assert kb (list quoted f) C))
+                       (doseq [_ (range n)]
+                         (v/assert kb (list 'genl (tu/tmp-type) (tu/tmp-type)) C {:chain? false}))
+                       (with-redefs-fn {#'chain/rejoin-in-full
+                                        (fn [& a]
+                                          (vreset! in? (boolean (some #{rh} (second a))))
+                                          (try (apply rejoin a) (finally (vreset! in? false))))
+                                        #'chain/solve-computed
+                                        (fn [& a]
+                                          (when (and @in? (= 4 (count a))) (swap! calls inc))
+                                          (apply solve a))}
+                         #(v/forward-chain kb {}))
+                       (is (= (set (map #(list formula_mark %) forms))
+                              (believed kb formula_mark)))
+                       @calls)))
+          few    (solves 2)]
+      (is (<= k few (* 2 k)))
+      (is (= few (solves 8))))))
 
 ;; ---- and what a purely arithmetic comparison still rests on ---------------
 

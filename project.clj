@@ -1,7 +1,7 @@
 ;; Defines `jdk-major`, `bash` and `test-jvm-opts`, which the `~` forms below read.
 (load-file (str (.getParent (java.io.File. *file*)) "/project-env.clj"))
 
-(defproject com.vaelii/vaelii "0.29.1-SNAPSHOT"
+(defproject com.vaelii/vaelii "0.30.1-SNAPSHOT"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."

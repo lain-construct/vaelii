@@ -1325,7 +1325,7 @@
     ;; is remembered as bindings").  Derived state, in memory beside
     ;; `jtms/blocked` rather than in it: these are not justifications
     ;; and must never be labelled.  `:kinds` names the handles holding
-    ;; a `:constraint` or `:lift` entry (`special/kind-entries`).
+    ;; a `:lift` entry (`special/kind-entries`).
     :refused   (atom {})
     :settle-stats (atom {:iterations 0 :passes 0 :histogram {}})
     :chain-stats  (atom {:runs 0 :last nil})
@@ -1361,14 +1361,15 @@
     ;; rebuild clears it, since a store recovered is already spelled
     :respell   (atom #{})
     ;; `{:pending {handle #{context}} :whole #{handle} :scoped {handle
-    ;; #{[sub super]}} :extra [[datum reason]] :region #{datum}}` — the
-    ;; handles a visibility `except` began or stopped hiding since the last
-    ;; settle, with the contexts the excepts are stated in and whether the
-    ;; except or a `genlCx` edge moved (`special/note-except-move!`), the
-    ;; supersessions the settle's sweep of them owes
-    ;; (`special/except-move-sweeps`), and the
-    ;; superseded data the moves can change, which join the settle's
-    ;; supersession region (`special/except-move-region`).  Empty at rest:
+    ;; #{[sub super]}} :extra [[datum reason]] :region #{datum} :moved
+    ;; #{handle}}` — the handles a visibility `except` began or stopped hiding
+    ;; since the last settle, with the contexts the excepts are stated in and
+    ;; whether the except or a `genlCx` edge moved (`special/note-except-move!`),
+    ;; the supersessions the settle's sweep of them owes
+    ;; (`special/except-move-sweeps`), the superseded data the moves can
+    ;; change, which join the settle's supersession region
+    ;; (`special/except-move-region`), and the drained handles, whose values
+    ;; the settle's values step re-decides.  Empty at rest:
     ;; the settle that follows a move drains it, and a rebuild clears it
     :except-moves (atom {})
     :qcn       (caches/tallied (atom {}) [:R3])
@@ -1380,6 +1381,205 @@
     ;; retired by the same clock move, so the clock value belongs to the map
     ;; (`provers/closure-hit`)
     :closures  (caches/tallied (atom {}) [:R2])}))
+
+(defn- forward-walk
+  "`[hit seen]`: `seen` grown by the forward closure of `starts` over the justifications
+  resting on them (`jtms/dependents`), and the first handle the walk met that `supports?`
+  answers true for, where it stops, or nil."
+  [tms supports? seen starts]
+  (loop [seen (transient seen), stack (vec starts)]
+    (if-let [d (peek stack)]
+      (let [stack (pop stack)]
+        (cond (contains? seen d) (recur seen stack)
+              (supports? d)      [d (persistent! seen)]
+              :else (recur (conj! seen d)
+                           (into stack (comp (keep #(jtms/justification tms %)) (map :consequence))
+                                 (jtms/dependents tms d)))))
+      [nil (persistent! seen)])))
+
+(defn- rests-on?
+  "Does justification `j` rest on handle `d`: an antecedent, or the rule that informs it,
+  which `jtms/dependents` lists it under as well."
+  [j d]
+  (or (some #(= d %) (:antecedents j)) (= d (:informant j))))
+
+(defn- rests-on-seen?
+  "Does a justification concluding `d` rest on a handle of `seen`: an antecedent, or the
+  rule that informs it, which `jtms/dependents` lists it under as well."
+  [tms seen d]
+  (some (fn [jid]
+          (when-let [j (jtms/justification tms jid)]
+            (or (some #(contains? seen %) (:antecedents j))
+                (let [inf (:informant j)] (and (integer? inf) (contains? seen inf))))))
+        (jtms/supports tms d)))
+
+(defn- reach-witness
+  "`[handles jids]`: a path of the forward walk from a handle of `targets` to `hit`, with
+  `handles` from the target to `hit` and `jids` the justifications between them, each
+  resting on the handle before it and concluding the one after.  Searched breadth-first
+  backward from `hit`, over the justifications concluding a handle (`jtms/supports`), to
+  the handles of `seen` and `targets`; nil when none leads to a target."
+  [tms targets seen hit]
+  (loop [queue (conj clojure.lang.PersistentQueue/EMPTY hit), on {hit nil}]
+    (when-let [x (peek queue)]
+      (if (contains? targets x)
+        (loop [x x, hs [x], js []]
+          (if-let [[jid c] (on x)] (recur c (conj hs c) (conj js jid)) [hs js]))
+        (let [back (fn [acc jid]
+                     (if-let [j (jtms/justification tms jid)]
+                       (reduce (fn [[q on :as acc] a]
+                                 (if (and (integer? a) (not (contains? on a))
+                                          (or (contains? seen a) (contains? targets a)))
+                                   [(conj q a) (assoc on a [jid x])]
+                                   acc))
+                               acc (cons (:informant j) (:antecedents j)))
+                       acc))
+              [queue on] (reduce back [(pop queue) on] (jtms/supports tms x))]
+          (recur queue on))))))
+
+(defn- witness-holds?
+  "Is `[handles jids]` (`reach-witness`) a path of the forward walk from `targets` now:
+  its first handle a target, each justification present, resting on the handle before it
+  and concluding the one after, and its last handle one `supports?` answers true for."
+  [tms supports? targets [hs js]]
+  (and (contains? targets (first hs))
+       (every? (fn [i]
+                 (when-let [j (jtms/justification tms (nth js i))]
+                   (and (= (nth hs (inc i)) (:consequence j)) (rests-on? j (nth hs i)))))
+               (range (count js)))
+       (boolean (supports? (peek hs)))))
+
+(defn- reach-mark
+  "`jtms/touch-mark` of `tms`, or nil for a network that keeps no marks (`prior-kb`'s)."
+  [tms]
+  (try (jtms/touch-mark tms) (catch UnsupportedOperationException _ nil)))
+
+(def ^:private reach-moved-cap
+  "How many handles the reach memo's `:moved` may hold before `note-reach-touched!` drops
+  the entry: past it the walk from the targets is the cheaper read."
+  65536)
+
+(defn- reach-entry-current?
+  "Does memo entry `e` describe the network `tms` and the index `idx`, and does what it
+  has not read of the touched sets lie in `:moved` and in what `jtms/touched-since`
+  answers for its mark: no reset since the mark (generation `g`, the current one), or
+  each since fed to it (`:fed`, `note-reach-touched!`)."
+  [e tms idx g]
+  (and e g
+       (identical? tms (:tms e)) (identical? idx (:idx e))
+       (let [eg (first (:mark e))]
+         (or (= g eg) (= (:fed e) (dec (long g)))))))
+
+(defn- reach-targets
+  "The handles the entries name, as a set."
+  [entries]
+  (into #{} (mapcat (comp deref val)) entries))
+
+(defn- held-forward-reach
+  "The forward walk of `supporter-reaches?`, held across writes in `memo`
+  (`[:taxonomy :supporter-reach]`, `note-reach-touched!`).
+
+  A walk that met no supporter is kept as the handles it read, `:seen`, with the targets
+  it walked from and a mark of the touched sets taken before it read them.  The network's
+  justifications only grow its closure by one added after the mark, and adding one
+  touches its consequence, so the next read takes the handles touched since and walks on
+  from each that a justification rests on `:seen` from, and re-tests each touched handle
+  of `:seen` itself.  When a stored `except` or `defeat` may have moved
+  (`exc/frame-write-count`) it reads the targets again and walks on from the new ones.  A
+  removal, of a justification or a target, only shrinks the closure, so `:seen` stays a
+  superset of it and a walk that meets no supporter answers false exactly.
+
+  A walk that met a supporter is kept as a path to it from a target, `:witness`
+  (`reach-witness`), and the next read checks that path against the network, the
+  targets and `supports?` (`witness-holds?`): while it holds, the fresh walk meets a
+  supporter too.  A path that no longer holds walks again from the targets."
+  [kb tms rel supports? entries memo]
+  (let [idx    (:index kb)
+        k      [rel (mapv key entries)]
+        mark   (reach-mark tms)
+        g      (first mark)
+        writes (exc/frame-write-count)
+        e      (some-> memo deref (get k))
+        tl     (caches/tally-of memo :T12)
+        held   (fn [targets w]
+                 {:tms tms :idx idx :writes writes :targets targets :witness w})
+        put!   (fn [e' when-e]
+                 (swap! memo (fn [m] (if (or (= ::any when-e) (identical? when-e (get m k)))
+                                       (if e' (assoc m k e') (dissoc m k))
+                                       m))))
+        fresh  (fn []
+                 (let [targets    (reach-targets entries)
+                       [hit seen] (forward-walk tms supports? #{} targets)]
+                   (when memo
+                     (put! (cond hit  (some->> (reach-witness tms targets seen hit) (held targets))
+                                 mark {:tms tms :idx idx :writes writes :targets targets
+                                       :seen seen :mark mark :moved #{}})
+                           ::any))
+                   (some? hit)))
+        same?  (and memo e (identical? tms (:tms e)) (identical? idx (:idx e)))
+        targets-now (fn [] (if (= writes (:writes e)) (:targets e) (reach-targets entries)))]
+    (cond
+      (and same? (:witness e))
+      (let [targets (targets-now)]
+        (if (witness-holds? tms supports? targets (:witness e))
+          (do (caches/hit tl)
+              (when-not (= writes (:writes e))
+                (put! (assoc e :writes writes :targets targets) e))
+              true)
+          (caches/recomputed tl (fresh))))
+
+      (not (and same? (reach-entry-current? e tms idx g)))
+      (caches/recomputed tl (fresh))
+
+      :else
+      (let [targets (targets-now)
+            cand    (into (:moved e) (jtms/touched-since tms (:mark e)))
+            step    (fn [[_ seen :as acc] d]
+                      (cond (contains? seen d)
+                            (if (supports? d) (reduced [d seen]) acc)
+                            (rests-on-seen? tms seen d)
+                            (let [[h seen] (forward-walk tms supports? seen [d])]
+                              (if h (reduced [h seen]) [nil seen]))
+                            :else acc))
+            [hit seen] (reduce step [nil (:seen e)] cand)
+            [hit seen] (if (or hit (identical? targets (:targets e)))
+                         [hit seen]
+                         (forward-walk tms supports? seen (remove (:targets e) targets)))]
+        (if hit
+          ;; `seen` holds every handle the closure from the targets reaches, so a path to
+          ;; `hit` lies in it; one through a handle a removal cut off is not a path now
+          (caches/recomputed tl (if-let [w (reach-witness tms targets seen hit)]
+                                  (do (put! (held targets w) e) true)
+                                  (fresh)))
+          (do (caches/hit tl)
+              (put! (assoc e :seen seen :mark mark :moved #{} :fed nil :writes writes :targets targets) e)
+              false))))))
+
+(defn note-reach-touched!
+  "Fold into each entry of the reach memo (`held-forward-reach`) the handles the touched
+  sets recorded since its mark, before `settle/settle-finish` empties them and outdates
+  the mark, and note the generation fed.  An entry the touched sets have already
+  outdated unfed, or whose handles to read grow past `reach-moved-cap`, is dropped: its
+  next read walks from the targets.  A witness path reads no touched set and stays."
+  [kb]
+  (when-let [memo (:supporter-reach @(reasoning/taxonomy kb))]
+    (when (seq @memo)
+      (let [tms  (reasoning/tms kb)
+            g    (first (reach-mark tms))]
+        (swap! memo
+               (fn [m]
+                 (reduce-kv (fn [m k e]
+                              (let [eg (first (:mark e))]
+                                (cond
+                                  (:witness e) m
+                                  (and g (identical? tms (:tms e))
+                                       (or (= g eg) (= (:fed e) (dec (long g)))))
+                                  (let [t (jtms/touched-since tms (:mark e))]
+                                    (if (> (+ (count t) (count (:moved e))) (long reach-moved-cap))
+                                      (dissoc m k)
+                                      (assoc m k (assoc e :moved (into (:moved e) t) :fed g))))
+                                  :else (dissoc m k))))
+                            m m)))))))
 
 (defn supporter-reaches?
   "Does a stored supporter of a relation rest on a target of the supporter entries `named`
@@ -1399,35 +1599,35 @@
   functors are no more than the supporters, else up each supporter's support
   (`exc/support`), which holds the supporter itself, with one `reads/stored-naming?` probe
   per handle and functor and no target set built.  Either walk stops at the first hit, so
-  the read costs whichever side is smaller."
-  [kb named sups defeats?]
-  (let [idx     (:index kb)
-        rel     (:rel sups)
-        genlCx? (= :genlCx rel)
-        entries (into [] (remove #(and (or genlCx? (not defeats?)) (= sx/defeat-functor (key %)))) named)]
-    (cond
-      (some #(pos? (reads/stored-count-named-supporters-global idx rel (key %))) entries) true
-      genlCx? (exc/genlCx-excepted? kb sups)
-      :else
-      (let [tms       (reasoning/tms kb)
-            supports? (:supports? sups)
-            n         (transduce (map #(reads/stored-count-with-functor idx (key %))) + 0 entries)]
-        (cond
-          (zero? n) false
-          (<= n (long (:count sups)))
-          (loop [seen #{}, stack (into [] (mapcat (comp deref val)) entries)]
-            (if-let [d (peek stack)]
-              (let [stack (pop stack)]
-                (cond (supports? d)      true
-                      (contains? seen d) (recur seen stack)
-                      :else (recur (conj seen d)
-                                   (into stack (comp (keep #(jtms/justification tms %)) (map :consequence))
-                                         (jtms/dependents tms d)))))
-              false))
-          :else
-          (let [named? (fn [h] (some #(reads/stored-naming? idx (key %) h) entries))]
-            (boolean (some (fn [h] (some named? (exc/support tms h (constantly false))))
-                           ((:handles sups))))))))))
+  the read costs whichever side is smaller.
+
+  `memo`, the KB's `[:taxonomy :supporter-reach]` atom, holds the forward walk's answer
+  across writes (`held-forward-reach`), a false as the handles it read and a true as the
+  path it met a supporter by: every write moves the change clock the taxonomy's
+  filter memo is keyed by, so a pass over a store's facts would otherwise read the walk
+  from every defeat target again at each mint (perf check
+  `record-pass-beside-defeated-chains`)."
+  ([kb named sups defeats?] (supporter-reaches? kb named sups defeats? nil))
+  ([kb named sups defeats? memo]
+   (let [idx     (:index kb)
+         rel     (:rel sups)
+         genlCx? (= :genlCx rel)
+         entries (into [] (remove #(and (or genlCx? (not defeats?)) (= sx/defeat-functor (key %)))) named)]
+     (cond
+       (some #(pos? (reads/stored-count-named-supporters-global idx rel (key %))) entries) true
+       genlCx? (exc/genlCx-excepted? kb sups)
+       :else
+       (let [tms       (reasoning/tms kb)
+             supports? (:supports? sups)
+             n         (transduce (map #(reads/stored-count-with-functor idx (key %))) + 0 entries)]
+         (cond
+           (zero? n) false
+           (<= n (long (:count sups)))
+           (held-forward-reach kb tms rel supports? entries memo)
+           :else
+           (let [named? (fn [h] (some #(reads/stored-naming? idx (key %) h) entries))]
+             (boolean (some (fn [h] (some named? (exc/support tms h (constantly false))))
+                            ((:handles sups)))))))))))
 
 (defn- attach-visibility!
   "Install the taxonomy's visibility callbacks and its supporter-sentence read
@@ -1437,7 +1637,9 @@
   stored `except`s even after an install replaces `kb`'s belief."
   [kb b]
   (tax/install-index! (:taxonomy b) (:index kb))
-  (let [copy (assoc kb :reasoning (volatile! b))]
+  (let [copy  (assoc kb :reasoning (volatile! b))
+        reach (caches/tallied (atom {}) [:T12])]
+    (swap! (:taxonomy b) assoc :supporter-reach reach)
     ;; Both read live under a settle's hold (`observe/live`): the closures they decide
     ;; are memoized where the writer reads them, so they describe the network the writer
     ;; holds now, and a reader beside a settle reads the taxonomy as the writer moves it.
@@ -1448,7 +1650,7 @@
                                        #(observe/live (exc/except-entries copy))
                                        (fn [handle context]
                                          (observe/live (res/supporter-believed? copy handle context false)))
-                                       (fn [entries sv defeats?] (observe/live (supporter-reaches? copy entries sv defeats?)))
+                                       (fn [entries sv defeats?] (observe/live (supporter-reaches? copy entries sv defeats? reach)))
                                        (fn [handle] (some-> (p/get-sentex (:records copy) handle) sx/sentence-of)))))
 
 ;; ---- the KB before the write ------------------------------------------------------
@@ -1635,6 +1837,9 @@
   ;; still be reported as the typo it is rather than as a fsync tick that logs a class
   ;; name (`config/check!`).
   (config/check!)
+  ;; once per JVM: a chaining run refuses over a nearly full heap (docs/caches.md, "The
+  ;; heap mark")
+  (when (config/heap-mark?) (caches/arm-heap-mark!))
   (check-constraints-opt! opts)
   (check-opts! opts "open-kb")
   (check-naming! naming)
@@ -2983,6 +3188,17 @@
   :retired-by {:image-install :R}
   :computed :write :imaged? :state :at [[:program]]
   :note "the last Program handed to the solver, with its classification (`vaelii.impl.asp.label`); registered here because that namespace loads on its first `do/label`"})
+
+(caches/register-derived
+ {:id :T12 :label "Supporter reach memo" :kind :cache :keyed-by :value
+  :reads [:index :justifications]
+  :holds-content? false
+  :retired-by {:stored :G :removed :G :respelled :G :relabelled :K :held :K :settle-exit :K
+               :recover :R :image-install :R}
+  :computed :read :imaged? false :at [[:taxonomy :supporter-reach]]
+  :value (fn [kb] (some-> (caches/value-at kb [:taxonomy :supporter-reach]) deref))
+  :covered-by {:perf [:record-pass-beside-defeated-chains :record-pass-beside-a-reached-supporter]}
+  :note "per relation and entry functors, the handles a forward walk from the stored `except`s' and placed `defeat`s' targets read and met no supporter of, with those targets and a mark of the touched sets: a read walks on from the handles touched since and, once `except/frame-write-count` moves, from the targets new since, and `note-reach-touched!` feeds it the touched sets a settle exit empties; or, for a walk that met a supporter, a path to it from a target, which a read checks against the network (`held-forward-reach`)"})
 
 (caches/register-derived
  {:id :R12 :label "Call-scoped memos" :kind :pass :keyed-by :value :reads [:index :T1]

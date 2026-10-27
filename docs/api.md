@@ -37,10 +37,12 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                               ; this host describing records on a server
                                               ; :naming is this KB's entry-point naming
                                               ; policy (docs/naming.md)
-                                              ; :recover? is :auto (or true) / :background /
-                                              ; :warn / false — :background installs a stored
-                                              ; image and rebuilds belief behind it
-                                              ; (docs/storage.md); :auto is the default and
+                                              ; :recover? is :trust / :auto (or true) /
+                                              ; :background / :warn / false — :trust is the
+                                              ; default and keeps a stored image an earlier
+                                              ; build wrote, :auto declines it and recovers,
+                                              ; :background installs a stored image and
+                                              ; rebuilds belief behind it (docs/storage.md);
                                               ; anything else is refused (:unknown-option),
                                               ; since a value read as :warn hands back an
                                               ; empty TMS over a store that is not empty
@@ -53,6 +55,8 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                ; polycanonicalized (docs/canonicalization.md)
                                                ; opts: {:strength :monotonic|:default :chain? bool :max-depth n}
                                                ; `assert-opt-keys` is the key set; a key off it is refused
+                                               ; :max-ms / :stop? / :max-derivations reached refuse it
+                                               ; (:interrupted), rolled back (inference.md, "Stopping a run")
 (try-assert kb sentence context opts)          ; `assert`, refusing a write that would open a
                                                ; definitional clash (`:definitional-clash`);
                                                ; depends on arrival order ("Refusing a clash")
@@ -69,7 +73,8 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                 ; The other inertness is `set/inertRule` — a
                                                 ; believed, indexed rule that fires neither way
 (with-deferred-settle kb & body)                ; run a batch, settle belief ONCE at the end
-(assert-many kb sentences context opts)         ; the collection form -> vector of handles
+(assert-many kb sentences context opts)         ; the collection form -> vector of handles;
+                                                ; :interrupted keeps the sentences before it (:stored)
 (bulk-assert-facts! kb facts context opts?)     ; a trusted corpus's ground facts on the fast path:
                                                 ; no per-fact checks, no dedup, no provenance, no
                                                 ; chaining, one settle.  The caller owns the two
@@ -77,11 +82,21 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                 ; `:on-progress` reports the load's facts/sec
 (record-arg-types kb)                           ; after a bulk or dump load: record the
                                                 ; argument-type derivations it skipped, once
+(record-arg-types! kb opts?)                    ; the same pass, stoppable and resumable: a
+                                                ; budget per fact (:budget-ms, 2000), :stop?,
+                                                ; :on-progress, :resume?, :retry-deferred?
+                                                ; -> {:done :total :deferred :stopped :complete? …}
+(arg-types-owed kb)                             ; what that pass still owes -> nil | {:facts :total
+                                                ;  :swept? :deferred} (docs/argtypes.md, "The
+                                                ; pass over a stored KB")
+(request-stop! kb)                              ; stop a running record-arg-types! at its next
+                                                ; fact boundary, from any thread -> bool
 (owed-releases kb)                              ; the withheld-mint releases a bulk load or an
                                                 ; open left undrawn -> n
 (release-withheld! kb)                          ; draw them, chain, settle -> {:terms :released :ms}
                                                 ; (docs/argtypes.md, "Nothing records a withheld mint")
-(edit! kb {:add [[sentence context opts?] ...] :remove [handle ...]}) ; add-then-remove, one settle
+(edit! kb {:add [[sentence context opts?] ...] :remove [handle ...]} opts?) ; add-then-remove, one settle;
+                                                ; opts :max-ms / :stop? bound the adds (`edit-opt-keys`)
 (check kb sentence context opts)                ; would assert succeed? -> [] or [{:type :message …}]
 (check-edit kb {:add […] :remove […]})          ; the same over an edit batch, each problem naming its entry
 (preview kb {:add […] :remove […]} opts)        ; what the batch would BELIEVE -> the diff, then rolled back
@@ -89,9 +104,15 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 (watch kb f)                                    ; call `f` with that same diff whenever belief moves -> token
 (watch kb goal context f)                       ; ...only for what `goal` answers, entries + :bindings
 (unwatch kb token) / (watchers kb)              ; drop one -> bool / what is registered, without the fns
-(forward-chain kb opts)                         ; {:derived n :truncated? bool}
+(forward-chain kb opts)                         ; {:derived n :truncated? bool}, + :term-cut n;
+                                                ; :max-ms/:stop?/:max-derivations reached throw
+                                                ; :interrupted with :bound and roll back;
+                                                ; {:on-stop :keep} keeps what was placed and
+                                                ; returns :bound; a :max-depth cut returns
+                                                ; :truncated? true with no :bound
 default-chain-opts                              ; the bounds a chain run takes when opts omit them —
-                                                ; max-depth (productive recursion) and max-derivations
+                                                ; max-term-depth 8 (term-building recursion) alone;
+                                                ; max-derivations and max-depth have none
 (conflicts kb [opts])                           ; irreducible clashes among known-true content —
                                                ; same entry shape as contradictions; both sides stay believed;
                                                ; :grounds names the declarations a clash is convicted through;
@@ -131,7 +152,10 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; :on-progress (which may throw to cancel).
                                                 ; :subsumption names the rules another rule already
                                                 ; covers, :clashes the rule pairs that would
-                                                ; contradict each other if both fired
+                                                ; contradict each other if both fired. :taxonomy,
+                                                ; :declarations and :clashes count kb-integrity's
+                                                ; :taxonomy-island, :stranded-declaration and
+                                                ; rule-clash findings over the whole KB
 (quality-report quality)                        ; that map as Markdown; takes the map, not the KB
 (caches kb)                                     ; what the *process* holds beside the stores: one row per
                                                 ; cache — :entries :limit :unit :hits :misses :hit-rate,
@@ -196,12 +220,17 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; over a pair a stated separation divides, the suggested
                                                 ; declaration for every stored rule that a declaration the
                                                 ; engine implements states, every genl node with no
-                                                ; declared arity, plus three
+                                                ; declared arity, every argument declaration naming a
+                                                ; position its predicate lacks, and every live rule pair
+                                                ; whose conclusions would contradict if both fired, plus three
                                                 ; review-only smells: sibling types sharing one direct
                                                 ; genl set, stated genl/disjoint edges that derive
                                                 ; without themselves, and disjoint pairs a known cover
-                                                ; exhausts (a candidate partition), and every declared
-                                                ; argument position no arg-type declaration types. Returns
+                                                ; exhausts (a candidate partition), and for review every
+                                                ; declared argument position no arg-type declaration
+                                                ; types, every edged type off the taxonomy's root, and
+                                                ; every rule clash an inert rule or an exception
+                                                ; accounts for. Returns
                                                 ; {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
@@ -212,11 +241,13 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; :implicit-arity-class,
                                                 ; :orthogonal-over-separation, :rule-macro,
                                                 ; :undeclared-arity,
-                                                ; :uncorresponded-function, :twin-genls,
-                                                ; :derivable-stated-edge,
-                                                ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
+                                                ; :uncorresponded-function, :stranded-declaration,
+                                                ; :rule-clash, :twin-genls, :derivable-stated-edge,
+                                                ; :disjoint-could-be-partition, :missing-arg,
+                                                ; :taxonomy-island, :rule-clash-review and
+                                                ; :rule-macro-review. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
-                                                ; passes to run. The four review-only passes run only
+                                                ; passes to run. The seven review-only passes run only
                                                 ; when :categories names them; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);
@@ -404,7 +435,10 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; image written by default
 (import! kb dir opts?)                         ; read a dump back into the (empty) kb — export!'s
                                                ; inverse.  opts {:belief? true|:stored|false
-                                               ; :report-every n :on-progress f}:
+                                               ; :report-every n :on-progress f
+                                               ; :drop-principal? bool}; provenance lands as
+                                               ; written, and :drop-principal? true drops each
+                                               ; map's :principal (koinii's pull! passes it).  :belief?
                                                ; true (the default) installs the dump's belief
                                                ; image when it still describes the records it
                                                ; landed, and recovers belief otherwise; :stored
@@ -654,7 +688,10 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; -> {:removed :unpremised :absent :redirected
                                                 ;     :justifications-removed :seeds}
 (settle-record-edits! kb {:seeds ss})           ; one recover (or reindex), then sweep the seeds
-                                                ; and the unrooted, chain, record-arg-types
+                                                ; and the unrooted, chain, re-chain the unrooted
+                                                ; firings' antecedents, record-arg-types;
+                                                ; {:arg-types? false} leaves the pass owed,
+                                                ; :on-progress reports each phase
                                                 ; (docs/storage.md, "Editing the records of a
                                                 ; KB without belief")
 (in? kb handle)                                 ; raw structural JTMS IN, before contextual exceptions
@@ -669,13 +706,11 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; :exceptions is context/content ordered; every node
                                                 ; is {:handle :in? :in-force? :excepted-by}
 (believed kb handles)                           ; in? in batch -> the set of raw-IN handles
-(why kb handle opts?)                           ; proof tree: support -> rule + recursive antecedents,
-                                                ; terminating at premises, cycle-guarded, originalized
-                                                ; opts {:max-depth n} (default 256); a branch at the
-                                                ; cap reads {:truncated? true} — re-ask deeper.  The
-                                                ; walk spends no JVM stack (explicit work stack), so
-                                                ; the cap bounds the tree returned, not the depth a
-                                                ; read can reach without overflowing
+(why kb handle)                                 ; the justification graph down to premises:
+                                                ; {:root h :nodes {h {… :support [{:rule :verdict
+                                                ;  :because [h1 h2 …]}]} h1 {…} …}}, one node per
+                                                ; reachable handle, rules originalized.  Linear in
+                                                ; the graph, so no depth bound and no truncation
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
                                                 ; / :withdrawn (+ the defeats it rests on)
                                                 ; / :superseded (+ the restatement that displaced it)
@@ -709,7 +744,7 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; opts: `query-opt-keys`, checked at THIS entry point — a
                                                 ; misspelt depth checked downstream is never checked at
                                                 ; all, and answers :unknown for a derivable sentence
-                                                ; :for-why / :against-why are `why`'s JTMS map, for a
+                                                ; :for-why / :against-why are `why`'s graph, for a
                                                 ; side the store holds; :for-derivation /
                                                 ; :against-derivation are `query`'s {:proof? true} tree,
                                                 ; for a side a rule derived instead.  A side carries at
@@ -881,7 +916,11 @@ for the whole load and is comparable between runs and between corpus sizes. Wher
 time goes, phase by phase: [storage.md](storage.md), "What a bulk load costs".
 The argument-type derivations ride on the skipped checks, so a bulk load stores none of
 them; `record-arg-types`, run once after the load on the recovered KB, records them
-([argtypes.md](argtypes.md#where-it-does-not-mint)).
+([argtypes.md](argtypes.md#where-it-does-not-mint)). No stored rule fires over the loaded
+facts either, so `forward-chain` follows `record-arg-types`. Both read the whole KB, so a
+snapshot loaded over a larger KB takes a chained write
+([storage.md](storage.md#loading-a-changing-snapshot-over-a-fixed-base)). `:max-ms` and
+`:stop?` bound the load as they bound `assert-many` ([inference.md](inference.md#stopping-a-run)).
 
 `edit!` batches assertions **and** retractions into one settle — `{:add [[sentence
 context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a
@@ -985,8 +1024,7 @@ the call created is retracted with what it derived, every mark it raised is put 
 the diagnostic ledgers `edit!` restores are restored.  The throw is the one `assert` raised,
 unchanged.  **The handle counter is the one thing that moves**, as it does for `edit!`.  A
 change-feed listener hears nothing of the refused call, since `assert` holds the feed for
-its duration.  Under `*bulk-load?*` nothing is taken back: that mode skips the checks that
-refuse after a mint, for a corpus its caller has guaranteed.
+its duration.  Under `*bulk-load?*` the same undo runs.
 
 A caller that wants the answer rather than the effect — an editor
 validating a line, a critic grading a proposed batch, an importer triaging a corpus —
@@ -1010,8 +1048,8 @@ spelling — `functor lives_in in rule consequent (lives_in ?x cold_place) is sn
 It returns a **vector of problems**, empty when the sentence is admissible.  Each is a
 map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
 `:not-well-formed`, `:unknown-handle` (an `except` naming no stored sentex), `:not-range-restricted`, `:not-indexable`, `:disjunction-too-wide`, `:not-stratified`,
-`:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
-`:arg-constraint-kind`, `:disjoint`, `:functional`, `:asymmetric`,
+`:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:inter-arg-type`,
+`:disjoint`, `:functional`, `:asymmetric`,
 `:anti-transitive` — a readable
 `:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
 arg breach, plus `:trigger` and `:trigger-position` for the `interArg` form, which
@@ -1063,7 +1101,7 @@ that would open a definitional clash with believed content visible from the cont
 ;;         :detail {:types [cat dog]}}
 ```
 
-The refusal reads twelve things, and the call stores nothing when one of them clashes:
+The refusal reads thirteen things, and the call stores nothing when one of them clashes:
 
 - the sentence against believed content: a `:disjoint`, `:functional`, `:asymmetric`,
   `:anti-transitive` or `:cover` clash, from the checks `assert` runs;
@@ -1082,14 +1120,27 @@ The refusal reads twelve things, and the call stores nothing when one of them cl
   each ([nmtms.md](nmtms.md#the-nogood-families));
 - a length binding (`arity`, `arityMin`, an exact-arity class, `variable_arity`), a `genl`
   edge, or a `:monotonic` membership or `genl` edge of a metatype route
-  ([taxonomy.md](taxonomy.md#arity)) against the stored positive tuples of each functor
+  ([taxonomy.md](taxonomy.md#arity)) against the believed positive tuples of each functor
   whose length the write moves: a stored length that the length with the write breaks,
-  and the length without it does not, is `:violation :arity`. `:detail :shapes` lists
-  `{:relation :arguments :count}` per such length, `:detail :count` the tuples and
+  and the length without it does not, is `:violation :arity` when a tuple at it is
+  believed. `:detail :shapes` lists `{:relation :arguments :count}` per such length, the
+  count of its believed tuples, `:detail :count` the tuples and
   `:detail :relations` the relations. An `except` of a stored binding is `:violation
   :arity` too, naming the binding in `:clashes-with` and `:detail :excepted`. `assert`
   stores each write: the tuples are held inert, and the length stays bound under the
   except;
+- an argument declaration (`arg`, `genlArg`, `interArg`, `interArgEqual`, `argArg`,
+  `arg1` through `arg5`) naming a position past its predicate's bound length, and a
+  length binding, `genl` edge or `:monotonic` metatype route whose length would strand a
+  stored, believed one so: `:violation :arg-position`. For the declaration,
+  `:clashes-with` names the bindings stating the length and `:detail` holds `:predicate`,
+  `:position`, `:arity` and `:via`; for the write moving the length, `:clashes-with`
+  names up to ten stranded declarations and `:detail :count` their number. A `genlArg` on
+  an `instance_relation_predicate`, and a membership or `genl` edge making a predicate
+  one over a stored, believed `genlArg` on it, are `:violation :arg-constraint-kind`,
+  naming the memberships or the declarations. `assert` stores each write, and a stranded
+  declaration constrains nothing
+  ([taxonomy.md](taxonomy.md#the-declarations-are-checked-against-each-other));
 - an `irreflexive` mark against the believed self tuples of its predicate and of the
   predicates below it that its context sees, stated in a context its context sees or
   one below it: `:violation :irreflexive`, with `:detail :count` the number of tuples and
@@ -1231,6 +1282,9 @@ the goal: nothing is stored, so there is no handle, no support and no defeat to 
 `{:nearest n}` runs a bounded backward search and reports the rules that came closest, each
 with the antecedents the KB *can* satisfy, the ones it cannot, and the bindings the goal
 forced on the rule.  `:missing` is the line to read — it is the fact nobody has asserted.
+The satisfied antecedents are satisfied **together**: each is joined onto the ones before it
+in the rule's canonical order, so two antecedents that hold only under different values of a
+variable the goal leaves open put one of them under `:missing`.
 
 It is **off by default** and that is deliberate: `why-not` is inexpensive enough to call in a
 loop over a conflict list, and a backward search per call is not.  The bounds are
@@ -1296,9 +1350,7 @@ not ask for, and a stored sentex carries no record of the class it was meant to 
 `{:strenth :monotonic}` makes known-true content defeasible; `{:strength 0.7}` names a
 class the KB does not have; `(assert kb s ctx :monotonic)` names nothing at all.
 `check` reports all of them (the non-map `opts` under `:unknown-option`), so a batch
-critic catches them before anything is written.  `why` holds its own `opts` to the same
-standard: it reads `:max-depth` alone, and a non-map `opts`, an unknown key, or a
-`:max-depth` that is not a natural number is refused (`:unknown-option`).
+critic catches them before anything is written.
 
 **`edit-batch-keys`** is the same answer for the other batch entry point: every key an `edit`
 batch may carry, which is `#{:add :remove}` and is read by `edit`, `check-edit`,
@@ -1379,8 +1431,8 @@ not an option map.
 `handle-of` answers nil for a sentence the KB does not hold, so `(in? kb (handle-of kb
 s ctx))` is an ordinary composition — and each fn answers it gracefully: `in?` and
 `premise?` false, `sentex` / `justification` / `defeat-class` / `provenance` nil,
-`supporting-justifications` / `dependent-justifications` empty, `why` `{:stored?
-false}`, `why-not` `:not-stored`, `add-provenance` a no-op, `retract!` a no-op.
+`supporting-justifications` / `dependent-justifications` empty, `why` a root node
+`{:stored? false}`, `why-not` `:not-stored`, `add-provenance` a no-op, `retract!` a no-op.
 Anything else that is not an integer handle is **refused** (`:bad-handle`), a vector
 of handles included — `assert` returns a vector for a rule that polycanonicalized (a
 conjunctive consequent, a disjunctive antecedent, or both), so
@@ -1474,8 +1526,8 @@ facts are stored. `vaelii.host.sync/sync!` locks CxUniverse's premises about the
 vocabulary to the shipped files, every `genlCx` edge excepted ([contexts.md](contexts.md#the-context-topology)).
 
 The **middle contexts** are `kb/middle/`, each seeing CxUniverse (`CxKinship`,
-`CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules; `CxAnatomy` and `CxSize`
-— claims about kinds), and **CxWell** sees the seven, so it transitively sees the whole
+`CxBiology`, `CxChange`, `CxSocial` — the rules; `CxMereology` — two preservation
+declarations; `CxAnatomy` and `CxSize` — claims about kinds), and **CxWell** sees the seven, so it transitively sees the whole
 ontology but three opt-in theories.
 `CxNormalPhysicalConditions`, the states of matter at room temperature, and `CxTra`,
 vocabulary that is generally useful but specific to one domain (the relations over
@@ -1496,7 +1548,7 @@ The middle theories are the defeasible defaults that state their own exception w
 are alive until they are dead and awake until they are asleep; a `metal_stuff` is solid
 at room temperature except mercury — five rules of one shape, differing in whether the exception
 names a species, a whole class, a kind of stuff, or a state that changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
-a variable so they join — grandparentOf, part-location, owns-parts).
+a variable so they join, such as grandparentOf).
 
 **A binary predicate says which level it relates at, unless its two ends disagree.**
 `relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
@@ -1507,8 +1559,8 @@ level at all (`implies` is a connective; `rewriteOf` takes either role so long a
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
 relates one causal thing to an event kind). The mark is not decoration: an
-`instance_relation_predicate` relates individuals, which are never subtypes, so `genlArg`
-on one is refused `:arg-constraint-kind`. A `type_relation_predicate` takes `genlArg` and
+`instance_relation_predicate` relates individuals, which are never subtypes, so
+`try-assert` refuses `genlArg` on one (`:arg-constraint-kind`). A `type_relation_predicate` takes `genlArg` and
 `arg` both: the kinds it relates are subtypes of what `genlArg` names and instances of
 what `arg` names. The distinction is
 what `typeToInstancePred` is stated over, and it is the difference between `(typeLargerThan

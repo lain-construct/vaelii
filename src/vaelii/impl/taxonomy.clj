@@ -282,8 +282,11 @@
 (defn- empty-relation []
   {:dirty #{} :edges #{} :edge-ctxs {}
    :fwd {} :rev {} :nodes #{} :depth {} :scc {} :scc-members {} :gen 0
-   ;; `note-move`'s log
-   :moves (sorted-map) :move-gen {}})
+   ;; `note-move`'s log, and `note-shrink`'s of the ends that lost an edge or moved its
+   ;; supporting contexts
+   :moves (sorted-map) :move-gen {} :shrinks (sorted-map) :shrink-gen {}
+   ;; `note-grow`'s log of the edges that entered the active set
+   :grows (sorted-map) :grow-gen {}})
 
 ;; The equality partition, defined here only so `create-taxonomy` can name it; its
 ;; machinery is the "equality" section further down.
@@ -435,7 +438,7 @@
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :sibling-disjoint #{} :sib-exception-index {}
           :covers {} :cover-parts {} :partitions #{}
-          :props {} :inverse {} :negates {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
+          :props {} :inverse {} :negates {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {} :meet {}
           :cache-dirty #{} :cache-ctxs {}
           ;; The supporter cache (`supporters-of`), over the index's supporter families
           :supporters empty-supporters
@@ -792,6 +795,40 @@
   [context]
   (and (symbol? context) (not (.startsWith (name context) "?"))))
 
+(def ^:dynamic *visible-neighbours-cache*
+  "An optional atom holding a `{[dir-key vis n] neighbours}` map for a **read-only**
+  pass over a still taxonomy.  The closure memo keys whole closures per
+  `(node, vis)`, so a shared upper ancestor set is re-filtered under every distinct root
+  that walks through it — the cost the closure cache structurally cannot fold and
+  the one this one does: each node's edges are context-filtered once per pass, not
+  once per walk.  Bound and dropped by the pass, which holds the taxonomy still, so
+  the filtered set is gen-stable for its span; nil off such a pass.  It also holds the
+  other reads a pass repeats (`pass-held`): a reader's scope, the maximal common
+  descendants of a context set, and a placement's per-handle and per-key reads."
+  nil)
+
+(defn with-neighbours
+  "Run `f` with `nc`, an atom, as the scoped walks' neighbour cache
+  (`*visible-neighbours-cache*`) when none is bound: for a caller that asks many scoped
+  walks over a taxonomy and a belief that hold still for as long as it keeps `nc`."
+  [nc f]
+  (if *visible-neighbours-cache*
+    (f)
+    (binding [*visible-neighbours-cache* nc] (f))))
+
+(defn pass-held
+  "`(read)`, held under `k` in the reading pass's neighbour cache
+  (`*visible-neighbours-cache*`) when one is bound: the pass holds the taxonomy, belief
+  and the stored records still, so `k` need name only what the read is asked of and the
+  dynamic readings it depends on (`*network-belief*`, `*search*`).  A nil or false
+  answer is held as any other."
+  [k read]
+  (if-let [nc *visible-neighbours-cache*]
+    (if-let [e (find @nc k)]
+      (val e)
+      (caches/held-if-settled read #(do (swap! nc assoc k %) %)))
+    (read)))
+
 ;; Forward declarations: `relation-scope` and `scope-admits-supporter?` reference
 ;; these before their definitions because the scope machinery sits above the walk
 ;; but below the closure, creating a mutual dependency.
@@ -904,36 +941,39 @@
   same inherited asserting contexts may hide different handles, and the reading
   (`*network-belief*`'s callback, `*search*`) and the change clock, because the walk reads
   each supporter's belief, which any write can move.  A read under the map is held for one
-  stretch of the clock under one reading, and equals a fresh read by construction."
+  stretch of the clock under one reading, and equals a fresh read by construction.  Held
+  for a reading pass (`pass-held`) under the reader and the reading."
   [tax rel-key context]
   (when (scoped-context? context)
-    (let [t   @tax
-          ;; An exception on genlCx changes which assertion contexts an ordinary
-          ;; reader inherits.  genlCx itself starts from the raw ancestor set, and the
-          ;; read is stratified with no fixpoint: the excepts in force at a reader are
-          ;; those stated in its raw ancestor set, so an edge's visibility reads no
-          ;; genlCx edge's visibility, and an edge resting on a genlCx edge an except
-          ;; hides there has no second route (`exc/witness-paths`).  Every other
-          ;; relation uses the effective ancestor set.
-          active? (relation-filter-active? t rel-key)
-          vis (cond
-                ;; genlCx declarations are forced into CxUniverse and therefore
-                ;; globally visible as declarations. Their *edges* can still be
-                ;; excepted per reader, but assertion-context filtering must never
-                ;; turn the whole context hierarchy off.
-                (= rel-key :genlCx) nil
-                ;; the scope below carries the reader, so its key is per reader whatever
-                ;; the set, and a supporter's context is in `up(K) ∩ ctxs` iff it is in
-                ;; `up(K)`: the exception-filtered ancestor set is the whole filter
-                active?             (context-up tax context)
-                :else               (visible-ctxs tax rel-key context))]
-      (if active?
-        {:contexts vis
-         :context context
-         :supporter-visible? (visible-fn t)
-         :search *search*
-         :clock (observe/change-clock)}
-        vis))))
+    (pass-held
+     [::scope rel-key context *network-belief* *search*]
+     #(let [t   @tax
+            ;; An exception on genlCx changes which assertion contexts an ordinary
+            ;; reader inherits.  genlCx itself starts from the raw ancestor set, and the
+            ;; read is stratified with no fixpoint: the excepts in force at a reader are
+            ;; those stated in its raw ancestor set, so an edge's visibility reads no
+            ;; genlCx edge's visibility, and an edge resting on a genlCx edge an except
+            ;; hides there has no second route (`exc/witness-paths`).  Every other
+            ;; relation uses the effective ancestor set.
+            active? (relation-filter-active? t rel-key)
+            vis (cond
+                  ;; genlCx declarations are forced into CxUniverse and therefore
+                  ;; globally visible as declarations. Their *edges* can still be
+                  ;; excepted per reader, but assertion-context filtering must never
+                  ;; turn the whole context hierarchy off.
+                  (= rel-key :genlCx) nil
+                  ;; the scope below carries the reader, so its key is per reader whatever
+                  ;; the set, and a supporter's context is in `up(K) ∩ ctxs` iff it is in
+                  ;; `up(K)`: the exception-filtered ancestor set is the whole filter
+                  active?             (context-up tax context)
+                  :else               (visible-ctxs tax rel-key context))]
+        (if active?
+          {:contexts vis
+           :context context
+           :supporter-visible? (visible-fn t)
+           :search *search*
+           :clock (observe/change-clock)}
+          vis)))))
 
 (defn read-scope
   "The scope a read of `rel-key` from `context` walks under (`relation-scope`), as a key:
@@ -979,35 +1019,6 @@
   recorded context and constrains everywhere."
   [cs visq]
   (boolean (some (fn [c] (or (nil? c) (visq c))) cs)))
-
-(def ^:dynamic *visible-neighbours-cache*
-  "An optional atom holding a `{[dir-key vis n] neighbours}` map for a **read-only**
-  pass over a still taxonomy.  The closure memo keys whole closures per
-  `(node, vis)`, so a shared upper ancestor set is re-filtered under every distinct root
-  that walks through it — the cost the closure cache structurally cannot fold and
-  the one this one does: each node's edges are context-filtered once per pass, not
-  once per walk.  Bound and dropped by the pass, which holds the taxonomy still, so
-  the filtered set is gen-stable for its span; nil off such a pass."
-  nil)
-
-(defn with-neighbours
-  "Run `f` with `nc`, an atom, as the scoped walks' neighbour cache
-  (`*visible-neighbours-cache*`) when none is bound: for a caller that asks many scoped
-  walks over a taxonomy and a belief that hold still for as long as it keeps `nc`."
-  [nc f]
-  (if *visible-neighbours-cache*
-    (f)
-    (binding [*visible-neighbours-cache* nc] (f))))
-
-(defn- pass-held
-  "`(read)`, held under `k` in the reading pass's neighbour cache
-  (`*visible-neighbours-cache*`) when one is bound: the pass holds the taxonomy and
-  belief still, so `k` need name only what the read is asked of."
-  [k read]
-  (if-let [nc *visible-neighbours-cache*]
-    (or (get @nc k)
-        (caches/held-if-settled read #(do (swap! nc assoc k %) %)))
-    (read)))
 
 (defn- visible-neighbours
   "The `dir-key` neighbours of `n` reachable through an edge some supporter makes
@@ -1410,7 +1421,10 @@
     ;; this table too: it is a `:props` mark *and* a group, and its arm installs `[:rest 1]`
     ;; here beside the prop rather than deriving `(commutativeInArgAndRest P 1)` through a
     ;; rule (`special/arms` says why the derivation went).
-    :commuting (update-in t [:commuting a] (fnil conj #{}) b)))                    ; a = pred, b = group
+    :commuting (update-in t [:commuting a] (fnil conj #{}) b)                     ; a = pred, b = group
+    ;; `:meet` holds the orders a `(meetFunctionOf F R)` names for `F`, the shape
+    ;; `:arity` has: one function may be declared the meet of two orders.
+    :meet      (update-in t [:meet a] (fnil conj #{}) b)))                        ; a = fn, b = order
 
 (defn- cache-uninstall
   "Remove the derived cache entry for support key `k` — the exact inverse of
@@ -1469,7 +1483,12 @@
     (let [gs' (disj (get-in t [:commuting a] #{}) b)]
       (if (seq gs')
         (assoc-in t [:commuting a] gs')
-        (update t :commuting dissoc a)))))
+        (update t :commuting dissoc a)))
+    :meet
+    (let [rs' (disj (get-in t [:meet a] #{}) b)]
+      (if (seq rs')
+        (assoc-in t [:meet a] rs')
+        (update t :meet dissoc a)))))
 
 (defn- named-ops
   "`op` (`:post` or `:retire`) for each stored positive `except` and `defeat` naming
@@ -1572,6 +1591,38 @@
     (-> rel
         (assoc :moves (update ms g (fnil conj #{}) a))
         (assoc-in [:move-gen a] g))))
+
+(defn- note-shrink
+  "`rel` with node `a` recorded as the lower end of an edge that left the active set or
+  whose supporting contexts moved after the first set, at the current generation, in `:shrinks`, logged as
+  `note-move` logs `:moves`.  An end `moves-since` names and `shrinks-since` does not
+  only gained edges (`shrinks-since`)."
+  [rel a]
+  (let [g   (:gen rel)
+        old (get-in rel [:shrink-gen a])
+        ms  (or (:shrinks rel) (sorted-map))
+        ms  (if (and old (not= old g))
+              (let [left (disj (get ms old) a)]
+                (if (seq left) (assoc ms old left) (dissoc ms old)))
+              ms)]
+    (-> rel
+        (assoc :shrinks (update ms g (fnil conj #{}) a))
+        (assoc-in [:shrink-gen a] g))))
+
+(defn- note-grow
+  "`rel` with edge `e` recorded as entering the active set at the current generation, in
+  `:grows`, logged per edge as `note-move` logs per node (`grows-since`)."
+  [rel e]
+  (let [g   (:gen rel)
+        old (get-in rel [:grow-gen e])
+        ms  (or (:grows rel) (sorted-map))
+        ms  (if (and old (not= old g))
+              (let [left (disj (get ms old) e)]
+                (if (seq left) (assoc ms old left) (dissoc ms old)))
+              ms)]
+    (-> rel
+        (assoc :grows (update ms g (fnil conj #{}) e))
+        (assoc-in [:grow-gen e] g))))
 
 (defn- ensure-depth
   "Give `n` a depth if it has none.  A fresh node starts at 0; the invariant
@@ -1888,7 +1939,8 @@
             *defer-depths?*  (local-lift rel a b)
             :else            (raise-depth rel a b))
           bump-gen
-          (note-move a)))))
+          (note-move a)
+          (note-grow [a b])))))
 
 (defn restore-depths
   "Repair the depth potential of every relation a deferred batch left `:loose?`.
@@ -2044,7 +2096,8 @@
           (repair-component a b)
           (prune-node a) (prune-node b)
           bump-gen
-          (note-move a)))))
+          (note-move a)
+          (note-shrink a)))))
 
 (defn- set-edge-ctxs
   "Record `ctxs` as active edge `e`'s supporting contexts, bumping `:gen` iff the set
@@ -2053,7 +2106,10 @@
   [rel e ctxs]
   (if (= ctxs (get-in rel [:edge-ctxs e]))
     rel
-    (-> rel (assoc-in [:edge-ctxs e] ctxs) bump-gen (note-move (first e)))))
+    (cond-> (-> rel (assoc-in [:edge-ctxs e] ctxs) bump-gen (note-move (first e)))
+      ;; the first supporting contexts an edge records come with its arrival; a later
+      ;; set moves what the readers under it see
+      (some? (get-in rel [:edge-ctxs e])) (note-shrink (first e)))))
 
 (defn- mark-dirty
   "Note that `e`'s `:edge-ctxs` was recomputed belief-blind and owes a reconcile.  Only
@@ -2416,8 +2472,8 @@
 
 (def ^:private equality-move-readers
   "The readers `note-moved` keeps a copy of the moved terms for, each emptied by its own
-  `take-equality-moves!`: `special/supersession-map`."
-  [:supersessions])
+  `take-equality-moves!`: `special/supersession-map` and `special/covered-merges`."
+  [:supersessions :covers])
 
 (defn- note-moved
   "Add the classes of edge `e`'s two ends to each reader's `:moved` set
@@ -2524,8 +2580,9 @@
   term in the class of either end of an edge a supporter joined, left, or moved in or out
   of belief on since `reader`'s last call, read after the edge was applied.  A term whose
   class, representative or scoped class moved is among them, and so is a term whose class
-  did not move.  nil when nothing moved.  The one reader (`equality-move-readers`) is
-  `:supersessions`, for `special/supersession-map`."
+  did not move.  nil when nothing moved.  The readers (`equality-move-readers`) are
+  `:supersessions`, for `special/supersession-map`, and `:covers`, for
+  `special/covered-merges`."
   [tax reader]
   (let [m (get-in @tax [:equality :moved reader])]
     (when (seq m)
@@ -2638,6 +2695,15 @@
 (defn equiv-class "Every term known equal to `term`, incl. itself." [tax term]
   (let [rel (:equality @tax)]
     (get (:members rel) (get (:class rel) term term) #{term})))
+
+(defn class-supporters
+  "The supporters, believed or not, of every active edge in `term`'s class."
+  [tax term]
+  (let [rel (:equality @tax)]
+    (into #{} (comp (mapcat #(get (:edge-idx rel) % #{}))
+                    (distinct)
+                    (mapcat #(keys (get (:support rel) %))))
+          (class-members rel term))))
 
 (defn retirable?
   "Can some reader's scoped election (`scoped-class`) retire `term`?  Every merged member
@@ -2833,15 +2899,17 @@
            (into {} (filter (fn [[h _]] (believed? h))) (:rewrite-support t)))))
 
 (defn- names-a-value?
-  "Does flat-cache key `k` name a value (`nm/value?`) where its declaration names a type?
-  `wff` refuses such a declaration at assert, and an older writer's store can hold one;
-  its key stays inactive."
-  [[kind a]]
+  "Does flat-cache key `k` name a value (`nm/value?`) where its declaration names a type,
+  a predicate or a function?  `wff` refuses such a declaration at assert, and an older
+  writer's store can hold one; its key stays inactive."
+  [[kind a b]]
   (case kind
-    (:disjoint :sib-exception) (some nm/value? a)               ; a = #{x y}
-    (:metatype :sib-disjoint)  (nm/value? a)
-    :cover                     (let [[whole parts] a]
-                                 (or (nm/value? whole) (some nm/value? parts)))
+    (:disjoint :sib-exception :inverse) (some nm/value? a)      ; a = #{x y}
+    (:metatype :sib-disjoint)           (nm/value? a)
+    :prop                               (nm/value? b)           ; b = pred
+    (:genl-inverse :meet)               (or (nm/value? a) (nm/value? b))
+    :cover                              (let [[whole parts] a]
+                                          (or (nm/value? whole) (some nm/value? parts)))
     false))
 
 (defn- refresh-cache-support
@@ -2965,7 +3033,7 @@
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :sibling-disjoint #{} :sib-exception-index {}
          :covers {} :cover-parts {} :partitions #{}
-         :props {} :inverse {} :negates {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
+         :props {} :inverse {} :negates {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {} :meet {}
          :cache-dirty #{} :cache-ctxs {}
          :supporters empty-supporters
          :cache-moves (journal/restart nil)
@@ -3184,6 +3252,24 @@
   moved."
   [tax rel-key gen]
   (let [ms (:moves (get @tax rel-key))]
+    (into #{} (mapcat val) (if (sorted? ms) (subseq ms > gen) (filter #(> (key %) gen) ms)))))
+
+(defn shrinks-since
+  "The lower ends of the edges of relation `rel-key` that left the active set, or whose
+  supporting contexts moved, after generation `gen` (`note-shrink`), as a set: the ends
+  of `moves-since` that did not only gain edges.  A relation whose log predates the
+  shrink log (an image written before it) reads every moved end."
+  [tax rel-key gen]
+  (let [rel (get @tax rel-key)]
+    (if-let [ms (:shrinks rel)]
+      (into #{} (mapcat val) (if (sorted? ms) (subseq ms > gen) (filter #(> (key %) gen) ms)))
+      (moves-since tax rel-key gen))))
+
+(defn grows-since
+  "The edges `[a b]` of relation `rel-key` that entered the active set after generation
+  `gen` (`note-grow`), as a set, nil when the relation keeps no such log."
+  [tax rel-key gen]
+  (when-let [ms (:grows (get @tax rel-key))]
     (into #{} (mapcat val) (if (sorted? ms) (subseq ms > gen) (filter #(> (key %) gen) ms)))))
 
 (defn relations-match?
@@ -3558,9 +3644,10 @@
   (closure-while tax :genl :rev t enter?))
 
 (defn genls-global-meets?
-  "Does `genls-global` of `t` hold a term of the set `among`?  A walk up that returns at the
-  first such term and stores nothing, so it costs the types it enters before the hit, where
-  `genls-global` builds and caches `t`'s whole closure from its ancestors' closures.
+  "Does `genls-global` of `t` hold a term `among` accepts, a set or a predicate?  A walk up
+  that returns at the first such term and stores nothing, so it costs the types it enters
+  before the hit, where `genls-global` builds and caches `t`'s whole closure from its
+  ancestors' closures.
 
   `missed`, when given, is a volatile set the caller keeps for one `among` over one still
   taxonomy: the walk enters no type it holds, and a walk that finds no term adds every
@@ -3570,12 +3657,13 @@
   ([tax t among] (genls-global-meets? tax t among nil))
   ([tax t among missed]
    (let [adj  (get-in @tax [:genl :fwd])
-         gone (if missed @missed #{})]
+         gone (if missed @missed #{})
+         hit? (if (fn? among) among #(contains? among %))]
      (if (contains? gone t)
        false
        (loop [seen (transient #{t}), stack [t]]
          (if-let [n (peek stack)]
-           (or (contains? among n)
+           (or (hit? n)
                (let [fresh (remove #(or (get seen %) (contains? gone %)) (get adj n))]
                  (recur (reduce conj! seen fresh) (into (pop stack) fresh))))
            (do (when missed (vswap! missed into (persistent! seen)))
@@ -4764,6 +4852,73 @@
             (sorted-map-by #(compare (vec %1) (vec %2)) base sub)
             member)))
 
+(def ^:private move-gain-readers
+  "The most readers under a moved edge's `sub` that `context-move`'s `:gains` splits by
+  what each gains: one walk up each, so past this many the move reads `:gains` nil and
+  its sweeps read the whole of `:below`."
+  1024)
+
+(defn- move-gains
+  "`context-move`'s `:gains` and `:displaced` over the snapshot `t`, as `{:groups
+  :displaced :seen}`, or nil past `move-gain-readers`.
+
+  `:groups`: the readers of `under` that see a context through the edge `[sub super]`
+  alone, grouped by that set, as `[{:gain G :readers R :seen S :below B} …]` in content
+  order of the gain.  `G` is the contexts each reader of `R` sees now and not without the
+  edge and the edges of `off`, the others moved with it, since a context two moved edges
+  both reach is gained through neither alone (a walk that crosses no edge `usable?`
+  refuses, so `G` can only be larger than what the reader gains); `S` the contexts a
+  reader of `R` sees now; `B` the part of `S` that `up` does not hold, the contexts
+  holding what such a reader already saw beside what it gains.  A reader that gains
+  nothing is in no group.
+
+  `:displaced`: the contexts of `under` where a placement can lose its place to a more
+  general one the move makes (`special/surplus-placements`).  A placement at `p` is
+  displaced when a context `q` above `p` sees every ingredient now and `q` did not before,
+  or `p` did not see `q`: `q` gains a context or is one `p` gains.  Every ingredient lies
+  in a context `p` saw before and such a `q` sees now, the set `K`; and when one context
+  of `K` saw all of `K` before, it saw every ingredient, so `p` was never the most general
+  placement and is not displaced.  The test assumes no `except` hides an ingredient: the
+  caller reads `:seen`, every context a reader of `under` sees now, for one.
+
+  `:seen`: the contexts the readers of `under` see now."
+  [t under up edge off usable?]
+  (when (<= (count under) move-gain-readers)
+    (let [fwd     (get-in t [:genlCx :fwd])
+          off     (conj (set off) edge)
+          memo    (fn [f] (let [m (volatile! {})]
+                            (fn [r] (or (get @m r) (let [v (f r)] (vswap! m assoc r v) v)))))
+          after   (memo (fn [r] (reach-all [r] #(get fwd % #{}))))
+          without (memo (fn [r] (reach-all [r] (fn [n] (filter #(and (not (contains? off [n %]))
+                                                                     (usable? n %))
+                                                               (get fwd n #{}))))))
+          gain    (fn [r] (into #{} (remove (without r)) (after r)))
+          by-gain (reduce (fn [acc r]
+                            (let [s (after r)
+                                  g (gain r)]
+                              (if (empty? g)
+                                acc
+                                (update acc g (fn [e] (-> (or e {:readers #{} :seen #{}})
+                                                          (update :readers conj r)
+                                                          (update :seen into s)))))))
+                          {} under)
+          gainers (into #{} (comp (map (comp :readers val)) cat) by-gain)
+          moves?  (fn [p]
+                    (let [ap (after p)
+                          wp (without p)
+                          gp (gain p)
+                          cs (filter #(and (not= % p) (or (contains? gp %) (contains? gainers %))) ap)
+                          k  (into #{} (comp (mapcat after) (filter wp)) cs)]
+                      (and (seq k)
+                           (not-any? #(and (not= % p) (every? (without %) k)) k))))]
+      {:groups    (->> by-gain
+                       (map (fn [[g {:keys [readers seen]}]]
+                              {:gain g :readers readers :seen seen :below (into #{} (remove up) seen)}))
+                       (sort-by #(mapv term-key (sort-by term-key (:gain %))))
+                       vec)
+       :displaced (into #{} (filter moves?) under)
+       :seen      (into #{} (mapcat after) under)})))
+
 (defn context-move
   "What the move of the `genlCx` edge `[sub super]` (stored, removed, or flipped in label)
   shows or hides, read from the taxonomy as it stands, whichever direction the move took:
@@ -4790,54 +4945,65 @@
   `:under`, with an ingredient in `:moved` or `:below`.  `:gained-below` is the part of
   `:below` the readers that gain or lose a context see without the edge: a reader of
   `:under` that reaches `super` without the edge sees what it saw before.  While an
-  `except` reaches a `genlCx` supporter (`except-ctxs` not empty) it is `:below`.  See
+  `except` reaches a `genlCx` supporter (`except-ctxs` not empty) it is `:below`.
+  `:gains`, a delay, splits the readers of `:under` by the contexts each sees through the
+  edge and the edges of `off` alone, the others moved in the same pass (`move-gains`): a pair the move makes jointly visible to a reader holds one
+  ingredient of its gain and one of what it saw, so a sweep can read the smaller side per
+  group.  `:displaced`, a delay, `{:displaced :seen}`: the contexts of `:under` where a
+  placement can lose its place to a more general one, assuming no `except` stated in
+  `:seen` hides an ingredient (`move-gains`).  Both nil while an `except` reaches a
+  `genlCx` supporter, where a reader's view is scoped, and past `move-gain-readers`.  See
   docs/contexts.md, \"One context move\"."
-  [tax sub super except-ctxs usable?]
-  (let [t       @tax
-        edge    [sub super]
-        active? (contains? (get-in t [:genlCx :fwd sub] #{}) super)
-        up      (conj (set (context-up-global tax super)) super)
-        raw     (into #{} (remove (up-besides t nil sub edge usable?)) up)
-        under   (delay (set (context-down-global tax sub)))
-        ;; one walk up from all of `under`: a union of each member's cached ancestor set
-        ;; costs |under| × |ancestors|, cubic over a chain of moves in one pass
-        seen    (delay (let [fwd (get-in @tax [:genlCx :fwd])]
-                         (reach-all @under #(get fwd % #{}))))
-        below   (delay (into #{} (remove up) @seen))
-        classes (if (empty? except-ctxs)
-                  {#{} sub}
-                  (reader-classes tax sub @under except-ctxs))
-        moved   (into #{}
-                      (mapcat (fn [r]
-                                (let [scope (relation-scope tax :genlCx r)]
-                                  (if (nil? scope)
-                                    raw
-                                    (remove (up-besides t scope sub edge usable?)
-                                            (conj (set (closure-of-vis tax :genlCx :fwd super scope))
-                                                  super))))))
-                      (vals classes))]
-    {:edge    edge
-     :active? active?
-     :raw     raw
-     :moved   moved
-     :shown   (if active? moved #{})
-     :hidden  (if active? #{} moved)
-     :readers (set (vals classes))
-     :up      up
-     :under   under
-     :seen    seen
-     :below   below
-     :gained-below
-     (if (seq except-ctxs)
-       below
-       (delay (let [{:keys [fwd rev]} (:genlCx @tax)
-                    off?    (fn [a b] (and (= a sub) (= b super)))
-                    ;; the contexts that reach `super` without the edge, `super` included
-                    kept    (reach-all [super] (fn [n] (filter #(and (not (off? % n)) (usable? % n))
-                                                               (get rev n #{}))))
-                    gainers (remove kept @under)]
-                (into #{} (remove up)
-                      (reach-all gainers (fn [n] (remove #(off? n %) (get fwd n #{}))))))))}))
+  ([tax sub super except-ctxs usable?] (context-move tax sub super except-ctxs usable? nil))
+  ([tax sub super except-ctxs usable? off]
+   (let [t       @tax
+         edge    [sub super]
+         active? (contains? (get-in t [:genlCx :fwd sub] #{}) super)
+         up      (conj (set (context-up-global tax super)) super)
+         raw     (into #{} (remove (up-besides t nil sub edge usable?)) up)
+         under   (delay (set (context-down-global tax sub)))
+         ;; one walk up from all of `under`: a union of each member's cached ancestor set
+         ;; costs |under| × |ancestors|, cubic over a chain of moves in one pass
+         seen    (delay (let [fwd (get-in @tax [:genlCx :fwd])]
+                          (reach-all @under #(get fwd % #{}))))
+         below   (delay (into #{} (remove up) @seen))
+         walk    (delay (when (empty? except-ctxs) (move-gains t @under up edge off usable?)))
+         classes (if (empty? except-ctxs)
+                   {#{} sub}
+                   (reader-classes tax sub @under except-ctxs))
+         moved   (into #{}
+                       (mapcat (fn [r]
+                                 (let [scope (relation-scope tax :genlCx r)]
+                                   (if (nil? scope)
+                                     raw
+                                     (remove (up-besides t scope sub edge usable?)
+                                             (conj (set (closure-of-vis tax :genlCx :fwd super scope))
+                                                   super))))))
+                       (vals classes))]
+     {:edge    edge
+      :active? active?
+      :raw     raw
+      :moved   moved
+      :shown   (if active? moved #{})
+      :hidden  (if active? #{} moved)
+      :readers (set (vals classes))
+      :gains   (delay (:groups @walk))
+      :displaced (delay (some-> @walk (dissoc :groups)))
+      :up      up
+      :under   under
+      :seen    seen
+      :below   below
+      :gained-below
+      (if (seq except-ctxs)
+        below
+        (delay (let [{:keys [fwd rev]} (:genlCx @tax)
+                     off?    (fn [a b] (and (= a sub) (= b super)))
+                     ;; the contexts that reach `super` without the edge, `super` included
+                     kept    (reach-all [super] (fn [n] (filter #(and (not (off? % n)) (usable? % n))
+                                                                (get rev n #{}))))
+                     gainers (remove kept @under)]
+                 (into #{} (remove up)
+                       (reach-all gainers (fn [n] (remove #(off? n %) (get fwd n #{}))))))))})))
 
 (defn context-down
   "Contexts that inherit from c, incl c, after context-visible genlCx exceptions.
@@ -4938,7 +5104,7 @@
                            (:scc rel)))
     (reachable-in? tax :genlCx k y)))
 
-(defn- seeing-member
+(defn seeing-member
   "The member of `ctxs` that sees every other member, or nil.  When one exists it is a
   **maximal common descendant**: any common descendant sees every member, so it sees
   the found `k`, making `k` its ancestor-or-self.  A rule and its antecedent facts
@@ -5029,23 +5195,28 @@
 
 (defn- maximal-common-descendants*
   "The general path of `maximal-common-descendant-contexts`, below — every case its
-  one-context fast exit does not answer."
+  one-context fast exit does not answer.  The answer is a function of the context set,
+  the `genlCx` relation and its supporters' visibility under the reading
+  (`*network-belief*`, `*search*`), so a reading pass holds it under those
+  (`pass-held`)."
   [tax ctxs]
   ;; `into []` with the transducer, not `(vec (distinct ctxs))`: `clojure.core/distinct`
   ;; destructures its argument with `[f :as xs]`, which is `nth`, so the seq arity throws
   ;; on a **set** — and a set is exactly what a caller accumulating the contexts it used
   ;; has in hand (`vaelii.impl.vantage`).  The transducer arity reduces instead.
   (let [cs (into [] (distinct) ctxs)]
-    (if-let [k (seeing-member tax cs)]
-      #{(placement-rep tax k)}
-      (if (relation-filter-active? @tax :genlCx)
-        ;; an except on a `genlCx` supporter hides edges the raw adjacency still holds,
-        ;; which the walk would pass through
-        (maximal-in tax (common-descendant-set tax cs))
-        (let [downs (mapv #(context-down tax %) cs)
-              in?   (fn [k] (every? #(contains? % k) downs))
-              c0    (nth cs (apply min-key #(count (nth downs %)) (range (count cs))))]
-          (maximal-in tax (descendant-frontier tax c0 in?) in?))))))
+    (pass-held
+     [::maximal-common-descendants (set cs) *network-belief* *search*]
+     #(if-let [k (seeing-member tax cs)]
+        #{(placement-rep tax k)}
+        (if (relation-filter-active? @tax :genlCx)
+          ;; an except on a `genlCx` supporter hides edges the raw adjacency still holds,
+          ;; which the walk would pass through
+          (maximal-in tax (common-descendant-set tax cs))
+          (let [downs (mapv (fn [c] (context-down tax c)) cs)
+                in?   (fn [k] (every? (fn [d] (contains? d k)) downs))
+                c0    (nth cs (apply min-key (fn [i] (count (nth downs i))) (range (count cs))))]
+            (maximal-in tax (descendant-frontier tax c0 in?) in?)))))))
 
 (defn maximal-common-descendant-contexts
   "The *maximal* elements of the **common descendants** of `ctxs`: the contexts K
@@ -5339,7 +5510,7 @@
 (defn coverings
   "Every declaration whose parts exhaust its whole, as `{whole #{[parts kind]}}` — the
   `covering` and `partition` spellings, and not `separating` (`covering-kind?`).  The
-  table a cover refutation is convicted against (`checks/cover-refutations`)."
+  table a cover refutation is convicted against (`checks/cover-problem`)."
   [tax] (:covers @tax))
 
 (defn covers-naming
@@ -6532,6 +6703,24 @@
   what lets this sit on the canonicalization path every assert runs."
   [tax pred] (get (:commuting @tax) pred #{}))
 
+(defn add-meet
+  "Install `(meetFunctionOf f order)`: `f` is the meet of `order`."
+  ([tax f order handle] (add-meet tax f order handle nil))
+  ([tax f order handle ctx] (add-supported tax [:meet f order] handle ctx)))
+
+(defn del-meet! [tax f order handle] (del-supported! tax [:meet f order] handle))
+
+(defn meet-orders
+  "The orders `f` is declared the meet of, as a set; empty for nearly every function.
+  The exact functor, and global, for `commuting-groups`' reasons: the mark decides the
+  stored key of an application of `f`, which every reader shares."
+  [tax f] (get (:meet @tax) f #{}))
+
+(defn meet-supporters
+  "The handles of the sentexes stating `(meetFunctionOf f order)`, defeated members
+  included."
+  [tax f order] (cache-supporters tax [:meet f order]))
+
 (defn commuting-predicates-among
   "The members of `specs` carrying any commutativity group, as a set, or **nil** when none
   do — `commuting-groups` mirrored for a caller holding a whole spec closure rather than
@@ -6739,7 +6928,10 @@
 (defn clock-held
   "`(read)`, held in the closure memo's `slot` under `k` for one stretch of the change
   clock: a new clock value drops the slot's entries of the old one.  Read afresh when the
-  taxonomy holds no memo."
+  taxonomy holds no memo.
+
+  Public so a reader above this namespace can hold a value it derives from the taxonomy
+  and the store for the same stretch, under a slot of its own (`res/arg-constraints`)."
   [tax slot k read]
   (if-let [memo (:closure-memo @tax)]
     (let [clock (observe/change-clock)
@@ -6962,12 +7154,12 @@
 (defn- relation-value
   "Relation `r`'s map in `kb`'s taxonomy less its moves (J5)."
   [kb r]
-  (-> (caches/value-at kb [:taxonomy r]) (dissoc :moves :move-gen)))
+  (-> (caches/value-at kb [:taxonomy r]) (dissoc :moves :move-gen :shrinks :shrink-gen :grows :grow-gen)))
 
 (def ^:private flat-keys
   [:disjoint :disjoint-index :disjoint-metatypes :metatype-members :sibling-disjoint
    :sib-exception-index :covers :cover-parts :partitions :props :inverse :negates :genl-inverse-down :genl-inverse-up :arity
-   :functional-in-arg :commuting :cache-dirty :cache-ctxs])
+   :functional-in-arg :commuting :meet :cache-dirty :cache-ctxs])
 
 (caches/register-derived
  {:id :T1 :label "genl and genlCx relations" :kind :index :keyed-by :node
@@ -7056,13 +7248,13 @@
   :retired-by (assoc (caches/on-every :G*) :recover :W)
   :computed :read :imaged? false :at [[:taxonomy :closure-memo]]
   :value (fn [kb] (some-> (caches/value-at kb [:taxonomy :closure-memo]) deref))
-  :note "per relation, whether the supporter filter is active and the down-closure by context and reading, under the relation generation and keyed by the change clock; the signed closure (`::signed`) and the `:monotonic` one a negated pattern fans over (`::contrapositive`, `contrapositive-chain`), whether a defeat a context sees reaches a permuting mark (`except/mark-hazard?`), and whether a denial of a forced-monotonic literal is stored beside it (`except/yielding-reads?`), each held for one stretch of the change clock"})
+  :note "per relation, whether the supporter filter is active and the down-closure by context and reading, under the relation generation and keyed by the change clock; the signed closure (`::signed`) and the `:monotonic` one a negated pattern fans over (`::contrapositive`, `contrapositive-chain`), whether a defeat a context sees reaches a permuting mark (`except/mark-hazard?`) and the argument constraints binding a predicate's tuples (`res/arg-constraints`), each held for one stretch of the change clock; and whether a denial of a forced-monotonic literal is stored beside it (`except/yielding-reads?`), held across writes while no forced-monotonic fact leaves the index and the index and the forced-monotonic sets stand"})
 
 (caches/register-derived
- {:id :T10 :label "Taxonomy pass caches" :kind :pass :keyed-by :node :reads [:T1 :M1]
+ {:id :T10 :label "Taxonomy pass caches" :kind :pass :keyed-by :node :reads [:T1 :M1 :index :records]
   :holds-content? false
   :retired-by {} :computed :pass :imaged? false
-  :note "`*visible-neighbours-cache*`, bound for one reading pass (`with-neighbours`): the filtered and sorted neighbours and edge supporters the walks read (`pass-held`); `chain/*witnesses*`, the witnesses, supporter classes and `genl` route lengths (`reach-support`'s router) one `place-nogoods!` reads, answered while the change clock holds"})
+  :note "`*visible-neighbours-cache*`, bound for one reading pass (`with-neighbours`): the filtered and sorted neighbours and edge supporters the walks read, a reader's scope, the maximal common descendants of a context set, a flat-cache key's believed supporters and whether an except reaches a handle (`pass-held`); `chain/*witnesses*`, the witnesses, supporter classes and `genl` route lengths (`reach-support`'s router) one `place-nogoods!` reads, answered while the change clock holds"})
 
 (caches/register-derived
  {:id :J4 :label "Flat context moves" :kind :journal :keyed-by :value :reads [:T2]
@@ -7077,8 +7269,12 @@
   :retired-by {:edge :K :edge-belief :K :recover :R :image-install :R}
   :computed :write :imaged? :taxonomy
   :at [[:taxonomy :genl :moves] [:taxonomy :genl :move-gen]
-       [:taxonomy :genlCx :moves] [:taxonomy :genlCx :move-gen]]
-  :note "`{gen #{node}}` and `{node gen}` per relation, which `moves-since` reads (the `genlCx` lower ends for the settle's context-move drain); a reader whose generation is older than the first kept reads whole"})
+       [:taxonomy :genlCx :moves] [:taxonomy :genlCx :move-gen]
+       [:taxonomy :genl :shrinks] [:taxonomy :genl :shrink-gen]
+       [:taxonomy :genlCx :shrinks] [:taxonomy :genlCx :shrink-gen]
+       [:taxonomy :genl :grows] [:taxonomy :genl :grow-gen]
+       [:taxonomy :genlCx :grows] [:taxonomy :genlCx :grow-gen]]
+  :note "`{gen #{node}}` and `{node gen}` per relation, which `moves-since` reads (the `genlCx` lower ends for the settle's context-move drain); a reader whose generation is older than the first kept reads whole.  `:shrinks` logs the ends that lost an edge or moved its supporting contexts, which `shrinks-since` reads, and `:grows` the edges that entered the active set, which `grows-since` reads (the argument holds read an end that only gained edges by what its readers gain through them)"})
 
 (caches/register-derived
  {:id :Q5 :label "Equality moves" :kind :queue :keyed-by :term :reads [:T3]

@@ -29,6 +29,9 @@
     the visibility-filtered one would show.
   - **a forced budget truncation.**  The budget bounds candidates and this bounds
     readers; the two are asserted here to not interact.
+  - **a pair `super` already sees, made to clash below it.**  The candidates are the
+    facts stored where `sub` sees and `super` does not; a mark or a `genl` edge stated
+    there puts the facts `super` sees back among them.
 
   `genlcx_sweep_cost_test` holds the other half — that the count does not grow with
   readers the edge did not reach, which is the property the narrowing exists for."
@@ -161,3 +164,27 @@
                 (is (= expected-notices
                        (count (filter #(= :context-edge-exposure-truncated (:violation %))
                                       (v/violations kb)))))))))))))
+
+(deftest a-pair-super-sees-merges-at-sub-when-what-makes-it-clash-is-stated-below-super
+  ;; Both facts sit in CxUp, which the edge's `super` is, so the sweep reads them only
+  ;; when CxSide, a context `sub` sees and CxUp does not, states the ingredient that makes
+  ;; them clash (`below-sweep-contexts`).
+  (doseq [row [:mark :genl :equality]]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (tu/with-terms [parentOf motherOf Tom Thomas MumA MumB CxUp CxSide CxSub]
+        (let [m {:strength :monotonic}]
+          (doseq [[lo hi] [[CxUp 'CxUniverse] [CxSide 'CxUniverse] [CxSub CxSide]]]
+            (v/assert kb (list 'genlCx lo hi) 'CxUniverse))
+          (v/assert kb (list 'functional parentOf) (if (= row :mark) CxSide 'CxUniverse))
+          (case row
+            :mark     (do (v/assert kb (list parentOf Tom MumA) CxUp m)
+                          (v/assert kb (list parentOf Tom MumB) CxUp m))
+            :genl     (do (v/assert kb (list 'genl motherOf parentOf) CxSide m)
+                          (v/assert kb (list motherOf Tom MumA) CxUp m)
+                          (v/assert kb (list parentOf Tom MumB) CxUp m))
+            :equality (do (v/assert kb (list 'sameAs Tom Thomas) CxSide m)
+                          (v/assert kb (list parentOf Tom MumA) CxUp m)
+                          (v/assert kb (list parentOf Thomas MumB) CxUp m)))
+          (v/assert kb (list 'genlCx CxSub CxUp) 'CxUniverse)
+          (is (= [true false] [(merged-at? kb MumA MumB CxSub) (merged-at? kb MumA MumB CxUp)])
+              (str row ": the clash holds at sub alone")))))))

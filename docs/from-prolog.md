@@ -176,7 +176,7 @@ what no longer has support. Nothing you derived from a withdrawn premise silentl
 outlives it.
 
 This is the piece with no Prolog analogue at all, and it is why every conclusion carries a
-justification. `(v/why kb handle)` is the proof tree; `(v/why-not kb handle)` answers
+justification. `(v/why kb handle)` is the justification graph down to premises; `(v/why-not kb handle)` answers
 `:defeated` / `:withdrawn` / `:superseded` / `:unsupported` / `:not-stored`, and the sentence arity adds
 `:excepted`. → [nmtms.md](nmtms.md)
 

@@ -89,6 +89,7 @@
             [vaelii.impl.opts :as opts]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rewrite :as rewrite]
@@ -145,6 +146,35 @@
 
 ;; ---- what can shadow a computed answer ----------------------------------
 
+(defn- concludes-goal?
+  "Does a stored rule, in any context, conclude something `goal` unifies with?  The
+  candidates are `res/concluding-rule-handles` (the goal's predicate or a spec of it),
+  behind `res/concludes?`'s index-only answer, and the match is `res/subsuming-unify`, the
+  test the backward chainer applies before it expands a rule.  A goal whose predicate
+  some rule concludes, but at arguments the goal's cannot unify with, is concluded by
+  no rule."
+  [kb goal context]
+  (let [pred (nm/functor goal)]
+    (and (res/concludes? kb pred context)
+         (let [taken (set (sx/form-variables goal))]
+           (boolean
+            (some (fn [h]
+                    (when-let [c (:consequent (p/get-sentex (:records kb) h))]
+                      (res/subsuming-unify
+                       kb goal (:consequent (res/freshen-rule {:consequent c :antecedents []} taken))
+                       res/no-bindings context)))
+                  (res/concluding-rule-handles kb pred context)))))))
+
+(defn- unread-inverse?
+  "Is some predicate `tax/inverses-under` declares inverse to `pred` a source the
+  calculus owning `pred` does not read?  A partner `q` is read when
+  `qkb/converse-entailed?` holds of it, and with no registered calculus owning `pred`,
+  every partner is unread."
+  [kb pred context]
+  (when-let [qs (seq (tax/inverses-under (reasoning/taxonomy kb) pred context))]
+    (let [calc (qkb/calculus-for kb pred)]
+      (not (and calc (every? #(qkb/converse-entailed? calc pred %) qs))))))
+
 (defn shadowing-channels
   "The ways this KB could reach `goal` that a **computed** prover does not read — the
   set a conditionally-complete prover checks before claiming its answers are a
@@ -156,7 +186,7 @@
   * **`:preserving`** — an `(transitiveInArg P n R)` declaration licenses a claim about a
     tuple that appears in no stored fact, in no rule conclusion and in no constraint
     network, so nothing computed from those three can contain it.
-  * **`:rules`** — a rule concluding the goal's predicate, or a spec of it.  A *forward*
+  * **`:rules`** — a rule whose consequent unifies with the goal (`concludes-goal?`).  A *forward*
     rule's conclusion is stored when it fires and so is absorbed, but a
     `set/backwardRule` never fires forward: its conclusion exists only while a
     backchainer is looking for it, and no member of the registry is one.  So a complete
@@ -167,11 +197,10 @@
     forward rule is absorbed only if the fixpoint actually ran to it, which
     `{:chain? false}` and `:max-depth` can both prevent, and being wrong here costs a
     union rather than an answer.
-  * **`:inverse`** — a declared `(inverse P Q)` where the goal is about `P`.  A
-    calculus applies its algebra's own converse *within its vocabulary*, and the
-    taxonomy closures are keyed on their own functor, so neither reads a partner
-    predicate stored under a different name.  Measured the same way, on `genl` and on
-    `partOfRegion`.
+  * **`:inverse`** — a declared `(inverse P Q)` where the goal is about `P`, unless the
+    calculus owning `P` owns `Q` too and its converse table implies the pair
+    (`unread-inverse?`).  The taxonomy closures are keyed on their own functor, and a
+    calculus reads only its own vocabulary, so neither reads any other partner.
   * **`:negates`** — a `(not (Q …))` goal with `Q` at or below a side of a `negates`
     declaration.  The denial is read off the other side's tuples (`NegatesProver`),
     which no calculus network holds.
@@ -191,7 +220,8 @@
     into its network;
   * a **merged term** is rewritten into the goal before any prover sees it, so an
     equality reaches a computed prover already applied;
-  * `symmetric` / `transitive` / `reflexive` over a predicate a calculus owns are the
+  * `symmetric` / `transitive` / `reflexive` over a predicate a calculus owns, and an
+    `inverse` between two of its predicates that its converse table implies, are the
     algebra's own composition and converse;
   * `arg` type inference and the metadata provers answer goal shapes no computed
     prover claims, so they are never shadowed in the first place.
@@ -204,14 +234,16 @@
   `res/concludes?` is the one that is not — it probes the consequent index per member of
   `pred`'s spec closure until one holds a rule, so a goal no rule concludes costs O(specs)
   index reads, and `cond->` evaluates every test rather than stopping at the first
-  channel found.  Its own docstring carries the number."
+  channel found.  Its own docstring carries the number.  Where a rule concludes the
+  predicate, `concludes-goal?` then fetches the concluding rules until one consequent
+  unifies, so a goal no consequent unifies with costs one record fetch per concluding rule."
   [kb goal context]
   (when (sequential? goal)
     (let [pred (nm/functor goal)]
       (cond-> #{}
         (seq (inherit/positions kb pred context))            (conj :preserving)
-        (res/concludes? kb pred context)                    (conj :rules)
-        (seq (tax/inverses-under (reasoning/taxonomy kb) pred context)) (conj :inverse)
+        (concludes-goal? kb goal context)                   (conj :rules)
+        (unread-inverse? kb pred context)                    (conj :inverse)
         (and (= sx/not-functor pred) (sequential? (second goal))
              (seq (tax/negates-over (reasoning/taxonomy kb) (first (second goal)) context)))
         (conj :negates)
@@ -882,6 +914,21 @@
   [f]
   (if *unenumerated* (binding [*in-guard* true] (f)) (f)))
 
+(defn- unblocked
+  "`sols`, each a binding map or a `[bindings support]` pair, less those naming a node of an
+  unsatisfiable component of the network of the calculus claiming the goal's predicate at
+  `context` (`qcn-kb/blocked-nodes`).  A declared property of a calculus predicate answers
+  no goal there that the calculus does not (docs/qcn.md, \"Unsatisfiability is per
+  component\")."
+  [kb [pred a b] context sols]
+  (let [blocked (when-let [c (qkb/calculus-for kb pred)]
+                  (not-empty (qkb/blocked-nodes c kb context)))]
+    (if blocked
+      (remove (fn [s] (let [bnd (if (map? s) s (first s))]
+                        (or (contains? blocked (get bnd a a)) (contains? blocked (get bnd b b)))))
+              sols)
+      sols)))
+
 (defrecord TransitivePredicateProver []          ; declared-transitive predicates (not genl/genlCx)
   Prover
   (applicable? [_ kb goal context]
@@ -894,70 +941,72 @@
   ;; inverse, so union with those provers rather than running alone.
   (completeness [_ _ _ _] 70)
   (solve [_ kb goal context]
-    (let [[pred a b] goal
-          fwd  #(succs kb pred % context)
-          back #(preds-of kb pred % context)]
-      (cond
-        ;; A closed goal asks about *one* pair, so it stops at the answer — and it
-        ;; **consults** the closure cache without filling it, which is the whole of the
-        ;; asymmetry: an entry answers the pair by membership, while computing one to
-        ;; store would charge a two-hop question for the entire extent, the early exit
-        ;; `reaches?` exists for.
-        (and (ground? a) (ground? b))
-        (let [clock (observe/change-clock)
-              from  (closure-hit kb (closure-key :succ pred a context) clock)
-              into' (closure-hit kb (closure-key :pred pred b context) clock)]
-          (cond
-            from  (if (contains? from b) [{}] [])
-            into' (if (contains? into' a) [{}] [])
-            :else (if (reaches? (fwd a) fwd b) [{}] [])))
-        ;; an open argument enumerates, and `reach` is a fixpoint — computing *any* of
-        ;; the closure computes all of it, so only the wrapping is lazy here.  That is
-        ;; inherent to a closure, not a missed optimization.
-        (ground? a) (map (fn [y] {b y}) (cached-reach kb :succ pred a context fwd))
-        (ground? b) (map (fn [x] {a x}) (cached-reach kb :pred pred b context back))
-        ;; One variable in **both** places — `(P ?x ?x)` — asks which nodes lie on a
-        ;; cycle, and binds one variable rather than two.  Stated rather than left to
-        ;; fall through, for the `Duplicate key` reason `TransitivityProver` gives above.
-        ;;
-        ;; Answered by one condensation rather than one closure per source: `reaches? x x`
-        ;; walks x's whole reach to *fail*, so the acyclic case — the ordinary one for a
-        ;; `before` or `tangiblePartOf` chain — would cost O(n²) to answer nothing.
-        ;; A printed key, never a bare `sort`: these are **terms**, and a term need not
-        ;; be `Comparable` — an unreifiable function application stays structural in
-        ;; argument position, so a binding can be a list, and a bare sort throws
-        ;; `ClassCastException` on a KB whose cycle relates two of them.  Printed form is
-        ;; the content key the rest of this file already ranks terms by, and it is printed
-        ;; through `nm/print-key` so an ambient `*print-length*` cannot elide two nested
-        ;; terms to one prefix and drop the order onto the source's handle set.
-        (= a b) (map (fn [x] {a x})
-                     ;; the key keeps a list-valued binding sortable; built once per term
-                     (nm/sort-by-content-key nm/print-key compare
-                                             (on-a-cycle (walk-sources kb pred context) fwd)))
-        ;; Both open: **nothing from here**, so the extent answers — the stored `pred`
-        ;; facts and those of its `genl` sub-predicates, through the ordinary match path
-        ;; like any other predicate.  `completeness` 70 is what makes that work: this is
-        ;; not the sole complete method, so the registry unions rather than running it
-        ;; alone, and an empty seq here is a contribution of none rather than an answer
-        ;; of none.
-        ;;
-        ;; The asymmetry with the arms above is deliberate and is the whole reason this
-        ;; arm is written out rather than left to fall through.  Those bound one end, so
-        ;; the work and the answer are both bounded by one node's reach.  This one is
-        ;; bounded by neither: the closure of a transitive relation is **quadratic** in a
-        ;; chain's length, so enumerating it for a 1M-node chain offers half a trillion
-        ;; pairs — not an answer a caller asked for but a process that does not come
-        ;; back.  Laziness does not rescue it either, since `reach` is a fixpoint and one
-        ;; pair costs a whole node's closure.  So the closure is computed for membership
-        ;; and for one bound end, and is never stored and never enumerated whole.
-        ;;
-        ;; A caller who does want it asks for it: `(P ?x ?x)` above for the cycle
-        ;; question, or one bound end per source term. A report read learns the closure
-        ;; was skipped through `*unenumerated*`.
-        :else (do (when-let [a *unenumerated*]
-                    (let [g? *in-guard*]
-                      (swap! a #(cond-> (update % :all conj pred) g? (update :guarded conj pred)))))
-                  []))))
+    (unblocked
+     kb goal context
+     (let [[pred a b] goal
+           fwd  #(succs kb pred % context)
+           back #(preds-of kb pred % context)]
+       (cond
+         ;; A closed goal asks about *one* pair, so it stops at the answer — and it
+         ;; **consults** the closure cache without filling it, which is the whole of the
+         ;; asymmetry: an entry answers the pair by membership, while computing one to
+         ;; store would charge a two-hop question for the entire extent, the early exit
+         ;; `reaches?` exists for.
+         (and (ground? a) (ground? b))
+         (let [clock (observe/change-clock)
+               from  (closure-hit kb (closure-key :succ pred a context) clock)
+               into' (closure-hit kb (closure-key :pred pred b context) clock)]
+           (cond
+             from  (if (contains? from b) [{}] [])
+             into' (if (contains? into' a) [{}] [])
+             :else (if (reaches? (fwd a) fwd b) [{}] [])))
+         ;; an open argument enumerates, and `reach` is a fixpoint — computing *any* of
+         ;; the closure computes all of it, so only the wrapping is lazy here.  That is
+         ;; inherent to a closure, not a missed optimization.
+         (ground? a) (map (fn [y] {b y}) (cached-reach kb :succ pred a context fwd))
+         (ground? b) (map (fn [x] {a x}) (cached-reach kb :pred pred b context back))
+         ;; One variable in **both** places — `(P ?x ?x)` — asks which nodes lie on a
+         ;; cycle, and binds one variable rather than two.  Stated rather than left to
+         ;; fall through, for the `Duplicate key` reason `TransitivityProver` gives above.
+         ;;
+         ;; Answered by one condensation rather than one closure per source: `reaches? x x`
+         ;; walks x's whole reach to *fail*, so the acyclic case — the ordinary one for a
+         ;; `before` or `tangiblePartOf` chain — would cost O(n²) to answer nothing.
+         ;; A printed key, never a bare `sort`: these are **terms**, and a term need not
+         ;; be `Comparable` — an unreifiable function application stays structural in
+         ;; argument position, so a binding can be a list, and a bare sort throws
+         ;; `ClassCastException` on a KB whose cycle relates two of them.  Printed form is
+         ;; the content key the rest of this file already ranks terms by, and it is printed
+         ;; through `nm/print-key` so an ambient `*print-length*` cannot elide two nested
+         ;; terms to one prefix and drop the order onto the source's handle set.
+         (= a b) (map (fn [x] {a x})
+                      ;; the key keeps a list-valued binding sortable; built once per term
+                      (nm/sort-by-content-key nm/print-key compare
+                                              (on-a-cycle (walk-sources kb pred context) fwd)))
+         ;; Both open: **nothing from here**, so the extent answers — the stored `pred`
+         ;; facts and those of its `genl` sub-predicates, through the ordinary match path
+         ;; like any other predicate.  `completeness` 70 is what makes that work: this is
+         ;; not the sole complete method, so the registry unions rather than running it
+         ;; alone, and an empty seq here is a contribution of none rather than an answer
+         ;; of none.
+         ;;
+         ;; The asymmetry with the arms above is deliberate and is the whole reason this
+         ;; arm is written out rather than left to fall through.  Those bound one end, so
+         ;; the work and the answer are both bounded by one node's reach.  This one is
+         ;; bounded by neither: the closure of a transitive relation is **quadratic** in a
+         ;; chain's length, so enumerating it for a 1M-node chain offers half a trillion
+         ;; pairs — not an answer a caller asked for but a process that does not come
+         ;; back.  Laziness does not rescue it either, since `reach` is a fixpoint and one
+         ;; pair costs a whole node's closure.  So the closure is computed for membership
+         ;; and for one bound end, and is never stored and never enumerated whole.
+         ;;
+         ;; A caller who does want it asks for it: `(P ?x ?x)` above for the cycle
+         ;; question, or one bound end per source term. A report read learns the closure
+         ;; was skipped through `*unenumerated*`.
+         :else (do (when-let [a *unenumerated*]
+                     (let [g? *in-guard*]
+                       (swap! a #(cond-> (update % :all conj pred) g? (update :guarded conj pred)))))
+                   [])))))
 
   SupportingProver
   ;; **Both sets are empty, and that is a claim rather than an omission.**  The functors
@@ -993,35 +1042,37 @@
   ;; support's contexts, and a declaration stated apart from the hops licenses the pair
   ;; only below both; the hops' own context, which does not see it, walks nothing.
   (solve-with-support [_ kb goal context]
-    (let [[pred a b] goal
-          fwd   #(succs kb pred % context)
-          back  #(preds-of kb pred % context)
-          decls (delay (declared-transitive-by kb pred context))
-          with  (fn [sup] (when sup (if (next sup) (into sup @decls) sup)))
-          chain (fn [dir root node]
-                  (with (support-chain (support-parents kb dir pred root context) node)))]
-      (cond
-        (and (ground? a) (ground? b))
-        (if-let [sup (and (reaches? (fwd a) fwd b) (chain :succ a b))]
-          [[{} sup]]
-          [])
+    (unblocked
+     kb goal context
+     (let [[pred a b] goal
+           fwd   #(succs kb pred % context)
+           back  #(preds-of kb pred % context)
+           decls (delay (declared-transitive-by kb pred context))
+           with  (fn [sup] (when sup (if (next sup) (into sup @decls) sup)))
+           chain (fn [dir root node]
+                   (with (support-chain (support-parents kb dir pred root context) node)))]
+       (cond
+         (and (ground? a) (ground? b))
+         (if-let [sup (and (reaches? (fwd a) fwd b) (chain :succ a b))]
+           [[{} sup]]
+           [])
 
-        (ground? a)
-        (let [parents (support-parents kb :succ pred a context)]
-          (keep (fn [y] (when-let [sup (with (support-chain parents y))] [{b y} sup]))
-                (cached-reach kb :succ pred a context fwd)))
+         (ground? a)
+         (let [parents (support-parents kb :succ pred a context)]
+           (keep (fn [y] (when-let [sup (with (support-chain parents y))] [{b y} sup]))
+                 (cached-reach kb :succ pred a context fwd)))
 
-        (ground? b)
-        (let [parents (support-parents kb :pred pred b context)]
-          (keep (fn [x] (when-let [sup (with (support-chain parents x))] [{a x} sup]))
-                (cached-reach kb :pred pred b context back)))
+         (ground? b)
+         (let [parents (support-parents kb :pred pred b context)]
+           (keep (fn [x] (when-let [sup (with (support-chain parents x))] [{a x} sup]))
+                 (cached-reach kb :pred pred b context back)))
 
-        (= a b)
-        (keep (fn [x] (when-let [sup (chain :succ x x)] [{a x} sup]))
-              (nm/sort-by-content-key nm/print-key compare
-                                      (on-a-cycle (walk-sources kb pred context) fwd)))
+         (= a b)
+         (keep (fn [x] (when-let [sup (chain :succ x x)] [{a x} sup]))
+               (nm/sort-by-content-key nm/print-key compare
+                                       (on-a-cycle (walk-sources kb pred context) fwd)))
 
-        :else []))))
+         :else [])))))
 
 (defrecord TransitiveInArgProver []       ; (transitiveInArg P n R) / (transitiveInArgInverse P n R)
   Prover
@@ -1088,12 +1139,17 @@
   (est-bindings [_ _ _ _] 1)
   (cost         [_ _ _ _] :lookup)
   (completeness [_ _ _ _] 50)
-  (solve [_ _ goal _]
-    (let [[_ a b] goal]
-      (cond (and (ground? a) (ground? b)) (if (= a b) [{}] [])
-            (ground? a) [{b a}]
-            (ground? b) [{a b}]
-            :else []))))
+  ;; the diagonal holds of a term the declared argument types admit at both positions
+  ;; (`res/arg-admits-fn`), the admission a calculus asks of the same goal, and outside an
+  ;; unsatisfiable component of the calculus's network (`unblocked`)
+  (solve [_ kb goal context]
+    (let [[p a b] goal
+          admits? #(let [f (res/arg-admits-fn kb p context)] (and (f % 0) (f % 1)))]
+      (unblocked kb goal context
+                 (cond (and (ground? a) (ground? b)) (if (and (= a b) (admits? a)) [{}] [])
+                       (ground? a) (if (admits? a) [{b a}] [])
+                       (ground? b) (if (admits? b) [{a b}] [])
+                       :else [])))))
 
 ;; ---- evaluable predicates (computed, not stored) ------------------------
 
@@ -1236,8 +1292,9 @@
 (defn shape-kinds
   "The most specific expression kinds of the form `x` that its spelling decides, as a
   set: `variable`, `symbol`, a value kind (`literal-value-kind`), or for a compound one
-  of `open_formula` / `sentence` under a `formula-heads` head, `non_atomic_expression`
-  beside `open_expression` / `closed_expression` under a symbol or variable head, and
+  of `open_formula` / `sentence` under a `formula-heads` head, `sentex_handle_term` for
+  `(sentexHandle N)` with N a positive integer, `non_atomic_expression` beside
+  `open_expression` / `closed_expression` under any other symbol or variable head, and
   `ill_formed_expression` beside the same under any other head.  A variable inside a
   nested `(Quote …)` or bound by a quantifier in `x` is not free (`sx/unquoted-free-vars`).
   `#{}` for nil."
@@ -1252,6 +1309,7 @@
         (cond
           (contains? formula-heads h)
           #{(if (= 'open_expression (openness)) 'open_formula 'sentence)}
+          (and (sx/sentex-handle? x) (pos? (long (second x)))) #{'sentex_handle_term}
           (symbol? h) #{'non_atomic_expression (openness)}
           :else       #{'ill_formed_expression (openness)}))
       :else #{})))
@@ -1264,7 +1322,7 @@
   so a kind a KB adds below `expression` is answered by a query and not by a firing."
   '#{expression atomic_expression non_atomic_expression atomic_term variable symbol
      unrepresented_term string number integer keyword boolean character
-     denotational_term non_atomic_term formula sentence open_formula
+     denotational_term non_atomic_term sentex_handle_term formula sentence open_formula
      predication closed_predication open_predication literal closed_literal open_literal
      wff_expression ill_formed_expression ill_formed ill_formed_sentence
      open_expression closed_expression})
@@ -1714,6 +1772,32 @@
   (solve-with-support [_ kb goal context]
     (if-let [sup (expression-kind-support kb goal context)] [[{} sup]] [])))
 
+;; ---- result types: what a function application is ------------------------------
+
+(defn- result-type-goal?
+  "Is `goal` `(k x)`, `k` a symbol and `x` a ground application of a named function, on
+  a KB that declares a result type?"
+  [kb goal]
+  (and (sequential? goal) (= 2 (count goal))
+       (let [[k x] goal]
+         (and (symbol? k) (not (sx/variable? k))
+              (seq? x) (symbol? (first x)) (not (sx/variable? (first x)))
+              (not (contains? formula-heads (first x)))
+              (ground? x)
+              (nat-read/any-result-declarations? kb)))))
+
+(defrecord ResultTypeProver []              ; (k (F a…)) read off F's declared result types
+  Prover
+  (applicable?  [_ kb goal _] (result-type-goal? kb goal))
+  (est-bindings [_ _ _ _] 1)
+  (cost         [_ _ _ _] :lookup)
+  ;; 50, not 100: a function that declares no result is open-world, so an empty answer
+  ;; is a contribution of none rather than a "no"
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb [k x] context]
+    (let [tax (reasoning/taxonomy kb)]
+      (if (some #(tax/genl? tax % k context) (nat-read/visible-result-types kb x context)) [{}] []))))
+
 ;; ---- argN: a position inside a written formula --------------------------------
 
 (defn- arg-position-goal?
@@ -1867,13 +1951,41 @@
   [kb]
   (into #{} (comp (filter #(instance? EvaluatableFn %)) (map :pred)) (registry kb)))
 
+(defn- input-vars
+  "The variables of `goal` prover `p` reads to compute an answer: every argument but an
+  `EvaluatableFn`'s `:result` slot, `argN`'s formula, and every argument for any other
+  prover.  The rest of `goal`'s variables are the ones the answer binds."
+  [p goal]
+  (let [args (vec (rest goal))]
+    (sx/form-variables
+     (cond
+       (and (instance? EvaluatableFn p) (:result p))
+       (let [i (out-index (:result p) (count args))]
+         (keep-indexed (fn [j a] (when (not= j i) a)) args))
+       (and (instance? ArgPositionProver p) (arg-position-goal? goal)) [(nth goal 3)]
+       :else args))))
+
+(defn- est-under
+  "The estimate `e` the applicable provers `ps` gave for `goal` as written, read with the
+  variables in `bound` bound: `deferred-est` becomes 1, the one answer or none a
+  computation gives, once `bound` holds every variable the provers among `ps` that report
+  `deferred-est` read (`input-vars`), and is `e` otherwise.  Each `:est-override` below
+  reads a goal through this, so `plan/order` runs a computed literal once its inputs are
+  bound, ahead of a literal its output binds."
+  [e ps kb goal context bound]
+  (if (and (= deferred-est e) (sequential? goal))
+    (let [bound (if (set? bound) bound (set bound))
+          ds    (filterv #(= deferred-est (est-bindings % kb goal context)) ps)]
+      (if (and (seq ds) (every? #(every? bound (input-vars % goal)) ds)) 1 e))
+    e))
+
 (defn evaluatable-est-override
   "An `:est-override` for `vaelii.impl.plan/order` that costs only `preds` — a KB's
   registered evaluatable functors (`evaluatable-preds`) — and returns nil for every
-  other goal so the index model ranks the rest.  A goal still carrying an unbound input
-  is reported as maximally unselective (`deferred-est`) and a fully ground one as the
-  single answer it computes, so the planner runs the generators that bind its inputs
-  first and the computation lands with everything ground.
+  other goal so the index model ranks the rest.  A goal costs what its `EvaluatableFn`'s
+  `est-bindings` gives, read under the plan's bindings (`est-under`): `deferred-est`
+  while an input is unbound, else one, so the planner runs the generators that bind its
+  inputs first and the computation lands with every input ground.
 
   Forward chaining (`vaelii.impl.chain/planned-join`) plans with this so a registered
   evaluatable antecedent is placed after its binders — the self-deferral the built-in
@@ -1884,11 +1996,16 @@
 
   Nil when `preds` is empty, and `planned-join` then plans with `support-est-override`
   alone."
-  [preds]
+  [kb preds]
   (when (seq preds)
-    (fn [goal _bound]
-      (when (and (sequential? goal) (seq goal) (contains? preds (first goal)))
-        (if (ground? goal) 1 deferred-est)))))
+    (let [ps (filterv #(and (instance? EvaluatableFn %) (contains? preds (:pred %))) (registry kb))]
+      (fn [goal bound]
+        (when (and (sequential? goal) (seq goal) (contains? preds (first goal)))
+          (let [app (filterv #(applicable? % kb goal '?ctx) ps)
+                e   (cond (seq app)     (reduce max (map #(est-bindings % kb goal '?ctx) app))
+                          (ground? goal) 1
+                          :else          deferred-est)]
+            (est-under e app kb goal '?ctx bound)))))))
 
 ;; ---- a prover built from plain fns (`vaelii.core/prover`) -----------------
 
@@ -2605,8 +2722,8 @@
   ;; A ground unary membership goal `(Coll a)` for a `Coll` whose spec ancestor set carries a
   ;; visible defnSufficient.  Ground because the condition is evaluated against the member:
   ;; an open `(Coll ?x)` would ask a computed condition to *enumerate* its members, which a
-  ;; sufficient built from `integer` / `lessThan` cannot do (the infinite-extent generator
-  ;; is the punted, theoretically-hard case).
+  ;; sufficient built from `integer` / `lessThan` cannot do (no generator enumerates an
+  ;; infinite extent).
   (applicable? [_ kb goal context]
     (and (sequential? goal)
          (symbol? (first goal))
@@ -2884,7 +3001,7 @@
 ;; and every `genl` edge the separation climbs on either side holds at `:monotonic`.  A
 ;; `:default` edge applies forward and does not contrapose: "a `pa` is typically a `pb`"
 ;; leaves room for an atypical `pa` outside `pb`.  `res/separation-denials` is the read,
-;; and the cover family names the same witnesses (`checks/cover-refutations`).
+;; and the cover family names the same witnesses (`checks/cover-problem`).
 ;; Open-world: it fires on a positive membership, never on an unprovable one.
 
 (defrecord DisjointnessNegationProver []
@@ -3257,18 +3374,21 @@
 
 (defn- type-derivations
   "Every derivation of a type an individual `x` must have because it fills an
-  arg-constrained argument of a believed relation, as `[type usage handle P' T']`: the
-  type, the believed sentex `(P .. x@n ..)`, and the handle of the `(arg P' n T')`
-  declaration it rests on, where `P'` is `P` or a super-predicate and `type` is `T'` or a
-  supertype of it.  This is arg read the other way — as an inference,
-  not only a constraint (e.g. Muffet eats Bone1 and eat's 2nd argument is food, so Bone1
-  is food).
+  arg-constrained argument of a believed relation, as `[type usage c P' T']`: the type,
+  the believed sentex `(P .. x@n ..)`, and the `:instance` entry `c` of
+  `res/arg-constraints-at` covering position `n` — an `(arg P' n T')`, or an
+  `(argAndRest P' m T')` / `(args P' T')` reaching `n` — where `P'` is `P` or a
+  super-predicate and `type` is `T'` or a supertype of it.  This is arg read the other
+  way — as an inference, not only a constraint (e.g. Muffet eats Bone1 and eat's 2nd
+  argument is food, so Bone1 is food).
 
-  **Whose declarations count is the reader `assert` uses** (`res/constraining-predicates`):
-  `P`'s own, and those of the super-predicates the asking context can see, since a
-  `(genl fatherOf parentOf)` edge makes every `fatherOf` tuple a `parentOf` tuple.  The
-  two readings of one declaration must agree about that or a claim `assert` refuses for
-  being ill-typed is one `ask` cannot type at all.
+  **Whose declarations count is the reader `assert` uses**, read through the argnum
+  chokepoint (`res/arg-constraints-at`): `P`'s own, and those of the super-predicates the
+  asking context can see, since a `(genl fatherOf parentOf)` edge makes every `fatherOf`
+  tuple a `parentOf` tuple.  The two readings of one declaration must agree about that or
+  a claim `assert` refuses for being ill-typed is one `ask` cannot type at all.  The
+  chokepoint holds a predicate's constraints for one stretch of the change clock, so a
+  term used in many tuples of one predicate reads its declarations once.
 
   **And the usage counts only where it can be seen.**  Both sides of the inference are
   read from the asking context — the declaration through `matches-visible`, the tuple
@@ -3280,18 +3400,12 @@
   (for [s (believed-sentexes-with kb x context)
         :let [sen (:sentence s) pred (nm/functor sen) as (vec (nm/args sen))]
         :when (and (symbol? pred) (seq as))
-        ;; above `n`, since whose declarations bind a tuple is a fact about the
-        ;; predicate and not about which of its positions is being read — bound
-        ;; inside, the `genls` closure and its sort run once per argument position
-        :let [ps (res/constraining-predicates kb 'arg pred context)]
         n (range 1 (inc (count as)))
         :when (= x (nth as (dec n)))
-        p ps
-        [h b] (res/matches-visible kb (list 'arg p n '?t) context)
-        :let [t' (get b '?t)]
-        :when (symbol? t')
-        super (tax/genls (reasoning/taxonomy kb) t' context)]
-    [super s h p t']))
+        {:keys [type kind via] :as c} (res/arg-constraints-at kb pred context n)
+        :when (= :instance kind)
+        super (tax/genls (reasoning/taxonomy kb) type context)]
+    [super s c via type]))
 
 (defn- inferred-types
   "The types `type-derivations` gives `x`, lazy and deduped: `distinct` over the lazy
@@ -3302,18 +3416,27 @@
   [kb x context]
   (distinct (map first (type-derivations kb x context))))
 
+(defn- constraint-declarations
+  "The declarations `context` sees that state the `res/arg-constraints` entry `c`, as
+  `[spelling handle]` pairs: `(arg P n T)` for one position and `(argAndRest P n T)` for a
+  tail, the twin an `(args P T)` declaration's forward rule stores among them."
+  [kb {:keys [from to type via]} context]
+  (let [k (if (= from to) 'arg 'argAndRest)]
+    (map (fn [[h]] [k h]) (res/matches-visible kb (list k via from type) context))))
+
 (defn- derivation-supports
-  "The handle sets a `type-derivations` entry rests on, one per combination of routes: the
-  usage and the declaration, with a route (`subsumption-routes`) from the usage's
-  predicate to the declared one, from the declared type to the derived one, and from a
-  spec of `arg` a declaration is stored on to `arg`."
-  [kb [super s h declared t']]
-  (let [routes #(subsumption-routes kb %1 %2)
-        base   #{(:id s) h}]
-    (for [r1 (routes declared (nm/functor (:sentence s)))
+  "The handle sets a `type-derivations` entry rests on, one per declaration stating its
+  constraint and combination of routes: the usage and the declaration, with a route
+  (`subsumption-routes`) from the usage's predicate to the declared one, from the declared
+  type to the derived one, and from a spec of the declaration's spelling (`arg` or
+  `argAndRest`) it is stored on to that spelling."
+  [kb [super s c declared t'] context]
+  (let [routes #(subsumption-routes kb %1 %2)]
+    (for [[k h] (constraint-declarations kb c context)
+          r1 (routes declared (nm/functor (:sentence s)))
           r2 (routes super t')
-          r3 (routes 'arg (nm/functor (:sentence (p/get-sentex (:records kb) h))))]
-      (into base (map first) (concat r1 r2 r3)))))
+          r3 (routes k (nm/functor (:sentence (p/get-sentex (:records kb) h))))]
+      (into #{(:id s) h} (map first) (concat r1 r2 r3)))))
 
 (defn- uncovered-declarations
   "The `(arg P n T')` declarations `context` sees whose `T'` is `t` or a spec of it and
@@ -3399,7 +3522,7 @@
        (for [a   (if (pvar? x) (open-candidates kb t context) [x])
              d   (type-derivations kb a context)
              :when (or (pvar? t) (= t (first d)))
-             sup (derivation-supports kb d)]
+             sup (derivation-supports kb d context)]
          [(cond (pvar? t) {t (first d)} (pvar? x) {x a} :else {}) sup])))))
 
 ;; ---- the argument-type meta-predicates, answered up genl ----------------
@@ -3476,6 +3599,7 @@
     argsGenl        {:pred 1 :types-up [2]}
     argAndRest      {:pred 1 :fixed [2] :types-up [3]}
     argAndRestGenl  {:pred 1 :fixed [2] :types-up [3]}
+    quotedArgAndRest {:pred 1 :fixed [2] :types-up [3]}
     ;; the homogeneity constraints: the one type is trigger and target at once, so it is
     ;; covariant as a target and contravariant as a trigger and reaches neither way —
     ;; `(interArgs R animal)` convicts a reptile beside a plant that `(interArgs R
@@ -3594,7 +3718,7 @@
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver) (->CommonGenlProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
-   (->EvaluableProver) (->ExpressionKindProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
+   (->EvaluableProver) (->ExpressionKindProver) (->ResultTypeProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->DisjointnessNegationProver)
@@ -3625,13 +3749,13 @@
   One function rather than three copies of the same `filterv`: `solve-goal-with`
   decides what runs, `est-goal` decides whether a complete estimate exists, and `plan`
   reports both — so a sweep that drifted between them would make the diagnostic lie
-  about the dispatch it is there to explain.  A literal with `sx/no-match` as a direct
-  argument names no term there, so only the stored-fact prover reads it, and it matches
-  nothing (docs/nat.md, Read path)."
+  about the dispatch it is there to explain.  A literal holding `sx/no-match` at a term
+  position (`res/names-no-match?`) names no term there, so only the stored-fact prover
+  reads it, and it matches nothing (docs/nat.md, Read path)."
   [kb provers goal context]
   (filterv #(budget/checked-call
              (fn [] (applicable? % kb goal context)))
-           (if (sx/names-no-match? goal) (filterv fact-prover? provers) provers)))
+           (if (res/names-no-match? kb goal) (filterv fact-prover? provers) provers)))
 
 ;; Membership tests for the lookup-to-query stack (vaelii.impl.levels), which runs
 ;; the engine over a *subset* of the registry: level 5 with the transitive provers
@@ -3716,13 +3840,13 @@
   and reports `deferred-est` for an open argument, which places it after its binders."
   [kb]
   (let [{:keys [answers provers]} (support-summary kb)]
-    (fn [goal _bound]
+    (fn [goal bound]
       (when (and (sequential? goal) (contains? answers (first goal)))
-        (let [ests (keep #(when (and (contains? (support-functors %) (first goal))
-                                     (applicable? % kb goal '?ctx))
-                            (est-bindings % kb goal '?ctx))
-                         provers)]
-          (when (seq ests) (reduce max ests)))))))
+        (let [ps   (filterv #(and (contains? (support-functors %) (first goal))
+                                  (applicable? % kb goal '?ctx))
+                            provers)
+              ests (map #(est-bindings % kb goal '?ctx) ps)]
+          (when (seq ests) (est-under (reduce max ests) ps kb goal '?ctx bound)))))))
 
 (defn separation-est-override
   "An `:est-override` for `vaelii.impl.plan/order` that costs a `disjoint` literal by
@@ -3803,6 +3927,20 @@
     (if-let [moved (when (relation-membership? kb s) (relation-moved-answers kb))]
       (into (or read #{}) moved)
       read)))
+
+(defn support-delta-source?
+  "Does the datum `s`, on `src`, move a `SupportingProver`'s answers only as a supporter
+  of them: is `src` a functor some registered supporter reads, not one a `genl` edge is
+  read off (`tax/edge-installing-functors`), and `s` not a membership moving a relation's
+  kind (`relation-membership?`)?  Then an answer `s` makes newly given names `s` in its
+  support, by the protocol's second obligation (`prover-types/SupportingProver`), and
+  the re-join `s` owes keeps only the rows that rest on it (`chain/run-owed-rejoin`).
+  The caller asks it of a positive datum only: a negation defeats a row, and the answer
+  it widens rests on what remains."
+  [kb src s]
+  (boolean (and (contains? (:reading (support-summary kb)) src)
+                (not (contains? tax/edge-installing-functors src))
+                (not (relation-membership? kb s)))))
 
 (defn support-source-preds
   "The functors a registered `SupportingProver` *reads*.  A datum on one of these moves an
@@ -3927,7 +4065,7 @@
       (held-contexts kb '#{sameAs equals rewriteOf} (map :handle (tax/rewrite-rules tx)))
 
       (satisfies? SupportingProver pr) (held (support-sources pr))
-      ;; a calculus prover (`qcn-kb/CalculusProver`, which this namespace cannot name):
+      ;; a calculus prover (`qcn-kb/CalculusProver`):
       ;; the facts that put a node into its network
       (map? (:calculus pr)) (held (:context-predicates (:calculus pr))))))
 
@@ -3959,6 +4097,7 @@
   exactly what `run` carries."
   [kb provers goal context run]
   (let [run        (fn [prover]
+                     (budget/check-unit!)
                      (let [answers (budget/checked-call #(run prover))]
                        (budget/checked-seq answers)))
         applicable (applicable-provers kb provers goal context)
@@ -4049,16 +4188,34 @@
   the whole of what it answered before it delegated at all."
   0)
 
+(defn- fan-mirrors-every-predicate?
+  "Does the fact read of a `pred` literal at `context` probe both argument orders of every
+  predicate it reads: is each predicate of its fan (`res/sub-predicates` and
+  `res/swapped-sub-predicates`) symmetric at `context`?  The fan mirrors a candidate by
+  that candidate's own mark, and `res/without-unbelieved-spellings` keeps the mirrored row
+  at a reader believing that mark (`has-prop?` reads the same supporters)."
+  [kb pred context]
+  (let [tx (reasoning/taxonomy kb)]
+    (every? #(tax/has-prop? tx :symmetric % context)
+            (concat (res/sub-predicates kb pred context)
+                    (res/swapped-sub-predicates kb pred context)))))
+
 (defn- solve-mirrored
   "Solutions for the mirrored spelling of the symmetric `(pred a b)` — `(pred b a)`
   through the engine minus this prover, so the mirror composes with facts, the
   closures, preservation and the partner spellings rather than reading storage alone.
   The mirror of an *inherited* claim is the case that needs it: nothing is stored, and
-  a raw read answers nothing for a claim `verdict` proves."
+  a raw read answers nothing for a claim `verdict` proves.
+
+  The fact prover is left out too when `fan-mirrors-every-predicate?`, since the fact read
+  of `(pred a b)` beside this prover already read both orders of every stored row."
   [kb pred a b context]
   (if (< *mirror-depth* 2)
     (binding [*mirror-depth* (inc *mirror-depth*)]
-      (let [pv (remove #(instance? SymmetricProver %) (registry kb))]
+      (let [skip? (if (fan-mirrors-every-predicate? kb pred context)
+                    #(or (instance? SymmetricProver %) (fact-prover? %))
+                    #(instance? SymmetricProver %))
+            pv    (remove skip? (registry kb))]
         ;; realized inside the binding: the depth guard is dynamic, and a lazy answer
         ;; escaping the scope would re-enter at depth zero — the loop this bounds
         (doall (solve-goal-with kb pv (list pred b a) context))))
@@ -4131,15 +4288,22 @@
   stored facts passes nothing here, because for that leaf the index model is right.
 
   Memoized on the goal, which is sound in both directions: `est-goal` reads only the
-  goal (kb and context are fixed for the run, and its `bound` argument is ignored — a
-  complete prover's estimate is the whole cost of the goal, not of a partial binding),
-  and a query mutates nothing that could make an entry stale.  Without the memo
+  goal (kb and context are fixed for the run), and a query mutates nothing that could
+  make an entry stale.  A goal at `deferred-est` is read under the bound variables it
+  holds (`est-under`), memoized on the goal and those variables.  Without the memo
   `plan/order` re-estimates every remaining literal on every pick, so a k-antecedent
   rule pays a full registry `applicable?` sweep plus a candidate-rule re-parse O(k²)
   times."
   [kb context]
-  (let [est (memoize (fn [goal] (est-goal kb goal context)))]
-    (fn [goal _bound] (est goal))))
+  (let [est   (memoize (fn [goal] (est-goal kb goal context)))
+        under (memoize (fn [goal bound]
+                         (est-under deferred-est (applicable-provers kb (registry kb) goal context)
+                                    kb goal context bound)))]
+    (fn [goal bound]
+      (let [e (est goal)]
+        (if (= deferred-est e)
+          (under goal (into #{} (filter (set bound)) (sx/form-variables goal)))
+          e)))))
 
 ;; ---- exceptWhen: evaluating a rule's exception ---------------------------
 ;; This lives here, rather than beside the forward chainer that first needed it,
