@@ -278,7 +278,8 @@
 
 (deftest every-shipped-function-declares-its-corresponding-predicate
   ;; A function comes with the predicate relating its arguments to its value
-  ;; (`functionCorrespondingPredicate`, docs/nat.md), so a rule can be written over the
+  ;; (`functionCorrespondingPredicate` or `functionCorrespondingBinaryPredicate`,
+  ;; docs/nat.md), so a rule can be written over the
   ;; predicate without building the function's term.  Read off the engine's text
   ;; contexts, as the test below reads them; koinii's contexts are the app's vocabulary
   ;; and are not read.
@@ -288,7 +289,8 @@
         sents (filter seq? (mapcat text/read-forms files))
         fns   (set (for [s sents :when (#{'reifiable_function 'unreifiable_function} (first s))]
                      (second s)))
-        corr  (set (for [s sents :when (= 'functionCorrespondingPredicate (first s))]
+        corr  (set (for [s sents :when (#{'functionCorrespondingPredicate
+                                          'functionCorrespondingBinaryPredicate} (first s))]
                      (second s)))]
     (is (seq fns) "the text contexts were found and read")
     (is (empty? (remove corr fns))

@@ -73,6 +73,7 @@
     surjection "a premise of core.txt's rule concluding (functional P)"
     bijection  "a premise of core.txt's rules concluding (injection P) and (surjection P)"
     functionCorrespondingPredicate "a premise of core.txt's rule concluding (arg P n T) from a function's result"
+    functionCorrespondingBinaryPredicate "a premise of core.txt's rule concluding (functionCorrespondingPredicate F P 2), which is forced-monotonic"
     result     "a premise of core.txt's rule concluding (arg P n T) from a function's result"
     fixed_arity           "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"
     fixed_arity_predicate "an arity policy, read beside the arity bindings, so it goes OUT only by retraction as a length does"

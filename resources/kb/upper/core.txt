@@ -1684,7 +1684,7 @@
 (genl forced_decontextualized_predicate predicate)
 
 (comment forced_monotonic_predicate
-         "(forced_monotonic_predicate ?predicate) makes ?predicate forced-monotonic. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the forced-monotonic set applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one loses to the literal it denies at either strength, and a firing concluding one from a rule that is not all forced-monotonic antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary through at_least_quinary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1 through arg5), the correspondence premises (functionCorrespondingPredicate, result), except, exceptWhen and the equality relations, every one of which the engine holds forced-monotonic whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators, the argument declarations and the correspondence premises is refused. Declared of inverse too, a premise of the rules typing one partner's arguments by the other's. The engine holds inverse forced-monotonic only where this declaration is seen, and its retraction is not refused. See docs/nmtms.md.")
+         "(forced_monotonic_predicate ?predicate) makes ?predicate forced-monotonic. Every (?predicate …) sentence is stored as written and keeps the strength it was written at, a genlCx edge excepted, which reads :monotonic so that it caps no firing's class, and belief is computed with the forced-monotonic set applied: a (?predicate …) sentence is never the loser of a nogood, a denial of one loses to the literal it denies at either strength, and a firing concluding one from a rule that is not all forced-monotonic antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), the arity policies (fixed_arity and its two specializations, bounded_arity, unbounded_arity, at_least_binary through at_least_quinary, arityMax, admitsArgnum), the term kinds (relation, predicate, function, truth_valued_relation, logical_constant, logical_connective, quantifier, symbol, context, unrepresented_term and its value kinds), the numeric comparators (greaterThan, lessThan) and their quantity twins (quantityGreaterThan, quantityGreaterThanOrEqual, quantityLessThan, quantityLessThanOrEqual, sameQuantity), the argument declarations (arg, arg1 through arg5), the correspondence premises (functionCorrespondingPredicate, functionCorrespondingBinaryPredicate, result), except, exceptWhen and the equality relations, every one of which the engine holds forced-monotonic whether or not it is declared; the retraction of every one of these but injection, surjection, bijection, the arity policies, the term kinds, the numeric and quantity comparators, the argument declarations and the correspondence premises is refused. Declared of inverse too, a premise of the rules typing one partner's arguments by the other's. The engine holds inverse forced-monotonic only where this declaration is seen, and its retraction is not refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_predicate)
 ;; Every member of the forced-monotonic set is a predicate.
 (genl forced_monotonic_predicate predicate)
@@ -1898,7 +1898,7 @@
 (set/forwardRule (implies (and (surjection ?p) (arg ?p 2 ?r)) (predSpecifiedAll ?p ?r)))
 
 (comment functionCorrespondingPredicate
-         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position, 1-based over ?predicate's arguments. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. A function may correspond to several predicates. A function and predicate pair has one position, and a predicate and position have one function. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
+         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position, 1-based over ?predicate's arguments. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. A function may correspond to several predicates. A function and predicate pair has one position, and a predicate and position have one function. functionCorrespondingBinaryPredicate states the common case, a binary predicate with the value second. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
 (ternary_predicate functionCorrespondingPredicate)
 (set/monotonic (time_invariant_relation functionCorrespondingPredicate))
 (arg functionCorrespondingPredicate 1 function)
@@ -1906,6 +1906,16 @@
 (arg functionCorrespondingPredicate 3 positive_integer)
 (functionalInArg functionCorrespondingPredicate 3)
 (functionalInArg functionCorrespondingPredicate 1)
+
+(comment functionCorrespondingBinaryPredicate
+         "(functionCorrespondingBinaryPredicate ?function ?predicate) means (functionCorrespondingPredicate ?function ?predicate 2): ?predicate is binary and holds of ?function's argument and then its value. So (functionCorrespondingBinaryPredicate MotherFn motherOf) says (MotherFn Muffet) is the Mary of (motherOf Muffet Mary). The rule below concludes the ternary, which is the only form the engine reads. See docs/nat.md.")
+(binary_predicate functionCorrespondingBinaryPredicate)
+(arg functionCorrespondingBinaryPredicate 1 function)
+(arg functionCorrespondingBinaryPredicate 2 binary_predicate)
+(set/forwardRule
+ (implies
+  (functionCorrespondingBinaryPredicate ?function ?predicate)
+  (functionCorrespondingPredicate ?function ?predicate 2)))
 
 ;; A function's result type is the type of the value its corresponding predicate holds,
 ;; so the rule below types the predicate's argument at the stated position by the
@@ -1917,9 +1927,12 @@
    (result ?function ?type))
   (arg ?predicate ?position ?type)))
 ;; arg is forced-monotonic, and a rule concludes a forced-monotonic literal only from
-;; forced-monotonic antecedents, so the two predicates the rule reads are forced-monotonic
-;; too.  Without them every firing above is void.
+;; forced-monotonic antecedents, so the predicates these rules read are forced-monotonic
+;; too: functionCorrespondingPredicate and result for the typing rule, and
+;; functionCorrespondingBinaryPredicate for the rule concluding a correspondence.
+;; Without them every firing above is void.
 (forced_monotonic_predicate functionCorrespondingPredicate)
+(forced_monotonic_predicate functionCorrespondingBinaryPredicate)
 (forced_monotonic_predicate result)
 
 ;; (inverse ?p ?q) says (?p a b) holds exactly when (?q b a) does.  So argument 1 of ?p

@@ -74,12 +74,12 @@
 (reifiable_function FatherFn)
 (unary_function FatherFn)
 (set/monotonic (time_invariant_relation FatherFn))
-(functionCorrespondingPredicate FatherFn fatherOf 2)
+(functionCorrespondingBinaryPredicate FatherFn fatherOf)
 (arg FatherFn 1 animal)
 (result FatherFn animal)
 
 (comment fatherOf
-         "(fatherOf ?child ?father) means that ?father is the biological father of ?child. The child comes FIRST, which is what lets FatherFn read off it — a correspondence puts the value last. Declared functional, one biological father to a child, so a second, different father is not a second fact: the two names merge. A rule concludes parentOf from it and never the other way about, since a parent may be either.")
+         "(fatherOf ?child ?father) means that ?father is the biological father of ?child. The child comes FIRST and the father second, the shape functionCorrespondingBinaryPredicate states, which is what lets FatherFn read off it. Declared functional, one biological father to a child, so a second, different father is not a second fact: the two names merge. A rule concludes parentOf from it and never the other way about, since a parent may be either.")
 (set/monotonic (instance_relation_predicate fatherOf))
 (arg fatherOf 1 animal)
 (arg fatherOf 2 animal)
@@ -143,7 +143,7 @@
 (reifiable_function MotherFn)
 (unary_function MotherFn)
 (set/monotonic (time_invariant_relation MotherFn))
-(functionCorrespondingPredicate MotherFn motherOf 2)
+(functionCorrespondingBinaryPredicate MotherFn motherOf)
 (arg MotherFn 1 animal)
 (result MotherFn animal)
 

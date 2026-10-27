@@ -842,7 +842,14 @@
       (enforced (wff-only [:function :predicate :position]
                           :facets #{:answers})
                 (str "nat — reifies an application to the value the predicate already names,"
-                     " and projects a minted constant back onto it"))]]
+                     " and projects a minted constant back onto it"))]
+     ['functionCorrespondingBinaryPredicate
+      (enforced {:shape {:args [:function :predicate]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain, not by name: the core.txt rule"
+                             " beside it concludes (functionCorrespondingPredicate F P 2).")}
+                (str "generic forward chaining: the core.txt rule concludes"
+                     " (functionCorrespondingPredicate F P 2), which the nat reify reads"))]]
 
     ;; ---- the equality relations ------------------------------------------
     ;; Sorted, so the table is a function of the set rather than of set iteration
@@ -1376,8 +1383,9 @@
                            "generic: the predicate specialization of relation")]
      ['function  (enforced (collection :notes "the arg target the function-valued positions name.")
                            (str "generic: the function specialization of relation and the arg"
-                                " target the function-valued positions of result, genlResult"
-                                " and functionCorrespondingPredicate name"))]
+                                " target the function-valued positions of result, genlResult,"
+                                " functionCorrespondingPredicate and"
+                                " functionCorrespondingBinaryPredicate name"))]
      ;; The other half of relation, and the three levels below it.  core.txt comments them
      ;; and `vocabulary/audit` answers for every term core.txt comments; no engine check names
      ;; any of the four.  The connectives are read by their own names (the `implies`, `and`,

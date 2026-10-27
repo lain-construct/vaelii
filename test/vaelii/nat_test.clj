@@ -2058,7 +2058,7 @@
                  (catch clojure.lang.ExceptionInfo e e))]
       (is (= :not-well-formed (:type (ex-data e)))))))
 
-(tu/deftest-kb ^:red the-shipped-correspondences-state-their-position
+(tu/deftest-kb the-shipped-correspondences-state-their-position
   (is (true? (v/ask? kb '(functionCorrespondingBinaryPredicate MotherFn motherOf) 'CxUniverse)))
   (is (true? (v/ask? kb '(functionCorrespondingPredicate MotherFn motherOf 2) 'CxUniverse)))
   (is (true? (v/ask? kb '(functionCorrespondingPredicate QuantityFn measureInUnit 3) 'CxUniverse)))
@@ -2068,7 +2068,7 @@
                       (kb/find-sentexes kb 'functionCorrespondingPredicate)))
       "no correspondence is stored without its position"))
 
-(tu/deftest-kb ^:red a-binary-correspondence-puts-the-value-second
+(tu/deftest-kb a-binary-correspondence-puts-the-value-second
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'binary_predicate motherOf) 'CxUniverse)
@@ -2079,7 +2079,7 @@
     (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
       (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h)))))))
 
-(tu/deftest-kb ^:red a-binary-correspondence-arriving-last-reconciles-what-was-already-minted
+(tu/deftest-kb a-binary-correspondence-arriving-last-reconciles-what-was-already-minted
   (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
     (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'binary_predicate motherOf) 'CxUniverse)
@@ -2092,7 +2092,7 @@
       (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx)))
       (is (= Mary (nat-read/dedup-constant kb (list MotherFn Muffet)))))))
 
-(tu/deftest-kb ^:red a-binary-correspondence-projects-a-placeholder-and-retracting-it-stops-the-read
+(tu/deftest-kb a-binary-correspondence-projects-a-placeholder-and-retracting-it-stops-the-read
   (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
     (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
     (v/assert kb (list 'binary_predicate motherOf) 'CxUniverse)
@@ -2106,6 +2106,9 @@
       (v/retract! kb h))))
 
 (tu/deftest-kb ^:red a-binary-correspondence-respells-a-rule-in-every-order
+  ;; Red in the three orders that store the rule before the binary declaration: the
+  ;; ternary it concludes is derived, and a derived declaration moves no rule
+  ;; (docs/nat.md, What reification does not cover), so the rule keeps its written spelling.
   (doseq [order (orders [:corr :rule :facts])]
     (tu/with-terms [FruitFn AppleTree Gala tagged ripe fruitOf]
       (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
@@ -2120,7 +2123,7 @@
         (is (empty? (v/query kb (list ripe '?t) 'CxUniverse)) (str order " retracted"))
         (run! #(v/retract! kb %) (mapcat val (dissoc hs :corr)))))))
 
-(tu/deftest-kb ^:red a-binary-correspondence-types-the-second-argument-by-the-result
+(tu/deftest-kb a-binary-correspondence-types-the-second-argument-by-the-result
   (tu/with-terms [ShadeFn shadeOf paint shade]
     (v/assert kb (list 'reifiable_function ShadeFn) 'CxUniverse)
     (v/assert kb (list 'unary_function ShadeFn) 'CxUniverse)
