@@ -163,6 +163,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+### Additive: integrity
+
+- **`kb-integrity`'s rule-macro sweep covers `(arg P i C)`.** A stored rule
+  `(P ?o1 … ?on)` ⇒ `(C ?oi)`, the other arguments free, distinct variables, restates
+  what `entail-arg-type` already derives from the declaration: every argument `i` of a
+  true `P`-fact is typed `C`, materialized and retracted with the declaration
+  (special.clj's `ArgTypeProver`). Reported under the same conditions as `genl` — `P`
+  declared with a fixed arity, `C` not a term the engine interprets, the rule visible
+  from CxUniverse.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
+
+  *Class:* **Additive**.
+
 ### Fix: shipped ontology and rule clashes
 
 - **`knows` follows from `relativeOf` by a default rule, not a `genl` edge.** Two
