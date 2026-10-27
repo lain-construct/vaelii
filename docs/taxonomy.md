@@ -91,13 +91,8 @@ predicate and function the starter ships states its class. `bounded_arity` and
 `(arityMax R N)` states the upper bound of a `bounded_arity` relation. The three are
 documentary: the arity check reads `fixed_arity`, `variable_arity` and `arityMin`.
 `arityMin` states the lower bound of a variable-arity relation. Prefer
-variable arity for a repeatable, homogeneously typed argument role. A relation with a
-bounded optional tail declares variable arity too, with its `arityMin`, and its
-well-formedness check bounds the tail: `functionCorrespondingPredicate` is
-`variable_arity_predicate` with `arityMin 2`, and `wff/correspondence-problems` refuses
-it with other than two or three arguments, the third an optional argument position. It is
-also `bounded_arity` with `(arityMax functionCorrespondingPredicate 3)`, which states that
-bound in the KB.
+variable arity for a repeatable, homogeneously typed argument role. No shipped relation
+is both variable-arity and bounded, so `core.txt` states no `arityMax`.
 
 `at_least_binary`, `at_least_ternary`, `at_least_quaternary` and `at_least_quinary` are
 the generic derived classes of relations of arity 2, 3, 4 and 5 or greater, fixed or
@@ -237,6 +232,7 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
 | `arg` `genlArg` `interArg` `interArgEqual` | the `:props` set of predicates some declaration of that kind names (`:declares-arg-isa` / `:declares-arg-genl` / `:declares-inter-arg-isa` / `:declares-inter-arg-equal`), and the declarations themselves read back through the index per query | `:derived?` — the `:props` set is what lets the descension ask *whose* declarations bind a tuple without an index probe per super-predicate |
 | `transitiveInArg` `transitiveInArgInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
+| `functionCorrespondingBinaryPredicate` | none — a `core.txt` rule concludes `(functionCorrespondingPredicate F P 2)` from it | nothing to reach |
 | `different` `unknown` `thereExists`, the five aggregates | none — never stored | nothing to reach: `wff` refuses the conclusion on the derivation path exactly as it refuses the assertion |
 
 A row naming a functor in the forced-monotonic set (`genlCx`, a relation mark,
