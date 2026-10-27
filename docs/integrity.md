@@ -549,6 +549,7 @@ shapes, with `?o…` standing for the free arguments of a predicate of arity `n`
 | `(commutativeInArgs P i j)` | `(P ?o1 … ?on)` ⇒ the same with positions `i` and `j` exchanged, `n` ≥ 3 | `P` declared with arity `n`; the rule is visible from CxUniverse |
 | `(inverse P Q)` | `(P ?a ?b)` ⇒ `(Q ?b ?a)`, and a second rule `(Q ?a ?b)` ⇒ `(P ?b ?a)` | `P` and `Q` declared with arity 2; both rules are visible from CxUniverse |
 | `(genl P Q)` | `(P ?o1 … ?on)` ⇒ `(Q ?o1 … ?on)` | `Q` is not a term the engine interprets; neither `P` nor `Q` is declared with another arity or with variable arity |
+| `(arg P i C)` | `(P ?o1 … ?on)` ⇒ `(C ?oi)` | `P` declared with arity `n`; `C` is not a term the engine interprets; the rule is visible from CxUniverse |
 | `(predAllInstance P C K)` | `(C ?x)` ⇒ `(P ?x K)`, `K` ground | the rule is a `set/defaultRule`, and `P` is not declared with another arity |
 | `(predInstanceAll P K C)` | `(C ?y)` ⇒ `(P K ?y)`, `K` ground | as `predAllInstance` |
 
@@ -596,7 +597,7 @@ suggestion and brings the finding back. Retracting the record brings the finding
 The further conditions are where a declaration reads differently from a rule:
 
 - **A relation mark is read from every context.** `symmetric`, `transitive`,
-  `commutativeInArgs` and `inverse` are lifted into CxUniverse
+  `commutativeInArgs`, `inverse` and `arg` are lifted into CxUniverse
   ([contexts.md](contexts.md#where-a-relation-property-is-read-from)), so a rule one
   theory states is not the mark, and is reported only when CxUniverse sees it. `genl` and
   the two preservation declarations are read where they are stated, in the rule's own
@@ -608,12 +609,13 @@ The further conditions are where a declaration reads differently from a rule:
 - **A rule that concludes a term the engine interprets materializes it.** A stored
   `(symmetric P)` sets the property the canonical argument order reads, and a membership
   `genl` inherits does not, as the `equivalence_relation` comment in `core.txt` records. A
-  rule shaped as `genl` whose consequent predicate is in the engine's grammar
+  rule shaped as `genl` or `arg` whose consequent predicate is in the engine's grammar
   (`vaelii.impl.predicates`) is therefore not reported.
 - **A mark fixes an arity.** `symmetric` and `transitive` classify their predicate as a
   `binary_predicate`, and a rule covers one arity only, so the predicate's arity must
-  be the rule's. A `genl` edge holds at every arity a predicate takes, so a variable-arity
-  predicate is not reported under it.
+  be the rule's; `commutativeInArgs` and `arg` read the same way, against `P`'s own
+  arity, the rule's antecedent. A `genl` edge holds at every arity a predicate takes, so a
+  variable-arity predicate is not reported under it.
 - **One direction of an inverse is not `inverse`.** A single swapping rule states one
   direction, which is `genlInverse` rather than `inverse`, and the pass suggests no
   `genlInverse`, so such a rule is not reported.
