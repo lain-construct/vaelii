@@ -2530,6 +2530,7 @@
 (decontextualized_predicate meetFunctionOf)
 (set/monotonic (instance_relation_predicate meetFunctionOf))
 (arg meetFunctionOf 1 function)
+(arg meetFunctionOf 1 at_least_binary)   ;; a meet takes two or more: two by definition, more once associativity flattens it
 (arg meetFunctionOf 2 binary_predicate)
 (termsRelated commutative associative idempotent meetFunctionOf)   ;; the marks that decide a term's canonical form
 
