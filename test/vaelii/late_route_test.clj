@@ -60,8 +60,7 @@
          (list 'genl fatherOf midParent) (list 'genl midParent parentOf) (list fatherOf Ann Mary)]
         [(list 'genl fatherOf parentOf)]
         (list animal Ann)]
-       ;; `(arg pet 1 animal)` types the members of a type, as core.txt's
-       ;; `(arg fixed_arity 1 relation)` does
+       ;; `(arg pet 1 animal)` types the members of a type
        [:cover
         [(list 'genl animal 'thing) (list 'genl pet 'thing) (list 'arg pet 1 animal)
          (list 'genl dog mid) (list 'genl mid pet) (list dog Rex)]
@@ -232,10 +231,13 @@
 (deftest ^:slow with-every-mint-kept-core-and-the-starter-hold-the-same-justifications-in-both-orders
   ;; `load-core!` and `load-starter!` restore dumps built once per JVM under the root
   ;; reading, so the kept reading asserts each through its `load-into`.  The upper layer
-  ;; holds 6,140 justifications with every mint kept, and the starter 6,934.
+  ;; holds 4,673 justifications with every mint kept, and the starter 5,342.  Before the
+  ;; unary predicates' `arg` declarations were dropped they held 7,066 and 8,127: each
+  ;; declaration added a second justification for every membership its `genl` edge
+  ;; already concluded (docs/argtypes.md).
   (binding [argument/*assertive-arg-types?*  true
             checks/*prune-subsumed-mints?* false]
-    (doseq [[load! floor] [[core-context/load-into 5000] [starter/load-into 5500]]]
+    (doseq [[load! floor] [[core-context/load-into 4000] [starter/load-into 4500]]]
       (let [[authored reloaded] (round-trip load!)]
         (is (< floor (reduce + (vals authored))))
         (is (= authored reloaded))))))

@@ -11,6 +11,26 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Breaking: inference
+
+- **No unary predicate declares its argument position.** core.txt drops `(arg C 1 T)` for
+  `fixed_arity`, `variable_arity`, `bounded_arity`, `unbounded_arity`, `at_least_binary`,
+  `forced_monotonic_between_predicates`, `reifiable_function` and
+  `unreifiable_function`, and time.txt drops it for `initially`. Each restated a type the
+  predicate's `genl` edges conclude, and added a second justification for every membership
+  the edge concluded: the upper layer holds 4,673 justifications with every mint kept
+  (was 7,066) and the starter 5,342 (was 8,127). A unary predicate's argument type is
+  `thing`. An argument that no disjointness separates from the edge's type is now typed by
+  the edge: `(fixed_arity 5)` derives `(relation 5)`, where the declaration refused it
+  `:arg-type`. `ontology_test` fails on an `arg` declaration of any predicate of arity 1.
+  [argtypes.md](docs/argtypes.md#a-unary-predicate-carries-no-arg-declaration)
+  *Migration:* drop `arg` declarations of unary predicates; state the type as a `genl`
+  edge.
+  *Breaks:* `try-assert` of a unary predicate's membership over an argument outside the
+  removed declaration's type
+
 ## 0.30.0 — 2026-10-27 — "Chaining writes rolled back at `:max-derivations` and a full heap, `why` as a justification graph, `functionCorrespondingPredicate` scoped to the reader, `kb-integrity`'s stranded declarations and rule clashes, `CxTimeFn` time slices"
 
 | Area | Change |

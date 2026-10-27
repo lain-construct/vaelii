@@ -265,7 +265,7 @@
   A position that is not here and not declared fails the test below; a position here that
   gains a declaration fails it too.
 
-  A **unary** predicate's one position is exempt as a class and is not listed — see the
+  A **unary** predicate's one position carries no declaration and is not listed — see the
   test."
   (merge
    {'[genl 1] "predicate specializations: (genlArg genl 1 thing) is false of (genl performedBy doneBy), whose ends are binary predicates (core.txt, beside genl)"
@@ -302,15 +302,11 @@
   ;; wrong-kinded argument stores clean.  Every kb/*.txt is read, the app's koinii
   ;; contexts included.
   ;;
-  ;; **A unary predicate owes nothing here.**  Its one position is its membership, so
-  ;; `(arg P 1 T)` says what `(genl P T)` says of the same extent — one per instance
-  ;; against one edge — and for the terms the engine interprets the shape in
-  ;; `vaelii.impl.predicates` refuses a wrong argument before any declaration is read
-  ;; (`(symmetric Fred)` is `:not-well-formed`, not `:arg-type`).  A declaration that
-  ;; convicts nothing and mints a record per instance under `*assertive-arg-types?*` is
-  ;; not a debt to collect, so the demand stops at arity 2 (docs/argtypes.md).  A unary
-  ;; predicate whose position is the only check it has still declares one — the eight
-  ;; state predicates in the upper layer do — and this test does not ask it to.
+  ;; **A unary predicate declares no position.**  Its `genl` edges conclude its argument's
+  ;; types, so `(arg P 1 T)` would restate an edge and add a second justification for each
+  ;; membership the edge concludes.  Unary predicates give types; other predicates require
+  ;; them (docs/argtypes.md).  The last assertion holds the shipped contexts to that; a
+  ;; `genlArg` on a metatype's position is a different constraint and is not read there.
   (let [files    (->> (file-seq (io/file "resources/kb"))
                       (filter #(.endsWith (.getName ^java.io.File %) ".txt")))
         sents    (mapcat text/read-forms files)
@@ -347,7 +343,9 @@
         (str "positions the shipped contexts leave undeclared: " (pr-str (sort (remove excused gaps)))))
     (is (empty? (remove gaps excused))
         (str "listed positions that are now declared (drop them from undeclared-positions): "
-             (pr-str (sort (remove gaps excused)))))))
+             (pr-str (sort (remove gaps excused)))))
+    (is (empty? (vec (for [s (of '#{arg}) :when (= 1 (arities (second s)))] s)))
+        "unary predicates whose position carries an arg declaration")))
 
 ;; ---- the exception mechanism itself, apart from birds --------------------
 

@@ -65,7 +65,7 @@ When you're about to assert a constraint (especially `disjoint`), first check wh
 
 **Example:** a type X with only a social genl needs a hand-written `(disjoint X Y)`. If X also has a true physical genl P, and `(disjoint P Y)` holds upstream, the disjointness derives and the hand-written line is redundant. The gap is the missing genl, not the missing constraint.
 
-Classify before you constrain loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate, even where a better classification entails them.
+Classify before you constrain loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate of arity 2 and up, even where a better classification entails them.
 
 **Audit:** for every `disjoint` and every arg constraint, walk both terms up their genl chains. An explicit `disjoint` that a better classification entails is a smell. Where a better classification entails an arg constraint, add the missing genl and keep the arg constraint.
 
@@ -91,7 +91,7 @@ Two exceptions, each marked with a comment saying which one applies:
 
 The same holds for comments. A comment doesn't restate a definitional assertion the KB already makes: no "the complement of X", "with Y it partitions Z" or bare member list when a `partition`, `intersection` or `genl` says it. The comment says what membership means, with examples, and leaves the structure to the assertions.
 
-State it once loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate, even where the predicate's `genl` edges derive them.
+State it once loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate of arity 2 and up, even where the predicate's `genl` edges derive them.
 
 **Audit:** for every new `genl`, `disjoint` or arg constraint, ask whether the rest of the KB already entails it. If so, drop it, mark which exception applies, or keep it under **no silent side effects**. For every comment, delete any clause that a definitional assertion already states.
 
@@ -100,9 +100,9 @@ State it once loses to **no silent side effects** when the two conflict. Arg con
 **overridesPrinciple:** DRY, state it once, classify before you constrain
 When a constraint should hold however another part of the KB is later edited, state it directly on the term it constrains, even if the KB derives it today. A derived constraint changes whenever a fact it follows from changes, and the edit that changes it does not mention it. A stated constraint changes only through an edit that names it.
 
-**Example:** state arg constraints on every predicate. A predicate inherits arg constraints through its `genl` edges, so an edit to those edges would change which arguments the predicate accepts. Stated on the predicate, its arg constraints stay the same when its `genl` edges change.
+**Example:** state arg constraints on every predicate of arity 2 and up. A predicate inherits arg constraints through its `genl` edges, so an edit to those edges would change which arguments the predicate accepts. Stated on the predicate, its arg constraints stay the same when its `genl` edges change.
 
-**Limit:** a stated arg constraint strictly weaker than one the predicate inherits is redundant either way. While the inherited constraint holds, it entails the weaker one. After an edit removes the inherited constraint, the weaker one does not keep the constraint the predicate had.
+**Limit:** a unary predicate carries no arg constraint, because its `genl` edges conclude its argument's types and an `arg` declaration would duplicate that hierarchy with a second justification for each conclusion: unary predicates give types, other predicates require types ([argtypes.md](argtypes.md#a-unary-predicate-carries-no-arg-declaration)). A stated arg constraint strictly weaker than one the predicate inherits is redundant either way. While the inherited constraint holds, it entails the weaker one. After an edit removes the inherited constraint, the weaker one does not keep the constraint the predicate had.
 
 **Audit:** for every constraint a vocab PR leaves to derivation, ask whether it should hold after an edit to the facts it follows from. If so, state it. For every edit to a `genl` edge, list the arg constraints it changes on the terms below it.
 
@@ -185,7 +185,7 @@ List the members, then the near-misses: things under the same parent that aren't
 
 ## no naked terms
 *Hypothesized vocabulary comes with its definitional assertions*
-Every proposed term, even in a thought experiment, ships as a block: its metatype(s), `genl`, its arg constraints, its `disjoint`/`separating`/`orthogonal` relations to siblings, and its `comment`. Where they apply, also relation properties (`transitive`, `functional`, …) and `termsRelated`/`seeAlso`. A term without its definitional block can't be evaluated yet.
+Every proposed term, even in a thought experiment, ships as a block: its metatype(s), `genl`, its arg constraints (arity 2 and up), its `disjoint`/`separating`/`orthogonal` relations to siblings, and its `comment`. Where they apply, also relation properties (`transitive`, `functional`, …) and `termsRelated`/`seeAlso`. A term without its definitional block can't be evaluated yet.
 
 ## ontology over quirk
 *Ship the right ontology over an engine quirk*
