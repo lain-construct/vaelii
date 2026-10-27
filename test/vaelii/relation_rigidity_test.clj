@@ -182,6 +182,30 @@
     (is (v/ask? kb (list 'time_invariant_relation salaryAt) U) "and so time-invariant")
     (is (not (v/ask? kb (list 'time_varying_relation salaryAt) U)))))
 
+(tu/deftest-kb the-temporal-index-argument-type-makes-the-relation-time-indexed
+  ;; (arg temporalIndexArg 1 time_indexed_relation) is what makes the relation one: no
+  ;; forward rule concludes the membership, so the arg-type mint is the whole route.
+  (is (v/ask? kb '(arg temporalIndexArg 1 time_indexed_relation) U))
+  (is (v/ask? kb '(genl time_indexed_relation at_least_binary) U))
+  (is (empty? (v/sentexes-matching
+               kb '(implies (and (temporalIndexArg ?relation ?position) (at_least_binary ?relation))
+                            (time_indexed_relation ?relation))
+               U))
+      "the forward rule it replaces is gone")
+  (testing "a relation declared only ternary_predicate"
+    (tu/with-terms [salaryAt]
+      (v/assert kb (list 'ternary_predicate salaryAt) U mono)
+      (v/assert kb (list 'temporalIndexArg salaryAt 3) U mono)
+      (is (v/ask? kb (list 'time_indexed_relation salaryAt) U))
+      (is (v/ask? kb (list 'at_least_binary salaryAt) U))
+      (is (v/ask? kb (list 'time_invariant_relation salaryAt) U))))
+  (testing "a relation declared only binary_predicate"
+    (tu/with-terms [priceAt]
+      (v/assert kb (list 'binary_predicate priceAt) U mono)
+      (v/assert kb (list 'temporalIndexArg priceAt 2) U mono)
+      (is (v/ask? kb (list 'time_indexed_relation priceAt) U))
+      (is (v/ask? kb (list 'time_invariant_relation priceAt) U)))))
+
 (tu/deftest-kb the-temporal-index-vocabulary-is-commented-and-classified
   (doseq [t '[temporalIndexArg time_indexed_relation]]
     (is (seq (v/ask kb (list 'comment t '?c) U)) (str t " is commented"))

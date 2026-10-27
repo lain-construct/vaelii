@@ -1354,7 +1354,7 @@
            [time_varying_relation "ontology, not grammar: a relation every instance of which could lose it and still exist (OntoClean ~R), preserved down genl by transitiveInArgInverse. No engine check names it."]
            [possibly_time_invariant_relation "ontology, not grammar: time_invariant_relation and time_agnostic_relation together, preserved up genl by transitiveInArg. No engine check names it."]
            [rigidity_kind "ontology, not grammar: the at_least_metatype holding the three rigidity kinds of relation. No engine check names it."]
-           [time_indexed_relation "ontology, not grammar: a relation one argument of which names the time a tuple holds at, below time_invariant_relation. A core.txt rule concludes membership from temporalIndexArg; no engine check names it."]
+           [time_indexed_relation "ontology, not grammar: a relation one argument of which names the time a tuple holds at, below time_invariant_relation. temporalIndexArg's first argument is typed time_indexed_relation, so a fact of it makes the relation one; no engine check names it."]
            [stable_once_true "ontology, not grammar: a time-varying relation that, once it holds at a time, holds at every later time. No engine check names it."]
            [stable_once_false "ontology, not grammar: a time-varying relation that, once it fails at a time, fails at every later time. No engine check names it."]])
 
@@ -1753,11 +1753,11 @@
      ['temporalIndexArg
       (enforced {:shape {:args [:relation :position]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes (str "enforced by the generic chain, not by name: a core.txt forward rule"
-                             " concludes (time_indexed_relation ?relation) from each fact of an"
-                             " at_least_binary relation.")}
-                (str "a core.txt rule: an at_least_binary relation with a temporal index"
-                     " argument is a time_indexed_relation, and so time-invariant"))]
+                 :notes (str "enforced by argument typing, not by name: core.txt's"
+                             " (arg temporalIndexArg 1 time_indexed_relation) types each fact's"
+                             " relation a time_indexed_relation.")}
+                (str "a core.txt arg declaration: a relation with a temporal index argument"
+                     " is a time_indexed_relation, so at_least_binary and time-invariant"))]
      ['partitionedByType
       (enforced {:shape {:args [:type :type]} :storage [:none] :checked false
                  :family nil :facets #{}

@@ -82,10 +82,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
 - **`temporalIndexArg` and `time_indexed_relation`.** `(temporalIndexArg ?relation
-  ?position)` names the argument that carries the time a tuple holds at. A forward rule
-  concludes `(time_indexed_relation ?relation)` from it, and
-  `(genl time_indexed_relation time_invariant_relation)` makes each such relation
-  time-invariant.
+  ?position)` names the argument that carries the time a tuple holds at.
+  `(arg temporalIndexArg 1 time_indexed_relation)` types the relation a
+  `time_indexed_relation`, which is below `time_invariant_relation` and `at_least_binary`:
+  the tuple carries its own time, so nothing can lose it, and a unary relation has no
+  other argument for the time to index.
 
   *Class:* **Additive**.
 
@@ -167,16 +168,6 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(arity ?p ?n)` or `(arityMin ?p ?n)` with `(greaterThan ?n 1)`, as the
   `at_least_binary` floor rules do, so `kb-quality` no longer pairs the bridge with the
   arity-1 and `empty` rules. [canonicalization.md](docs/canonicalization.md)
-
-  *Class:* **Fix** (shipped ontology content).
-  *Migration:* a query for the unguarded rule by `handle-of` answers nil.
-
-- **The forward rule from `(temporalIndexArg ?relation ?position)` to
-  `(time_indexed_relation ?relation)` leaves a unary relation out.** A unary relation has
-  no other argument for the time to index, and a time-indexed relation is
-  `at_least_binary`. The rule requires `(at_least_binary ?relation)`, which an exact class
-  of two or more arguments and an `arityMin` greater than 1 both give, so `kb-quality` no
-  longer pairs the rule with the arity-1 and `empty` rules.
 
   *Class:* **Fix** (shipped ontology content).
   *Migration:* a query for the unguarded rule by `handle-of` answers nil.
