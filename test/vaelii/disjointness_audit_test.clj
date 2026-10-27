@@ -350,6 +350,11 @@
 ;; grows. Lower one only in the commit that removes the separation, and name the
 ;; removed pairs in that commit.
 ;;
+;; The one exception is a loosening of at most 0.5 percentage points while unknown stays
+;; under 10%, a standing OK from the owner (Iris, 2026-10-24), which removes no separation
+;; and so names none: 6.14% to 6.36% unknown is one, develop's new types (v0.30.0) meeting
+;; this branch's tighter pin.
+;;
 ;; The audit sweeps the nodes of the genl hierarchy visible from its vantage (default
 ;; CxWell, the context below every middle context) less each `relation?` there, so the five
 ;; relations CxUniverse puts under a `genl` edge (`orthogonal`, `siblingDisjointException`
@@ -372,5 +377,5 @@
         (format "disjoint pairs must not fall below 27926 (got %d)" disjoint))
     (is (>= disjoint-% 83.58)
         (format "disjoint coverage must not regress below 83.58%% (got %.2f%%)" disjoint-%))
-    (is (<= unknown-% 6.14)
-        (format "unknown pairs must not grow above 6.14%% (got %.2f%%)" unknown-%))))
+    (is (<= unknown-% 6.36)
+        (format "unknown pairs must not grow above 6.36%% (got %.2f%%)" unknown-%))))
