@@ -3071,7 +3071,9 @@
   when the well-formedness or the plain-distinctness precondition is in doubt.
 
   `opts` flows to each `assert` (e.g. `:strength :monotonic`); `:chain?` is forced
-  false — a rule/consequent that needs forward firing is not a bulk-fact load.
+  false, so no stored rule fires over the loaded facts.  `record-arg-types` and then
+  `forward-chain` reach the KB a chained per-fact load holds, and both read the whole KB
+  (docs/storage.md, \"Loading a changing snapshot over a fixed base\").
 
   `:max-ms` and `:stop?` bound the whole call, read before each fact with the memory
   guard's heap mark (`chain/check-stop!`).  On a stop the fact in flight is rolled back,
@@ -3153,7 +3155,8 @@
   what loading the same facts one by one holds, and a later write draws nothing over a
   term it touches that the store did not already hold.  Idempotent, so a second run
   records nothing.  Under `VAELII_ASSERTIVE_ARG_TYPES=0` nothing is derived and nothing
-  is recorded.
+  is recorded.  It runs no forward chaining from what it records: `forward-chain` after
+  it fires the stored rules over the memberships.
 
   The facts are drawn per declared functor in content order, each functor's by handle,
   and the run ends with nothing owed (`arg-types-owed`).  `record-arg-types!` draws the

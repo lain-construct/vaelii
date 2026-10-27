@@ -4,8 +4,9 @@
   `Tallying`, `BulkLoading` and `BulkAnnotating` capabilities, what the three enumerations promise and what a
   handle set costs per handle, the sink an `import!` writes its records through, the eight legal record×index backend pairings and the optional `:sqlite` and
   `:pg` records adapters, nippy serialization, what one fact of a bulk load costs phase by
-  phase, what an open reports of a record nothing supports, what a shutdown waits for,
-  and the single-writer contract.
+  phase, the two routes from a load to the chained closure and what each costs, loading a
+  snapshot that changes over a fixed base, what an open reports of a record nothing
+  supports, what a shutdown waits for, and the single-writer contract.
 - **Not here:** the six index families' key layout and retrieval →
   [indexing.md](indexing.md); the dense/columnar backends that replace the default
   map-based structures → [density.md](density.md).
@@ -2230,6 +2231,73 @@ about a twentieth of the recover's wall time. An open declines the image when th
 source has changed, and then pays the full recover
 ([The reasoning image](#the-reasoning-image)). `scripts/upgrade-kb.sh` pays the recover
 once, ahead of the next open.
+
+## Loading a changing snapshot over a fixed base
+
+A process that reasons over live data loads a snapshot of ground facts, reads an answer,
+and loads the next snapshot. The KB beside the snapshot (vocabulary, rules, the facts
+every snapshot shares) does not change between reads. Each read's cost depends on which
+write route loads the snapshot.
+
+### Two routes to the chained closure
+
+A **chained write** (`assert`, `assert-many`, `edit!`) chains each fact from a seed list
+it builds for that fact (`vaelii.impl.assert-entry`):
+
+- the fact's own handle;
+- the argument-type memberships the fact entails ([argtypes.md](argtypes.md));
+- the stored facts below a `genl` edge the fact adds (`special/subsumption-seeds`);
+- the rule triggers behind a link the fact adds to a declared-transitive predicate
+  (`special/transitive-seeds`);
+- the facts a `genlCx` edge the fact adds brings into a context's view, which the write's
+  settle seeds.
+
+A chained write's cost therefore grows with what the new facts reach.
+
+**`bulk-assert-facts!` builds none of that list.** It stores, indexes and believes the
+facts, and leaves three passes to the caller:
+
+1. `record-arg-types` records the argument-type memberships. It draws every fact of
+   every declared functor, including facts stored before the load. It runs no forward
+   chaining from what it records.
+2. `release-withheld!`, when `owed-releases` is non-zero.
+3. `forward-chain` fires the stored rules over the loaded facts and the recorded
+   memberships. It seeds every believed datum, including the rest of the KB.
+
+After the three passes the KB holds what a chained per-fact load holds. Both
+`record-arg-types` and `forward-chain` read the whole KB, so the bulk route's cost grows
+with the KB and not with the load. The bulk route fits a store whose whole content is
+new: a corpus import, or building the fixed base once. A snapshot loaded over a larger
+KB takes a chained write.
+
+No public entry point chains from a given set of handles. A run seeded with the loaded
+handles alone omits every seed in the list above except the first. A snapshot holding a
+`genl` edge, a `genlCx` edge, a transitive link or an argument-type entailment then
+derives fewer conclusions than the chained write derives.
+
+### Writing the difference between two snapshots
+
+- **Close the base once.** Load the content every read shares, rules included, and
+  bring it to its chained closure before the first snapshot.
+- **Keep one KB across reads.** Hold the snapshot's facts in a context of their own.
+  Write each new snapshot as one `edit!`: `:add` holds the facts that arrived, and
+  `:remove` holds the handles (`handle-of`) of the facts that left. The adds land before
+  the removes and one settle closes the batch, so a conclusion both snapshots support
+  stays IN throughout ([api.md](api.md)). Every add is a chained write, so no pass
+  follows the `edit!`. The batch's cost follows the size of the difference.
+- **An aggregate rule can stay in the base.** One `edit!` against a stored aggregate
+  rule costs 5.1 ms at 10 nodes, against 4.4 ms for the rule asserted after the facts
+  and 21.3 ms for one assert per fact (`lein bench-aggchain`,
+  [aggregate.md](aggregate.md#what-it-costs)).
+- **A fork per read pays a recover per read.** `fork` rebuilds the fork's belief with
+  one `recover` over the base's contents ([overlay.md](overlay.md)), and every read in
+  a fork merges the overlay half with the base. A fork that several hypotheses need is
+  kept open across reads. A process that owns its KB does not need a fork.
+
+`chain-report` gives each forward rule's placed and refused firings, and `chain-stats`
+gives the last run's `:derived`. Forward chaining keeps no beta network
+([inference.md](inference.md)), so each firing re-joins the rule's other antecedents.
+The two reads name the rules a snapshot's chaining time goes to.
 
 ## The single-writer contract
 
