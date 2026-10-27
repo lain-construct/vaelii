@@ -74,7 +74,7 @@
 (reifiable_function FatherFn)
 (unary_function FatherFn)
 (set/monotonic (time_invariant_relation FatherFn))
-(functionCorrespondingPredicate FatherFn fatherOf)
+(functionCorrespondingPredicate FatherFn fatherOf 2)
 (arg FatherFn 1 animal)
 (result FatherFn animal)
 
@@ -143,7 +143,7 @@
 (reifiable_function MotherFn)
 (unary_function MotherFn)
 (set/monotonic (time_invariant_relation MotherFn))
-(functionCorrespondingPredicate MotherFn motherOf)
+(functionCorrespondingPredicate MotherFn motherOf 2)
 (arg MotherFn 1 animal)
 (result MotherFn animal)
 

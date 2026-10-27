@@ -767,7 +767,7 @@
 
 (tu/deftest-kb a-temporal-thing-has-a-time-and-a-time-is-its-own
   (testing "TimeOfFn ships with its corresponding predicate"
-    (is (true? (v/ask? kb '(functionCorrespondingPredicate TimeOfFn timeOf) 'CxUniverse)))
+    (is (true? (v/ask? kb '(functionCorrespondingPredicate TimeOfFn timeOf 2) 'CxUniverse)))
     (is (true? (v/ask? kb '(reifiable_function TimeOfFn) 'CxUniverse)))
     (is (true? (v/ask? kb '(arg TimeOfFn 1 temporal) 'CxUniverse)))
     (is (true? (v/ask? kb '(result TimeOfFn time) 'CxUniverse)))

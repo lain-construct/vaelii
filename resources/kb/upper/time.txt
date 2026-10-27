@@ -51,7 +51,7 @@
 (comment CxMonadOfFn
          "(CxMonadOfFn ?context) means the monad ?context belongs to: the world, story or theory it is a context of, with no time in it. So (CxMonadOfFn (CxTimeFn CxStory (YearFn 2000))) is CxStory. The monad of a time slice is the monad of the context it slices, and the monad of a context that is not a time slice is that context itself. cxMonadOf is the corresponding predicate. See docs/time.md.")
 (unary_function CxMonadOfFn)
-(functionCorrespondingPredicate CxMonadOfFn cxMonadOf)
+(functionCorrespondingPredicate CxMonadOfFn cxMonadOf 2)
 (arg CxMonadOfFn 1 context)
 (result CxMonadOfFn context)
 
@@ -77,7 +77,7 @@
 (comment CxTimeOfFn
          "(CxTimeOfFn ?context) means the time ?context covers, so (CxTimeOfFn (CxTimeFn CxStory (YearFn 2000))) is (YearFn 2000). cxTimeOf is the corresponding predicate. See docs/time.md.")
 (unary_function CxTimeOfFn)
-(functionCorrespondingPredicate CxTimeOfFn cxTimeOf)
+(functionCorrespondingPredicate CxTimeOfFn cxTimeOf 2)
 (arg CxTimeOfFn 1 context)
 (result CxTimeOfFn time)
 
@@ -126,7 +126,7 @@
 (implementationNote DatetimeFn "An unreifiable_function application: it stays structural, so the string is readable inside the term and a reader can see which intervals contain which.")
 (unreifiable_function DatetimeFn)
 (unary_function DatetimeFn)
-(functionCorrespondingPredicate DatetimeFn datetimeOf)
+(functionCorrespondingPredicate DatetimeFn datetimeOf 2)
 (arg DatetimeFn 1 string)
 (result DatetimeFn time_interval)
 
@@ -143,7 +143,7 @@
 (implementationNote DatetimeRangeFn "An unreifiable_function application like DatetimeFn: it stays structural, so both strings are readable inside the term. The rules beside it answer its startOf and endOf wherever the calendar prover answers for a DatetimeFn term.")
 (unreifiable_function DatetimeRangeFn)
 (binary_function DatetimeRangeFn)
-(functionCorrespondingPredicate DatetimeRangeFn datetimeRangeOf)
+(functionCorrespondingPredicate DatetimeRangeFn datetimeRangeOf 3)
 (arg DatetimeRangeFn 1 string)
 (arg DatetimeRangeFn 2 string)
 (result DatetimeRangeFn time_interval)
@@ -172,7 +172,7 @@
 (implementationNote DayFn "An unreifiable_function application like YearFn and MonthFn: it stays structural, so the three fields are readable inside the term and a reader can see that the day sits inside its month.")
 (unreifiable_function DayFn)
 (ternary_function DayFn)
-(functionCorrespondingPredicate DayFn calendarDay)
+(functionCorrespondingPredicate DayFn calendarDay 4)
 (arg DayFn 1 integer)
 (arg DayFn 2 positive_integer)
 (arg DayFn 3 positive_integer)
@@ -201,7 +201,7 @@
 (implementationNote EarliestEndFn "The instant network orders it at or before (EndFn ?thing) and at or after (EarliestStartFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds.")
 (unreifiable_function EarliestEndFn)
 (unary_function EarliestEndFn)
-(functionCorrespondingPredicate EarliestEndFn earliestEndOf)
+(functionCorrespondingPredicate EarliestEndFn earliestEndOf 2)
 (arg EarliestEndFn 1 temporal)
 (result EarliestEndFn time_point)
 
@@ -218,7 +218,7 @@
 (implementationNote EarliestStartFn "The instant network orders it at or before (StartFn ?thing) and at or before (EarliestEndFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds.")
 (unreifiable_function EarliestStartFn)
 (unary_function EarliestStartFn)
-(functionCorrespondingPredicate EarliestStartFn earliestStartOf)
+(functionCorrespondingPredicate EarliestStartFn earliestStartOf 2)
 (arg EarliestStartFn 1 temporal)
 (result EarliestStartFn time_point)
 
@@ -235,7 +235,7 @@
 (implementationNote EndFn "The instant network orders it after (StartFn ?thing).")
 (unreifiable_function EndFn)
 (unary_function EndFn)
-(functionCorrespondingPredicate EndFn endOf)
+(functionCorrespondingPredicate EndFn endOf 2)
 (arg EndFn 1 temporal)
 (result EndFn time_point)
 
@@ -373,7 +373,7 @@
 (implementationNote InstantFn "An unreifiable_function application like the calendar constructors, structural so the fields stay readable. The startOf and endOf of a calendar term are computed as InstantFn terms and never stored.")
 (unreifiable_function InstantFn)
 (fixed_arity_function InstantFn)
-(functionCorrespondingPredicate InstantFn calendarInstant)
+(functionCorrespondingPredicate InstantFn calendarInstant 7)
 (arity InstantFn 6)
 (arg InstantFn 1 integer)
 (arg InstantFn 2 integer)
@@ -423,7 +423,7 @@
 (implementationNote IntervalAfterFn "An unreifiable_function application, so ?instant is readable inside the term.")
 (unreifiable_function IntervalAfterFn)
 (unary_function IntervalAfterFn)
-(functionCorrespondingPredicate IntervalAfterFn intervalAfterOf)
+(functionCorrespondingPredicate IntervalAfterFn intervalAfterOf 2)
 (arg IntervalAfterFn 1 time_point)
 (result IntervalAfterFn time_interval)
 
@@ -444,7 +444,7 @@
 (implementationNote IntervalBeforeFn "An unreifiable_function application, so ?instant is readable inside the term.")
 (unreifiable_function IntervalBeforeFn)
 (unary_function IntervalBeforeFn)
-(functionCorrespondingPredicate IntervalBeforeFn intervalBeforeOf)
+(functionCorrespondingPredicate IntervalBeforeFn intervalBeforeOf 2)
 (arg IntervalBeforeFn 1 time_point)
 (result IntervalBeforeFn time_interval)
 
@@ -472,7 +472,7 @@
 (implementationNote LatestEndFn "The instant network orders it at or after (EndFn ?thing) and at or after (LatestStartFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds.")
 (unreifiable_function LatestEndFn)
 (unary_function LatestEndFn)
-(functionCorrespondingPredicate LatestEndFn latestEndOf)
+(functionCorrespondingPredicate LatestEndFn latestEndOf 2)
 (arg LatestEndFn 1 temporal)
 (result LatestEndFn time_point)
 
@@ -489,7 +489,7 @@
 (implementationNote LatestStartFn "The instant network orders it at or after (StartFn ?thing) and at or before (LatestEndFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds.")
 (unreifiable_function LatestStartFn)
 (unary_function LatestStartFn)
-(functionCorrespondingPredicate LatestStartFn latestStartOf)
+(functionCorrespondingPredicate LatestStartFn latestStartOf 2)
 (arg LatestStartFn 1 temporal)
 (result LatestStartFn time_point)
 
@@ -532,7 +532,7 @@
 (implementationNote MonthFn "An unreifiable_function application like YearFn and DayFn, structural so the ordering can read its fields.")
 (unreifiable_function MonthFn)
 (binary_function MonthFn)
-(functionCorrespondingPredicate MonthFn calendarMonth)
+(functionCorrespondingPredicate MonthFn calendarMonth 3)
 (arg MonthFn 1 integer)
 (arg MonthFn 2 positive_integer)
 (result MonthFn time_interval)
@@ -614,7 +614,7 @@
 (implementationNote StartFn "The instant network orders it before (EndFn ?thing).")
 (unreifiable_function StartFn)
 (unary_function StartFn)
-(functionCorrespondingPredicate StartFn startOf)
+(functionCorrespondingPredicate StartFn startOf 2)
 (arg StartFn 1 temporal)
 (result StartFn time_point)
 
@@ -695,7 +695,7 @@
 (unreifiable_function TimeIntersectionFn)
 (binary_function TimeIntersectionFn)
 (arity TimeIntersectionFn 2)
-(functionCorrespondingPredicate TimeIntersectionFn timeIntersectionOf)
+(functionCorrespondingPredicate TimeIntersectionFn timeIntersectionOf 3)
 (arg TimeIntersectionFn 1 time)
 (arg TimeIntersectionFn 2 time)
 (result TimeIntersectionFn time)
@@ -757,7 +757,7 @@
          "(TimeOfFn ?thing) means the time ?thing occupies: the moment or the stretches of time over which it exists, holds or happens. The time of an uninterrupted thing is an uninterrupted_time, and the time of an intermittent thing an intermittent_time. A time is its own time. A reifiable_function, one value per temporal thing, and timeOf is the corresponding predicate, so (TimeOfFn ?thing) and a believed (timeOf ?thing ?time) name one time. See docs/time.md.")
 (reifiable_function TimeOfFn)
 (unary_function TimeOfFn)
-(functionCorrespondingPredicate TimeOfFn timeOf)
+(functionCorrespondingPredicate TimeOfFn timeOf 2)
 (arg TimeOfFn 1 temporal)
 (result TimeOfFn time)
 
@@ -787,7 +787,7 @@
 (implementationNote YearFn "An unreifiable_function application: it stays structural rather than minting a constant, because its one field is what says which years contain which.")
 (unreifiable_function YearFn)
 (unary_function YearFn)
-(functionCorrespondingPredicate YearFn calendarYear)
+(functionCorrespondingPredicate YearFn calendarYear 2)
 (arg YearFn 1 integer)
 (result YearFn time_interval)
 

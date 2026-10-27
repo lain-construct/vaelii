@@ -2052,7 +2052,7 @@
 ;; the value second: one core.txt rule concludes the ternary from it, and the engine reads
 ;; only the ternary.
 
-(tu/deftest-kb ^:red a-correspondence-without-a-position-is-refused
+(tu/deftest-kb a-correspondence-without-a-position-is-refused
   (tu/with-terms [MotherFn motherOf]
     (let [e (try (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse) nil
                  (catch clojure.lang.ExceptionInfo e e))]
@@ -2130,7 +2130,7 @@
     (v/assert kb (list 'functionCorrespondingBinaryPredicate ShadeFn shadeOf) 'CxUniverse)
     (is (true? (v/ask? kb (list 'arg shadeOf 2 shade) 'CxUniverse)))))
 
-(tu/deftest-kb ^:red two-positions-for-one-function-and-predicate-collide
+(tu/deftest-kb two-positions-for-one-function-and-predicate-collide
   (tu/with-terms [StreetCornerFn streetCornerOf]
     (let [h1 (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 1) 'CxUniverse)
           h2 (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 3) 'CxUniverse)]
@@ -2142,7 +2142,7 @@
                                   nil
                                   (catch clojure.lang.ExceptionInfo e e)))))))))
 
-(tu/deftest-kb ^:red two-functions-for-one-predicate-and-position-collide
+(tu/deftest-kb two-functions-for-one-predicate-and-position-collide
   (tu/with-terms [MotherFn MumFn motherOf]
     (let [h1 (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf 2) 'CxUniverse)
           h2 (v/assert kb (list 'functionCorrespondingPredicate MumFn motherOf 2) 'CxUniverse)]

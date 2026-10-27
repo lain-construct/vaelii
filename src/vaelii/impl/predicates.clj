@@ -839,7 +839,7 @@
                                          (str "context-nat producer — sibling F-contexts differing at one arg are"
                                               " ordered by the sub-relation on that arg, materializing genlCx"))]
      ['functionCorrespondingPredicate
-      (enforced (wff-only [:function :predicate] :optional [:position]
+      (enforced (wff-only [:function :predicate :position]
                           :facets #{:answers})
                 (str "nat — reifies an application to the value the predicate already names,"
                      " and projects a minted constant back onto it"))]]
@@ -1295,13 +1295,13 @@
     ;; ---- bounded and unbounded arity ---------------------------------------
     ;; The bounded/unbounded split of relation and arityMax are stated so the KB says
     ;; what the arity check enforces; the check itself reads fixed_arity, variable_arity
-    ;; and arityMin, and bounds functionCorrespondingPredicate by name.
+    ;; and arityMin.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[bounded_arity "documentary: a relation with an upper bound on its arguments; with unbounded_arity it partitions relation. Nothing reads it by name."]
            [unbounded_arity "documentary: a relation taking any number of arguments beyond its required ones. Nothing reads it by name."]
            [unbounded_arity_predicate "documentary: unbounded_arity intersected with predicate. Nothing reads it by name."]
            [unbounded_arity_function "documentary: unbounded_arity intersected with function. Nothing reads it by name."]
-           [arityMax "documentary: the upper bound of a bounded_arity relation; the arity check bounds functionCorrespondingPredicate by name, not through this."]])
+           [arityMax "documentary: the upper bound of a bounded_arity relation; the arity check does not read it."]])
 
     ;; ---- the top of the ontology -----------------------------------------
     ;; The collections core.txt states so that the domain files can place their own types

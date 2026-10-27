@@ -702,7 +702,7 @@
 (genl fixed_arity_function function)
 
 (comment variable_arity
-         "(variable_arity ?relation) means that ?relation does not take one exact number of arguments; arityMin states its lower bound. Prefer it for a repeatable, homogeneously typed argument role. A relation with a bounded optional tail declares variable arity too, and its well-formedness check bounds the tail: functionCorrespondingPredicate takes two or three arguments. The arity check reads this generic type through specialization.")
+         "(variable_arity ?relation) means that ?relation does not take one exact number of arguments; arityMin states its lower bound. Prefer it for a repeatable, homogeneously typed argument role. The arity check reads this generic type through specialization.")
 (unary_predicate variable_arity)
 
 (comment variable_arity_predicate
@@ -723,7 +723,6 @@
 
 (comment bounded_arity "A relation whose number of arguments has an upper bound: one exact count, or a fixed range.")
 (positiveExample bounded_arity (Quote (bounded_arity parentOf)))
-(positiveExample bounded_arity (Quote (bounded_arity functionCorrespondingPredicate)))
 (unary_predicate bounded_arity)
 (comment unbounded_arity "A relation that takes any number of arguments beyond its required ones.")
 (positiveExample unbounded_arity (Quote (unbounded_arity and)))
@@ -749,7 +748,6 @@
 (intersection unbounded_arity_function unbounded_arity function)
 (genl unbounded_arity_function variable_arity_function)
 (comment arityMax "(arityMax ?relation ?n) means that the bounded_arity relation ?relation takes at most ?n arguments.")
-(positiveExample arityMax (Quote (arityMax functionCorrespondingPredicate 3)))
 (binary_predicate arityMax)
 (set/monotonic (time_invariant_relation arityMax))
 (arg arityMax 1 bounded_arity)
@@ -1505,7 +1503,7 @@
 (arg PredAllExistsFn 4 thing)   ;; the subject: a member of ?indep, a term of any kind
 (argArg PredAllExistsFn 4 2)
 (resultArg PredAllExistsFn 3)
-(functionCorrespondingPredicate PredAllExistsFn predAllExistsPlaceholder)
+(functionCorrespondingPredicate PredAllExistsFn predAllExistsPlaceholder 5)
 
 (comment predAllExistsPlaceholder
          "(predAllExistsPlaceholder ?pred ?indep ?dep ?subject ?placeholder) means that ?placeholder is the term (PredAllExistsFn ?pred ?indep ?dep ?subject) names: the ?dep filler that ?subject bears ?pred to under a predAllExists declaration over the first three arguments. PredAllExistsFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
@@ -1531,7 +1529,7 @@
 (arg PredExistsAllFn 4 thing)   ;; the subject: a member of ?indep, a term of any kind
 (argArg PredExistsAllFn 4 3)
 (resultArg PredExistsAllFn 2)
-(functionCorrespondingPredicate PredExistsAllFn predExistsAllPlaceholder)
+(functionCorrespondingPredicate PredExistsAllFn predExistsAllPlaceholder 5)
 
 (comment predExistsAllPlaceholder
          "(predExistsAllPlaceholder ?pred ?dep ?indep ?subject ?placeholder) means that ?placeholder is the term (PredExistsAllFn ?pred ?dep ?indep ?subject) names: the ?dep filler that bears ?pred to ?subject under a predExistsAll declaration over the first three arguments. PredExistsAllFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
@@ -1554,7 +1552,7 @@
 (genlArg PredExistsInstanceFn 2 thing)
 (arg PredExistsInstanceFn 3 thing)   ;; the fixed filler: a term of any kind
 (resultArg PredExistsInstanceFn 2)
-(functionCorrespondingPredicate PredExistsInstanceFn predExistsInstancePlaceholder)
+(functionCorrespondingPredicate PredExistsInstanceFn predExistsInstancePlaceholder 4)
 
 (comment predExistsInstancePlaceholder
          "(predExistsInstancePlaceholder ?pred ?indep ?fixed ?placeholder) means that ?placeholder is the term (PredExistsInstanceFn ?pred ?indep ?fixed) names: the ?indep member a predExistsInstance declaration over the first three arguments requires. PredExistsInstanceFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
@@ -1575,7 +1573,7 @@
 (arg PredInstanceExistsFn 2 thing)   ;; the fixed subject: a term of any kind
 (genlArg PredInstanceExistsFn 3 thing)
 (resultArg PredInstanceExistsFn 3)
-(functionCorrespondingPredicate PredInstanceExistsFn predInstanceExistsPlaceholder)
+(functionCorrespondingPredicate PredInstanceExistsFn predInstanceExistsPlaceholder 4)
 
 (comment predInstanceExistsPlaceholder
          "(predInstanceExistsPlaceholder ?pred ?fixed ?dep ?placeholder) means that ?placeholder is the term (PredInstanceExistsFn ?pred ?fixed ?dep) names: the ?dep member a predInstanceExists declaration over the first three arguments requires ?fixed to bear ?pred to. PredInstanceExistsFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
@@ -1900,55 +1898,18 @@
 (set/forwardRule (implies (and (surjection ?p) (arg ?p 2 ?r)) (predSpecifiedAll ?p ?r)))
 
 (comment functionCorrespondingPredicate
-         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiable_function, an undeclared function having no application to reify. The function and the predicate share a rigidity kind, and kb-integrity reports a pair believed of different ones. See docs/nat.md.")
-(variable_arity_predicate functionCorrespondingPredicate)
-(bounded_arity functionCorrespondingPredicate)
+         "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position, 1-based over ?predicate's arguments. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. A function may correspond to several predicates. A function and predicate pair has one position, and a predicate and position have one function. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
+(ternary_predicate functionCorrespondingPredicate)
 (set/monotonic (time_invariant_relation functionCorrespondingPredicate))
-(arityMax functionCorrespondingPredicate 3)
-(arityMin functionCorrespondingPredicate 2)
 (arg functionCorrespondingPredicate 1 function)
 (arg functionCorrespondingPredicate 2 predicate)
-(argAndRest functionCorrespondingPredicate 3 positive_integer)
+(arg functionCorrespondingPredicate 3 positive_integer)
+(functionalInArg functionCorrespondingPredicate 3)
+(functionalInArg functionCorrespondingPredicate 1)
 
 ;; A function's result type is the type of the value its corresponding predicate holds,
-;; so the five rules below type the predicate's value position by the function's result.
-;; A correspondence that omits the position puts the value last: the first four rules type
-;; the last argument of a binary, a ternary, a quaternary and a quinary predicate.  A
-;; correspondence that states the position names it, and the fifth rule types the argument
-;; at that position.  A predicate of six or more arguments is in none of the exact
-;; classes, so no rule here types its last argument.
-(set/forwardRule
- (implies
-  (and
-   (functionCorrespondingPredicate ?function ?predicate)
-   (binary ?predicate)
-   (result ?function ?type))
-  (arg ?predicate 2 ?type)))
-
-(set/forwardRule
- (implies
-  (and
-   (functionCorrespondingPredicate ?function ?predicate)
-   (ternary ?predicate)
-   (result ?function ?type))
-  (arg ?predicate 3 ?type)))
-
-(set/forwardRule
- (implies
-  (and
-   (functionCorrespondingPredicate ?function ?predicate)
-   (quaternary ?predicate)
-   (result ?function ?type))
-  (arg ?predicate 4 ?type)))
-
-(set/forwardRule
- (implies
-  (and
-   (functionCorrespondingPredicate ?function ?predicate)
-   (quinary ?predicate)
-   (result ?function ?type))
-  (arg ?predicate 5 ?type)))
-
+;; so the rule below types the predicate's argument at the stated position by the
+;; function's result.
 (set/forwardRule
  (implies
   (and
@@ -1956,8 +1917,8 @@
    (result ?function ?type))
   (arg ?predicate ?position ?type)))
 ;; arg is forced-monotonic, and a rule concludes a forced-monotonic literal only from
-;; forced-monotonic antecedents, so the two predicates these rules read beside the arity
-;; classes are forced-monotonic too.  Without them every firing above is void.
+;; forced-monotonic antecedents, so the two predicates the rule reads are forced-monotonic
+;; too.  Without them every firing above is void.
 (forced_monotonic_predicate functionCorrespondingPredicate)
 (forced_monotonic_predicate result)
 
@@ -2834,7 +2795,7 @@
 (commutative RulePairFn)
 (arg RulePairFn 1 thing)   ;; either member of the pair: a term of any kind
 (arg RulePairFn 2 thing)
-(functionCorrespondingPredicate RulePairFn rulePairOf)
+(functionCorrespondingPredicate RulePairFn rulePairOf 3)
 
 (comment rulePairOf
          "(rulePairOf ?rule1 ?rule2 ?pair) means that ?pair is the term (RulePairFn ?rule1 ?rule2) names: the unordered pair of ?rule1 and ?rule2. RulePairFn is the corresponding function, and its value is the last argument. Nothing reads it: kb-integrity reads a rule-clash acknowledgment's RulePairFn subject. See docs/integrity.md.")
