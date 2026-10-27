@@ -190,9 +190,8 @@
     (is (empty? (about 'unary_predicate))
         (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))
     ;; A floor read as a guard in an antecedent constrains which relations a rule reaches,
-    ;; and a pair over that rule's conclusion belongs to the conclusion's reading (the
-    ;; time_indexed_relation rule's rigidity pairs, for one).  So the floors are checked
-    ;; where a rule concludes one.
+    ;; and a pair over that rule's conclusion belongs to the conclusion's reading.  So the
+    ;; floors are checked where a rule concludes one.
     (let [concludes (fn [f] (filter (fn [p] (some #(some #{f} (flatten (list (last %))))
                                                   (:sentences p)))
                                     pairs))]
