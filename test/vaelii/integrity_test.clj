@@ -1772,6 +1772,35 @@
       (v/assert kb r 'CxUniverse))
     (is (= [] (rule-macros kb)))))
 
+(tu/deftest-kb an-arg-restating-rule-is-reported
+  (tu/with-terms [temporalIndexArg time_indexed_relation]
+    (v/assert kb (list 'binary_predicate temporalIndexArg) 'CxUniverse)
+    (v/assert kb (list 'implies (list temporalIndexArg '?relation '?position)
+                       (list time_indexed_relation '?relation))
+              'CxUniverse)
+    (is (= [(list 'arg temporalIndexArg 1 time_indexed_relation)]
+           (map #(nth % 2) (rule-macros kb))))))
+
+(tu/deftest-kb arg-near-miss-rules-are-not-reported
+  (tu/with-terms [temporalIndexArg time_indexed_relation temporalIndexArgVar other_kind Bob]
+    (v/assert kb (list 'binary_predicate temporalIndexArg) 'CxUniverse)
+    (v/assert kb (list 'variable_arity temporalIndexArgVar) 'CxUniverse)
+    (doseq [r [;; a constant in another argument position
+               (list 'implies (list temporalIndexArg '?relation Bob)
+                     (list time_indexed_relation '?relation))
+               ;; a repeated variable
+               (list 'implies (list temporalIndexArg '?relation '?relation)
+                     (list time_indexed_relation '?relation))
+               ;; an extra antecedent
+               (list 'implies (list 'and (list temporalIndexArg '?relation '?position)
+                                    (list other_kind '?relation))
+                     (list time_indexed_relation '?relation))
+               ;; a variable-arity P
+               (list 'implies (list temporalIndexArgVar '?relation '?position)
+                     (list time_indexed_relation '?relation))]]
+      (v/assert kb r 'CxUniverse))
+    (is (= [] (rule-macros kb)))))
+
 (tu/deftest-kb a-mark-rule-stated-in-one-theory-is-not-reported
   (tu/with-terms [CxTheory likesX empty_kind]
     (v/assert kb (list 'genlCx CxTheory 'CxUniverse) 'CxUniverse)
