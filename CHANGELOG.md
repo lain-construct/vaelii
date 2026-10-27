@@ -57,6 +57,32 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* write `typeLargerThan` for `largerThan` in every fact, rule and query.
   *Breaks:* `largerThan`
 
+### Breaking: NATs
+
+- **`functionCorrespondingPredicate` takes three arguments, and the third, the value
+  position, is always stated.** `(functionCorrespondingPredicate F P N)` says `(F a…)` is
+  the value `P` holds at argument `N` of those arguments. A two-argument form is refused
+  `:not-well-formed`. `(functionCorrespondingBinaryPredicate F P)` states the common case,
+  a binary `P` with the value second: a `core.txt` rule concludes
+  `(functionCorrespondingPredicate F P 2)` from it, and the engine reads only the ternary.
+  That ternary is derived, so a rule stored before the binary declaration is not
+  respelled through it.
+  Two `functionalInArg` marks constrain the ternary. A function and predicate pair has one
+  position, and a predicate and position have one function, so a second position for a
+  pair, or a second function for a predicate and position, is a `:functional` nogood and
+  `try-assert` refuses it. A function may still correspond to several predicates. The
+  shipped correspondences state their position: fifteen as
+  `functionCorrespondingBinaryPredicate`, twelve as the ternary. The declaration is no
+  longer `variable_arity_predicate` or `bounded_arity`, and `core.txt` states no `arityMax`.
+  [nat.md](docs/nat.md#the-corresponding-predicate)
+  *Migration:* write `(functionCorrespondingPredicate F P)` as
+  `(functionCorrespondingBinaryPredicate F P)` where `P` is binary, and as
+  `(functionCorrespondingPredicate F P N)` with `N` the arity of `P` otherwise; a pattern
+  `(functionCorrespondingPredicate ?f ?p)` becomes `(functionCorrespondingPredicate ?f ?p ?n)`.
+  *Breaks:* `assert` of a two-argument `functionCorrespondingPredicate`, `ask` of one,
+  `(variable_arity_predicate functionCorrespondingPredicate)`,
+  `(arityMax functionCorrespondingPredicate 3)`
+
 ### Additive: vocabulary and reasoning
 
 - **The rigidity kinds of relation.** core.txt partitions `relation` into
