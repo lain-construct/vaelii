@@ -311,12 +311,12 @@
   ;; the entailing reading: the derivation is the subject
   (tu/with-entailing
     ;; The clash between an exact class and the variable policy is one contradiction, so
-    ;; the write order must not decide which violation names it.  A NARROWING arg
-    ;; declaration below the policy classes — (arg fixed_arity_predicate 1 predicate) —
-    ;; is what makes it: a relation whose only stated type is variable_arity reaches
-    ;; relation and not predicate, so the exact class would be convicted for the
-    ;; argument's type rather than for the policy it contradicts.  CxUniverse declares the
-    ;; position on fixed_arity and variable_arity alone for that reason.
+    ;; the write order must not decide which violation names it.  An arg declaration on
+    ;; a policy class — (arg fixed_arity_predicate 1 predicate) — would break that: a
+    ;; relation whose only stated type is variable_arity reaches relation and not
+    ;; predicate, so the exact class would be convicted for the argument's type rather
+    ;; than for the policy it contradicts.  No unary predicate declares its position
+    ;; (docs/argtypes.md), so the genl edges alone decide.
     (doseq [[first-class second-class] '[[variable_arity binary_predicate]
                                          [binary_predicate variable_arity]
                                          [variable_arity_predicate unary_predicate]
@@ -1125,10 +1125,10 @@
     ;; shape either kind can have.  The converse the generator generates stops at the
     ;; relation-wide `binary` for exactly that reason (docs/taxonomy.md).
     ;;
-    ;; Leaving the kind open is what lets a later classification decide it.  The
-    ;; `(arg fixed_arity 1 relation)` floor the marks inherit derives `relation` of what it
-    ;; types, and `(disjoint predicate function)`, which the partition of `relation`
-    ;; derives, stores a wrong kind as a clash; neither asks about arrival order.
+    ;; Leaving the kind open lets a later classification decide it.  A mark's `genl`
+    ;; edges derive `relation` of what it classifies, and `(disjoint predicate function)`,
+    ;; which the partition of `relation` derives, stores a wrong kind as a clash; neither
+    ;; asks about arrival order.
     (tu/with-terms [pairOf someThing someFn]
       (v/assert kb (list 'arity pairOf 2) 'CxUniverse)
       (testing "the arity places the relation without deciding its kind"
@@ -1143,7 +1143,7 @@
         (is (v/isa? kb pairOf 'predicate))
         (is (v/isa? kb pairOf 'binary_predicate))
         (is (not (v/isa? kb pairOf 'function))))
-      (testing "a term outside the relation hierarchy is placed in it, by the inherited floor"
+      (testing "a term outside the relation hierarchy is placed in it, by the mark's genl edges"
         (v/assert kb (list 'thing someThing) 'CxUniverse)
         (v/assert kb (list 'instance_relation_predicate someThing) 'CxUniverse)
         (is (v/isa? kb someThing 'relation))

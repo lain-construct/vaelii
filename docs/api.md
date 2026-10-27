@@ -909,8 +909,11 @@ for the whole load and is comparable between runs and between corpus sizes. Wher
 time goes, phase by phase: [storage.md](storage.md), "What a bulk load costs".
 The argument-type derivations ride on the skipped checks, so a bulk load stores none of
 them; `record-arg-types`, run once after the load on the recovered KB, records them
-([argtypes.md](argtypes.md#where-it-does-not-mint)). `:max-ms` and `:stop?` bound the load
-as they bound `assert-many` ([inference.md](inference.md#stopping-a-run)).
+([argtypes.md](argtypes.md#where-it-does-not-mint)). No stored rule fires over the loaded
+facts either, so `forward-chain` follows `record-arg-types`. Both read the whole KB, so a
+snapshot loaded over a larger KB takes a chained write
+([storage.md](storage.md#loading-a-changing-snapshot-over-a-fixed-base)). `:max-ms` and
+`:stop?` bound the load as they bound `assert-many` ([inference.md](inference.md#stopping-a-run)).
 
 `edit!` batches assertions **and** retractions into one settle — `{:add [[sentence
 context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a

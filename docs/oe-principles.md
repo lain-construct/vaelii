@@ -4,7 +4,7 @@
 - **Not here:** why a particular piece of the shipped ontology is shaped as it is → [oe-defenses.md](oe-defenses.md). The vocabulary itself → [taxonomy.md](taxonomy.md).
 - **Assumes:** you know the KB's metatypes (`genl`, `disjoint`, `partition`, `arg`) from [taxonomy.md](taxonomy.md).
 
-Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle has a short handle, used to cite it, with its full name below; `genlPrinciple` and `specPrinciple` relate a special case to the principle it specializes. Most end with an audit step to run on a vocab PR before it ships.
+Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle has a short handle, used to cite it, with its full name below; `genlPrinciple` and `specPrinciple` relate a special case to the principle it specializes. `overridesPrinciple` names a principle that this one wins over when the two conflict. Most end with an audit step to run on a vocab PR before it ships.
 
 ## strongest form
 *State knowledge in its strongest form*
@@ -12,7 +12,7 @@ Working rules for adding vocabulary and knowledge to a vaelii KB. Each principle
 If you're about to assert P, but Q is also true and Q implies P, assert Q instead. The weaker fact stays derivable, so nothing is lost, and the stronger one carries more.
 
 This applies to instance facts, argument types and disjointness alike:
-- **Instances:** if a more specific true type exists, use it. If it doesn't exist yet, mint it (with its genl) rather than settling for the general one.
+- **Instances:** if a more specific true type exists, use it. If it doesn't exist yet, mint it with its genl and a differentia (a fact its members have that the parent's members lack) rather than settling for the general one. A type whose only content is its name is not stronger, because the engine can conclude nothing more from it: see **no OE calligraphy** and **differentia from near-misses**.
 - **Argument types:** type each argument as tightly as the truth allows. If only one kind of thing can fill a position, the arg should name that kind.
 - **Disjointness:** state it at the highest level that is true. If `(disjoint A B)` holds and A′ ⊂ A, don't also state `(disjoint A′ B)`.
 
@@ -65,7 +65,9 @@ When you're about to assert a constraint (especially `disjoint`), first check wh
 
 **Example:** a type X with only a social genl needs a hand-written `(disjoint X Y)`. If X also has a true physical genl P, and `(disjoint P Y)` holds upstream, the disjointness derives and the hand-written line is redundant. The gap is the missing genl, not the missing constraint.
 
-**Audit:** for every `disjoint`, `arg` or `genlArg`, walk both terms up their genl chains. An explicit constraint that a better classification entails is a smell.
+Classify before you constrain loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate of arity 2 and up, even where a better classification entails them.
+
+**Audit:** for every `disjoint` and every arg constraint, walk both terms up their genl chains. An explicit `disjoint` that a better classification entails is a smell. Where a better classification entails an arg constraint, add the missing genl and keep the arg constraint.
 
 ## DRY
 *One thing, one representation*
@@ -75,6 +77,8 @@ If the same thing is represented two ways at the vocabulary level, merge them wh
 Merging is infeasible when the encodings put some dimension (time, modality, provenance) in structurally different places. Example: a Davidsonian event encoding gets time from an assertion about the event, while an n-ary predicate gets it from the context it's asserted in. Then keep both, bridge them with explicit rules, and say why in a comment.
 
 This is about vocabulary. Instance-level duplication can be fine for a good reason, e.g. two sources asserting the same fact, kept separately for provenance.
+
+DRY loses to **no silent side effects** when the two conflict: a constraint that should hold after an edit to the facts it follows from is stated directly, though the KB derives it.
 
 ## state it once
 *Don't state what the KB already derives*
@@ -87,7 +91,20 @@ Two exceptions, each marked with a comment saying which one applies:
 
 The same holds for comments. A comment doesn't restate a definitional assertion the KB already makes: no "the complement of X", "with Y it partitions Z" or bare member list when a `partition`, `intersection` or `genl` says it. The comment says what membership means, with examples, and leaves the structure to the assertions.
 
-**Audit:** for every new `genl`, `disjoint` or `arg`, ask whether the rest of the KB already entails it. If so, drop it or mark which exception applies. For every comment, delete any clause that a definitional assertion already states.
+State it once loses to **no silent side effects** when the two conflict. Arg constraints are stated on every predicate of arity 2 and up, even where the predicate's `genl` edges derive them.
+
+**Audit:** for every new `genl`, `disjoint` or arg constraint, ask whether the rest of the KB already entails it. If so, drop it, mark which exception applies, or keep it under **no silent side effects**. For every comment, delete any clause that a definitional assertion already states.
+
+## no silent side effects
+*Make an edit's consequences explicit*
+**overridesPrinciple:** DRY, state it once, classify before you constrain
+When a constraint should hold however another part of the KB is later edited, state it directly on the term it constrains, even if the KB derives it today. A derived constraint changes whenever a fact it follows from changes, and the edit that changes it does not mention it. A stated constraint changes only through an edit that names it.
+
+**Example:** state arg constraints on every predicate of arity 2 and up. A predicate inherits arg constraints through its `genl` edges, so an edit to those edges would change which arguments the predicate accepts. Stated on the predicate, its arg constraints stay the same when its `genl` edges change.
+
+**Limit:** a unary predicate carries no arg constraint, because its `genl` edges conclude its argument's types and an `arg` declaration would duplicate that hierarchy with a second justification for each conclusion: unary predicates give types, other predicates require types ([argtypes.md](argtypes.md#a-unary-predicate-carries-no-arg-declaration)). A stated arg constraint strictly weaker than one the predicate inherits is redundant either way. While the inherited constraint holds, it entails the weaker one. After an edit removes the inherited constraint, the weaker one does not keep the constraint the predicate had.
+
+**Audit:** for every constraint a vocab PR leaves to derivation, ask whether it should hold after an edit to the facts it follows from. If so, state it. For every edit to a `genl` edge, list the arg constraints it changes on the terms below it.
 
 ## don't skip the predicate
 *Don't skip the predicate*
@@ -168,7 +185,7 @@ List the members, then the near-misses: things under the same parent that aren't
 
 ## no naked terms
 *Hypothesized vocabulary comes with its definitional assertions*
-Every proposed term, even in a thought experiment, ships as a block: its metatype(s), `genl`, every `arg`, its `disjoint`/`separating`/`orthogonal` relations to siblings, and its `comment`. Where they apply, also relation properties (`transitive`, `functional`, …) and `termsRelated`/`seeAlso`. A term without its definitional block can't be evaluated yet.
+Every proposed term, even in a thought experiment, ships as a block: its metatype(s), `genl`, its arg constraints (arity 2 and up), its `disjoint`/`separating`/`orthogonal` relations to siblings, and its `comment`. Where they apply, also relation properties (`transitive`, `functional`, …) and `termsRelated`/`seeAlso`. A term without its definitional block can't be evaluated yet.
 
 ## ontology over quirk
 *Ship the right ontology over an engine quirk*

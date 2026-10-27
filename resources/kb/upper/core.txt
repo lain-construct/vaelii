@@ -606,41 +606,18 @@
 (set/forwardRule (implies (and (interArgs ?reln ?type)) (interArgAndRest ?reln 1 ?type)))
 (set/forwardRule (implies (and (interArgAndRest ?reln 1 ?type)) (interArgs ?reln ?type)))
 
-;; `fixed_arity` and `variable_arity` each declare their one argument position, and
-;; nothing below them declares one.  Two things make that the right split.  The parent's
-;; declaration already descends the predicate hierarchy, so (fixed_arity_predicate Fred)
-;; with Fred a person derives (relation Fred) from (arg fixed_arity 1 relation), a clash
-;; with person.  And a NARROWER declaration below — (arg fixed_arity_predicate 1
-;; predicate) — would derive the wrong thing: a relation whose only stated type is
-;; variable_arity reaches relation and not predicate, so (binary_predicate P) after
-;; (variable_arity P) would be derived a predicate where the contradiction is the arity
-;; policy, which the partition below stores as a clash.  A relation classified into the
-;; wrong kind is caught by (disjoint predicate function), which the partition of relation
-;; derives, through the genl edges instead.
-;;
-;; The rule that split states, in general: a unary predicate declares its one argument
-;; position when the type it would declare is NOT already implied by its own genl parent,
-;; and declares none when the parent sits below that type.  fixed_arity is the first case.
-;; (partition relation fixed_arity variable_arity) installs (genl fixed_arity relation),
-;; which concludes (relation 5) from (fixed_arity 5); nothing is disjoint from relation for
-;; a number, and so the declaration is the only conviction there is: (fixed_arity 5) is
-;; stored inert, and try-assert refuses it.
-;; instance_relation_predicate is the second.  Its parent is binary_predicate, which is
-;; below predicate, so (arg instance_relation_predicate 1 predicate) restates what the
-;; edge already concludes and turns that conclusion into a precondition: it convicts
-;; (instance_relation_predicate P) stated after (arity P 2) because P is not yet a
-;; predicate, when the assertion supplies predicate-hood through the edge.  Six marks are
-;; in that second case and declare no position — equivalence_relation, injection,
-;; surjection, bijection and the two relation_kind marks.  Each still convicts a term
-;; outside the relation hierarchy through the (arg fixed_arity 1 relation) floor it
-;; inherits, and convicts a function :disjoint through the derived (disjoint predicate
-;; function), which names the contradiction an argument declaration reported as a missing
-;; type.
+;; No unary predicate declares its argument position.  A unary predicate's genl edges
+;; conclude its argument's types: (partition relation fixed_arity variable_arity) installs
+;; (genl fixed_arity relation), which concludes (relation P) from (fixed_arity P).  An
+;; (arg fixed_arity 1 relation) beside that edge would restate it and add a second
+;; justification for each (relation P) it concludes.  Unary predicates give types; other
+;; predicates require them (docs/argtypes.md).  A relation classified into the wrong kind
+;; is caught by (disjoint predicate function), which the partition of relation derives,
+;; through the genl edges.
 
 (comment fixed_arity
          "(fixed_arity ?relation) means that ?relation takes one exact number of arguments. Exact arity classes and numeric arity declarations specialize this relation-wide policy.")
 (unary_predicate fixed_arity)
-(arg fixed_arity 1 relation)
 
 (comment fixed_arity_predicate
          "The fixed_arity relations that are predicates.")
@@ -657,7 +634,6 @@
 (comment variable_arity
          "(variable_arity ?relation) means that ?relation does not take one exact number of arguments; arityMin states its lower bound. Prefer it for a repeatable, homogeneously typed argument role. A relation with a bounded optional tail declares variable arity too, and its well-formedness check bounds the tail: functionCorrespondingPredicate takes two or three arguments. The arity check reads this generic type through specialization.")
 (unary_predicate variable_arity)
-(arg variable_arity 1 relation)
 
 (comment variable_arity_predicate
          "The variable_arity relations that are predicates.")
@@ -677,7 +653,6 @@
 (positiveExample bounded_arity (Quote (bounded_arity parentOf)))
 (positiveExample bounded_arity (Quote (bounded_arity functionCorrespondingPredicate)))
 (unary_predicate bounded_arity)
-(arg bounded_arity 1 relation)
 (comment unbounded_arity "A relation that takes any number of arguments beyond its required ones.")
 (positiveExample unbounded_arity (Quote (unbounded_arity and)))
 (positiveExample unbounded_arity (Quote (unbounded_arity or)))
@@ -685,7 +660,6 @@
 (positiveExample unbounded_arity (Quote (unbounded_arity different)))
 (positiveExample unbounded_arity (Quote (unbounded_arity greaterThan)))
 (unary_predicate unbounded_arity)
-(arg unbounded_arity 1 relation)
 (partition relation bounded_arity unbounded_arity)
 (genl fixed_arity bounded_arity)
 (genl unbounded_arity variable_arity)
@@ -833,7 +807,6 @@
 (comment at_least_binary
          "The type of relations of arity 2 or greater, fixed or variable. Derived from arity and from arityMin.")
 (unary_predicate at_least_binary)
-(arg at_least_binary 1 relation)
 (genl at_least_binary relation)
 (genl binary at_least_binary)
 ;; partition is variable-arity and at least binary; parentOf is fixed-arity and at least binary.
@@ -1626,7 +1599,6 @@
 (comment forced_monotonic_between_predicates
          "(forced_monotonic_between_predicates ?predicate) puts in the forced-monotonic set every (?predicate …) sentence whose arguments are all spelled as predicates of arity 2 or more. Declared of genl and genlInverse: a genl or genlInverse between two predicates is forced, and a genl between types stays defeasible, since the spelling of the arguments separates the two. The retraction of its genl declaration is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_between_predicates)
-(arg forced_monotonic_between_predicates 1 predicate)
 (genl forced_monotonic_between_predicates predicate)
 (forced_monotonic_between_predicates genl)
 ;; genlInverse is genl with its arguments swapped, so a genlInverse between two predicates
@@ -1810,13 +1782,11 @@
 (comment reifiable_function
          "(reifiable_function ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. Declare it when the applications are BOUNDED — one value per argument tuple, over a domain that does not run away: (FatherFn Muffet) is one constant per animal, and an AdultFn one per individual. That is the criterion the two marks are chosen by, reification storing a constant per distinct application and keeping it. Also a type: (reifiable_function F) classifies F as a function, so a KB can be queried for the functions it holds. See docs/nat.md.")
 (unary_predicate reifiable_function)
-(arg reifiable_function 1 function)
 
 (comment unreifiable_function
          "(unreifiable_function ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence. The mark to reach for whenever the applications are UNBOUNDED, which is the other half of reifiable_function's criterion: (QuantityFn 5 Meter), (QuantityFn 5.001 Meter) and every magnitude between them run over the reals, and a minted constant apiece is a store nothing bounds. A measure function is the standing example, and is never reifiable however atomic its value reads. Also a type: (unreifiable_function F) classifies F as a function. See docs/nat.md.")
 (positiveExample unreifiable_function (Quote (unreifiable_function QuantityFn)))
 (unary_predicate unreifiable_function)
-(arg unreifiable_function 1 function)
 
 ;; A function is evaluated or denotes an object, never both and never neither: the two
 ;; marks are the two answers to whether an application is minted.  The partition installs
