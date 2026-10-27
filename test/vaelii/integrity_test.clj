@@ -573,19 +573,19 @@
                            :gadget gadget :GadgetOne GadgetOne :GadgetTwo GadgetTwo
                            :GadgetThree GadgetThree})
     (is (= {:status :audited :candidate-count 0}
-           (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified}))
+           (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified})))
         "with no requirement stated, nothing is required")
     (v/assert kb (list 'typeAllSpecified colour_kind gadget) 'CxUniverse)
     (is (= {:status :gap :candidate-count 0
             :type-specified-violations
             {['typeAllSpecified colour_kind gadget] {:status :audited :violations #{GadgetTwo}}}}
-           (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified})))
+           (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified}))))
     (testing "the default sweep runs the pass"
       (is (contains? (v/kb-integrity kb #{} 'CxUniverse) :type-specified-violations)))
     (testing "a classification makes the requirement hold, and a clean declaration is omitted"
       (v/assert kb (list blue_kind GadgetTwo) 'CxUniverse)
       (is (= {:status :audited :candidate-count 0}
-             (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified}))))))
+             (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified})))))))
 
 (tu/deftest-kb type-all-specified-is-not-implied-by-a-partition
   ;; A partition constrains the world: every gadget IS red or blue.  typeAllSpecified
@@ -610,7 +610,7 @@
     (v/assert kb (list crimson_kind GadgetTwo) 'CxUniverse)
     (v/assert kb (list 'typeAllSpecified colour_kind gadget) 'CxUniverse)
     (is (= {:status :audited :candidate-count 0}
-           (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified}))
+           (sans-meter (v/kb-integrity kb #{} 'CxUniverse {:categories type-specified})))
         "a crimson gadget is believed red through genl, so it is classified")))
 
 (tu/deftest-kb type-all-specified-over-an-empty-classifier-is-a-gap

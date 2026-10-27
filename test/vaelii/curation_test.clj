@@ -354,7 +354,7 @@
   ;; core.txt's (typeAllSpecified rigidity_kind relation), and every other pass is clean.
   (let [report (v/kb-integrity kb #{-212 0 212} 'CxUniverse)]
     (is (= {:status :gap :candidate-count 3}
-           (dissoc report :type-specified-violations))
-        (pr-str (dissoc report :type-specified-violations)))
+           (dissoc report :type-specified-violations :work :elapsed-ms))
+        (pr-str (dissoc report :type-specified-violations :work :elapsed-ms)))
     (is (= ['[typeAllSpecified rigidity_kind relation]]
            (keys (:type-specified-violations report))))))

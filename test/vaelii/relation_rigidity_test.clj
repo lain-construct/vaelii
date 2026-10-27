@@ -133,7 +133,7 @@
     (v/assert kb (list 'time_invariant_relation HiveQueenFn) U mono)
     (testing "one side unclassified is silent: typeAllSpecified already reports it"
       (is (= {:status :audited :candidate-count 0}
-             (v/kb-integrity kb #{} U {:categories correspondence}))))
+             (dissoc (v/kb-integrity kb #{} U {:categories correspondence}) :work :elapsed-ms))))
     (testing "two different kinds are reported"
       ;; The correspondence rule also gives the function the predicate's kind, so the
       ;; function is believed of both, and the pair is reported.
@@ -156,7 +156,7 @@
     (v/assert kb (list 'time_varying_relation HiveQueenFn) U mono)
     (v/assert kb (list 'time_varying_relation hiveQueenOf) U mono)
     (is (= {:status :audited :candidate-count 0}
-           (v/kb-integrity kb #{} U {:categories correspondence})))))
+           (dissoc (v/kb-integrity kb #{} U {:categories correspondence}) :work :elapsed-ms)))))
 
 (tu/deftest-kb a-correspondence-with-a-stated-position-is-read-too
   (tu/with-terms [NestMateFn nestMateOf]

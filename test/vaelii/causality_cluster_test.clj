@@ -75,7 +75,7 @@
           open   (get (:type-specified-violations report)
                       '[typeAllSpecified rigidity_kind relation])]
       (is (= {:status :gap :candidate-count (count terms)}
-             (dissoc report :type-specified-violations))
+             (dissoc report :type-specified-violations :work :elapsed-ms))
           "the default passes find nothing")
       (is (= ['[typeAllSpecified rigidity_kind relation]]
              (keys (:type-specified-violations report))))
