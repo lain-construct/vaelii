@@ -2045,3 +2045,105 @@
       (is (= #{LaPaz Sucre} (set (map '?c (v/ask kb (list capitalOf Bolivia '?c) CxWorld)))))
       (is (empty? (v/conflicts kb)))
       (is (empty? (v/contradictions kb))))))
+
+;; ---- the stated position and the binary correspondence ----------------------
+;; `functionCorrespondingPredicate` always states the value position.
+;; `functionCorrespondingBinaryPredicate` states the common case, a binary predicate with
+;; the value second: one core.txt rule concludes the ternary from it, and the engine reads
+;; only the ternary.
+
+(tu/deftest-kb ^:red a-correspondence-without-a-position-is-refused
+  (tu/with-terms [MotherFn motherOf]
+    (let [e (try (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf) 'CxUniverse) nil
+                 (catch clojure.lang.ExceptionInfo e e))]
+      (is (= :not-well-formed (:type (ex-data e)))))))
+
+(tu/deftest-kb ^:red the-shipped-correspondences-state-their-position
+  (is (true? (v/ask? kb '(functionCorrespondingBinaryPredicate MotherFn motherOf) 'CxUniverse)))
+  (is (true? (v/ask? kb '(functionCorrespondingPredicate MotherFn motherOf 2) 'CxUniverse)))
+  (is (true? (v/ask? kb '(functionCorrespondingPredicate QuantityFn measureInUnit 3) 'CxUniverse)))
+  (is (true? (v/ask? kb '(functionCorrespondingPredicate InstantFn calendarInstant 7) 'CxUniverse)))
+  (is (empty? (filter #(and (= 'functionCorrespondingPredicate (first (:sentence %)))
+                            (= 3 (count (:sentence %))))
+                      (kb/find-sentexes kb 'functionCorrespondingPredicate)))
+      "no correspondence is stored without its position"))
+
+(tu/deftest-kb ^:red a-binary-correspondence-puts-the-value-second
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate motherOf) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingBinaryPredicate MotherFn motherOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'functionCorrespondingPredicate MotherFn motherOf 2) 'CxUniverse))
+        "the rule concludes the ternary")
+    (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)]
+      (is (= (list caresFor Bob Mary) (:sentence (v/sentex kb h)))))))
+
+(tu/deftest-kb ^:red a-binary-correspondence-arriving-last-reconciles-what-was-already-minted
+  (tu/with-terms [MotherFn motherOf Muffet Mary Bob caresFor]
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate motherOf) 'CxUniverse)
+    (let [h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
+          k (nth (:sentence (v/sentex kb h)) 2)]
+      (is (nat-read/reified-nat-symbol? k))
+      (v/assert kb (list motherOf Muffet Mary) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'functionCorrespondingBinaryPredicate MotherFn motherOf) 'CxUniverse)
+      (is (= [{'?m Mary}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))
+      (is (seq (v/sentexes-matching kb (list caresFor Bob Mary) '?ctx)))
+      (is (= Mary (nat-read/dedup-constant kb (list MotherFn Muffet)))))))
+
+(tu/deftest-kb ^:red a-binary-correspondence-projects-a-placeholder-and-retracting-it-stops-the-read
+  (tu/with-terms [MotherFn motherOf Muffet Bob caresFor]
+    (v/assert kb (list 'reifiable_function MotherFn) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate motherOf) 'CxUniverse)
+    (let [d (v/assert kb (list 'functionCorrespondingBinaryPredicate MotherFn motherOf) 'CxUniverse)
+          h (v/assert kb (list caresFor Bob (list MotherFn Muffet)) 'CxUniverse)
+          k (nth (:sentence (v/sentex kb h)) 2)]
+      (is (= [{'?m k}] (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))
+      (v/retract! kb d)
+      (is (false? (v/ask? kb (list 'functionCorrespondingPredicate MotherFn motherOf 2) 'CxUniverse)))
+      (is (empty? (v/ask kb (list motherOf Muffet '?m) 'CxUniverse)))
+      (v/retract! kb h))))
+
+(tu/deftest-kb ^:red a-binary-correspondence-respells-a-rule-in-every-order
+  (doseq [order (orders [:corr :rule :facts])]
+    (tu/with-terms [FruitFn AppleTree Gala tagged ripe fruitOf]
+      (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate fruitOf) 'CxUniverse)
+      (let [steps {:corr  [(list 'functionCorrespondingBinaryPredicate FruitFn fruitOf)]
+                   :rule  [(list 'set/forwardRule
+                                 (list 'implies (list tagged (list FruitFn '?t)) (list ripe '?t)))]
+                   :facts [(list fruitOf AppleTree Gala) (list tagged Gala)]}
+            hs    (into {} (map (fn [step] [step (mapv #(v/assert kb % 'CxUniverse) (steps step))])) order)]
+        (is (= [{'?t AppleTree}] (v/query kb (list ripe '?t) 'CxUniverse)) (str order))
+        (v/retract! kb (first (:corr hs)))
+        (is (empty? (v/query kb (list ripe '?t) 'CxUniverse)) (str order " retracted"))
+        (run! #(v/retract! kb %) (mapcat val (dissoc hs :corr)))))))
+
+(tu/deftest-kb ^:red a-binary-correspondence-types-the-second-argument-by-the-result
+  (tu/with-terms [ShadeFn shadeOf paint shade]
+    (v/assert kb (list 'reifiable_function ShadeFn) 'CxUniverse)
+    (v/assert kb (list 'unary_function ShadeFn) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate shadeOf) 'CxUniverse)
+    (v/assert kb (list 'arg shadeOf 1 paint) 'CxUniverse)
+    (v/assert kb (list 'result ShadeFn shade) 'CxUniverse)
+    (v/assert kb (list 'functionCorrespondingBinaryPredicate ShadeFn shadeOf) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'arg shadeOf 2 shade) 'CxUniverse)))))
+
+(tu/deftest-kb ^:red two-positions-for-one-function-and-predicate-collide
+  (tu/with-terms [StreetCornerFn streetCornerOf]
+    (let [h1 (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 1) 'CxUniverse)
+          h2 (v/assert kb (list 'functionCorrespondingPredicate StreetCornerFn streetCornerOf 3) 'CxUniverse)]
+      (is (some #(and (= :functional (:kind %)) (= #{h1 h2} (set (:handles %)))) (v/conflicts kb)))
+      (is (= :definitional-clash
+             (:type (ex-data (try (v/try-assert kb (list 'functionCorrespondingPredicate StreetCornerFn
+                                                          streetCornerOf 2)
+                                                'CxUniverse)
+                                  nil
+                                  (catch clojure.lang.ExceptionInfo e e)))))))))
+
+(tu/deftest-kb ^:red two-functions-for-one-predicate-and-position-collide
+  (tu/with-terms [MotherFn MumFn motherOf]
+    (let [h1 (v/assert kb (list 'functionCorrespondingPredicate MotherFn motherOf 2) 'CxUniverse)
+          h2 (v/assert kb (list 'functionCorrespondingPredicate MumFn motherOf 2) 'CxUniverse)]
+      (is (some #(and (= :functional (:kind %)) (= #{h1 h2} (set (:handles %)))) (v/conflicts kb))))))
