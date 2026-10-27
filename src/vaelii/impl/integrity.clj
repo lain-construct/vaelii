@@ -807,8 +807,15 @@
   `:meta` stands for a ground term of the rule (a predicate, a relation, a fixed filler);
   every other shape variable stands for a variable of the rule, one for one.
   `:declaration` builds the suggested declaration from the bindings of the meta symbols.
-  `:defeasible` is the rule class the macro's conclusions carry."
-  [n]
+  `:defeasible` is the rule class the macro's conclusions carry.
+
+  `arg` is the one shape whose antecedent's arity is not `n`: its consequent is always a
+  single argument typed, so it matches only where `n` is 1, and its antecedent is the
+  rule's own single premise, of whatever arity that premise carries. `ante-arity`, the
+  rule's lone antecedent's arity when it has exactly one, is read for that shape alone; a
+  rule with more than one antecedent never matches it regardless, by the antecedent-count
+  check `shape-bindings` already makes."
+  [n ante-arity]
   (let [os (positions-vars n)]
     (concat
      (for [i      (range n)
@@ -860,6 +867,17 @@
           :meta        '#{?mP}
           :defeasible  false
           :declaration (fn [b] (list 'commutativeInArgs (b '?mP) (inc i) (inc j)))}))
+     (when (and (= 1 n) ante-arity (pos? ante-arity))
+       (let [ps (positions-vars ante-arity)]
+         (for [i (range ante-arity)]
+           ;; (P ?o1 … ?on) ⇒ (C ?oi): the other arguments free, so arg types one of
+           ;; P's own positions the way (arg P i C) would
+           {:macro       'arg
+            :antecedent  [(list* '?mP ps)]
+            :consequent  (list '?mC (nth ps i))
+            :meta        '#{?mP ?mC}
+            :defeasible  false
+            :declaration (fn [b] (list 'arg (b '?mP) (inc i) (b '?mC)))})))
      [{:macro       'genl
        :antecedent  [(list* '?mP os)]
        :consequent  (list* '?mQ os)
@@ -962,7 +980,7 @@
   what the rule `rsx` says, read from the rule's context.  A relation mark is read from
   every context, so the rule must be visible from the context marks are lifted into;
   `genl` and the two preservation declarations are read where they are stated."
-  [kb rsx {m :macro} b n]
+  [kb rsx {m :macro :as shape} b n]
   (let [ctx (:context rsx)
         tx  (reasoning/taxonomy kb)
         P   (b '?mP)]
@@ -991,7 +1009,14 @@
            (let [Q (b '?mQ)]
              (and (symbol? Q) (not= P Q)
                   (nil? (predicates/entry Q))
-                  (arity-is? kb P n ctx true) (arity-is? kb Q n ctx true)))))))
+                  (arity-is? kb P n ctx true) (arity-is? kb Q n ctx true)))
+
+           arg
+           (let [C (b '?mC)
+                 k (dec (count (first (:antecedent shape))))]
+             (and (symbol? C) (universal? kb ctx)
+                  (arity-is? kb P k ctx false)
+                  (nil? (predicates/entry C))))))))
 
 (defn- macro-candidate?
   "May the stored rule `rsx` at handle `h` be read as a macro's spelling: a believed
@@ -1083,7 +1108,7 @@
         ok?    #(macro-candidate? kb context %1 %2)
         excused (delay (known-exception? kb rsx))]
     (when (and (seq? conseq) (integer? n) (not (sx/negation? conseq)))
-      (for [shape (macro-shapes n)
+      (for [shape (macro-shapes n (when (= 1 (count antes)) (nm/arity (first antes))))
             :let  [shaped? (and dflt? (not (:defeasible shape)))]
             :when (or (= dflt? (:defeasible shape)) shaped?)
             :let  [b (do (budget/spend!) (shape-bindings shape antes conseq))]
