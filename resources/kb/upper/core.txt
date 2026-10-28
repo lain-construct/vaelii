@@ -1025,6 +1025,30 @@
          (set/forwardRule
           (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (?kind ?predicate))
                    (?kind ?function))))
+;; kb-integrity pairs each two of the generated rules as a rule clash, the three kinds
+;; being disjoint.  Each pair is acknowledged rather than excepted, for the reason the
+;; record gives.
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (time_invariant_relation ?predicate))
+                    (time_invariant_relation ?function)))
+   (Quote (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (time_agnostic_relation ?predicate))
+                    (time_agnostic_relation ?function))))
+  "The per-kind correspondence rules give a function its corresponding predicate's kind, and the rigidity kinds partition relation, so both rules of a pair fire only for a function whose corresponding predicates are of different kinds; the rigidity-correspondence integrity census reports those facts.")
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (time_invariant_relation ?predicate))
+                    (time_invariant_relation ?function)))
+   (Quote (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (time_varying_relation ?predicate))
+                    (time_varying_relation ?function))))
+  "The per-kind correspondence rules give a function its corresponding predicate's kind, and the rigidity kinds partition relation, so both rules of a pair fire only for a function whose corresponding predicates are of different kinds; the rigidity-correspondence integrity census reports those facts.")
+(acknowledgedFinding :rule-clash
+  (RulePairFn
+   (Quote (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (time_agnostic_relation ?predicate))
+                    (time_agnostic_relation ?function)))
+   (Quote (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (time_varying_relation ?predicate))
+                    (time_varying_relation ?function))))
+  "The per-kind correspondence rules give a function its corresponding predicate's kind, and the rigidity kinds partition relation, so both rules of a pair fire only for a function whose corresponding predicates are of different kinds; the rigidity-correspondence integrity census reports those facts.")
 
 ;; A relation can carry the time a tuple holds at as one of its own arguments: salaryAt
 ;; relates a person, a salary and the moment it was paid.  A tuple of such a relation
