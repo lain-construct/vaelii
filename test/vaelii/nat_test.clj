@@ -2140,7 +2140,7 @@
       (is (some #(and (= :functional (:kind %)) (= #{h1 h2} (set (:handles %)))) (v/conflicts kb)))
       (is (= :definitional-clash
              (:type (ex-data (try (v/try-assert kb (list 'functionCorrespondingPredicate StreetCornerFn
-                                                          streetCornerOf 2)
+                                                         streetCornerOf 2)
                                                 'CxUniverse)
                                   nil
                                   (catch clojure.lang.ExceptionInfo e e)))))))))
