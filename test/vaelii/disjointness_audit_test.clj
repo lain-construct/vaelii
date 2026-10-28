@@ -351,9 +351,9 @@
 ;; removed pairs in that commit.
 ;;
 ;; The one exception is a loosening of at most 0.5 percentage points while unknown stays
-;; under 10%, a standing OK from the owner (Iris, 2026-10-24), which removes no separation
-;; and so names none: 6.14% to 6.36% unknown is one, develop's new types (v0.30.0) meeting
-;; this branch's tighter pin.
+;; under 10%, which the KB owner allows standing. It removes no separation and so names
+;; none: 6.14% to 6.36% unknown is one, the types new in v0.30.0 meeting this branch's
+;; tighter ceiling.
 ;;
 ;; The audit sweeps the nodes of the genl hierarchy visible from its vantage (default
 ;; CxWell, the context below every middle context) less each `relation?` there, so the five
