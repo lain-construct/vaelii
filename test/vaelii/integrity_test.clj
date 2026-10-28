@@ -1781,6 +1781,15 @@
     (is (= [(list 'arg temporalIndexArg 1 time_indexed_relation)]
            (map #(nth % 2) (rule-macros kb))))))
 
+(tu/deftest-kb a-unary-premise-rule-is-never-reported-as-arg
+  ;; A unary predicate gives a type, so (P ?x) => (C ?x) is the genl shape: the arg row
+  ;; applies only to a P of two or more places.
+  (tu/with-terms [container hollow]
+    (v/assert kb (list 'unary_predicate container) 'CxUniverse)
+    (v/assert kb (list 'implies (list container '?x) (list hollow '?x)) 'CxUniverse)
+    (is (not-any? #(= 'arg (second %)) (rule-macros kb))
+        (pr-str (rule-macros kb)))))
+
 (tu/deftest-kb arg-near-miss-rules-are-not-reported
   (tu/with-terms [temporalIndexArg time_indexed_relation temporalIndexArgVar other_kind Bob]
     (v/assert kb (list 'binary_predicate temporalIndexArg) 'CxUniverse)

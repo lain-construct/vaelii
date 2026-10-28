@@ -811,7 +811,8 @@
 
   `arg` is the one shape whose antecedent's arity is not `n`: its consequent is always a
   single argument typed, so it matches only where `n` is 1, and its antecedent is the
-  rule's own single premise, of whatever arity that premise carries. `ante-arity`, the
+  rule's own single premise, of two or more places.  A unary premise gives a type, so
+  `(P ?x) ⇒ (C ?x)` is the `genl` shape, never `arg`. `ante-arity`, the
   rule's lone antecedent's arity when it has exactly one, is read for that shape alone; a
   rule with more than one antecedent never matches it regardless, by the antecedent-count
   check `shape-bindings` already makes."
@@ -867,7 +868,9 @@
           :meta        '#{?mP}
           :defeasible  false
           :declaration (fn [b] (list 'commutativeInArgs (b '?mP) (inc i) (inc j)))}))
-     (when (and (= 1 n) ante-arity (pos? ante-arity))
+     ;; A unary P gives a type, so (P ?x) ⇒ (C ?x) is the genl shape and never arg: arg
+     ;; is only for a P of two or more places, whose positions require a type.
+     (when (and (= 1 n) ante-arity (<= 2 ante-arity))
        (let [ps (positions-vars ante-arity)]
          (for [i (range ante-arity)]
            ;; (P ?o1 … ?on) ⇒ (C ?oi): the other arguments free, so arg types one of
@@ -1015,6 +1018,7 @@
            (let [C (b '?mC)
                  k (dec (count (first (:antecedent shape))))]
              (and (symbol? C) (universal? kb ctx)
+                  (<= 2 k)
                   (arity-is? kb P k ctx false)
                   (nil? (predicates/entry C))))))))
 
