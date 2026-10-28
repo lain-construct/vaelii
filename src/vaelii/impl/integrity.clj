@@ -441,12 +441,12 @@
     [(get b '?f) (get b '?p)]))
 
 (defn- correspondences
-  "Every visible `(functionCorrespondingPredicate f p)` pair, the value position stated
-  or not, distinct and in content order."
+  "Every visible `(functionCorrespondingPredicate f p n)` function and predicate pair, at
+  any value position, distinct and in content order.  A binary correspondence reaches
+  here through the ternary core.txt concludes from it."
   [kb context]
   (sort-by #(apply list %) nm/compare-form
-           (distinct (concat (bindings-of kb '(functionCorrespondingPredicate ?f ?p) context)
-                             (bindings-of kb '(functionCorrespondingPredicate ?f ?p ?n) context)))))
+           (distinct (bindings-of kb '(functionCorrespondingPredicate ?f ?p ?n) context))))
 
 (defn- kinds-held
   "The members of `kinds` `term` is believed to be a member of in `context`."

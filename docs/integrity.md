@@ -216,13 +216,13 @@ category.
 
 ## What a rigidity-correspondence finding means
 
-`(functionCorrespondingPredicate ?function ?predicate)` says the function and the predicate
+`(functionCorrespondingPredicate ?function ?predicate ?position)` says the function and the predicate
 state one relationship, so an instance could lose the one exactly when it could lose the
 other. Each pair must therefore share a rigidity kind (`time_invariant_relation`,
 `time_agnostic_relation` or `time_varying_relation`, the members of `rigidity_kind`):
 
 ```clojure
-;; (functionCorrespondingPredicate HiveQueenFn hiveQueenOf)
+;; (functionCorrespondingBinaryPredicate HiveQueenFn hiveQueenOf)
 ;; (time_invariant_relation HiveQueenFn)
 ;; (time_varying_relation hiveQueenOf)
 {:status :gap

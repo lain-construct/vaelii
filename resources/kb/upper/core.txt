@@ -1018,10 +1018,12 @@
 ;; A function and its corresponding predicate state one relationship, so an instance
 ;; could lose the one exactly when it could lose the other.  A generator generates, per
 ;; rigidity kind, a forward rule giving the function the kind of its predicate, a kind the
-;; predicate inherits down genl included.
+;; predicate inherits down genl included.  The rule reads the ternary correspondence at
+;; any value position, so one stated as functionCorrespondingBinaryPredicate reaches it
+;; through the ternary core.txt concludes from it.
 (implies (rigidity_kind ?kind)
          (set/forwardRule
-          (implies (and (functionCorrespondingPredicate ?function ?predicate) (?kind ?predicate))
+          (implies (and (functionCorrespondingPredicate ?function ?predicate ?position) (?kind ?predicate))
                    (?kind ?function))))
 
 ;; A relation can carry the time a tuple holds at as one of its own arguments: salaryAt

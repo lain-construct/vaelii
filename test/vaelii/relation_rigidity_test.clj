@@ -116,17 +116,18 @@
 
 (defn- corresponding-pair!
   "Declare `function` a unary function and `predicate` a binary predicate, linked by
-  functionCorrespondingPredicate, the value position stated when `position` is given."
+  the ternary functionCorrespondingPredicate at `position` when one is given, and by
+  functionCorrespondingBinaryPredicate otherwise."
   [kb function predicate position]
   (v/assert kb (list 'unary_function function) U mono)
   (v/assert kb (list 'binary_predicate predicate) U mono)
   (v/assert kb (if position
                  (list 'functionCorrespondingPredicate function predicate position)
-                 (list 'functionCorrespondingPredicate function predicate))
+                 (list 'functionCorrespondingBinaryPredicate function predicate))
             U mono))
 
 (tu/deftest-kb a-function-and-its-corresponding-predicate-must-share-a-rigidity-kind
-  ;; (functionCorrespondingPredicate F P) says F and P state one relationship, so an
+  ;; (functionCorrespondingPredicate F P n) says F and P state one relationship, so an
   ;; instance could lose the one exactly when it could lose the other.
   (tu/with-terms [HiveQueenFn hiveQueenOf]
     (corresponding-pair! kb HiveQueenFn hiveQueenOf nil)
@@ -215,7 +216,7 @@
 
 (tu/deftest-kb a-function-takes-the-rigidity-kind-of-its-corresponding-predicate
   ;; One generator over rigidity_kind generates, per kind K, a forward rule concluding
-  ;; (K F) from (functionCorrespondingPredicate F P) and (K P).
+  ;; (K F) from (functionCorrespondingPredicate F P n) and (K P).
   (testing "a kind stated of the predicate"
     (tu/with-terms [HiveQueenFn hiveQueenOf]
       (corresponding-pair! kb HiveQueenFn hiveQueenOf nil)

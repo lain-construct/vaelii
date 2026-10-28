@@ -151,8 +151,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 - **A function takes the rigidity kind of its corresponding predicate.** A generator over
   `rigidity_kind` generates one forward rule per kind, concluding `(?kind ?function)` from
-  `(functionCorrespondingPredicate ?function ?predicate)` and `(?kind ?predicate)`, a kind
-  the predicate inherits down `genl` included. Each `Pred…Fn` takes its placeholder's
+  `(functionCorrespondingPredicate ?function ?predicate ?position)` and
+  `(?kind ?predicate)`, a kind the predicate inherits down `genl` included. Each `Pred…Fn` takes its placeholder's
   kind this way. A function believed of a second kind is reported by
   `:rigidity-correspondence`.
 
