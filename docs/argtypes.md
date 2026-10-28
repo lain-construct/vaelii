@@ -73,53 +73,41 @@ failed. The boundary of the inner reading:
   vantage, like every definitional check: a context below the one they are written in
   inherits them, a sibling is not refused by them.
 
-### A unary predicate declares a position only when its `genl` parent does not imply it
+### A unary predicate carries no `arg` declaration
 
-An `arg` declaration on a unary predicate and a `genl` edge above it can say the same
-thing, and which of the two is right turns on where the parent sits relative to the type
-the declaration names.
+A unary predicate's `genl` edges conclude its argument's types, so a unary predicate
+declares no argument position, and its argument's type is `thing`.
+`(genl instance_relation_predicate binary_predicate)` concludes `(binary_predicate P)` from
+`(instance_relation_predicate P)`. An `(arg instance_relation_predicate 1 binary_predicate)`
+beside that edge would duplicate the `genl` hierarchy and add a second justification for
+each `(binary_predicate P)` the edge concludes. Unary predicates give types; other
+predicates require types. The stable-constraints rule of
+[no silent side effects](oe-principles.md#no-silent-side-effects) applies to predicates of
+arity 2 and up.
 
-`fixed_arity` carries `(arg fixed_arity 1 relation)`, and the `(genl fixed_arity relation)`
-edge that `(partition relation fixed_arity variable_arity)` installs names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
-nothing is disjoint from `relation` for a number, so the declaration's value conviction
-is the only conviction there is: with it `assert` stores `(fixed_arity 5)` inert and
-`try-assert` refuses it, and without it the fact is believed. `variable_arity`
-and the function marks are in the same position and keep theirs.
+`ontology_test/every-position-of-a-shipped-arity-above-one-is-declared` reads every
+`resources/kb/*.txt` file and fails on an `arg` declaration of a predicate whose stated
+arity is 1.
 
-`instance_relation_predicate` is the other case. Its parent is `binary_predicate`, which
-sits **below** `predicate`, so `(arg instance_relation_predicate 1 predicate)` would
-restate in a weaker form what the edge already concludes, and under the constraint-only
-reading it would turn that conclusion into a precondition: `(instance_relation_predicate
-pairOf)` after `(arity pairOf 2)`, which places `pairOf` under `relation` and not under
-`predicate`, would be refused for a kind the sentence itself states. So the six marks whose
-own `genl` parent supplies the declared type declare no position:
-`instance_relation_predicate`, `type_relation_predicate`, `equivalence_relation`,
-`injection`, `surjection` and `bijection`.
+#### What a unary predicate's argument meets
 
-| argument | what happens |
+The `genl` edges place the argument, and the taxonomy's disjointness refuses a wrong kind:
+
+| argument of `instance_relation_predicate` | what happens |
 |---|---|
-| a number | `:arg-type`, through the `(arg fixed_arity 1 relation)` floor the mark inherits |
-| a term reaching only `thing` | stored; the floor derives `relation` and the mark's edges place it under `predicate` |
-| a `function` | stored, with `instance_relation_predicate` and `function` a placed clash |
+| a term reaching only `thing` | stored; the mark's edges place it under `binary_predicate`, `predicate` and `relation` |
 | a relation whose kind is not yet stated | stored, and the mark supplies the kind |
+| a `function` F | `try-assert` refuses it `:disjoint`, through the `(disjoint predicate function)` the partition of `relation` derives; `assert` stores it, and the settle weighs it against `(function F)` |
+
+The arity policy reads the same way. With `(variable_arity P)` stored, `(binary_predicate P)`
+derives `(fixed_arity P)` through its edges, and `(partition relation fixed_arity
+variable_arity)` separates the two, so the two memberships are one contradiction, stored as
+a clash in either arrival order.
 
 `arity_vocabulary_test/a-predicate-only-classification-is-order-independent-of-the-arity`
-compares the two orders on the whole closure rather than on an acceptance, and
-`an-arity-alone-leaves-the-relation-kind-open` asserts the rows of the table.
-
-### The policy classes declare one position and their specializations declare none
-
-`fixed_arity` and `variable_arity` each carry `(arg C 1 relation)`. Nothing below them
-carries one. The parent's declaration descends the predicate hierarchy, so
-`(fixed_arity_predicate Fred)` with `Fred` a person derives `(relation Fred)`, a clash
-with `person`, while a narrower `(arg fixed_arity_predicate 1 predicate)` would derive the
-wrong thing: a relation whose only stated type is `variable_arity` would be derived a
-`predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would carry a
-second derived type where the contradiction is the arity policy. The two are one
-contradiction and are stored as a clash in either order. A relation classified into the
-wrong kind is caught by `(disjoint predicate function)` through the `genl` edges, a
-disjointness derived from `(partition relation function truth_valued_relation)` rather
-than stated.
+compares the two orders of the arity and the mark on the whole closure rather than on an
+acceptance, and `an-arity-alone-leaves-the-relation-kind-open` asserts the rows of the
+table.
 
 ## The covering constraints: typing a variable-arity tail
 

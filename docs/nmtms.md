@@ -289,6 +289,12 @@ not refuse the declaration's retraction. An inert `(set/inert (inverse P Q))`, a
 `space.txt` states for each converse pair, is no premise and fires no rule, so no argument
 is typed through it.
 
+`core.txt` declares `(forced_monotonic_predicate reifiable_function)` and
+`(forced_monotonic_predicate unreifiable_function)`. Whether a function's applications are
+minted is definitional of the function, so no context or exception makes a mark false: a
+denial of either mark is held OUT, and the two marks stated of one function are a conflict
+rather than a defeat ([nat.md](nat.md)).
+
 **Retracting a declaration is refused where its predicate has no unforced semantics.**
 `retract!` and `edit!` refuse the retraction of the declarations `checks/uncleared-forcing`
 lists, with `:type :uncleared-forcing`, the `:predicate` and the `:missing` semantics: the
