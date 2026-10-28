@@ -164,11 +164,16 @@
     (corresponding-pair! kb NestMateFn nestMateOf 2)
     (v/assert kb (list 'time_agnostic_relation NestMateFn) U mono)
     (v/assert kb (list 'time_invariant_relation nestMateOf) U mono)
-    (is (= [{:function NestMateFn :predicate nestMateOf
-             :function-kinds #{'time_agnostic_relation}
-             :predicate-kinds #{'time_invariant_relation}}]
-           (:rigidity-correspondence
-            (v/kb-integrity kb #{} U {:categories correspondence}))))))
+    ;; The correspondence rule reads the ternary too, so the function is believed of the
+    ;; stated kind and the predicate's, and the pair is reported.
+    (let [[finding & more] (:rigidity-correspondence
+                            (v/kb-integrity kb #{} U {:categories correspondence}))]
+      (is (nil? more))
+      (is (= [NestMateFn nestMateOf #{'time_invariant_relation}]
+             ((juxt :function :predicate :predicate-kinds) finding)))
+      (is (every? (:function-kinds finding)
+                  '[time_agnostic_relation time_invariant_relation])
+          "the stated kind and the kind the correspondence gives"))))
 
 ;; ---- a relation with a temporal index is time-invariant ---------------------------
 
