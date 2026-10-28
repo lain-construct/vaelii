@@ -154,7 +154,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(functionCorrespondingPredicate ?function ?predicate ?position)` and
   `(?kind ?predicate)`, a kind the predicate inherits down `genl` included. Each `Pred…Fn` takes its placeholder's
   kind this way. A function believed of a second kind is reported by
-  `:rigidity-correspondence`.
+  `:rigidity-correspondence`. The rule-clash pairing pairs each two of the three rules,
+  and core.txt acknowledges the three pairs with `acknowledgedFinding`, so they are
+  `:rule-clash-review` findings.
 
   *Class:* **Additive**.
 
