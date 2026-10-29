@@ -198,8 +198,10 @@ only the quantified side — the domain off `(arg P 1 D)` for totality, the rang
 so the sweep above reports it with no extra entry point, and retracting the mark or either
 `arg` declaration withdraws it.
 
-The cost is one read per member of the quantified collection, plus one membership read per
-candidate filler. This is a sweep to run at a checkpoint, not a check to run per write.
+Each eligible reader enumerates its quantified population and checks candidate fillers.
+For members lacking an admissible filler, defining evidence also walks stored mentions
+and usable support. Evidence and eligibility are memoized within a declaration audit,
+not across invocations. This is a sweep to run at a checkpoint, not per write.
 
 ## indeterminate_term: what makes a filler determinate
 
