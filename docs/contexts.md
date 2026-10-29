@@ -178,11 +178,14 @@ Data hangs below CxWell.
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
   none of its relations or kinds. CxTra holds three vocabularies:
-  - **computing** — ten relations over software tools, their invocations and
+  - **computing** — eleven relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
     `media_resource`, `ip_address` and the kinds below them), each with its comment,
-    its `genl` edges and its disjointness. The computing relations state no rule.
+    its `genl` edges and its disjointness. `(toolEnablesCapability ?tool ?kind)` says
+    that whoever has `?tool` can be the doer of a happening of kind `?kind`, and the
+    one computing rule, a default guarded by `causal`, reads `hasCapability` from it and
+    `agentHasTool`. No rule concludes anything about an invocation.
     `(functional toolName)` is a decontextualized mark, so every context that sees
     CxUniverse reads that mark.
   - **content and carriers** — `information` is content apart from its medium, and

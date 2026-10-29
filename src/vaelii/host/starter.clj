@@ -67,8 +67,9 @@
                                  occasion to see.
         - CxTra.txt       — vocabulary that is generally useful but specific to
                                  one domain: relations over software tools, their
-                                 invocations and receipts, media resources and DNS
-                                 names, the kinds the relations are typed over, and
+                                 invocations and receipts and the capabilities they
+                                 confer, media resources and DNS names, the kinds
+                                 the relations are typed over, and
                                  the perception relations perceives, sees, seeImage
                                  and watchVideo. Opt-in: it sees CxUniverse and
                                  CxWell does not see it.

@@ -465,6 +465,16 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   [glossary.md](docs/glossary.md)
   *Migration:* none.
 
+- **CxTra ships `toolEnablesCapability`, and reads `hasCapability` from it by
+  default.** `(toolEnablesCapability ?tool ?kind)` says that whoever has the software
+  tool `?tool` can be the doer of a happening of kind `?kind`: position 1 is typed
+  `software_tool` and position 2 is a `happening` kind (`genlArg`). A default forward
+  rule concludes `(hasCapability ?agent ?kind)` from `(agentHasTool ?agent ?tool)` and
+  that fact, guarded by `(causal ?agent)`, since `agentHasTool` types its agent `thing`
+  and `hasCapability` types it `causal`. A `:monotonic` `(not (hasCapability ?agent ?kind))`
+  defeats it. [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,

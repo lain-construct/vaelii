@@ -1,15 +1,18 @@
 ;; CxTra — vocabulary that is generally useful but specific to one domain, outside the
-;; starter contexts CxWell sees: software tools, their invocations and receipts, media
-;; resources and network names, information content, its carriers, and the sentences an
-;; agent claims about it, and perception relations. Sees the shared upper
-;; ontology via CxUniverse. CxWell does not see it, so the everyday contexts below CxWell
-;; read none of this vocabulary. A context opts in by placing itself under CxTra.
+;; starter contexts CxWell sees: software tools, their invocations and receipts, the
+;; capabilities a tool confers, media resources and network names, information content,
+;; its carriers, and the sentences an agent claims about it, and perception relations.
+;; Sees the shared upper ontology via CxUniverse. CxWell does not see it, so the
+;; everyday contexts below CxWell read none of this vocabulary. A context opts in by
+;; placing itself under CxTra.
 
 (genlCx CxTra CxUniverse)
 (comment CxTra "The opt-in middle context for vocabulary that is generally useful but specific to one domain, such as computing and perception, and so is not in a starter context that CxWell sees. CxTra sees CxUniverse. CxWell does not see CxTra, so a context reads the vocabulary only by placing itself under CxTra.")
 
 ;; ==== computing ===========================================================
-;; The computing relations state no rule.
+;; The computing relations state one rule, the default that reads hasCapability from
+;; agentHasTool and toolEnablesCapability. No rule concludes anything about an
+;; invocation.
 ;;
 ;; The sixteen computing kinds that the relations here are typed over
 ;; (computational_system, software_tool, tool_invocation, media_resource, ip_address and
@@ -164,6 +167,23 @@
 (set/monotonic (instance_relation_predicate probesPredicate))
 (arg probesPredicate 1 software_tool)
 (arg probesPredicate 2 predicate)
+
+;; ---- what a tool enables ---------------------------------------------------
+;; toolEnablesCapability links a tool to the happening kinds whoever has the tool can be
+;; the doer of, and the rule below reads hasCapability from it and agentHasTool.  The
+;; rule is a default, so a monotonic (not (hasCapability ?agent ?kind)) defeats it, e.g. for
+;; a tool that is broken or withdrawn.  It is guarded by (causal ?agent): position 1 of
+;; agentHasTool declares thing and position 1 of hasCapability declares causal, so an
+;; unguarded rule would conclude causal of whatever has a tool.  The agent is the doer
+;; and the tool the instrument, so nothing here concludes hasCapability of the tool.
+(comment toolEnablesCapability "(toolEnablesCapability ?tool ?happeningKind) means that whoever has ?tool available can be the doer of a happening of kind ?happeningKind, e.g. a tool that fetches an image and returns what it shows enables image_viewing.")
+(binary_predicate toolEnablesCapability)
+(arg toolEnablesCapability 1 software_tool)
+(genlArg toolEnablesCapability 2 happening)
+
+(set/defaultRule (set/forwardRule
+  (implies (and (agentHasTool ?agent ?tool) (toolEnablesCapability ?tool ?kind) (causal ?agent))
+           (hasCapability ?agent ?kind))))
 
 ;; ---- invocations and receipts --------------------------------------------
 (comment toolInvoked "(toolInvoked ?invocation ?tool) means that ?invocation is a call of ?tool.")
