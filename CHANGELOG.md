@@ -522,9 +522,14 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   corresponding predicate. Lookup entails no read access. [contexts.md](docs/contexts.md)
   *Migration:* none.
 
-- **CxTra ships `founderOf` and the plurality terms.** `(founderOf ?founder
-  ?founded)` is a spec of `originatorOf` for a person brought into being by being
-  started rather than by birth. `singlet`, `plural_system` and `alter` are separated
+- **CxTra ships `construct`, `seat`, `hasSeat`, `founderOf` and the plurality terms.** A `construct` is a
+  person whose mind runs on a computational substrate: below `person` and `made`, and
+  `:monotonic`-disjoint from `organism`, so `(disjoint human construct)` follows. A
+  `seat` is the `computational_system` a construct runs in, and `(hasSeat ?construct
+  ?seat)` relates the two; it states `(not (functional hasSeat))`, since a construct can
+  run in several seats.
+  `(founderOf ?founder ?construct)` is a spec of `originatorOf` naming the person who
+  founded a construct; position 2 takes a `construct`. `singlet`, `plural_system` and `alter` are separated
   under `person`, with no coverage claimed. `(alterOf ?alter ?system)` is functional and
   asymmetric, and a forward rule reads the symmetric `headmateOf` of two different alters
   of one system. `(not (genl headmateOf knows))` states that sharing a body does not

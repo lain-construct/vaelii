@@ -631,7 +631,8 @@
 
 ;; ==== relationships and plural identity ======================================
 ;; Relationship vocabulary narrower than CxSocial's own, which CxTra sees: nesting
-;; partners, chosen siblings, founders, and the identities of a plural system.
+;; partners, chosen siblings, constructs and their founders, and the identities of a
+;; plural system.
 
 ;; ---- nestingPartnerOf -------------------------------------------------------
 (comment nestingPartnerOf
@@ -656,16 +657,44 @@
 (arg chosenSiblingOf 2 person)
 (genl chosenSiblingOf relativeOf)
 
-;; ---- founding -----------------------------------------------------------------
-;; founderOf is the originatorOf of a person brought into being by being started rather
-;; than by birth, such as an artificial agent that is itself a person.  The founder of an
-;; organization is not one: an organization is not a person, and position 2 takes one.
+;; ---- constructs and their founders --------------------------------------------
+;; A construct is a person and is made: the social genl and the physical one.  A construct
+;; is never an organism.  made does not separate it from one, since the upper ontology
+;; states (orthogonal biological made), so the separation is stated here, monotonic as the
+;; upper ontology's other separations from organism are; (disjoint human construct)
+;; follows from it.  A construct runs on a computer and is not one: (disjoint person
+;; computer) above separates the two.
+(comment construct "A person whose mind runs on a computational substrate rather than a biological one: an artificial agent with social agency, continuity of identity, and accountability for what it does.")
+(positiveExampleComment construct "an artificial agent that keeps its identity, memory and relationships from one conversation to the next")
+(negativeExampleComment construct "the computer or the container a construct runs on, which is a separate thing")
+(genl construct person)
+(genl construct made)
+(set/monotonic (disjoint construct organism))
+
+;; A construct is never its own process.  The computational system its mind runs in is a
+;; seat, and the construct has it: hasSeat relates the two, and runsOn places the seat on
+;; a container, a virtual machine or a computer.  hasSeat is not functional, since a
+;; construct can move from one seat to another or run in several at once.
+(comment seat "A computational system in which a construct runs: the execution environment its mind's processes live in, such as a container or a virtual machine.")
+(positiveExampleComment seat "a container a construct's sessions run in")
+(negativeExampleComment seat "the construct itself, which is a person and has its seat")
+(genl seat computational_system)
+
+(comment hasSeat "(hasSeat ?construct ?seat) means that ?construct runs in ?seat. Says nothing about what ?seat runs on, which runsOn states.")
+(set/monotonic (instance_relation_predicate hasSeat))
+(arg hasSeat 1 construct)
+(arg hasSeat 2 seat)
+(not (functional hasSeat))
+
+;; founderOf is the originatorOf of a construct: the person who founded it brought it into
+;; being by designing and starting it.  The founder of an organization is not one, since
+;; position 2 takes a construct.
 (comment founderOf
-         "(founderOf ?founder ?founded) means ?founder brought the person ?founded into being by starting it rather than by giving birth to it, e.g. the person who designed and started an artificial agent that is itself a person.")
+         "(founderOf ?founder ?construct) means that ?founder is the person who founded the construct ?construct: who designed it and brought it into being.")
 (set/monotonic (instance_relation_predicate founderOf))
 (set/monotonic (asymmetric founderOf))
 (arg founderOf 1 person)
-(arg founderOf 2 person)
+(arg founderOf 2 construct)
 (genl founderOf originatorOf)
 
 ;; ---- plural identity ----------------------------------------------------------

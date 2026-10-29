@@ -236,8 +236,10 @@ Data hangs below CxWell.
   - **relationships and plural identity** — relationship vocabulary narrower than
     CxSocial's: `nestingPartnerOf` (a spec of CxSocial's `romanticPartnerOf` and
     `roommateOf`, and read by a rule from the two), `chosenSiblingOf` (a spec of
-    `relativeOf`), `founderOf` (a spec of `originatorOf` for a person brought into
-    being by being started), and the plurality terms: `singlet`, `plural_system` and
+    `relativeOf`), `construct` (a person whose mind runs on a computational substrate,
+    `made` and `:monotonic`-disjoint from `organism`), its `seat` (the computational
+    system it runs in, related by the non-functional `hasSeat`), `founderOf` (a spec of
+    `originatorOf` naming the person who founded a construct), and the plurality terms: `singlet`, `plural_system` and
     `alter`, separated under `person`, with `alterOf` and `headmateOf` (read by a rule
     from `alterOf`, and not a spec of `knows`).
 - **CxWell** — sees every middle context except the two opt-in theories, so it (and any

@@ -2,8 +2,8 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.cxtra-social-test
   "The relationship and plural-identity vocabulary of CxTra: nestingPartnerOf,
-  chosenSiblingOf, founderOf and the plurality terms, each narrower than a CxSocial
-  relation.  CxTra sees CxSocial as well as CxUniverse, and CxWell does not see CxTra,
+  chosenSiblingOf, construct and founderOf, and the plurality terms, each narrower than
+  a CxSocial relation or type.  CxTra sees CxSocial as well as CxUniverse, and CxWell does not see CxTra,
   so the everyday contexts below CxWell derive none of it, and a user's own context
   opts in by placing itself under CxTra, which carries CxSocial's own relations to it."
   (:require [clojure.test :refer [is testing use-fixtures]]
@@ -14,6 +14,14 @@
 (use-fixtures :each (tu/neutral))
 
 (def ^:private SOCX 'CxTra)
+
+(defn- problem-types
+  "The `:type` of each problem `check` reports for `sentence` in `ctx`, or of the argument
+  conviction `assert` holds it inert under, under the constraint-only reading."
+  [sentence ctx]
+  (tu/without-entailing
+   (or (not-empty (mapv :type (v/check tu/*kb* sentence ctx)))
+       (into [] (keep :type) [(tu/write-conviction tu/*kb* sentence ctx)]))))
 
 
 (tu/deftest-kb cxtra-is-opt-in-and-sees-cxsocial
@@ -102,11 +110,42 @@
     (testing "a context that does not see the extension concludes none of it"
       (is (not (tu/holds-ask (list 'headmateOf A1 A2) 'CxSocial))))))
 
-(tu/deftest-kb a-founder-is-an-originator
-  (tu/with-terms [CxHome Maker Made]
+(tu/deftest-kb a-construct-is-a-made-person-and-no-organism
+  (is (= 1 (count (v/sentexes-matching kb '(comment construct ?c) SOCX))))
+  (is (tu/holds-genl 'construct 'person SOCX))
+  (is (tu/holds-genl 'construct 'made SOCX))
+  (is (v/disjoint? kb 'construct 'organism SOCX))
+  (is (v/disjoint? kb 'construct 'human SOCX))
+  (is (v/disjoint? kb 'construct 'computer SOCX) "a construct runs on a computer and is not one")
+  (is (not (tu/holds-genl 'construct 'person 'CxWell))))
+
+(tu/deftest-kb a-construct-runs-in-a-seat-on-a-computer-and-is-neither
+  (tu/with-terms [CxHome Mind Pod Spare Box]
+    (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)
+    (v/assert kb (list 'construct Mind) CxHome)
+    (v/assert kb (list 'seat Pod) CxHome)
+    (v/assert kb (list 'seat Spare) CxHome)
+    (v/assert kb (list 'computer Box) CxHome)
+    (v/assert kb (list 'hasSeat Mind Pod) CxHome)
+    (v/assert kb (list 'hasSeat Mind Spare) CxHome)
+    (v/assert kb (list 'runsOn Pod Box) CxHome)
+    (is (tu/holds-ask (list 'hasSeat Mind Pod) CxHome))
+    (is (tu/holds-ask (list 'hasSeat Mind Spare) CxHome) "a construct can run in two seats")
+    (is (not (tu/holds-ask (list 'equals Pod Spare) CxHome)))
+    (is (tu/holds-genl 'seat 'computational_system SOCX))
+    (is (v/disjoint? kb 'construct 'seat SOCX) "a construct is never its own seat")
+    (is (not (tu/holds-ask (list 'runsOn Mind Box) CxHome)) "runsOn is the seat's, not the construct's")))
+
+(tu/deftest-kb a-founder-founds-a-construct-and-is-its-originator
+  (tu/with-terms [CxHome Maker Made Firm]
     (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)
     (v/assert kb (list 'human Maker) CxHome)
-    (v/assert kb (list 'person Made) CxHome)
+    (v/assert kb (list 'construct Made) CxHome)
+    (v/assert kb (list 'organization Firm) CxHome)
+    (testing "a construct in position 2 is accepted"
+      (is (empty? (problem-types (list 'founderOf Maker Made) CxHome))))
+    (testing "an organization in position 2 is refused"
+      (is (= [:arg-type] (problem-types (list 'founderOf Maker Firm) CxHome))))
     (v/assert kb (list 'founderOf Maker Made) CxHome)
     (is (tu/holds-ask (list 'originatorOf Maker Made) CxHome))
     (is (tu/holds-ask (list 'relativeOf Maker Made) CxHome))))
