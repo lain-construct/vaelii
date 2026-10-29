@@ -172,8 +172,8 @@
     ;; `instantBefore` / `instantAfter` are the point algebra's strict orders, transitive
     ;; so a forward join reads a narrative's consecutive links as one ordering.
     ;; `intangiblePartOf` is `tangiblePartOf`'s twin for things without mass, and
-    ;; `subInformationOf` its spec over information.
-    (is (= '#{ancestorOf partOf tangiblePartOf intangiblePartOf subInformationOf subSituationOf properPartOf properTangiblePartOf
+    ;; `subInformationOf` its spec over information; CxTra's `runsOn` chains through hosts.
+    (is (= '#{ancestorOf partOf tangiblePartOf intangiblePartOf subInformationOf runsOn subSituationOf properPartOf properTangiblePartOf
               properSubSituationOf properPartOfRegion properSubintervalOf locatedIn largerThan instantBefore instantAfter
               causes beforeEvent genl genlCx
               heavierThan tallerThan olderThan greaterInMagnitudeThan}

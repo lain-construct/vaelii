@@ -177,7 +177,7 @@ Data hangs below CxWell.
   CxWell does **not** see. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds three vocabularies:
+  none of its relations or kinds. CxTra holds five vocabularies:
   - **computing** — eleven relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -188,6 +188,24 @@ Data hangs below CxWell.
     `agentHasTool`. No rule concludes anything about an invocation.
     `(functional toolName)` is a decontextualized mark, so every context that sees
     CxUniverse reads that mark.
+  - **hosts** — `computer` is hardware, an `electronic_device`, and
+    `virtual_machine`, `software_container` and `software_service` (with its spec
+    `mcp_server`) are computational systems, separated from one another.
+    `(runsOn ?system ?host)` is transitive, and no rule carries any other fact across
+    it, so a fact about a container is not thereby one about its host.
+    `kubernetes_cluster`, `network` and `kubernetes_namespace` group them, through
+    `clusterNode` (with its specs `controlPlaneNode` and `workerNode`; a node is the
+    operating system install, a computational system that runs on a computer or a
+    hypervisor), `onNetwork` and `kubernetesNamespaceOf`. `(hostnameOf ?thing ?name)` is functional in neither
+    position, so two systems that share a name are not thereby equal.
+  - **access** — a grant is a capability: `(hasCapability ?principal (ShellAccessFn
+    ?resource))`. Five reifiable functions, `ReadAccessFn`, `WriteAccessFn`,
+    `ShellAccessFn`, `AdminAccessFn` and `DeployAccessFn`, map a resource to a happening
+    kind below one of the five kinds under `resource_access`, and each has a functional
+    corresponding predicate (`readAccessOf` and the rest). Two default rules conclude
+    write access from admin access and from deploy access over the same resource. A
+    missing grant is unknown, and no rule concludes a denial. `(custodianOf ?person
+    ?thing)` names who keeps a thing working, and is not access.
   - **content and carriers** — `information` is content apart from its medium, and
     `conceptual_work` is information composed as one work. `(carries ?carrier ?info)`
     types position 1 `temporal` and position 2 `information`, so a tangible paper copy

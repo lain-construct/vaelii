@@ -475,6 +475,28 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   defeats it. [contexts.md](docs/contexts.md)
   *Migration:* none.
 
+- **CxTra ships hosts, what runs on them, and access to a resource.** `computer` is
+  below `electronic_device` and `:monotonic`-disjoint from `person`: a person may run on
+  a computer but is not one.
+  `virtual_machine`, `software_container` and `software_service` are separated under
+  `computational_system`, and `mcp_server` is below `software_service`. `(runsOn
+  ?system ?host)` is transitive, and no rule carries any other fact across it.
+  `kubernetes_cluster` is a `computational_system`, and `network` and
+  `kubernetes_namespace` are `intangible`; `clusterNode` with its specs
+  `controlPlaneNode` and `workerNode`, whose node is a `computational_system` (the
+  operating system install that runs on a computer or a hypervisor), `onNetwork` and the
+  functional `kubernetesNamespaceOf` relate them. `(hostnameOf ?thing ?name)` takes a string and
+  states `(not (functional hostnameOf))` and `(not (functionalInArg hostnameOf 1))`, so
+  two systems that share a name are not equated. A grant of access is stated as
+  `(hasCapability ?principal (ShellAccessFn ?resource))`: `ReadAccessFn`,
+  `WriteAccessFn`, `ShellAccessFn`, `AdminAccessFn` and `DeployAccessFn` are reifiable,
+  their `genlResult` is one of five happening kinds below `resource_access`, and each
+  has a functional corresponding predicate, `readAccessOf` through `deployAccessOf`.
+  Two default forward rules conclude write access from admin access and from deploy
+  access over the same resource. `(custodianOf ?person ?thing)` says who keeps a thing
+  working. [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,

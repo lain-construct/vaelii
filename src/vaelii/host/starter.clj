@@ -69,7 +69,8 @@
                                  one domain: relations over software tools, their
                                  invocations and receipts and the capabilities they
                                  confer, media resources and DNS names, the kinds
-                                 the relations are typed over, and
+                                 the relations are typed over, computers and what
+                                 runs on them, access to a resource, and
                                  the perception relations perceives, sees, seeImage
                                  and watchVideo. Opt-in: it sees CxUniverse and
                                  CxWell does not see it.
