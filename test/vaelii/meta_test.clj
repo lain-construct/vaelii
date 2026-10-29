@@ -155,7 +155,7 @@
     ;; their marks are stated in CxUniverse like the rest, and ?ctx is open.
     (is (= '#{siblingOf marriedTo friendOf orthogonal siblingDisjointException
               relativeOf romanticPartnerOf coworkerOf roommateOf
-              nestingPartnerOf chosenSiblingOf diachronicallyDisjoint negates inverse}
+              nestingPartnerOf chosenSiblingOf headmateOf diachronicallyDisjoint negates inverse}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because core.txt asserts (transitive genl)
     ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached

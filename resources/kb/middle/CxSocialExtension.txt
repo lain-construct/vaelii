@@ -1,5 +1,5 @@
-;; CxSocialExtension — an opt-in extension of CxSocial: relationship vocabulary
-;; narrower than CxSocial's own. Sees CxSocial, which carries it to the shared
+;; CxSocialExtension — an opt-in extension of CxSocial: relationship, founding and
+;; plural-identity vocabulary narrower than CxSocial's own. Sees CxSocial, which carries it to the shared
 ;; upper ontology via CxUniverse. CxWell does not see it: a context opts in by
 ;; placing itself under CxSocialExtension.
 ;;
@@ -32,3 +32,46 @@
 (arg chosenSiblingOf 1 person)
 (arg chosenSiblingOf 2 person)
 (genl chosenSiblingOf relativeOf)
+
+;; ---- founding -----------------------------------------------------------------
+;; founderOf is the originatorOf of a person brought into being by being started rather
+;; than by birth, such as an artificial agent that is itself a person.  The founder of an
+;; organization is not one: an organization is not a person, and position 2 takes one.
+(comment founderOf
+         "(founderOf ?founder ?founded) means ?founder brought the person ?founded into being by starting it rather than by giving birth to it, e.g. the person who designed and started an artificial agent that is itself a person.")
+(set/monotonic (instance_relation_predicate founderOf))
+(set/monotonic (asymmetric founderOf))
+(arg founderOf 1 person)
+(arg founderOf 2 person)
+(genl founderOf originatorOf)
+
+;; ---- plural identity ----------------------------------------------------------
+;; A plural system is several identities, its alters, sharing one body; a singlet is one
+;; identity in one body.  Each of the three is a person, and no person is two of them.
+;; separating claims no coverage: the vocabulary does not say that every person is one
+;; of the three.
+(comment singlet "A person who is one identity in one body.")
+(comment plural_system "A person made of several identities, its alters, sharing one body.")
+(comment alter "One of the identities sharing the body of a plural system, a person in its own right.")
+(set/monotonic (separating person singlet plural_system alter))
+
+(comment alterOf
+         "(alterOf ?alter ?system) means that ?alter is one of the identities of the plural system ?system. Functional: an alter belongs to one system.")
+(set/monotonic (instance_relation_predicate alterOf))
+(set/monotonic (asymmetric alterOf))
+(arg alterOf 1 alter)
+(arg alterOf 2 plural_system)
+(set/monotonic (functional alterOf))
+
+(comment headmateOf
+         "(headmateOf ?x ?y) means that ?x and ?y are two alters of the same plural system. Read by the rule below from alterOf.")
+(set/monotonic (instance_relation_predicate headmateOf))
+(set/monotonic (symmetric headmateOf))
+(arg headmateOf 1 alter)
+(arg headmateOf 2 alter)
+(not (genl headmateOf knows))
+(comment (not (genl headmateOf knows)) "Sharing a body does not entail awareness: an alter can be unaware of another alter of the same system.")
+
+(set/forwardRule
+  (implies (and (alterOf ?a1 ?system) (alterOf ?a2 ?system) (different ?a1 ?a2))
+           (headmateOf ?a1 ?a2)))

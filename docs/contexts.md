@@ -234,7 +234,11 @@ Data hangs below CxWell.
 - **CxSocialExtension** — an **opt-in** theory in `kb/middle/` that sees CxSocial,
   and through it CxUniverse, and that CxWell does **not** see: `nestingPartnerOf`
   (a spec of CxSocial's `romanticPartnerOf` and `roommateOf`, and read by a rule from
-  the two) and `chosenSiblingOf` (a spec of `relativeOf`). A context opts in by
+  the two), `chosenSiblingOf` (a spec of `relativeOf`), `founderOf` (a spec of
+  `originatorOf` for a person brought into being by being started), and the plurality
+  terms: `singlet`, `plural_system` and `alter`, separated under `person`, with
+  `alterOf` and `headmateOf` (read by a rule from `alterOf`, and not a spec of `knows`).
+  A context opts in by
   placing itself under CxSocialExtension, which also carries CxSocial's own
   relations to it. **`<Theory>Extension` names a
   theory that extends an existing starter theory with vocabulary most contexts

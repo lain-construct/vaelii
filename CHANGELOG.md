@@ -507,6 +507,15 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   corresponding predicate. Lookup entails no read access. [contexts.md](docs/contexts.md)
   *Migration:* none.
 
+- **CxSocialExtension ships `founderOf` and the plurality terms.** `(founderOf ?founder
+  ?founded)` is a spec of `originatorOf` for a person brought into being by being
+  started rather than by birth. `singlet`, `plural_system` and `alter` are separated
+  under `person`, with no coverage claimed. `(alterOf ?alter ?system)` is functional and
+  asymmetric, and a forward rule reads the symmetric `headmateOf` of two different alters
+  of one system. `(not (genl headmateOf knows))` states that sharing a body does not
+  entail knowing each other. [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,

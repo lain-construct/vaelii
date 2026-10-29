@@ -1,7 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.social-extension-test
-  "CxSocialExtension: nestingPartnerOf and chosenSiblingOf, shipped as an opt-in
+  "CxSocialExtension: nestingPartnerOf, chosenSiblingOf, founderOf and the plurality
+  terms, shipped as an opt-in
   extension of CxSocial below CxUniverse. CxWell does not see the theory, so the
   everyday contexts below CxWell derive none of it, and a user's own context
   opts in by placing itself under CxSocialExtension — which, placed under
@@ -57,7 +58,8 @@
 (tu/deftest-kb each-relation-specializes-what-it-is-a-kind-of
   (doseq [[sub super] '[[chosenSiblingOf relativeOf]
                         [nestingPartnerOf romanticPartnerOf]
-                        [nestingPartnerOf roommateOf]]]
+                        [nestingPartnerOf roommateOf]
+                        [founderOf originatorOf]]]
     (is (tu/holds-genl sub super SOCX))
     (is (not (tu/holds-genl sub super 'CxSocial))))
   (is (not (tu/holds-genl 'chosenSiblingOf 'siblingOf SOCX)))
@@ -74,3 +76,37 @@
     (is (not (tu/holds-ask (list 'siblingOf P1 P2) CxHome)))
     (is (tu/holds-ask (list 'romanticPartnerOf P3 P4) CxHome))
     (is (tu/holds-ask (list 'roommateOf P3 P4) CxHome))))
+
+(tu/deftest-kb the-plurality-terms-are-separated-under-person
+  (doseq [k '[singlet plural_system alter]]
+    (is (= 1 (count (v/sentexes-matching kb (list 'comment k '?c) SOCX))) (str k))
+    (is (tu/holds-genl k 'person SOCX) (str k))
+    (is (not (tu/holds-genl k 'person 'CxSocial)) (str k)))
+  (is (v/disjoint? kb 'singlet 'plural_system SOCX))
+  (is (v/disjoint? kb 'alter 'singlet SOCX))
+  (is (v/disjoint? kb 'alter 'plural_system SOCX)))
+
+(tu/deftest-kb two-alters-of-one-system-are-headmates-and-need-not-know-each-other
+  (tu/with-terms [CxHome Sys A1 A2 Other]
+    (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)
+    (v/assert kb (list 'plural_system Sys) CxHome)
+    (doseq [a [A1 A2 Other]] (v/assert kb (list 'alter a) CxHome))
+    (v/assert kb (list 'alterOf A1 Sys) CxHome)
+    (v/assert kb (list 'alterOf A2 Sys) CxHome)
+    (is (tu/holds-ask (list 'headmateOf A1 A2) CxHome))
+    (is (tu/holds-ask (list 'headmateOf A2 A1) CxHome))
+    (is (not (tu/holds-ask (list 'headmateOf A1 A1) CxHome)) "an alter is not its own headmate")
+    (is (not (tu/holds-ask (list 'headmateOf A1 Other) CxHome)))
+    (testing "headmates are not concluded to know each other"
+      (is (not (tu/holds-ask (list 'knows A1 A2) CxHome))))
+    (testing "a context that does not see the extension concludes none of it"
+      (is (not (tu/holds-ask (list 'headmateOf A1 A2) 'CxSocial))))))
+
+(tu/deftest-kb a-founder-is-an-originator
+  (tu/with-terms [CxHome Maker Made]
+    (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)
+    (v/assert kb (list 'human Maker) CxHome)
+    (v/assert kb (list 'person Made) CxHome)
+    (v/assert kb (list 'founderOf Maker Made) CxHome)
+    (is (tu/holds-ask (list 'originatorOf Maker Made) CxHome))
+    (is (tu/holds-ask (list 'relativeOf Maker Made) CxHome))))
