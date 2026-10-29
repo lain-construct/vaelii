@@ -2,8 +2,8 @@
 ;; starter contexts CxWell sees: software tools, their invocations and receipts, the
 ;; capabilities a tool confers, media resources and network names, computers and the
 ;; computational systems that run on them and how they group, access to a resource,
-;; information content, its carriers, and the sentences an agent claims about it, and
-;; perception relations.
+;; the file paths a file is looked up by, information content, its carriers, and the
+;; sentences an agent claims about it, and perception relations.
 ;; Sees the shared upper ontology via CxUniverse. CxWell does not see it, so the
 ;; everyday contexts below CxWell read none of this vocabulary. A context opts in by
 ;; placing itself under CxTra.
@@ -447,6 +447,69 @@
 (set/monotonic (instance_relation_predicate custodianOf))
 (arg custodianOf 1 person)
 (arg custodianOf 2 thing)
+
+;; ==== file paths ===============================================================
+;; An absolute path names a file only within a filesystem namespace: the same path read
+;; in a container and on its host can resolve to two files, or to one, or to none.  So a
+;; reference is the pair, built by FilePathRefFn and read back through filePathRefOf,
+;; pathNamespace and pathText.  Looking files up in a namespace is an access kind, and a
+;; grant of it is (hasCapability ?principal (FileLookupFn ?namespace)).  Lookup is a
+;; precondition of reading a file, and entails no read access.
+
+(comment filesystem_namespace "A rooted tree of names in which an absolute file path is resolved. Not a host, a storage device or a mount point: two namespaces over the same storage need not resolve a path alike.")
+(positiveExampleComment filesystem_namespace "the file tree a container's processes see")
+(positiveExampleComment filesystem_namespace "the file tree of a computer's root filesystem")
+(genl filesystem_namespace intangible)
+
+(comment file_path_reference "An absolute path taken together with the filesystem namespace it is resolved in. A reference to look a file up by, which does not say that the file exists or can be read.")
+(genl file_path_reference linguistic)
+
+(comment file_lookup "Resolving paths in a filesystem namespace under a grant. A precondition of reading any file in the namespace, which does not say that a given path exists or can be read.")
+(genl file_lookup resource_access)
+
+(comment FilePathRefFn "(FilePathRefFn ?namespace ?path) means the reference made of the filesystem namespace ?namespace and the absolute path string ?path. Does not say that a file exists at the path.")
+(reifiable_function FilePathRefFn)
+(binary_function FilePathRefFn)
+(functionCorrespondingPredicate FilePathRefFn filePathRefOf 3)
+(arg FilePathRefFn 1 filesystem_namespace)
+(quotedArg FilePathRefFn 2 string)
+(result FilePathRefFn file_path_reference)
+
+(comment filePathRefOf "(filePathRefOf ?namespace ?path ?reference) means that ?reference is the reference made of ?namespace and the absolute path string ?path: (FilePathRefFn ?namespace ?path) is ?reference.")
+(ternary_predicate filePathRefOf)
+(arg filePathRefOf 1 filesystem_namespace)
+(quotedArg filePathRefOf 2 string)
+(arg filePathRefOf 3 file_path_reference)
+
+(comment pathNamespace "(pathNamespace ?reference ?namespace) means that ?reference's path is resolved in the filesystem namespace ?namespace. Functional: a reference has one namespace.")
+(set/monotonic (instance_relation_predicate pathNamespace))
+(arg pathNamespace 1 file_path_reference)
+(arg pathNamespace 2 filesystem_namespace)
+(set/monotonic (functional pathNamespace))
+
+(comment pathText "(pathText ?reference ?path) means that ?path is the absolute path string of ?reference. Functional: a reference has one path.")
+(set/monotonic (instance_relation_predicate pathText))
+(arg pathText 1 file_path_reference)
+(quotedArg pathText 2 string)
+(set/monotonic (functional pathText))
+
+(set/forwardRule
+ (implies (filePathRefOf ?namespace ?path ?reference)
+          (and (pathNamespace ?reference ?namespace)
+               (pathText ?reference ?path))))
+
+(comment FileLookupFn "(FileLookupFn ?namespace) means the happening kind of resolving paths in the filesystem namespace ?namespace under a grant, a kind below file_lookup. A grant is stated as (hasCapability ?principal (FileLookupFn ?namespace)).")
+(reifiable_function FileLookupFn)
+(unary_function FileLookupFn)
+(functionCorrespondingPredicate FileLookupFn fileLookupOf)
+(arg FileLookupFn 1 filesystem_namespace)
+(genlResult FileLookupFn file_lookup)
+
+(comment fileLookupOf "(fileLookupOf ?namespace ?kind) means that ?kind is the happening kind of resolving paths in ?namespace under a grant: (FileLookupFn ?namespace) is ?kind.")
+(binary_predicate fileLookupOf)
+(arg fileLookupOf 1 filesystem_namespace)
+(genlArg fileLookupOf 2 file_lookup)
+(set/monotonic (functional fileLookupOf))
 
 ;; ==== content and carriers =================================================
 ;; information, among the computing kinds above, is the content: what a document says,

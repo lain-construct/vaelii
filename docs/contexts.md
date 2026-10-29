@@ -177,7 +177,7 @@ Data hangs below CxWell.
   CxWell does **not** see. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds five vocabularies:
+  none of its relations or kinds. CxTra holds six vocabularies:
   - **computing** — eleven relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -206,6 +206,13 @@ Data hangs below CxWell.
     write access from admin access and from deploy access over the same resource. A
     missing grant is unknown, and no rule concludes a denial. `(custodianOf ?person
     ?thing)` names who keeps a thing working, and is not access.
+  - **file paths** — an absolute path names a file only within a
+    `filesystem_namespace`, so a `file_path_reference` is the pair, built by the
+    reifiable `FilePathRefFn` and read back through `filePathRefOf`, `pathNamespace`
+    and `pathText`. `file_lookup`, resolving paths in a namespace, is an access kind
+    below `resource_access`, and `(hasCapability ?principal (FileLookupFn ?namespace))`
+    states a grant of it, with `fileLookupOf` its corresponding predicate. Lookup
+    entails no read access.
   - **content and carriers** — `information` is content apart from its medium, and
     `conceptual_work` is information composed as one work. `(carries ?carrier ?info)`
     types position 1 `temporal` and position 2 `information`, so a tangible paper copy

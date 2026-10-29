@@ -497,6 +497,16 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   working. [contexts.md](docs/contexts.md)
   *Migration:* none.
 
+- **CxTra ships file-path references and lookup access.** A `file_path_reference`
+  (below `linguistic`) is an absolute path taken with the `filesystem_namespace` (below
+  `intangible`) it is resolved in: `(FilePathRefFn ?namespace ?path)` builds one, with
+  `filePathRefOf` its corresponding predicate, and a forward rule reads `pathNamespace`
+  and `pathText`, each functional, from `filePathRefOf`. `file_lookup`, resolving paths
+  in a namespace, is below `resource_access`, and `(hasCapability ?principal
+  (FileLookupFn ?namespace))` states a grant of it, with `fileLookupOf` its functional
+  corresponding predicate. Lookup entails no read access. [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,
