@@ -452,6 +452,19 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   button runs the census as a job beside a load; `/stats` and `/quality` link each other.
   [web.md](docs/web.md#the-health-report)
 
+### Additive: shipped ontology
+
+- **`core.txt` declares `successorTypeOrder`, the metatype-order ladder one step at a
+  time.** `(successorTypeOrder ?lower ?higher)` says that `?higher` is the order of type
+  directly above `?lower`. Both positions take a `type_type_by_order`, and `(genlInverse
+  successorTypeOrder typeGenl)` reads each fact as the `typeGenl` fact with its arguments
+  swapped. `core.txt` states `(successorTypeOrder type metatype)` and
+  `(successorTypeOrder metatype meta_metatype)`, which answer `(typeGenl metatype type)`
+  and `(typeGenl meta_metatype metatype)`; `core.txt` no longer states those two.
+  `vocabulary/classification` calls it inert, as it does `typeGenl`.
+  [glossary.md](docs/glossary.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,
