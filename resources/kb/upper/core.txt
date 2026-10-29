@@ -1900,7 +1900,6 @@
 (context CxRealWorld)
 (context CxSize)
 (context CxSocial)
-(context CxSocialExtension)
 (context CxTra)
 (context CxUniverse)
 (context CxWell)

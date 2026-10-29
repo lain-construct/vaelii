@@ -1,12 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.social-extension-test
-  "CxSocialExtension: nestingPartnerOf, chosenSiblingOf, founderOf and the plurality
-  terms, shipped as an opt-in
-  extension of CxSocial below CxUniverse. CxWell does not see the theory, so the
-  everyday contexts below CxWell derive none of it, and a user's own context
-  opts in by placing itself under CxSocialExtension — which, placed under
-  CxSocial, sees CxSocial's own relations too."
+(ns vaelii.cxtra-social-test
+  "The relationship and plural-identity vocabulary of CxTra: nestingPartnerOf,
+  chosenSiblingOf, founderOf and the plurality terms, each narrower than a CxSocial
+  relation.  CxTra sees CxSocial as well as CxUniverse, and CxWell does not see CxTra,
+  so the everyday contexts below CxWell derive none of it, and a user's own context
+  opts in by placing itself under CxTra, which carries CxSocial's own relations to it."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -14,9 +13,10 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
-(def ^:private SOCX 'CxSocialExtension)
+(def ^:private SOCX 'CxTra)
 
-(tu/deftest-kb the-theory-is-opt-in-below-cxsocial
+
+(tu/deftest-kb cxtra-is-opt-in-and-sees-cxsocial
   (testing "the theory sees CxSocial, and through it CxUniverse"
     (is (tu/holds-sees SOCX 'CxSocial))
     (is (tu/holds-sees SOCX 'CxUniverse)))

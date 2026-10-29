@@ -151,7 +151,7 @@
     ;; the domain relations, orthogonal, negates, inverse and diachronicallyDisjoint are the
     ;; symmetric marks, decontextualized like the other algebraic marks, so they answer the
     ;; enumeration wherever CxUniverse is seen.  seeAlso is NOT among them — it is a directional cross-reference, not
-    ;; symmetric.  The social relations (CxSocial and CxSocialExtension) are among them:
+    ;; symmetric.  The social relations (CxSocial's and CxTra's) are among them:
     ;; their marks are stated in CxUniverse like the rest, and ?ctx is open.
     (is (= '#{siblingOf marriedTo friendOf orthogonal siblingDisjointException
               relativeOf romanticPartnerOf coworkerOf roommateOf

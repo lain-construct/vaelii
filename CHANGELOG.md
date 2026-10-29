@@ -177,6 +177,21 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   *Breaks:* `try-assert` of a unary predicate's membership over an argument outside the
   removed declaration's type
 
+### Breaking: shipped ontology
+
+- **CxSocialExtension merges into CxTra, and CxTra sees CxSocial.**
+  `kb/middle/CxTra.txt` states every form `CxSocialExtension.txt` stated
+  (`nestingPartnerOf`, `chosenSiblingOf`, `founderOf` and the plurality terms) and
+  `(genlCx CxTra CxSocial)` beside `(genlCx CxTra CxUniverse)`, since those relations
+  specialize CxSocial's. `core.txt` no longer states `(context CxSocialExtension)`. A
+  context is a unit of visibility, and both theories were opt-in, so one opt-in context
+  holds both. A context placed under CxTra now also reads CxSocial's relations and
+  rules. No relation, kind, rule or declaration changes.
+  [contexts.md](docs/contexts.md)
+  *Migration:* rename `CxSocialExtension` to `CxTra` in any `genlCx` edge, `ist` or
+  context argument that names it; a context placed under both needs one edge to CxTra.
+  *Breaks:* `CxSocialExtension`
+
 ### Breaking: storage
 
 - **A store records its reasoner set, and an open under another set is refused.**
@@ -507,7 +522,7 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   corresponding predicate. Lookup entails no read access. [contexts.md](docs/contexts.md)
   *Migration:* none.
 
-- **CxSocialExtension ships `founderOf` and the plurality terms.** `(founderOf ?founder
+- **CxTra ships `founderOf` and the plurality terms.** `(founderOf ?founder
   ?founded)` is a spec of `originatorOf` for a person brought into being by being
   started rather than by birth. `singlet`, `plural_system` and `alter` are separated
   under `person`, with no coverage claimed. `(alterOf ?alter ?system)` is functional and

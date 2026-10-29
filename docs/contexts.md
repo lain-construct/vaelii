@@ -93,7 +93,7 @@ The default topology is three levels, most general (top) to most specific (botto
 | context | holds | sees |
 |---|---|---|
 | CxUniverse | the upper ontology: every file under `resources/kb/upper/` | nothing |
-| the middle contexts | `kb/middle/` — seven theories, beside three opt-in theories | CxUniverse |
+| the middle contexts | `kb/middle/` — seven theories, beside two opt-in theories | CxUniverse (CxTra also CxSocial) |
 | CxWell | no content of its own | the seven theories |
 
 Data hangs below CxWell.
@@ -173,11 +173,13 @@ Data hangs below CxWell.
   kitchen. A context opts in by placing itself under CxNormalPhysicalConditions, and a
   context under both CxWell and CxNormalPhysicalConditions reads the everyday theories at
   room temperature.
-- **CxTra** — an **opt-in** theory in `kb/middle/` that sees CxUniverse and that
-  CxWell does **not** see. CxTra holds vocabulary that is generally useful but specific
+- **CxTra** — an **opt-in** theory in `kb/middle/` that sees CxUniverse and CxSocial,
+  and that CxWell does **not** see. It sees CxSocial because its relationship terms
+  specialize CxSocial's relations, so a context placed under CxTra reads CxSocial's
+  relations too. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds six vocabularies:
+  none of its relations or kinds. CxTra holds seven vocabularies:
   - **computing** — eleven relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -231,22 +233,16 @@ Data hangs below CxWell.
   - **perception** — `perceives` is the general relation and `sees` specializes it.
     `seeImage` and `watchVideo` conclude `sees` by a rule guarded by its `spatial`
     second argument, since an image or a video need not be located.
-- **CxSocialExtension** — an **opt-in** theory in `kb/middle/` that sees CxSocial,
-  and through it CxUniverse, and that CxWell does **not** see: `nestingPartnerOf`
-  (a spec of CxSocial's `romanticPartnerOf` and `roommateOf`, and read by a rule from
-  the two), `chosenSiblingOf` (a spec of `relativeOf`), `founderOf` (a spec of
-  `originatorOf` for a person brought into being by being started), and the plurality
-  terms: `singlet`, `plural_system` and `alter`, separated under `person`, with
-  `alterOf` and `headmateOf` (read by a rule from `alterOf`, and not a spec of `knows`).
-  A context opts in by
-  placing itself under CxSocialExtension, which also carries CxSocial's own
-  relations to it. **`<Theory>Extension` names a
-  theory that extends an existing starter theory with vocabulary most contexts
-  under the base theory have no occasion to see:** the base theory ships to every
-  context below CxWell, and the extension only to a context placed under it.
-- **CxWell** — sees every middle context except the three opt-in theories, so it (and any
+  - **relationships and plural identity** — relationship vocabulary narrower than
+    CxSocial's: `nestingPartnerOf` (a spec of CxSocial's `romanticPartnerOf` and
+    `roommateOf`, and read by a rule from the two), `chosenSiblingOf` (a spec of
+    `relativeOf`), `founderOf` (a spec of `originatorOf` for a person brought into
+    being by being started), and the plurality terms: `singlet`, `plural_system` and
+    `alter`, separated under `person`, with `alterOf` and `headmateOf` (read by a rule
+    from `alterOf`, and not a spec of `knows`).
+- **CxWell** — sees every middle context except the two opt-in theories, so it (and any
   context below it) transitively sees the whole ontology except
-  CxNormalPhysicalConditions, CxSocialExtension and CxTra. A
+  CxNormalPhysicalConditions and CxTra. A
   `kb/middle/` file is one of the seven theories when it states `(genlCx CxWell <its
   context>)`, and an opt-in theory when it does not.
 
