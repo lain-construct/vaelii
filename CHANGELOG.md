@@ -542,6 +542,16 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   [contexts.md](docs/contexts.md)
   *Migration:* none.
 
+- **CxTra ships `discordMessageClaims`, the Discord message a claim came from.**
+  `(discordMessageClaims ?message (sentexHandle H))` says that the message asserts what
+  sentex H states. Position 1 takes a `discord_message`, below `digital_artifact`, which
+  the reifiable `(DiscordMessageFn ?snowflake)` names by its snowflake id as a string
+  (`quotedArg`), with `discordMessageOf` its corresponding predicate, value last;
+  position 2 takes `thing`, as `agentClaims`'s does. It is
+  `target_following_predicate`, so retracting H retracts the receipt.
+  [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,

@@ -229,7 +229,11 @@ Data hangs below CxWell.
     `(propositionalContent ?info ?proposition)` is not functional over the existing
     `proposition` type; neither is derived from an information's author, encoding or
     context. `agentClaims` is `target_following_predicate`, so retracting H retracts
-    the claims that name it. `(nameString ?thing ?name)` takes a thing of any kind and
+    the claims that name it. `(discordMessageClaims ?message (sentexHandle H))` records
+    that a `discord_message`, named by its snowflake id as a string through the
+    reifiable `DiscordMessageFn`, asserts sentex H; it is typed and marked as
+    `agentClaims` is, so it does not outlive H, and records where a claim came from,
+    not that it is true. `(nameString ?thing ?name)` takes a thing of any kind and
     a string, and a thing can have more than one name string.
   - **perception** — `perceives` is the general relation and `sees` specializes it.
     `seeImage` and `watchVideo` conclude `sees` by a rule guarded by its `spatial`

@@ -3,8 +3,8 @@
 ;; capabilities a tool confers, media resources and network names, computers and the
 ;; computational systems that run on them and how they group, access to a resource,
 ;; the file paths a file is looked up by, information content, its carriers, the
-;; sentences an agent claims about it, and the strings that name a thing, perception
-;; relations, and relationship and
+;; sentences an agent claims about it and the Discord messages that claim them, the
+;; strings that name a thing, perception relations, and relationship and
 ;; plural-identity vocabulary narrower than CxSocial's. Sees the shared upper ontology
 ;; via CxUniverse, and CxSocial. CxWell does not see it, so the everyday contexts below
 ;; CxWell read none of this vocabulary. A context opts in by placing itself under CxTra.
@@ -555,6 +555,34 @@
 (arg agentClaims 2 thing)
 (quotedArg agentClaims 2 sentex_handle_term)
 (target_following_predicate agentClaims)
+
+;; ---- the message a claim came from ------------------------------------------
+;; discordMessageClaims records where a stored claim came from, as agentClaims records
+;; who presents it, and is typed and marked as agentClaims is: position 2 holds a sentex
+;; handle, so it declares thing.  The claimer is the sentex's creator, read from its
+;; provenance, and is not an argument.
+(comment discord_message "A message posted on Discord, fixed by its snowflake id. Discord holds its text and its author, and an edit or a deletion there does not make it a different message.")
+(genl discord_message digital_artifact)
+
+(comment DiscordMessageFn "(DiscordMessageFn ?snowflake) means the Discord message whose snowflake id is ?snowflake, written as a decimal string. A snowflake is unique across Discord, so the id alone fixes the message. Does not say that the message can still be fetched.")
+(reifiable_function DiscordMessageFn)
+(unary_function DiscordMessageFn)
+(quotedArg DiscordMessageFn 1 string)
+(result DiscordMessageFn discord_message)
+(functionCorrespondingPredicate DiscordMessageFn discordMessageOf)
+
+(comment discordMessageOf "(discordMessageOf ?snowflake ?message) means that ?message is the Discord message whose snowflake id is ?snowflake, written as a decimal string: (DiscordMessageFn ?snowflake) is ?message.")
+(binary_predicate discordMessageOf)
+(quotedArg discordMessageOf 1 string)
+(arg discordMessageOf 2 discord_message)
+(set/monotonic (functional discordMessageOf))
+
+(comment discordMessageClaims "(discordMessageClaims ?message (sentexHandle H)) means that the Discord message ?message asserts, in natural language, what the sentex named by the handle states. Records where the claim came from, not that it is true. Declared target_following_predicate, so retracting the sentex retracts each receipt that names it.")
+(binary_predicate discordMessageClaims)
+(set/monotonic (instance_relation_predicate discordMessageClaims))
+(arg discordMessageClaims 1 discord_message)
+(arg discordMessageClaims 2 thing)
+(target_following_predicate discordMessageClaims)
 
 ;; dataContent and propositionalContent are both stated, never derived: no rule here
 ;; computes either one from an information's author, its encoding or its context. A
