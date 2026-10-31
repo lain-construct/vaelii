@@ -75,3 +75,13 @@
       (is (not (holds-ask (list 'hasCapability Cy 'admin_access) CxDesk))))
     (testing "admin access does not entail shell access"
       (is (not (holds-ask (list 'hasCapability Ann 'shell_access) CxDesk))))))
+
+(tu/deftest-kb each-access-function-names-its-corresponding-predicate
+  ;; A function comes with the predicate relating its argument to its result, so a grant
+  ;; is not sayable only as a function term.
+  (is (= '{ReadAccessFn readAccessOf, WriteAccessFn writeAccessOf, ShellAccessFn shellAccessOf,
+           AdminAccessFn adminAccessOf, DeployAccessFn deployAccessOf,
+           MergeAccessFn mergeAccessOf}
+         (into {} (for [b (v/ask kb '(functionCorrespondingPredicate ?f ?p) CPT)
+                        :when (.endsWith (name (get b '?f)) "AccessFn")]
+                    [(get b '?f) (get b '?p)])))))

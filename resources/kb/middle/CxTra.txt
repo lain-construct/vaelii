@@ -2,12 +2,13 @@
 ;; starter contexts CxWell sees: software tools, their invocations and receipts, the
 ;; capabilities a tool confers, media resources and network names, computers and the
 ;; computational systems that run on them and how they group, access to a resource,
-;; the file paths a file is looked up by, information content, its carriers, the
-;; sentences an agent claims about it and the Discord messages that claim them, the
-;; strings that name a thing, perception relations, and relationship and
-;; plural-identity vocabulary narrower than CxSocial's. Sees the shared upper ontology
-;; via CxUniverse, and CxSocial. CxWell does not see it, so the everyday contexts below
-;; CxWell read none of this vocabulary. A context opts in by placing itself under CxTra.
+;; the file paths a file is looked up by, pull requests on a forge, their status and who
+;; may merge them, information content, its carriers, the sentences an agent claims
+;; about it and the Discord messages that claim them, the strings that name a thing,
+;; perception relations, and relationship and plural-identity vocabulary narrower than
+;; CxSocial's. Sees the shared upper ontology via CxUniverse, and CxSocial. CxWell does
+;; not see it, so the everyday contexts below CxWell read none of this vocabulary. A
+;; context opts in by placing itself under CxTra.
 
 (genlCx CxTra CxUniverse)
 ;; CxTra builds on CxSocial's relations: its relationship terms specialize them.
@@ -342,12 +343,16 @@
 ;;
 ;; Two grants each entail a third over the same resource, by the default rules below:
 ;; administering a resource and deploying onto it each entail changing it.  A genl edge
-;; between the kinds cannot say this, since (genl admin_access write_access) would say
-;; that administering one resource is changing some resource.  Write does not entail
-;; read, since a drop box accepts writes from those who cannot read it.  Shell does not
-;; entail read, since a forced-command login runs one command and reads nothing else.
-;; Admin does not entail shell, since a web service's administrator need have no shell
-;; on its host.
+;; between the kinds cannot say this: (genl admin_access write_access) would say only
+;; that administering one resource is changing some resource, and it is false besides,
+;; since granting others access changes nothing in the resource.  Merging into a
+;; repository entails changing it too, by the rule with the pull-request vocabulary
+;; below; every merge is a write, so merge_access is also below write_access, and the
+;; rule still carries the same repository.  Write
+;; does not entail read, since a drop box accepts writes from those who cannot read it.
+;; Shell does not entail read, since a forced-command login runs one command and reads
+;; nothing else.  Admin does not entail shell, since a web service's administrator need
+;; have no shell on its host.
 
 (comment resource_access "Acting on a resource under a grant of access to it.")
 (positiveExampleComment resource_access "reading a repository one has been given read access to")
@@ -513,6 +518,85 @@
 (arg fileLookupOf 1 filesystem_namespace)
 (genlArg fileLookupOf 2 file_lookup)
 (set/monotonic (functional fileLookupOf))
+
+;; ==== pull requests on a forge =================================================
+;; A pull request is named by its repository and its number, built by PullRequestFn and
+;; read back through pullRequestOf, value last.  prStatus gives the stage it is at, and
+;; takes no time argument: a status holds over the time of the context it is stated in.
+;; holdsReadyLatch says whose call it is that a repository's drafts are ready, and is not
+;; a grant.  Merging is an access kind, and a grant of it is (hasCapability ?principal
+;; (MergeAccessFn ?repository)).  Every merge changes its repository's target branch, so
+;; merge_access is below write_access, and a default rule of the form the admin and
+;; deploy rules above take concludes write access over the same repository.  A role
+;; that may merge but not push, as on a protected branch, is stated as a monotonic
+;; (not (hasCapability ?principal (WriteAccessFn ?repository))), which defeats that
+;; default; a default-strength denial does not.
+
+(comment forge_repository "A version-controlled repository as a forge hosts it, with its branches and the pull requests opened against it. Stays the same repository as commits land and branches move.")
+(genl forge_repository digital_artifact)
+
+(comment pull_request "A request on a forge to merge a branch's commits into a branch of a repository, with its discussion and reviews. Stays the same request through every change of status and every push to its branch.")
+(genl pull_request digital_artifact)
+
+(comment PullRequestFn "(PullRequestFn ?repository ?number) means the pull request numbered ?number in ?repository. A forge never gives one number to two pull requests of one repository, so the pair fixes the request. Says nothing about its status or whether the forge still serves it.")
+(reifiable_function PullRequestFn)
+(binary_function PullRequestFn)
+(functionCorrespondingPredicate PullRequestFn pullRequestOf 3)
+(arg PullRequestFn 1 forge_repository)
+(arg PullRequestFn 2 positive_integer)
+(result PullRequestFn pull_request)
+
+(comment pullRequestOf "(pullRequestOf ?repository ?number ?pullRequest) means that ?pullRequest is the pull request numbered ?number in ?repository: (PullRequestFn ?repository ?number) is ?pullRequest. A query joins on it to reach a repository's pull requests.")
+(ternary_predicate pullRequestOf)
+(arg pullRequestOf 1 forge_repository)
+(arg pullRequestOf 2 positive_integer)
+(arg pullRequestOf 3 pull_request)
+
+(comment pull_request_status "A stage a pull request can be at on its forge. A stage, not a pull request: it outlasts every request that passes through it.")
+(genl pull_request_status nowhere_never)
+
+(comment PullRequestDraft "Open, and marked by its author as not ready for review. A forge refuses to merge a pull request at this stage.")
+(pull_request_status PullRequestDraft)
+
+(comment PullRequestReady "Open and ready for review, whether or not it is approved or can merge cleanly.")
+(pull_request_status PullRequestReady)
+
+(comment PullRequestMerged "Merged into its target branch by the forge. Final: a merged pull request is never reopened.")
+(pull_request_status PullRequestMerged)
+
+(comment PullRequestClosed "Closed without being merged. Not final: the forge can reopen it.")
+(pull_request_status PullRequestClosed)
+
+(comment prStatus "(prStatus ?pullRequest ?status) means that ?pullRequest is at the stage ?status on its forge. One stage at a time. Takes no time argument: it holds over the time of the context it is stated in.")
+(set/monotonic (instance_relation_predicate prStatus))
+(arg prStatus 1 pull_request)
+(arg prStatus 2 pull_request_status)
+(set/monotonic (functional prStatus))
+
+(comment holdsReadyLatch "(holdsReadyLatch ?person ?repository) means that a draft pull request of ?repository waits on ?person to mark it ready or clear it to be. Not a permission: it grants no capability over ?repository, and a capability holder need not hold it.")
+(set/monotonic (instance_relation_predicate holdsReadyLatch))
+(arg holdsReadyLatch 1 person)
+(arg holdsReadyLatch 2 forge_repository)
+
+(comment merge_access "Merging a pull request into a repository under a grant. A merge changes the repository's target branch, so every merge is a write.")
+(genl merge_access write_access)
+
+(comment MergeAccessFn "(MergeAccessFn ?repository) means the happening kind of merging pull requests into ?repository under a grant, a kind below merge_access. A grant is stated as (hasCapability ?principal (MergeAccessFn ?repository)). Says nothing about which pull requests are ready to merge.")
+(reifiable_function MergeAccessFn)
+(unary_function MergeAccessFn)
+(functionCorrespondingPredicate MergeAccessFn mergeAccessOf)
+(arg MergeAccessFn 1 forge_repository)
+(genlResult MergeAccessFn merge_access)
+
+(comment mergeAccessOf "(mergeAccessOf ?repository ?kind) means that ?kind is the happening kind of merging pull requests into ?repository under a grant: (MergeAccessFn ?repository) is ?kind.")
+(binary_predicate mergeAccessOf)
+(arg mergeAccessOf 1 forge_repository)
+(genlArg mergeAccessOf 2 merge_access)
+(set/monotonic (functional mergeAccessOf))
+
+(set/defaultRule (set/forwardRule
+  (implies (and (hasCapability ?principal ?kind) (mergeAccessOf ?repository ?kind))
+           (hasCapability ?principal (WriteAccessFn ?repository)))))
 
 ;; ==== content and carriers =================================================
 ;; information, among the computing kinds above, is the content: what a document says,

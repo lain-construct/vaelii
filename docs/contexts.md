@@ -179,7 +179,7 @@ Data hangs below CxWell.
   relations too. CxTra holds vocabulary that is generally useful but specific
   to one domain, and no starter context CxWell sees states that vocabulary. A context
   opts in by placing itself under CxTra, and a context that does not see CxTra reads
-  none of its relations or kinds. CxTra holds seven vocabularies:
+  none of its relations or kinds. CxTra holds eight vocabularies:
   - **computing** — eleven relations over software tools, their invocations and
     receipts, media resources and DNS names, and the sixteen kinds the relations are
     typed over (`computational_system`, `software_tool`, `tool_invocation`,
@@ -215,6 +215,17 @@ Data hangs below CxWell.
     below `resource_access`, and `(hasCapability ?principal (FileLookupFn ?namespace))`
     states a grant of it, with `fileLookupOf` its corresponding predicate. Lookup
     entails no read access.
+  - **pull requests** — a `pull_request` of a `forge_repository` (both below
+    `digital_artifact`) is named by the reifiable `(PullRequestFn ?repository
+    ?number)`, with `pullRequestOf` its corresponding predicate, value last.
+    `(prStatus ?pullRequest ?status)` takes one of four `pull_request_status` values,
+    `PullRequestDraft`, `PullRequestReady`, `PullRequestMerged` and
+    `PullRequestClosed`, and no time argument. `(holdsReadyLatch ?person ?repository)`
+    says whose call it is that a repository's drafts are ready, and is not a grant.
+    `merge_access` is below `write_access`, `(hasCapability ?principal (MergeAccessFn
+    ?repository))` states a grant of it, with `mergeAccessOf` its functional
+    corresponding predicate, and a default rule concludes write access over the same
+    repository.
   - **content and carriers** — `information` is content apart from its medium, and
     `conceptual_work` is information composed as one work. `(carries ?carrier ?info)`
     types position 1 `temporal` and position 2 `information`, so a tangible paper copy

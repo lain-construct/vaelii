@@ -64,7 +64,8 @@
                                  confer, media resources and DNS names, the kinds
                                  the relations are typed over, computers and what
                                  runs on them, access to a resource and to the
-                                 files a path names, and
+                                 files a path names, pull requests on a forge
+                                 and who may merge them, and
                                  the perception relations perceives, sees, seeImage
                                  and watchVideo, and relationship and plural-
                                  identity vocabulary narrower than CxSocial's.

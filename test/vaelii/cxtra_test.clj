@@ -3,7 +3,7 @@
 (ns vaelii.cxtra-test
   "CxTra: the opt-in middle context for vocabulary that is generally useful but
   domain-specific, shipped below CxUniverse and CxSocial.  CxTra holds the computing
-  relations and kinds, hosts, access and file paths, the perception relations, and
+  relations and kinds, hosts, access, file paths and pull requests, the perception relations, and
   relationship and plural-identity vocabulary narrower than CxSocial's.  CxWell does not see CxTra, so a context below
   CxWell reads none of that vocabulary, and a user's own context opts in by placing
   itself under CxTra.  `computing_test` and `perception_test` hold each vocabulary's own

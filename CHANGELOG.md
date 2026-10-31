@@ -552,6 +552,19 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   [contexts.md](docs/contexts.md)
   *Migration:* none.
 
+- **CxTra ships pull requests, their status, the ready latch and merge access.** A
+  `pull_request` of a `forge_repository`, both below `digital_artifact`, is named by the
+  reifiable `(PullRequestFn ?repository ?number)`, with `pullRequestOf` its
+  corresponding predicate, value last. `(prStatus ?pullRequest ?status)` takes a
+  `pull_request_status`, below `nowhere_never`: `PullRequestDraft`, `PullRequestReady`,
+  `PullRequestMerged` or `PullRequestClosed`. `(holdsReadyLatch ?person ?repository)`
+  says whose call it is that a repository's drafts are ready, and grants nothing.
+  `merge_access` is below `write_access`, `(hasCapability ?principal (MergeAccessFn
+  ?repository))` states a grant of it, with `mergeAccessOf` its functional
+  corresponding predicate, and a default forward rule concludes write access over the
+  same repository. [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,
