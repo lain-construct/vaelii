@@ -312,40 +312,70 @@
         "the generated rule minted its witness")))
 
 (tu/deftest-kb a-generator-cycle-is-refused
-  (tu/with-terms [mm nn kk pp qq]
-    (testing "one generator generating what another reads"
+  (tu/with-terms [mm nn kk qq]
+    (testing "two generators that feed each other"
       (is (= :accepted
              (refusal kb (list 'implies (list mm '?o)
                                (list 'implies (list '?o '?a) (list kk '?a))))))
       (is (= :not-stratified
              (refusal kb (list 'implies (list 'and (list kk '?o) (list nn '?o))
-                               (list 'implies (list '?o '?a) (list pp '?a)))))))
+                               (list 'implies (list '?o '?a) (list mm '?a)))))))
     (testing "and a generator that feeds itself"
       (is (= :not-stratified
              (refusal kb (list 'implies (list qq '?o)
                                (list 'implies (list '?o '?a) (list qq '?a))))))))
   (testing "the same pair in the other arrival order, the reader first"
-    (tu/with-terms [mm nn kk pp]
+    (tu/with-terms [mm nn kk]
       (is (= :accepted
              (refusal kb (list 'implies (list 'and (list kk '?o) (list nn '?o))
-                               (list 'implies (list '?o '?a) (list pp '?a))))))
+                               (list 'implies (list '?o '?a) (list mm '?a))))))
       (is (= :not-stratified
              (refusal kb (list 'implies (list mm '?o)
-                               (list 'implies (list '?o '?a) (list kk '?a)))))))))
+                               (list 'implies (list '?o '?a) (list kk '?a))))))))
+  (testing "a loop through three generators, refused at the one that closes it"
+    (tu/with-terms [aa bb cc]
+      (let [gen  (fn [r c] (list 'implies (list r '?o) (list 'implies (list '?o '?x) (list c '?x))))
+            _    (is (= [:accepted :accepted] (mapv #(refusal kb %) [(gen aa bb) (gen bb cc)])))
+            data (ex-data (try (v/assert kb (gen cc aa) 'CxUniverse)
+                               (catch clojure.lang.ExceptionInfo e e)))]
+        (is (= :not-stratified (:type data)))
+        (is (re-find (re-pattern (str "concludes " aa "; .* reads " aa " .* concluding " bb
+                                      "; .* reads " bb " .* concluding " cc
+                                      "; this generator reads " cc))
+                     (str (:cycle data)))
+            "the refusal names the path back in loop order")))))
+
+(tu/deftest-kb a-feed-with-no-path-back-is-accepted
+  (doseq [order [identity reverse]]
+    (testing "a reader of genl beside a generator concluding genl"
+      (tu/with-terms [partitionedBy marker flaggedUnder]
+        (is (= [:accepted :accepted]
+               (mapv #(refusal kb %)
+                     (order [(list 'implies (list partitionedBy '?w '?c)
+                                   (list 'implies (list '?c '?p) (list 'genl '?p '?w)))
+                             (list 'implies (list 'and (list marker '?c) (list 'genl '?a '?c))
+                                   (list 'implies (list '?a '?x) (list flaggedUnder '?x '?c)))]))))))
+    (testing "a chain of three"
+      (tu/with-terms [aa bb cc dd]
+        (is (= [:accepted :accepted :accepted]
+               (mapv #(refusal kb %)
+                     (order [(list 'implies (list aa '?o) (list 'implies (list '?o '?x) (list bb '?x)))
+                             (list 'implies (list bb '?o) (list 'implies (list '?o '?x) (list cc '?x)))
+                             (list 'implies (list cc '?o) (list 'implies (list '?o '?x) (list dd '?x)))]))))))))
 
 (tu/deftest-kb the-cycle-check-sees-a-wrapped-generator-too
   ;; every generator is filed under the one key `implies`, which means peeling the
   ;; wrapper off the generated rule first — it is the generated rule's, not the
   ;; generator's.  Without the peel this generator files under `set/defaultRule`, the
   ;; cycle check's list of generators misses it, and the cycle below is admitted.
-  (tu/with-terms [mm nn kk pp]
+  (tu/with-terms [mm nn kk]
     (is (= :accepted
            (refusal kb (list 'implies (list mm '?o)
                              (list 'set/defaultRule
                                    (list 'implies (list '?o '?a) (list kk '?a)))))))
     (is (= :not-stratified
            (refusal kb (list 'implies (list 'and (list kk '?o) (list nn '?o))
-                             (list 'implies (list '?o '?a) (list pp '?a))))))))
+                             (list 'implies (list '?o '?a) (list mm '?a))))))))
 
 (tu/deftest-kb check-predicts-assert-on-every-generator-refusal
   ;; the repo's contract, and it matters most at the one entry point that writes two records:
@@ -549,14 +579,14 @@
              (refusal kb (list 'implies (list mm '?p)
                                (list 'implies (list '?p '?q)
                                      (list 'implies (list '?q '?x) (list mm '?x))))))))
-    (testing "and one whose innermost conclusion another generator reads"
+    (testing "and one whose innermost conclusion a generator feeding it reads"
       (is (= :accepted
              (refusal kb (list 'implies (list nn '?p)
                                (list 'implies (list '?p '?q)
                                      (list 'implies (list '?q '?x) (list kk '?x)))))))
       (is (= :not-stratified
              (refusal kb (list 'implies (list 'and (list kk '?o) (list pp '?o))
-                               (list 'implies (list '?o '?a) (list pp '?a)))))))))
+                               (list 'implies (list '?o '?a) (list nn '?a)))))))))
 
 ;; ---- the mint goes through the same entry point ---------------------------------
 

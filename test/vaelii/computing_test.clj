@@ -32,10 +32,6 @@
     image video tool_invocation tool_receipt ip_address ipv4_address ipv6_address])
 
 ;; Each reader answers a boolean, so a failing `is` prints the question and not the KB.
-(defn- holds-ask   [s ctx]         (boolean (v/ask? tu/*kb* s ctx)))
-(defn- holds-sees  [k y]           (boolean (v/sees? tu/*kb* k y)))
-(defn- holds-genl  [sub super ctx] (boolean (v/genl? tu/*kb* sub super ctx)))
-
 (defn- declared-positions
   "The count of `arg` and `quotedArg` declarations of `p` that `ctx` reads."
   [p ctx]
@@ -53,19 +49,19 @@
 
 (tu/deftest-kb the-theory-is-opt-in-below-cxuniverse
   (testing "the theory sees the upper ontology through CxUniverse"
-    (is (holds-sees CPT 'CxUniverse)))
+    (is (tu/holds-sees CPT 'CxUniverse)))
   (testing "CxUniverse states the theory's context membership beside the other shipped contexts"
     (is (some #(v/premise? kb (:id %))
               (v/sentexes-matching kb (list 'context CPT) 'CxUniverse))))
   (testing "neither CxWell nor the upper ontology sees the theory"
-    (is (not (holds-sees 'CxWell CPT)))
-    (is (not (holds-sees 'CxUniverse CPT)))))
+    (is (not (tu/holds-sees 'CxWell CPT)))
+    (is (not (tu/holds-sees 'CxUniverse CPT)))))
 
 (tu/deftest-kb the-theory-declares-every-relation-and-comments-it-once
   (doseq [p binary-relations]
-    (is (holds-ask (list 'binary_predicate p) CPT) (str p " is binary in the theory")))
+    (is (tu/holds-ask (list 'binary_predicate p) CPT) (str p " is binary in the theory")))
   (doseq [p ternary-relations]
-    (is (holds-ask (list 'ternary_predicate p) CPT) (str p " is ternary in the theory")))
+    (is (tu/holds-ask (list 'ternary_predicate p) CPT) (str p " is ternary in the theory")))
   (doseq [p (concat binary-relations ternary-relations)]
     (is (= 1 (count (v/sentexes-matching kb (list 'comment p '?c) CPT)))
         (str p " carries one comment in the theory"))
@@ -77,17 +73,17 @@
         (str k " carries one comment in the theory"))
     (is (empty? (v/sentexes-matching kb (list 'comment k '?c) 'CxUniverse))
         (str k " carries no comment in CxUniverse"))
-    (is (holds-genl k 'thing CPT) (str k " reaches thing from the theory")))
+    (is (tu/holds-genl k 'thing CPT) (str k " reaches thing from the theory")))
   (testing "the placements"
-    (is (holds-genl 'software_tool 'computational_system CPT))
-    (is (holds-genl 'computational_system 'intangible CPT))
-    (is (holds-genl 'read_only_software_tool 'acausal CPT))
-    (is (holds-genl 'write_capable_software_tool 'causal CPT))
-    (is (holds-genl 'tool_receipt 'acausal_event CPT))
-    (is (holds-genl 'tool_invocation 'event CPT))
-    (is (holds-genl 'ipv4_address 'ip_address CPT))
-    (is (holds-genl 'ipv6_address 'ip_address CPT))
-    (is (holds-genl 'ip_address 'string CPT)))
+    (is (tu/holds-genl 'software_tool 'computational_system CPT))
+    (is (tu/holds-genl 'computational_system 'intangible CPT))
+    (is (tu/holds-genl 'read_only_software_tool 'acausal CPT))
+    (is (tu/holds-genl 'write_capable_software_tool 'causal CPT))
+    (is (tu/holds-genl 'tool_receipt 'acausal_event CPT))
+    (is (tu/holds-genl 'tool_invocation 'event CPT))
+    (is (tu/holds-genl 'ipv4_address 'ip_address CPT))
+    (is (tu/holds-genl 'ipv6_address 'ip_address CPT))
+    (is (tu/holds-genl 'ip_address 'string CPT)))
   (testing "the separations"
     (is (v/disjoint? kb 'read_only_software_tool 'write_capable_software_tool CPT))
     (is (v/disjoint? kb 'computational_system 'event CPT))
@@ -141,22 +137,22 @@
         ;; The exact-arity classes and `functional` are decontextualized marks, so each
         ;; membership has a copy in CxUniverse, read there and in every context below it.
         (doseq [p binary-relations]
-          (is (holds-ask (list 'binary_predicate p) ctx) (str p " in " ctx)))
-        (is (holds-ask '(functional toolName) ctx) (str "the functional mark in " ctx))
+          (is (tu/holds-ask (list 'binary_predicate p) ctx) (str p " in " ctx)))
+        (is (tu/holds-ask '(functional toolName) ctx) (str "the functional mark in " ctx))
         (doseq [p ternary-relations]
-          (is (holds-ask (list 'ternary_predicate p) ctx) (str p " in " ctx)))
+          (is (tu/holds-ask (list 'ternary_predicate p) ctx) (str p " in " ctx)))
         (doseq [p (concat binary-relations ternary-relations)]
           (is (zero? (declared-positions p ctx)) (str p " in " ctx))
           (is (empty? (v/sentexes-matching kb (list 'comment p '?c) ctx)) (str p " in " ctx)))))
     (testing "the stated fact holds and no argument type is derived from it"
-      (is (holds-ask (list 'toolInvoked CallOne Grep) CxElsewhere))
+      (is (tu/holds-ask (list 'toolInvoked CallOne Grep) CxElsewhere))
       (is (not (v/isa? kb CallOne 'tool_invocation CxElsewhere))))
     (testing "a wrongly typed argument is not convicted there"
       (is (empty? (problem-types (list 'toolInvoked CallOne 5) CxElsewhere)))
       (is (empty? (problem-types (list 'toolName Grep 5) CxElsewhere))))
     (testing "the kinds are the theory's, so no context that does not see it reads a placement"
       (doseq [ctx [CxElsewhere 'CxWell 'CxUniverse] k kinds]
-        (is (not (holds-genl k 'thing ctx)) (str k " in " ctx)))
+        (is (not (tu/holds-genl k 'thing ctx)) (str k " in " ctx)))
       (is (not (v/isa? kb Grep 'acausal CxElsewhere))))
     (testing "the default audit, read from CxWell, sweeps none of the kinds"
       (let [swept (into #{} (mapcat (juxt :a :b)) (:pairs-data (v/disjointness-audit kb)))]
@@ -198,6 +194,6 @@
     (v/assert kb (list 'genlCx CxDesk CPT) 'CxUniverse)
     (v/assert kb (list 'read_only_software_tool Grep) CxDesk)
     (v/assert kb (list 'toolName Grep "grep") CxDesk)
-    (is (holds-ask (list 'toolName Grep "grep") CxDesk))
+    (is (tu/holds-ask (list 'toolName Grep "grep") CxDesk))
     (is (tu/stored-in-clash? kb (list 'toolName Grep "egrep") CxDesk)
         "a second, different name is stored as a member of a functional nogood")))

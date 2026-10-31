@@ -29,7 +29,6 @@
             [vaelii.impl.chain :as chain]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.interval :as iv]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.stp :as stp]
             [vaelii.test-util :as tu]))
 
@@ -38,6 +37,8 @@
 ;; time.txt holds temporalDistance, length and the interval relations.  Registering the
 ;; provers is what turns stored facts into a computation, and the quantity prover ships in
 ;; the default registry either way.
+;; The KB is built per test because a test registers a prover of its own, which a KB
+;; shared across tests would keep.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core!)
@@ -46,8 +47,6 @@
                         (v/add-prover (iv/allen-prover)))))
 
 (def ^:private C 'CxUniverse)
-
-(defn- fwd [antes conseq] (list 'set/forwardRule (vr/rule-sentence antes conseq)))
 
 (defn- believed [kb pred]
   (set (map :sentence (v/sentexes-with-functor kb pred {:believed? true}))))
@@ -67,7 +66,7 @@
   (tu/with-terms [Dawn Noon Dusk longEnough]
     (v/assert kb (list 'temporalDistance Dawn Noon '(QuantityFn 6 Hour)) C)
     (v/assert kb (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour)) C)
-    (v/assert kb (fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
+    (v/assert kb (tu/fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
     (testing "the closure composes the two legs, and the rule fires on what it entails"
       (is (= #{(list longEnough Dawn Dusk)} (believed kb longEnough))))
     (testing "and the firing names the legs it was composed out of"
@@ -80,7 +79,7 @@
   (tu/with-terms [Dawn Noon Dusk longEnough]
     (v/assert kb (list 'temporalDistance Dawn Noon '(QuantityFn 6 Hour)) C)
     (v/assert kb (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour)) C)
-    (v/assert kb (fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
+    (v/assert kb (tu/fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
     (is (seq (believed kb longEnough)) "the conclusion is there to lose")
     (v/retract! kb (handle-of kb 'temporalDistance
                               (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour))))
@@ -95,7 +94,7 @@
     (v/assert kb (list 'temporalDistance Dawn Noon '(QuantityFn 6 Hour)) C)
     (v/assert kb (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour)) C)
     (v/assert kb (list 'temporalDistance Midnight Sunrise '(QuantityFn 5 Hour)) C)
-    (v/assert kb (fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
+    (v/assert kb (tu/fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
     (is (seq (believed kb longEnough)))
     (v/retract! kb (handle-of kb 'temporalDistance
                               (list 'temporalDistance Midnight Sunrise '(QuantityFn 5 Hour))))
@@ -104,7 +103,7 @@
 
 (tu/deftest-kb the-rule-may-arrive-before-the-constraints
   (tu/with-terms [Dawn Noon Dusk longEnough]
-    (v/assert kb (fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
+    (v/assert kb (tu/fwd [(list 'temporalDistance Dawn Dusk '?d)] (list longEnough Dawn Dusk)) C)
     (v/assert kb (list 'temporalDistance Dawn Noon '(QuantityFn 6 Hour)) C)
     (v/assert kb (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour)) C)
     (testing "the same knowledge in the other order believes the same thing"
@@ -116,8 +115,8 @@
   (tu/with-terms [Standup Review longDay]
     (v/assert kb (list 'length Standup '(QuantityFn 2 Hour))   C)
     (v/assert kb (list 'length Review  '(QuantityFn 30 Minute)) C)
-    (v/assert kb (fwd [(list 'totalDuration (list 'list Standup Review) '?d)]
-                      (list longDay Standup Review))
+    (v/assert kb (tu/fwd [(list 'totalDuration (list 'list Standup Review) '?d)]
+                         (list longDay Standup Review))
               C)
     (testing "two hours and half an hour add up, and the rule fires on the sum"
       (is (= #{(list longDay Standup Review)} (believed kb longDay))))
@@ -130,8 +129,8 @@
   (tu/with-terms [Standup Review longDay]
     (v/assert kb (list 'length Standup '(QuantityFn 2 Hour))   C)
     (v/assert kb (list 'length Review  '(QuantityFn 30 Minute)) C)
-    (v/assert kb (fwd [(list 'totalDuration (list 'list Standup Review) '?d)]
-                      (list longDay Standup Review))
+    (v/assert kb (tu/fwd [(list 'totalDuration (list 'list Standup Review) '?d)]
+                         (list longDay Standup Review))
               C)
     (is (seq (believed kb longDay)))
     (v/retract! kb (handle-of kb 'length (list 'length Review '(QuantityFn 30 Minute))))
@@ -140,8 +139,8 @@
 
 (tu/deftest-kb the-rule-may-arrive-before-the-lengths
   (tu/with-terms [Standup Review longDay]
-    (v/assert kb (fwd [(list 'totalDuration (list 'list Standup Review) '?d)]
-                      (list longDay Standup Review))
+    (v/assert kb (tu/fwd [(list 'totalDuration (list 'list Standup Review) '?d)]
+                         (list longDay Standup Review))
               C)
     (v/assert kb (list 'length Standup '(QuantityFn 2 Hour))   C)
     (v/assert kb (list 'length Review  '(QuantityFn 30 Minute)) C)
@@ -162,8 +161,8 @@
       (run! #(v/assert kb % C) (unit-rows Mins))
       (v/assert kb (list 'length Standup '(QuantityFn 2 Hour)) C)
       (v/assert kb (list 'length Review (review-length Mins)) C)
-      (v/assert kb (fwd [(list 'totalDuration (list 'list Standup Review) (answer Mins))]
-                        (list longDay Standup Review))
+      (v/assert kb (tu/fwd [(list 'totalDuration (list 'list Standup Review) (answer Mins))]
+                           (list longDay Standup Review))
                 C)
       (is (seq (believed kb longDay)))
       (let [row (nth (unit-rows Mins) retracted)]
@@ -185,7 +184,7 @@
     (doseq [[i m] [[A '(QuantityFn 2 Hour)] [B '(QuantityFn 30 Minute)] [D '(QuantityFn 1 Hour)]]]
       (v/assert kb (list 'length i m) C))
     (doseq [i [B D]]
-      (v/assert kb (fwd [(list 'overlapDuration A i '?d)] (list shared A i '?d)) C))
+      (v/assert kb (tu/fwd [(list 'overlapDuration A i '?d)] (list shared A i '?d)) C))
     (v/assert kb (list 'before A D) C)
     (metric-overlap! kb [A As Ae] [B Bs Be])
     (is (contains? (believed kb shared) (list shared A D '(QuantityFn 0 Second))))
@@ -213,7 +212,7 @@
               :gaps      [endpoint gaps '(QuantityFn 900 Second)]
               :endpoints [gaps endpoint '(QuantityFn 900 Second)]
               :unit-rows [[] (unit-rows Mins) '(QuantityIntervalFn 0 1800 Second)])]
-        (v/assert kb (fwd [(list 'overlapDuration A B '?d)] (list shared A B '?d)) C)
+        (v/assert kb (tu/fwd [(list 'overlapDuration A B '?d)] (list shared A B '?d)) C)
         (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
         (v/assert kb (list 'length B (list 'QuantityFn 30 unit)) C)
         (run! #(v/assert kb % C) early)
@@ -236,13 +235,13 @@
     (tu/with-terms [A B Dawn Mid Noon Dusk concl]
       (let [[rule sources narrow tight wide]
             (case row
-              :overlap  [(fwd [(list 'overlapDuration A B '?d)] (list concl A B '?d))
+              :overlap  [(tu/fwd [(list 'overlapDuration A B '?d)] (list concl A B '?d))
                          [(list 'length A '(QuantityFn 2 Hour))
                           (list 'length B '(QuantityFn 30 Minute))]
                          (list 'before A B)
                          (list concl A B '(QuantityFn 0 Second))
                          (list concl A B '(QuantityIntervalFn 0 1800 Second))]
-              :distance [(fwd [(list 'temporalDistance Dawn Dusk '?d)] (list concl Dawn Dusk '?d))
+              :distance [(tu/fwd [(list 'temporalDistance Dawn Dusk '?d)] (list concl Dawn Dusk '?d))
                          [(list 'temporalDistance Dawn Noon '(QuantityIntervalFn 5 7 Hour))
                           (list 'temporalDistance Noon Dusk '(QuantityFn 6 Hour))
                           (list 'temporalDistance Dawn Mid '(QuantityFn 3 Hour))]
@@ -275,9 +274,9 @@
   (tu/with-terms [Gramme Kilo Heft massOf light Mouse]
     (load-mass-table kb Gramme Kilo Heft)
     (v/assert kb (list massOf Mouse (list 'QuantityFn 500 Gramme)) C)
-    (v/assert kb (fwd [(list massOf '?x '?q)
-                       (list 'quantityLessThan '?q (list 'QuantityFn 1 Kilo))]
-                      (list light '?x))
+    (v/assert kb (tu/fwd [(list massOf '?x '?q)
+                          (list 'quantityLessThan '?q (list 'QuantityFn 1 Kilo))]
+                         (list light '?x))
               C)
     (testing "five hundred of the small unit is under one of the big one — but only the
               table says so"
@@ -291,9 +290,9 @@
   (tu/with-terms [Gramme Kilo Heft massOf light Mouse]
     (load-mass-table kb Gramme Kilo Heft)
     (v/assert kb (list massOf Mouse (list 'QuantityFn 500 Gramme)) C)
-    (v/assert kb (fwd [(list massOf '?x '?q)
-                       (list 'quantityLessThan '?q (list 'QuantityFn 1 Kilo))]
-                      (list light '?x))
+    (v/assert kb (tu/fwd [(list massOf '?x '?q)
+                          (list 'quantityLessThan '?q (list 'QuantityFn 1 Kilo))]
+                         (list light '?x))
               C)
     (is (seq (believed kb light)))
     (v/retract! kb (handle-of kb 'conversionFactor (list 'conversionFactor Gramme Kilo 0.001)))
@@ -317,9 +316,9 @@
     (v/assert kb (list 'dimensionOf Kilo Heft) CxTable)
     (v/assert kb (list 'conversionFactor Gramme Kilo 0.001) CxTable)
     (v/assert kb (list 'conversionFactor Kilo Kilo 1) CxTable)
-    (v/assert kb (fwd [(list massOf '?x '?q)
-                       (list 'quantityGreaterThan '?q (list 'QuantityFn 1 Kilo))]
-                      (list heavy '?x))
+    (v/assert kb (tu/fwd [(list massOf '?x '?q)
+                          (list 'quantityGreaterThan '?q (list 'QuantityFn 1 Kilo))]
+                         (list heavy '?x))
               CxUse)
     (v/assert kb (list massOf Whale (list 'QuantityFn 5000 Gramme)) CxUse)
     (testing "the rule's context cannot see the table, so nothing compares"
@@ -333,9 +332,9 @@
   ;; `quantityGreaterThan` by predicate, and the mass fact that would have triggered the
   ;; rule has already arrived — so the table arriving is what has to re-join the rule.
   (tu/with-terms [Gramme Kilo Heft massOf heavy Whale]
-    (v/assert kb (fwd [(list massOf '?x '?q)
-                       (list 'quantityGreaterThan '?q (list 'QuantityFn 1 Kilo))]
-                      (list heavy '?x))
+    (v/assert kb (tu/fwd [(list massOf '?x '?q)
+                          (list 'quantityGreaterThan '?q (list 'QuantityFn 1 Kilo))]
+                         (list heavy '?x))
               C)
     (v/assert kb (list massOf Whale (list 'QuantityFn 5000 Gramme)) C)
     (testing "with no table the two units are their own dimensions and nothing compares"
@@ -371,7 +370,7 @@
     (let [ha (v/assert kb (list rankOf Ann 3) C)]
       (v/assert kb (list rankOf Bob 2) C)
       (v/assert kb (list rivalOf Ann Bob) C)
-      (v/assert kb (fwd [(list rivalOf '?x '?y) (list outranks '?x '?y)] (list beats '?x '?y)) C)
+      (v/assert kb (tu/fwd [(list rivalOf '?x '?y) (list outranks '?x '?y)] (list beats '?x '?y)) C)
       (testing "the rule fires on the prover's answer, and the firing names the rows it read"
         (is (= #{(list beats Ann Bob)} (believed kb beats)))
         (is (= #{(list rivalOf Ann Bob) (list rankOf Ann 3) (list rankOf Bob 2)}
@@ -382,7 +381,7 @@
 (tu/deftest-kb a-client-prover-s-source-may-arrive-after-the-rule
   (tu/with-terms [rankOf outranks rivalOf beats Ann Bob]
     (v/add-prover kb (ranking-prover rankOf outranks))
-    (v/assert kb (fwd [(list rivalOf '?x '?y) (list outranks '?x '?y)] (list beats '?x '?y)) C)
+    (v/assert kb (tu/fwd [(list rivalOf '?x '?y) (list outranks '?x '?y)] (list beats '?x '?y)) C)
     (v/assert kb (list rivalOf Ann Bob) C)
     (v/assert kb (list rankOf Bob 2) C)
     (is (empty? (believed kb beats)))
@@ -409,9 +408,9 @@
           load!   (fn [kb {:keys [rankOf outranks above person people rule]} order chain?]
                     (doseq [step order]
                       (case step
-                        :rule    (vreset! rule (v/assert kb (fwd [(list person '?x)
-                                                                  (list outranks '?x '?y)]
-                                                                 (list above '?x '?y))
+                        :rule    (vreset! rule (v/assert kb (tu/fwd [(list person '?x)
+                                                                     (list outranks '?x '?y)]
+                                                                    (list above '?x '?y))
                                                          C))
                         :persons (doseq [p people] (v/assert kb (list person p) C))
                         :ranks   (doseq [[i p] (map-indexed vector people)]
@@ -461,8 +460,8 @@
                    (tu/with-terms [quoted formula_mark]
                      (let [forms (vec (repeatedly k #(list 'Quote (list 'genl (tu/tmp-type)
                                                                         (tu/tmp-type)))))
-                           rh    (v/assert kb (fwd [(list quoted '?s) '(formula ?s)]
-                                                   (list formula_mark '?s))
+                           rh    (v/assert kb (tu/fwd [(list quoted '?s) '(formula ?s)]
+                                                      (list formula_mark '?s))
                                            C)
                            in?   (volatile! false)
                            calls (atom 0)]
@@ -494,9 +493,9 @@
   (tu/with-terms [ageOf youngerThan Ann Bob]
     (let [h1 (v/assert kb (list ageOf Ann 10) C {:chain? false})
           h2 (v/assert kb (list ageOf Bob 20) C {:chain? false})
-          rh (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b)
-                                (list 'lessThan '?a '?b)]
-                               (list youngerThan '?x '?y))
+          rh (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list ageOf '?y '?b)
+                                   (list 'lessThan '?a '?b)]
+                                  (list youngerThan '?x '?y))
                        C)
           ch (handle-of kb youngerThan (list youngerThan Ann Bob))]
       (is (some? ch))

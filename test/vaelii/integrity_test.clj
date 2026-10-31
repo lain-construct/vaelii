@@ -8,6 +8,7 @@
             [vaelii.impl.budget :as budget]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.predall :as predall]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.types.prover :as prover-types]
@@ -1178,6 +1179,27 @@
     (is (nil? (:derivable-stated-edge
                (v/kb-integrity kb #{} 'CxUniverse {:categories #{:derivable-stated-edge}}))))))
 
+(tu/deftest-kb an-acknowledged-derivable-edge-carries-its-reason
+  ;; Handbook ch. 14 asks that a stated edge a cover also installs say which exception of
+  ;; state it once applies; the record is that note, and the sweep reads it.
+  (tu/with-terms [whole_kind left_part right_part]
+    (v/assert kb (list 'partition whole_kind left_part right_part) 'CxUniverse)
+    (v/assert kb (list 'genl left_part whole_kind) 'CxUniverse)
+    (v/assert kb (list 'disjoint right_part left_part) 'CxUniverse)
+    (let [reason "documentation: the edge reads beside the part's comment"
+          run    #(into {} (map (juxt (comp first :sentence :stated) :acknowledged))
+                        (:derivable-stated-edge
+                         (v/kb-integrity kb #{} 'CxUniverse {:categories #{:derivable-stated-edge}})))
+          hs     [(v/assert kb (list 'acknowledgedFinding :derivable-stated-edge
+                                     (list 'genl left_part whole_kind) reason) 'CxUniverse)
+                  (v/assert kb (list 'acknowledgedFinding :derivable-stated-edge
+                                     (list 'disjoint left_part right_part) reason) 'CxUniverse)]]
+      (is (= {'genl reason 'disjoint reason} (run))
+          "each finding its stated sentence names carries the reason, in either argument
+           order of a disjoint")
+      (doseq [h hs] (v/retract! kb h))
+      (is (= {'genl nil 'disjoint nil} (run)) "retracting the record removes the reason"))))
+
 (tu/deftest-kb derivable-stated-edge-findings-respect-context-visibility
   (tu/with-terms [low_kind mid_kind top_kind CxHidden]
     (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
@@ -1388,6 +1410,108 @@
         (is (= #{} (found CxLow)) (str "as from the context stating the " functor))
         (is (= #{[left_kind [1]] [right_kind [1]]} (found CxSide))
             (str "a context that does not see the " functor " reads no edge"))))))
+
+;; ---- open-sibling-pair ----------------------------------------------------------
+
+(defn- open-pairs-of
+  "The `:open-sibling-pair` finding for `parent` a sweep from `context` reports, or nil."
+  [kb parent context]
+  (some #(when (= parent (:parent %)) %)
+        (:open-sibling-pair (v/kb-integrity kb #{} context {:categories #{:open-sibling-pair}}))))
+
+(tu/deftest-kb two-direct-specs-nothing-decides-are-an-open-sibling-pair
+  (tu/with-terms [whole_kind a_kind b_kind c_kind d_kind e_kind Fido]
+    (doseq [k [a_kind b_kind c_kind d_kind]]
+      (v/assert kb (list 'genl k whole_kind) 'CxUniverse))
+    (v/assert kb (list 'disjoint a_kind b_kind) 'CxUniverse)
+    (v/assert kb (list 'orthogonal a_kind c_kind) 'CxUniverse)
+    (v/assert kb (list b_kind Fido) 'CxUniverse)
+    (v/assert kb (list c_kind Fido) 'CxUniverse)
+    (v/assert kb (list 'genl e_kind a_kind) 'CxUniverse)
+    (v/assert kb (list 'genl e_kind d_kind) 'CxUniverse)
+    (let [in-order (fn [pairs] (sort-by #(mapv nm/print-key %)
+                                        (map #(vec (sort-by nm/print-key %)) pairs)))]
+      (is (= {:parent whole_kind :count 2
+              :pairs  (in-order [[b_kind d_kind] [c_kind d_kind]])}
+             (open-pairs-of kb whole_kind 'CxUniverse))
+          "a disjoint, an orthogonal, a shared instance and a shared subtype each decide a
+           pair, and the two left open are reported in print order"))))
+
+(tu/deftest-kb open-sibling-pair-is-review-only-and-reads-what-the-context-sees
+  (tu/with-terms [whole_kind a_kind b_kind CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (declare-types! kb whole_kind a_kind b_kind)
+    (doseq [k [a_kind b_kind]] (v/assert kb (list 'genl k whole_kind) 'CxUniverse))
+    (v/assert kb (list 'disjoint a_kind b_kind) CxHidden)
+    (is (nil? (:open-sibling-pair (v/kb-integrity kb #{} 'CxUniverse)))
+        "a sweep without :categories does not run the pass")
+    (is (= 1 (:count (open-pairs-of kb whole_kind 'CxUniverse)))
+        "a separation stated below the audit context decides nothing there")
+    (is (nil? (open-pairs-of kb whole_kind CxHidden)))))
+
+(tu/deftest-kb a-shared-subtype-stated-below-the-audit-context-decides-no-sibling-pair-there
+  (tu/with-terms [whole_kind a_kind b_kind both_kind CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (declare-types! kb whole_kind a_kind b_kind both_kind)
+    (doseq [k [a_kind b_kind]] (v/assert kb (list 'genl k whole_kind) 'CxUniverse))
+    (v/assert kb (list 'genl both_kind a_kind) 'CxUniverse)
+    (v/assert kb (list 'genl both_kind b_kind) CxHidden)
+    (is (= [[a_kind b_kind]] (mapv #(vec (sort-by nm/print-key %))
+                                   (:pairs (open-pairs-of kb whole_kind 'CxUniverse)))))
+    (is (nil? (open-pairs-of kb whole_kind CxHidden)))))
+
+;; ---- undecided-relation-property ------------------------------------------------
+
+(defn- undecided-among
+  "The `:undecided-relation-property` predicates among `preds` a sweep from `context`
+  reports, in report order."
+  [kb preds context]
+  (into [] (comp (map :predicate) (filter (set preds)))
+        (:undecided-relation-property
+         (v/kb-integrity kb #{} context {:categories #{:undecided-relation-property}}))))
+
+(tu/deftest-kb a-binary-predicate-no-property-mark-decides-is-undecided
+  (tu/with-terms [openRel transRel declinedRel inverseRel partnerRel posRel ternaryRel]
+    (doseq [p [openRel transRel declinedRel inverseRel partnerRel posRel]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (list 'arity ternaryRel 3) 'CxUniverse)
+    (v/assert kb (list 'transitive transRel) 'CxUniverse)
+    (v/assert kb (list 'not (list 'symmetric declinedRel)) 'CxUniverse)
+    (v/assert kb (list 'inverse inverseRel partnerRel) 'CxUniverse)
+    (v/assert kb (list 'functionalInArg posRel 2) 'CxUniverse)
+    (is (= #{openRel inverseRel partnerRel posRel}
+           (set (undecided-among kb [openRel transRel declinedRel inverseRel partnerRel posRel
+                                     ternaryRel] 'CxUniverse)))
+        "a mark and a stated denial each decide; an inverse on either side and a functional
+         position decide nothing; a ternary relation is not read")))
+
+(tu/deftest-kb undecided-relation-property-is-review-only-and-reads-what-the-context-sees
+  (tu/with-terms [markedRel CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate markedRel) 'CxUniverse)
+    (v/assert kb (list 'asymmetric markedRel) CxHidden)
+    (is (nil? (:undecided-relation-property (v/kb-integrity kb #{} 'CxUniverse)))
+        "a sweep without :categories does not run the pass")
+    (is (= [markedRel] (undecided-among kb [markedRel] 'CxUniverse))
+        "a mark stated below the audit context decides nothing there")
+    (is (= [] (undecided-among kb [markedRel] CxHidden)))))
+
+(tu/deftest-kb the-two-review-passes-truncate-under-every-bound
+  (tu/with-terms [whole_kind a_kind b_kind c_kind oneRel twoRel]
+    (doseq [k [a_kind b_kind c_kind]] (v/assert kb (list 'genl k whole_kind) 'CxUniverse))
+    (doseq [p [oneRel twoRel]] (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (doseq [category [:open-sibling-pair :undecided-relation-property]]
+      (let [run   #(v/kb-integrity kb #{} 'CxUniverse (merge {:categories #{category}} %))
+            total (count (category (run {})))]
+        (testing (str category " under a result cap below its finding count")
+          (let [report (run {:max-results (dec total)})]
+            (is (= [:truncated :max-results (dec total)]
+                   [(:status report) (:reason report) (count (category report))]))))
+        (testing (str category " under work exhaustion")
+          (let [needed (first (filter #(= :gap (:status (run {:max-work %}))) (range 0 20000)))]
+            (is (some? needed))
+            (is (every? #(= [:truncated :max-work] [(:status %) (:reason %)])
+                        (map #(run {:max-work %}) (range 0 (or needed 0) 7))))))))))
 
 ;; ---- rule-macro -----------------------------------------------------------
 
@@ -1831,6 +1955,222 @@
           (is (every? #(= [:truncated :max-work] ((juxt :status :reason) (run {:max-work %})))
                       (range 0 (or needed 0)))))))))
 
+;; ---- undeclared-term ----------------------------------------------------------
+
+(defn- undeclared-terms
+  "The `:undeclared-term` findings of a sweep of that category alone over `terms`."
+  ([kb terms] (undeclared-terms kb terms 'CxUniverse))
+  ([kb terms context]
+   (:undeclared-term (v/kb-integrity kb terms context {:categories #{:undeclared-term}}))))
+
+;; Forced to the entailing reading, since the genlArg entailment is what it asks about.
+(tu/deftest-kb a-type-whose-only-memberships-its-genl-and-genlArg-uses-entail-is-undeclared
+  (tu/with-entailing
+    (tu/with-cleared-kb [kb core-kb]
+      (tu/with-terms [retired_kind sub_kind ranksX]
+        (v/assert kb (list 'unary_predicate sub_kind) 'CxUniverse)
+        (v/assert kb (list 'binary_predicate ranksX) 'CxUniverse)
+        (v/assert kb (list 'genl sub_kind retired_kind) 'CxUniverse)
+        (v/assert kb (list 'genlArg ranksX 1 retired_kind) 'CxUniverse)
+        (is (v/ask? kb (list 'unary_predicate retired_kind) 'CxUniverse)
+            "the genlArg use entails the type's mark")
+        (is (= [{:term retired_kind :arity 1}] (undeclared-terms kb #{retired_kind sub_kind ranksX})))
+        (v/assert kb (list 'unary_predicate retired_kind) 'CxUniverse)
+        (is (= nil (undeclared-terms kb #{retired_kind sub_kind ranksX}))
+            "a stated membership declares it")))))
+
+(tu/deftest-kb an-individual-whose-only-membership-an-arg-use-mints-is-undeclared
+  (tu/with-terms [owner_kind ownsX Ann Dover]
+    (v/assert kb (list 'unary_predicate owner_kind) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate ownsX) 'CxUniverse)
+    (v/assert kb (list 'arg ownsX 1 owner_kind) 'CxUniverse)
+    (v/assert kb (list ownsX Ann Dover) 'CxUniverse)
+    (is (v/ask? kb (list owner_kind Ann) 'CxUniverse))
+    (is (= (mapv (fn [t] {:term t}) (sort-by nm/print-key [Ann Dover]))
+           (undeclared-terms kb #{Ann Dover owner_kind ownsX})))
+    (v/assert kb (list owner_kind Ann) 'CxUniverse)
+    (is (= [{:term Dover}] (undeclared-terms kb #{Ann Dover})))))
+
+(tu/deftest-kb a-term-only-a-comment-names-is-undeclared
+  (tu/with-terms [noted_kind]
+    (v/assert kb (list 'comment noted_kind "A kind only documented.") 'CxUniverse)
+    (is (= [{:term noted_kind}] (undeclared-terms kb #{noted_kind}))
+        "documentation states no membership")))
+
+(tu/deftest-kb a-typed-individual-and-a-declared-predicate-are-declared
+  (tu/with-terms [person_kind linksX Fido Rex]
+    (v/assert kb (list 'unary_predicate person_kind) 'CxUniverse)
+    (v/assert kb (list person_kind Fido) 'CxUniverse)
+    (v/assert kb (list 'arity linksX 2) 'CxUniverse)
+    (v/assert kb (list linksX Fido Rex) 'CxUniverse)
+    (v/assert kb (list 'comment linksX "Links two things.") 'CxUniverse)
+    (is (= [{:term Rex}] (undeclared-terms kb #{person_kind linksX Fido Rex}))
+        "a stated membership and an arity statement declare a term")))
+
+(tu/deftest-kb a-value-an-unused-term-and-a-quoted-mention-are-not-undeclared
+  (tu/with-terms [noted_kind quoted_kind unused_kind]
+    (v/assert kb (list 'comment noted_kind "A kind only documented.") 'CxUniverse)
+    (v/assert kb (list 'unary_predicate noted_kind) 'CxUniverse)
+    (v/assert kb (list 'negativeExample noted_kind (list 'Quote (list quoted_kind 7))) 'CxUniverse)
+    (is (= :audited (:status (v/kb-integrity kb #{7 "seven" quoted_kind unused_kind}
+                                             'CxUniverse {:categories #{:undeclared-term}})))
+        "a number, a string, a term inside a Quote and a term no sentence uses are not findings")))
+
+(tu/deftest-kb undeclared-term-reads-the-uses-and-memberships-a-context-sees
+  (tu/with-terms [CxHidden owner_kind placed_kind Ann Bob]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate owner_kind) 'CxUniverse)
+    (v/assert kb (list 'comment Ann "Documented above.") 'CxUniverse)
+    (v/assert kb (list owner_kind Ann) CxHidden)
+    (v/assert kb (list 'comment Bob "Documented below.") CxHidden)
+    (v/assert kb (list 'comment placed_kind "Documented above.") 'CxUniverse)
+    (v/assert kb (list 'unary_predicate placed_kind) CxHidden)
+    (is (= [{:term Ann}] (undeclared-terms kb #{Ann Bob placed_kind}))
+        "a membership or a use stated below the audit context is not seen from it, and an
+         arity binding stated anywhere declares its relation")
+    (is (= [{:term Bob}] (undeclared-terms kb #{Ann Bob placed_kind} CxHidden)))))
+
+(tu/deftest-kb the-upper-ontology-declares-every-constant-it-uses
+  (tu/with-cleared-kb [kb core-kb]
+    (let [terms (into #{} (filter symbol?) (reads/stored-terms-global (:index kb)))]
+      (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse
+                                               {:categories #{:undeclared-term}})))))))
+
+;; ---- the upper ontology's stated residue under three review categories ----------
+
+(def ^:private open-sibling-residue
+  "`{parent n}`: the parents whose direct specs the upper ontology leaves `n` pairs of
+  open, as `:open-sibling-pair` reads them from CxUniverse.  A pair a change decides, by
+  a separation, an `orthogonal` or a shared member, lowers its parent's count; a new
+  open pair raises it."
+  '{acausal 1 animal 12 aspatial 1 at_least_metatype 4 binary_predicate 17 body_part 27
+    causal 1 closed_expression 3 context 1 denotational_term 2 event 2 expression 1
+    fixed_order_type 3 fluent 1 formula 4 function 9 intangible 1 integer 4
+    lepidopteran 1 literal 2 made 12 non_atomic_term 3 nowhere_never 1 organism 6
+    predicate 39 quantitative 6 relation 8 sentence 4 spatiotemporal 1 substance 15
+    tangible 5 temporal 6 thing 5 type 14 unary_predicate 26 variable_arity 3
+    vertebrate 5 wff_expression 2})
+
+(def ^:private undecided-relation-residue
+  "The binary predicates of the upper ontology no relation property mark or stated
+  denial decides, as `:undecided-relation-property` reads them from CxUniverse.  A
+  predicate a change decides leaves the set; a new binary predicate the change leaves
+  undecided joins it."
+  '#{actor admitsArgnum adultFormOf after arg1 arg2 arg3 arg4 arg5 args argsGenl
+     arityMax arityMin atSomeDistanceFrom before behind behindLeftOf behindRightOf
+     believes beyondFarDistanceFrom borderlineExample borderlineExampleComment
+     calendarYear capabilityType childOf clippedBefore closeTo closedExtentForArg1
+     closedExtentForArg2 closedExtentForArg3 closedExtentForArg4 closedExtentForArg5
+     coLocatedWith comment commutativeInArgAndRest contains cxMonadOf cxTimeOf
+     datetimeOf defnIff defnNecessary defnSufficient denotes derivativeOf
+     destroyedInput dimensionOf disjoint doneBy during earliestEndOf earliestStartOf
+     eastOf eastwardOf eats endOf equals evaluate exceptWhen exists expresses
+     externallyConnected farFrom finishedBy finishes forall frontLeftOf frontRightOf
+     frontwardOf functionTypeByArity functionalInArg genlInverse genlMonad
+     genlResult grandparentOf happens hasCapability hasRegionPart hasSubinterval
+     holdsAt implementationNote implies inFrontOf includesInstant input instantEqual
+     instantNotAfter instantNotBefore instantNotEqual intangibleOutput interArgs
+     intervalAfterOf intervalBeforeOf intervalEqual ist knows larvalFormOf
+     latestEndOf latestStartOf leftOf leftwardOf length likes livesIn madeOf
+     matchesPattern meetFunctionOf meets memberOf metBy moderatelyFarFrom natFormula
+     nearTo negativeExample negativeExampleComment nonTangentialProperPart
+     nonTangentialProperPartInverse northOf northeastOf northwardOf northwestOf
+     output overlappedBy overlaps owns parentOf partType partiallyOverlapping
+     partitionedByType performedBy positiveExample positiveExampleComment precededBy
+     precedes predAllSpecified predSpecifiedAll predicateTypeByArity preservedInput
+     properCounterpart quantityGreaterThan quantityGreaterThanOrEqual
+     quantityLessThan quantityLessThanOrEqual rearwardOf regionConnectedTo
+     regionDiscreteFrom regionOverlaps result resultArg rewriteOf rightOf
+     rightwardOf sameAs sameLocationAs sameQuantity sameRelativePositionAs seeAlso
+     sharesTimeWith signOf southOf southeastOf southwardOf southwestOf
+     spatiallyDisconnected spatiallyEqual speaks startOf startedBy starts
+     tangentialProperPart tangentialProperPartInverse tangibleOutput
+     temporallyDisjoint thereExists thingPerceived timeOf totalDuration trendOf
+     typeGenl typeOrthogonal typeToInstancePred veryCloseTo veryFarFrom westOf
+     westwardOf withinNearDistanceOf worksFor})
+
+(def ^:private unnoted-derivable-residue
+  "The stated edges of the upper ontology that hold without themselves and that no
+  `acknowledgedFinding` under `:derivable-stated-edge` names, as CxUniverse reads them.
+  An edge a change drops, or acknowledges with the exception of state it once that keeps
+  it, leaves the set."
+  '#{(genl animal organism) (genl atemporal intangible) (genl atomic_term denotational_term)
+     (genl binary fixed_arity) (genl biological tangible) (genl boolean unrepresented_term)
+     (genl character unrepresented_term) (genl closed_expression expression)
+     (genl closed_predication sentence) (genl formula linguistic)
+     (genl keyword unrepresented_term) (genl negated_predication literal)
+     (genl non_atomic_expression expression) (genl non_atomic_term linguistic)
+     (genl number unrepresented_term) (genl open_expression expression)
+     (genl open_predication open_formula) (genl organism biological)
+     (genl predication literal) (genl quaternary fixed_arity) (genl quinary fixed_arity)
+     (genl sentence formula) (genl string unrepresented_term) (genl symbol atomic_term)
+     (genl symbol linguistic) (genl ternary fixed_arity) (genl unary fixed_arity)
+     (genl unrepresented_term atomic_term) (genl unrepresented_term linguistic)
+     (genl warm_blooded animal) (genl wff_expression expression)
+     (disjoint animal building) (disjoint container substance)
+     (disjoint tangible situation)})
+
+(defn- upper-review
+  "The findings of `category` a review sweep of the upper ontology from CxUniverse
+  reports."
+  [category]
+  (tu/with-cleared-kb [kb core-kb]
+    (category (v/kb-integrity kb #{} 'CxUniverse {:categories #{category}}))))
+
+(tu/deftest-kb the-upper-ontology-leaves-these-sibling-pairs-open
+  (is (= open-sibling-residue
+         (into {} (map (juxt :parent :count)) (upper-review :open-sibling-pair)))
+      "decide a new open pair, or count it in open-sibling-residue"))
+
+(tu/deftest-kb the-upper-ontology-leaves-these-relation-properties-undecided
+  (is (= undecided-relation-residue
+         (into #{} (map :predicate) (upper-review :undecided-relation-property)))
+      "decide a new binary predicate's properties, or list it in undecided-relation-residue"))
+
+(tu/deftest-kb the-upper-ontology-states-these-derivable-edges-without-a-note
+  (is (= unnoted-derivable-residue
+         (into #{} (comp (remove :acknowledged) (map (comp :sentence :stated)))
+               (upper-review :derivable-stated-edge)))
+      "acknowledge a new derivable stated edge with its exception, or list it in
+       unnoted-derivable-residue"))
+
+(tu/deftest-kb undeclared-term-work-is-linear-in-the-candidates-and-flat-in-the-genl-edges
+  (tu/with-terms [top_kind a_kind b_kind c_kind d_kind]
+    (let [kinds [a_kind b_kind c_kind d_kind]
+          work  #(:work (v/kb-integrity kb % 'CxUniverse {:categories #{:undeclared-term}}))]
+      (doseq [k kinds] (v/assert kb (list 'unary_predicate k) 'CxUniverse))
+      (v/assert kb (list 'genl a_kind top_kind) 'CxUniverse)
+      (let [one (work #{a_kind})
+            all (work (set kinds))]
+        (is (= (* 4 one) all) "each declared candidate spends the same units")
+        (doseq [k (rest kinds)] (v/assert kb (list 'genl k a_kind) 'CxUniverse))
+        (is (= one (work #{a_kind})) "three more genl edges over the candidate spend nothing")
+        (is (= [{:term top_kind}] (undeclared-terms kb #{top_kind})))
+        (let [undeclared (work #{top_kind})]
+          (doseq [k (rest kinds)] (v/assert kb (list 'genl k top_kind) 'CxUniverse))
+          (is (= undeclared (work #{top_kind}))
+              "the use read stops at the first use however many edges name the term"))))))
+
+(tu/deftest-kb undeclared-term-findings-truncate-under-every-bound
+  (tu/with-terms [one_kind two_kind]
+    (doseq [k [one_kind two_kind]]
+      (v/assert kb (list 'comment k "Documented only.") 'CxUniverse))
+    (let [terms    #{one_kind two_kind}
+          run      #(v/kb-integrity kb terms 'CxUniverse (assoc % :categories #{:undeclared-term}))
+          in-order (mapv (fn [t] {:term t}) (sort-by nm/print-key terms))]
+      (is (= in-order (:undeclared-term (run {}))))
+      (testing "a result cap below the finding count keeps the completed prefix"
+        (let [report (run {:max-results 1})]
+          (is (= [:truncated :max-results] ((juxt :status :reason) report)))
+          (is (= (subvec in-order 0 1) (:undeclared-term report)))))
+      (testing "work exhaustion is truncated, never audited, and keeps the findings completed
+                before it"
+        (let [needed (first (filter #(= :gap (:status (run {:max-work %}))) (range 0 1000)))]
+          (is (some? needed))
+          (let [partials (map #(run {:max-work %}) (range 0 (or needed 0)))]
+            (is (every? #(= [:truncated :max-work] ((juxt :status :reason) %)) partials))
+            (is (some #(= (subvec in-order 0 1) (:undeclared-term %)) partials))))))))
+
 ;; ---- rule-clash -------------------------------------------------------------
 
 (defn- clash-sweep
@@ -1984,6 +2324,23 @@
       (is (= 2 (count census)))
       (is (= (set census) (set (map #(dissoc % :inert) found)))
           "kb-quality's :clashes reading is the same pairing, unsplit"))))
+
+(tu/deftest-kb a-partition-alone-separates-two-rule-conclusions
+  ;; The `partition` is the KB's only separation, so the presence check that admits unary
+  ;; conclusion pairs reads the covers or finds no pair.  The partition is asserted before
+  ;; the rules and after them, each on a KB of its own.
+  (tu/with-terms [animal_kind feline_kind canine_kind meows barks]
+    (let [decls [#(v/assert % (list 'genl animal_kind 'thing) 'CxUniverse)
+                 #(v/assert % (list 'partition animal_kind feline_kind canine_kind) 'CxUniverse)]
+          rules [#(v/assert-rule % [(list meows '?x)] (list feline_kind '?x) 'CxUniverse
+                                 {:direction :forward})
+                 #(v/assert-rule % [(list barks '?x)] (list canine_kind '?x) 'CxUniverse
+                                 {:direction :forward})]]
+      (doseq [[order steps] [[:partition-first (concat decls rules)]
+                             [:rules-first (concat rules decls)]]]
+        (tu/with-neutral-kb [kb tu/fresh]
+          (doseq [f steps] (f kb))
+          (is (= [:disjoint] (mapv :kind (:pairs (:clashes (v/kb-quality kb))))) order))))))
 
 (tu/deftest-kb rule-clash-findings-truncate-under-every-bound
   (tu/with-terms [bird_kind penguin_kind flies swims]

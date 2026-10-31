@@ -854,16 +854,6 @@
     (is (empty? (v/violations kb))
         "nothing marked above either end, so nothing was enumerated and nothing was cut")))
 
-(defn- orderings
-  "Every arrival order of `xs`.  The case below runs over all of them rather than over a
-  hand-picked few: which sentence is last is exactly what decides whether this policy
-  reports, so a subset would be choosing the answer."
-  [xs]
-  (if (< (count xs) 2)
-    [(vec xs)]
-    (for [x xs, tail (orderings (remove #{x} xs))]
-      (into [x] tail))))
-
 (deftest every-arrival-order-of-a-cross-context-clash-decides-it-once
   ;; **All three ingredients are triggers, so all six orders decide.**  A pair split
   ;; across a visibility edge needs the mark, the `genl` edge that carries it down to the
@@ -878,7 +868,7 @@
   ;; so a count above one is a reading that depends on how the
   ;; clash was found rather than on what it is.
   (tu/with-terms [CxA CxB CxW birthYear measureOf Tom]
-    (doseq [order (orderings [:declaration :edge :facts])]
+    (doseq [order (tu/orders [:declaration :edge :facts])]
       (tu/with-cleared-kb [k tu/fresh]
         (v/assert k (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
         (v/assert k (list 'genlCx CxB 'CxUniverse) 'CxUniverse)

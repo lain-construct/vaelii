@@ -441,7 +441,9 @@ functional declaration]`. Every other collision is a nogood the settle decides: 
 numbers, two strings or a compound, because no merge can make two numbers one thing, and
 a pair with a `:default` fact, because a merge is never defeated and is undone only by
 retracting a premise it rests on, so it rests on `:monotonic` evidence alone
-([reference.md](reference.md#decisions), decisions 6 and 13). The settle places the
+([reference.md](reference.md#decisions), decisions 6 and 13). Two measures that can
+denote one magnitude are no collision
+([quantity.md](quantity.md#a-functional-measure-slot)). The settle places the
 `defeat` of the unique `:default` fact of such a pair, and two `:default` facts are a
 dilemma. A defeasible identity is
 written with a predicate that does not merge.
@@ -700,6 +702,9 @@ displaced it.
   `indeterminate_term` or a `genl` into it, since the unique-name assumption is
   suspended for a member and the guard is withdrawn the same way
   ([predall.md](predall.md)). The negative edge runs to the three equality relations.
+  `different` reads stored merges, memberships and edges, so the edge leaves only a rule
+  whose conclusions are stored: a `set/backwardRule` concluding an equality closes no
+  cycle through a `different` reader.
   `checks/negative-edge-rules` reads the re-check index beside the antecedent index, so
   a stored `different` rule keeps a `genl` edge's stratification walk on, and a cycle a
   later taxonomy edge closes beneath it is refused.

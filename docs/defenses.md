@@ -175,7 +175,7 @@ happens-to-be-free reads. The cost of the in-region work itself is what is left,
 is where the bitmap-rebuild shape hides — it satisfies equivalence, satisfies containment,
 pays nothing per boundary node, and still grows with the KB. Nothing structural rules it
 out and no unit test reaches the scale that shows it, so it is held by `lein bench-jtms`
-and by review. Which is why it is written into the `Tms` docstring beside the three
+and by review. Which is why it is written into [nmtms.md](nmtms.md#what-a-second-network-owes) beside the
 obligations that a test does enforce: an implementation that is never told about a claim cannot
 be held to it.
 
@@ -190,7 +190,7 @@ missing. The last column names the test that asserts the departure, or `none`.
 | property | where | what stops, and why | tested by |
 |---|---|---|---|
 | order | a capped read ([anytime.md](anytime.md#the-one-idea-bound-a-lazy-stream-keep-the-tail)) | A `:max-results` cap, or `take` over `ask` or `query`, keeps *k* answers in the order the index holds their handles. Sorting the matches by content first would realize the whole extent the cap bounds. | `order_independence_test/a-capped-answer-is-one-of-the-answers-whichever-fact-arrived-first` |
-| order | a merge sweep past `tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md#what-a-declaration-reaches-back-over), [equality.md](equality.md#functional-infers-equality-instead-of-throwing)) | The sweep reads a prefix of its extent in posting order, so which instances a cut sweep examines depends on arrival. Content order would force the extent the budget bounds. Each cut files a `…-truncated` violation (`core/violations`, "Bounded"). | `order_independence_test/a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut` |
+| order | a merge sweep past `tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md#what-a-declaration-reaches-back-over), [equality.md](equality.md#functional-infers-equality-instead-of-throwing)) | The sweep reads a prefix of its extent in posting order, so which instances a cut sweep examines depends on arrival. Content order would force the extent the budget bounds: sorting the context ancestor set took `retract-context-cycle-scaling` from 0.08 to 0.28 ms/op at 2048 contexts (3.4x growth against a 2x bound), since a context cycle makes the ancestor set the whole graph. Each cut files a `…-truncated` violation (`core/violations`, "Bounded"). | `order_independence_test/a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut` |
 | order | the justification set ([nmtms.md](nmtms.md#where-the-layer-stops)) | Belief and `why` agree in every order, and the stored routes do not in three cases: an edge defeated in the network and then revived leaves two routes, a descended `functional` or `anti_symmetric` equality keeps the route it first named, and the covering test leaves a firing placed below another in a lattice that splits one route across sibling contexts. Each keeps a justification a reader still reads, or has no second route to replace. | `none` |
 | order | a symmetric fold of two bare rows ([canonicalization.md](canonicalization.md#a-mark-arriving-after-the-facts-migrates-them)) | The lower handle survives. The two rows state one proposition, so no belief reads which one stays. | `none` |
 | order | the browser's listings ([web.md](web.md#a-cap-is-not-an-answer-rank-first-then-cap)) | A listing is in handle order, because paging re-slices one sequence at an offset and a content order moves under every write. | `web_test/a-term-with-thousands-of-sentexes-is-walkable-to-the-end` |
@@ -219,8 +219,8 @@ derives nothing ([quantity.md](quantity.md#the-table)).
 
 The network sits behind a `Tms` protocol with a `:reference` and a `:dense` implementation
 rather than one adaptable structure, and two properties are why — both easy to assume and
-both wrong. (What a *third* one would owe is not restated per implementation: the `Tms`
-docstring lists the four obligations with the test that enforces each.)
+both wrong. (What a *third* one would owe is not restated per implementation:
+[nmtms.md](nmtms.md#what-a-second-network-owes) lists the four obligations with the test that enforces each.)
 
 A dense network cannot simply replace the reference. `RoaringBitmap` is mutable, and
 `jtms_atomicity_test` asserts that a mutation applies all-or-nothing; a mutable bitmap inside
@@ -1155,7 +1155,9 @@ reached (`ontology_test/the-watch-of-theseus-is-intermittent`).
 
 So `res/separation-denials` asks every edge on both sides to hold at `:monotonic`, read as
 the widest-bottleneck floor, and a disjoint metatype's membership to hold at `:monotonic`
-too. Capping the denial at `:default` and reading the believed inherited membership on the
+too. The separation itself answers at either strength while it is believed and visible at
+the reader: a `:default` `(disjoint pc pb)` denies `(pb Xy)` from `(pc Xy)` by applying the
+default forward, and no contrapositive of it is read. Capping the denial at `:default` and reading the believed inherited membership on the
 denying side would answer more, and it would need a second strength on a read the cover
 family names members off. The engine takes the smaller rule ([taxonomy.md](taxonomy.md),
 *A separation answers a denial*).
@@ -1981,12 +1983,13 @@ well-defined, wrong answer.
 `wff` throws, and which fact it would throw on is whichever arrived last — the clash a
 qualitative calculus finds is a property of a *set* of facts, not of any one of them, so
 blaming a single member makes the stored KB's error depend on the order the facts were
-asserted in. Throwing would also cost a fixpoint per assert, run whether or not anybody
-asked for it, and the provers are opt-in, so a KB that never registered one would be held
-to a calculus it never asked for. Recording the inconsistency where the pass already
-proved it, in the violations ledger, adds no work beyond a pass the KB already ran and
-holds the property every other check in the engine holds: the answer does not depend on
-the order the facts arrived in.
+asserted in. The provers are opt-in, so a KB that never registered one is held to no
+calculus. `assert` stores the fact and the settle records the inconsistency in the
+violations ledger, which holds the property every other check in the engine holds: what
+the KB stores does not depend on the order the facts arrived in. `try-assert`, the one
+write entry point whose result depends on arrival order, refuses the write instead
+([qcn.md](qcn.md#support-what-an-entailed-relation-rests-on), "Reporting an impossible
+network").
 
 ### A variable context goal fans over readers rather than reading one unioned network
 

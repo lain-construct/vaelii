@@ -29,18 +29,10 @@
             [vaelii.impl.decide.arity :as arity]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def U 'CxUniverse)
-
-(defn- orderings
-  "Every arrival order of `xs`, so a multi-order case runs over all of them rather than
-  over a hand-picked few."
-  [xs]
-  (if (< (count xs) 2)
-    [(vec xs)]
-    (for [x xs, tail (orderings (remove #{x} xs))]
-      (into [x] tail))))
 
 (defn- believed-at?
   "Is `s`, stored in `ctx`, believed as `reader` reads it?"
@@ -60,7 +52,7 @@
   reading means every order agrees."
   [kb steps read]
   (into #{}
-        (for [order (orderings (sort (keys steps)))]
+        (for [order (tu/orders (sort (keys steps)))]
           (let [hs (mapv #((steps %)) order)
                 r  [(read) (clash-kinds kb)]]
             (run! #(v/retract! kb %) (rseq hs))

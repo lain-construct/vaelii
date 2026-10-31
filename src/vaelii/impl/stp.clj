@@ -435,11 +435,10 @@
    (for [m (res/matches-visible kb '(temporalDistance ?p ?q ?m) context)
          :let  [b (second m), p (get b '?p), q (get b '?q), measure (get b '?m)]
          :when (and (node-term? p) (node-term? q) (provers/measure? measure))
-         :let  [[[dim lo hi] nsup] (provers/normalize-quantity-with-support kb measure context)
-                [base bsup]        (provers/base-unit-with-support kb (last measure) context)]]
-     [[dim base] p q
+         :let  [[[k lo hi] sup] (provers/measure-with-support kb measure context)]]
+     [k p q
       (provers/round-magnitude lo) (provers/round-magnitude hi)
-      (into (conj nsup (first m)) bsup)])))
+      (conj sup (first m))])))
 
 (defn- report-mixed-dimensions!
   "File `:metric-temporal-mixed-dimensions` in the violations ledger and log it at :warn."
@@ -849,16 +848,12 @@
                 [[{m (provers/render-quantity lo hi unit)} @sup]])
 
               (provers/measure? m)
-              (let [[[dim* slo shi] msup] (provers/normalize-quantity-with-support kb m context)
-                    [base bsup]           (provers/base-unit-with-support kb (last m) context)
-                    eps                   provers/*quantity-tolerance*]
-                ;; the base unit as well as the dimension: a unit with no conversionFactor is
-                ;; its own base, and its magnitudes are not in the problem's unit
-                (if (and (= dimension dim*)
-                         (= unit base)
+              (let [[[k slo shi] msup] (provers/measure-with-support kb m context)
+                    eps                provers/*quantity-tolerance*]
+                (if (and (= [dimension unit] k)
                          (>= lo (- slo eps))
                          (<= hi (+ shi eps)))
-                  [[{} (into (into @sup msup) bsup)]]
+                  [[{} (into @sup msup)]]
                   []))
 
               :else [])))))))

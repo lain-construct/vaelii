@@ -24,14 +24,10 @@
   neutral fixture asserts the KB is restored."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- 1. sweeping ---------------------------------------------------------
 ;; DECISION (contexts.md, "The removal is total"): a late except sweeps what already
@@ -41,7 +37,7 @@
 
 (tu/deftest-kb excepting-a-rule-sweeps-the-conclusions-it-derived
   (tu/with-terms [bird flies Tweety CxBird]
-    (let [rh (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
+    (let [rh (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
       (v/assert kb (list bird Tweety) CxBird)
       (testing "the rule fired before the except arrived"
         (is (seq (v/sentexes-matching kb (list flies Tweety) CxBird))))
@@ -57,7 +53,7 @@
 
 (tu/deftest-kb a-fact-arriving-after-the-rule-was-excepted-concludes-nothing
   (tu/with-terms [bird flies Opus CxBird]
-    (let [rh (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
+    (let [rh (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
       (v/assert kb (list 'except (sx/sentex-handle rh)) CxBird)
       (v/assert kb (list bird Opus) CxBird)
       (testing "the hidden rule does not fire into the ancestor set"
@@ -69,7 +65,7 @@
 
 (tu/deftest-kb retracting-the-except-re-derives-what-the-rule-concluded
   (tu/with-terms [bird flies Tweety CxBird]
-    (let [rh (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
+    (let [rh (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) CxBird)]
       (v/assert kb (list bird Tweety) CxBird)
       (let [eh (v/assert kb (list 'except (sx/sentex-handle rh)) CxBird)]
         (is (empty? (v/sentexes-matching kb (list flies Tweety) CxBird)))
@@ -108,10 +104,10 @@
 
 (tu/deftest-kb excepting-one-side-of-a-dispute-resolves-it-on-every-read-surface
   (tu/with-terms [quaker republican pacifist Nixon CxDispute]
-    (let [_r1 (v/assert kb (default-rule [(list quaker '?x)] (list pacifist '?x))
+    (let [_r1 (v/assert kb (tu/default-rule [(list quaker '?x)] (list pacifist '?x))
                         CxDispute)
-          r2  (v/assert kb (default-rule [(list republican '?x)]
-                                         (list 'not (list pacifist '?x)))
+          r2  (v/assert kb (tu/default-rule [(list republican '?x)]
+                                            (list 'not (list pacifist '?x)))
                         CxDispute)]
       (v/assert kb (list quaker Nixon) CxDispute)
       (v/assert kb (list republican Nixon) CxDispute)

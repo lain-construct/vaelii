@@ -44,20 +44,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- except-rule
-  "The shape docs/exceptions.md writes: an exception query wrapping a defeasible rule."
-  [exception antes conseq]
-  (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
-
-(defn- refusal
-  "Assert, and return the `ex-data` of the refusal — nil if the assert went through.
-  Reading the data rather than catching bare `ExceptionInfo` is what distinguishes a
-  stratification refusal from a well-formedness or naming one, which would pass a
-  `thrown?` test for the wrong reason."
-  [kb sentence context]
-  (try (v/assert kb sentence context) nil
-       (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (defn- walks
   "Run `f`, returning how many times an edge check walked the rule dependency graph.
   Counting the search calls measures the fast path exactly; a timing test would measure
@@ -86,7 +72,7 @@
   `(genl penguin flightless)` puts `penguin` in `specs(flightless)`, so R1's negative
   edge reaches R2 and R2's positive edge reaches back: a cycle through negation."
   [kb {:keys [base p flightless penguin ctx]}]
-  (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x)) ctx)
+  (v/assert kb (tu/except-rule (list flightless '?x) [(list base '?x)] (list p '?x)) ctx)
   (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) ctx {:direction :forward}))
 
 ;; ---- the edge that closes the cycle is refused ---------------------------
@@ -98,7 +84,7 @@
   (tu/with-terms [base p flightless penguin CxEdge]
     (let [terms {:base base :p p :flightless flightless :penguin penguin :ctx CxEdge}]
       (cycle-shaped-rules! kb terms)
-      (let [data (refusal kb (list 'genl penguin flightless) CxEdge)]
+      (let [data (tu/assert-refusal-data kb (list 'genl penguin flightless) CxEdge)]
         (testing "the edge is refused, and says why"
           (is (= :not-stratified (:type data))))
         (testing "the refusal names the cycle it would have created"
@@ -152,7 +138,7 @@
     (let [before-sx    (tu/sentex-ids kb)
           before-dd    (tu/justification-ids kb)
           before-edges (tax/genl-edges (reasoning/taxonomy kb))
-          data         (refusal kb (list 'genl penguin flightless) CxEdge)]
+          data         (tu/assert-refusal-data kb (list 'genl penguin flightless) CxEdge)]
       (is (= :not-stratified (:type data)))
       (is (= before-sx (tu/sentex-ids kb))    "no sentex was stored")
       (is (= before-dd (tu/justification-ids kb)) "no justification was stored")
@@ -173,7 +159,7 @@
         (is (zero? (walks #(v/assert kb (list 'genl sub super) CxFast))))))
     (testing "control: one excepted rule in the KB and the same operation does walk"
       (tu/with-terms [exc otherBase other sub super]
-        (v/assert kb (except-rule (list exc '?x) [(list otherBase '?x)] (list other '?x))
+        (v/assert kb (tu/except-rule (list exc '?x) [(list otherBase '?x)] (list other '?x))
                   CxFast)
         (concluded! kb sub CxFast)
         (is (pos? (walks #(v/assert kb (list 'genl sub super) CxFast))))
@@ -203,7 +189,7 @@
     (let [spokes (vec (repeatedly 6 #(tu/tmp-type "spoke")))]
       (doseq [t spokes] (v/assert kb (list 'genl t hub) CxDense))
       ;; an excepted rule reading `hub`
-      (v/assert kb (except-rule (list exc '?x) [(list hub '?x)] (list p '?x)) CxDense)
+      (v/assert kb (tu/except-rule (list exc '?x) [(list hub '?x)] (list p '?x)) CxDense)
       ;; one rule concluding each spoke, each reading `hub` as well: every spoke's rule is
       ;; read by all seven rules, seven edges into each
       (doseq [t spokes]
@@ -223,7 +209,7 @@
   ;; no node, and the rule closing the cycle, stored between two checks, reaches the
   ;; second.  R1 and a rule concluding `penguin` keep the first check walking.
   (tu/with-terms [base p flightless penguin CxPass]
-    (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x)) CxPass)
+    (v/assert kb (tu/except-rule (list flightless '?x) [(list base '?x)] (list p '?x)) CxPass)
     (concluded! kb penguin CxPass)
     (binding [vr/*stratification-memo* (volatile! nil)]
       (let [edge  (list 'genl penguin flightless)
@@ -237,15 +223,30 @@
         (testing "R2, stored in the pass, closes the cycle the next check finds"
           (is (= :not-stratified (:violation (check)))))))))
 
+(tu/deftest-kb an-edit-batch-of-edges-builds-each-stored-rule-node-once
+  (tu/with-terms [hub exc p sub1 sub2 sub3 CxEdit]
+    (let [spokes (vec (repeatedly 6 #(tu/tmp-type "spoke")))]
+      (doseq [t spokes] (v/assert kb (list 'genl t hub) CxEdit))
+      (v/assert kb (tu/except-rule (list exc '?x) [(list hub '?x)] (list p '?x)) CxEdit)
+      (doseq [t spokes]
+        (v/assert kb (vr/rule-sentence [(list hub '?x)] (list t '?x)) CxEdit
+                  {:direction :forward}))
+      (doseq [s [sub1 sub2 sub3]] (concluded! kb s CxEdit))
+      (let [n (node-builds #(v/edit! kb {:add (for [s [sub1 sub2 sub3]] [(list 'genl s hub) CxEdit])}))]
+        (testing "the three edges are accepted"
+          (is (every? #(tax/genl?-global (reasoning/taxonomy kb) % hub) [sub1 sub2 sub3])))
+        (testing "seven stored rules walked, seven nodes built, for three edges"
+          (is (= 7 n)))))))
+
 (tu/deftest-kb a-genl-edge-check-builds-no-excepted-rule-the-edge-does-not-reach
   ;; Four rules read `top` and conclude predicates nothing reads; the excepted rules read
   ;; `hub`, under which the spoke rules conclude.  An edge under `top` reaches the four
   ;; readers of `top` and none of the excepted rules, so its check builds the same four
   ;; nodes with two excepted rules stored and with six.
   (tu/with-terms [hub top CxWide]
-    (let [except! (fn [] (v/assert kb (except-rule (list (tu/tmp-type "exc") '?x)
-                                                   [(list hub '?x)]
-                                                   (list (tu/tmp-type "seen") '?x))
+    (let [except! (fn [] (v/assert kb (tu/except-rule (list (tu/tmp-type "exc") '?x)
+                                                      [(list hub '?x)]
+                                                      (list (tu/tmp-type "seen") '?x))
                                    CxWide))]
       (dotimes [_ 4]
         (let [t (tu/tmp-type "spoke")]
@@ -268,8 +269,8 @@
   ;; the edge adds no graph edge, and the check builds no node with 2 readers above it
   ;; and with 8.
   (tu/with-terms [top CxUnconcluded]
-    (v/assert kb (except-rule (list (tu/tmp-type "exc") '?x) [(list (tu/tmp-type "base") '?x)]
-                              (list (tu/tmp-type "seen") '?x))
+    (v/assert kb (tu/except-rule (list (tu/tmp-type "exc") '?x) [(list (tu/tmp-type "base") '?x)]
+                                 (list (tu/tmp-type "seen") '?x))
               CxUnconcluded)
     (let [readers! (fn [n]
                      (dotimes [_ n]
@@ -313,7 +314,7 @@
 (tu/deftest-kb a-genl-edge-check-reads-the-rule-index-flat-in-the-spec-closure-width
   (tu/with-terms [base exc seen CxChain]
     ;; one excepted rule elsewhere, so the check walks at all
-    (v/assert kb (except-rule (list exc '?x) [(list base '?x)] (list seen '?x)) CxChain)
+    (v/assert kb (tu/except-rule (list exc '?x) [(list base '?x)] (list seen '?x)) CxChain)
     (let [[narrow narrow-cycle] (chain-edge-reads kb 2 CxChain)
           [wide wide-cycle]     (chain-edge-reads kb 12 CxChain)]
       (is (= [nil nil] [narrow-cycle wide-cycle]) "a positive cycle is accepted")
@@ -453,7 +454,7 @@
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
                              :ctx CxEdge})
     (let [h    (v/assert kb (list 'genl sub super) CxEdge)
-          data (refusal kb (list 'genl penguin flightless) CxEdge)]
+          data (tu/assert-refusal-data kb (list 'genl penguin flightless) CxEdge)]
       (is (= :not-stratified (:type data)) "the probe ran and the edge was refused")
       (v/retract! kb h)
       (testing "the closure read after the gen catch-up never sees the refused edge"
@@ -485,7 +486,7 @@
   (tu/with-terms [bar foo]
     (let [rule (vr/rule-sentence [(list bar '?p '?x) (list 'unknown (list foo '?x))]
                                  '(?p ?x))
-          data (refusal kb rule 'CxNaturalWorld)]
+          data (tu/assert-refusal-data kb rule 'CxNaturalWorld)]
       (is (= :not-stratified (:type data))
           "it could conclude foo while depending on foo's absence — an unstratified rule"))))
 
@@ -508,7 +509,7 @@
   (tu/with-terms [bar foo]
     (let [rule (list 'exceptWhen (list foo '?x)
                      (vr/rule-sentence [(list bar '?p '?x)] '(?p ?x)))
-          data (refusal kb rule 'CxNaturalWorld)]
+          data (tu/assert-refusal-data kb rule 'CxNaturalWorld)]
       (is (= :not-stratified (:type data))
           "it could conclude foo while excepted when foo holds — an unstratified rule"))))
 
@@ -519,6 +520,6 @@
     (let [rule (vr/rule-sentence [(list bar '?p '?x)
                                   (list 'agg/count '?n '?v (list foo '?v))]
                                  '(?p ?x))
-          data (refusal kb rule 'CxNaturalWorld)]
+          data (tu/assert-refusal-data kb rule 'CxNaturalWorld)]
       (is (= :not-stratified (:type data))
           "it could conclude foo while counting foo's extent — an unstratified rule"))))

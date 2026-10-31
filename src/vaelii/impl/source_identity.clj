@@ -1,127 +1,15 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.source-identity
-  "The **source identity**: a digest of the engine definitions that derive belief.  A
-  reasoning image is written with it, and an open installs the image only when its own
-  source identity is equal, so an image is never installed by code that would derive a
-  different belief from the same records.
-
-  ## Which namespaces
-
-  The walk first collects a set of namespaces: the transitive closure of `namespace-roots`
-  over three kinds of edge, each read from the source files themselves rather than from
-  the loaded namespaces:
-
-  - the `ns` form's `:require`, `:use` and `:import` clauses — an imported deftype or
-    defrecord class names the namespace that defines it;
-  - every fully-qualified symbol under a `quote` in code.  These are the edges no `ns`
-    form states: the `requiring-resolve` targets and the fixed symbol tables that name
-    them (`vaelii.core`'s calculi, reasoners and solvers, `vaelii.impl.imperative`'s `do/`
-    handlers, `vaelii.impl.wiring`'s five targets).
-
-  The walk follows `vaelii.core` and `vaelii.impl.*` and nothing else.  Code from outside
-  those prefixes — a registered prover or evaluatable, a foreign plugin — is not in the
-  digest; `vaelii.impl.reasoning-image` refuses to write or install an image for a KB that
-  runs any.
-
-  ## Which definitions
-
-  The digest covers the top-level forms reachable from `roots` inside that namespace set,
-  not whole files.  A form reaches every form that defines a var one of its symbols
-  resolves to.  A symbol resolves through its namespace's `ns` form: an alias, a `:refer`,
-  a `:refer :all` or `:use`, the namespace's own definitions, and an `:import` for a class
-  name.  A symbol that resolves to none of these, a `clojure.core` var among them, reaches
-  nothing.  The walk reads no scope, so a local binding that shadows a var reaches the var
-  anyway: the set of reached forms is a superset of the forms recover can run.
-
-  The roots are the forms that build and recover a KB: `vaelii.core/open-kb`, which also
-  installs the callbacks the taxonomy calls through a map rather than through a symbol,
-  `vaelii.impl.recovery/recover` and `recover-with-image`, and the three targets of
-  `vaelii.impl.wiring`, plus the write entry points that derive belief in a session (`roots`
-  names them).  The reasoning image's writer is reached from `recover`, so an edit to the
-  code that writes an image discards the images it wrote.
-
-  A registry is not an edge into what it lists.  `vaelii.core`'s `write-ops` and `read-ops`
-  name their entry points by keyword, because a top-level form that defines no var is always
-  walked: a var in either would put every write, `import!` and `reindex` among them, or every
-  read into the digest, and an edit to code that cannot change a label would discard every
-  image.
-
-  Some forms run without a symbol naming them.  Each of these is included by a rule of its
-  own:
-
-  - a `defmethod` of a reached `defmulti`, and every `defmethod` of a multimethod outside
-    the namespace set (`print-method` among them);
-  - a `deftype`, `extend-type`, `extend-protocol` or `extend` form that names a reached
-    protocol, and every extension of a protocol
-    outside the namespace set;
-  - every `defrecord`, because nippy and the EDN reader construct a record from its class
-    name alone;
-  - every top-level form that defines no var, in every namespace of the set: a
-    registration, an `alter-var-root` or a `set!` runs when its namespace loads, and a
-    namespace in the set is loaded whether or not any of its definitions is reached;
-  - an `s/fdef` of a reached var.
-
-  A reached macro contributes its whole form, and the symbols its syntax-quote names resolve
-  in the macro's namespace like any other.  A reached `def` or `defonce` contributes its
-  value and its metadata, so a `^:dynamic` default and a `^:const` value are covered.
-
-  ## Instrumentation
-
-  `observe`, `profile`, `settle-phases` and `caches` are called on the settle path, so the
-  walk reaches them and their reached definitions are in the digest.  No namespace is
-  marked as belief-neutral: `caches/limit-of` returns the bound a cache applies, and the
-  value flows into the code that calls it, so no namespace of the four is called in
-  statement position only.
-
-  ## What is hashed
-
-  Each form is hashed with four things removed: comments, `(comment …)` blocks,
-  docstrings, and the reader's position metadata.  An edit that changes only prose
-  therefore leaves the digest unchanged.  An edit to code, or to metadata the compiler reads
-  (`^:dynamic`, `^:const`, a type hint), changes the digest when the form is reached.  The
-  digest takes each reached form under its namespace and the var it defines, so moving a
-  definition to another namespace changes it too.
-
-  The reader mints a fresh name on every read for two kinds of symbol: a syntax-quote
-  auto-gensym (`x#`) and an anonymous-fn argument (`%`).  Both are renumbered in order of
-  first appearance within their top-level form, so two reads of one file hash alike.
-  Aliases, classes and vars are read through a `*reader-resolver*` that resolves each to
-  itself, so a file reads the same way whether or not its namespace is loaded.
-
-  ## A namespace with no source
-
-  The Clojars jar, the uberjar and a source checkout all carry the `.clj` files, so every
-  namespace is normally read as forms.  A namespace on the classpath only as compiled
-  classes contributes the digest of the code it loads from instead, whole: the jar its
-  `__init` class sits in, or every class file of the namespace in a class directory.  A
-  namespace compiles to one class per fn, so no single class file covers its code.  The
-  jar digest changes with any rebuild, which is conservative: an image is discarded more
-  often, never installed under different code.
-
-  ## Libraries
-
-  Each third-party library the namespace set requires or imports contributes the file name
-  of the jar its code loads from (`nippy-3.5.0.jar`), and the file name carries the
-  version.  A library loaded from a directory rather than a jar contributes its namespace or
-  class name.  JDK classes contribute nothing.
-
-  ## The parse memo
-
-  The parse of a file — its forms, each classified and hashed, and its edges — is memoized
-  per file, in the `:source-parses` cache.  Every call takes each file's stat, its
-  modification time and length.  A file whose stat is unchanged since its last read is not
-  read again; any other file is read and its bytes hashed, and parsed only when the SHA-256
-  of its bytes changed.  An edit that leaves both the modification time and the length
-  unchanged can land only within the file system's timestamp resolution of the read before
-  it, so a file modified within `stat-window-ms` before its read is read again at the next
-  call.  The digest therefore describes the files as they stand at the call, and an edit
-  made at a REPL between two calls reaches it.  The walk over the definitions reruns only
-  when the SHA-256 of some file in the set differs from the previous call's."
+  "The **source identity**: a digest of the engine definitions that derive belief. A reasoning
+  image is written with it, and an open installs the image only when its own source identity
+  is equal. `namespace-roots` and `roots` start the walks; comments, docstrings and position
+  metadata are not hashed. See docs/storage.md, the source identity under the reasoning image."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.walk :as walk]
-            [vaelii.impl.caches :as caches])
+            [vaelii.impl.caches :as caches]
+            [vaelii.impl.graph :as graph])
   (:import [java.io File PushbackReader StringReader]
            [java.net URL]
            [java.nio.file Files]
@@ -755,17 +643,10 @@
                       ids
                       (throw (IllegalStateException.
                               (str "source identity root " r " names no definition")))))]
-    (loop [seen #{} todo (into (vec alw) cat start)]
-      (if-let [i (peek todo)]
-        (let [todo (pop todo)]
-          (if (contains? seen i)
-            (recur seen todo)
-            (let [{:keys [info symbols]} (forms i)]
-              (recur (conj seen i)
-                     (-> todo
-                         (into (comp (mapcat #(resolve-symbol ix info %)) (remove seen)) symbols)
-                         (into (remove seen) (get att i)))))))
-        seen))))
+    (graph/reach-all (into (vec alw) cat start)
+                     (fn [i]
+                       (let [{:keys [info symbols]} (forms i)]
+                         (concat (mapcat #(resolve-symbol ix info %) symbols) (get att i)))))))
 
 (defn- form-key
   "The name the digest takes form `f` under: its namespace and the var it defines, or for a

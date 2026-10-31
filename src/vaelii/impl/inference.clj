@@ -55,6 +55,7 @@
   (:require [clojure.set :as set]
             [clojure.walk :as walk]
             [vaelii.impl.budget :as budget]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.plan :as plan]
@@ -65,23 +66,14 @@
             [vaelii.impl.tactics :as tactics]))
 
 (def ^:dynamic *max-depth*
-  "How many rule expansions any one literal may be rewritten through — and **nil by
-  default, on purpose**.
+  "How many rule expansions any one literal may be rewritten through, and **nil by default**.
+  It is the termination condition: a residual grows a conjunct per rewrite and the claimed-key
+  set cannot stop it.  The bound is per literal, each conjunct carrying its own remaining
+  budget decremented only when it is rewritten, so the literal expanded first cannot spend the
+  whole allowance (`res/prove-from` carries one depth per frame).
 
-  This is not a tuning knob but the **termination condition**: a residual grows a
-  conjunct per rewrite and the claimed-key set cannot stop it, because each rewrite
-  yields a longer conjunction and so a key nothing has claimed.  Per *literal*, not per
-  node — a conjunction's conjuncts each carry their own remaining budget, decremented
-  only for the one actually rewritten, so the literal expanded first cannot spend the
-  whole allowance (`res/prove-from` carries one depth per frame and does let it).
-
-  There is no default because there is no defensible one.  The depth a query needs is a
-  property of the **data** — of how long a derivation chain the KB happens to contain —
-  so a number chosen here is a number chosen without looking at the thing it bounds.  A
-  default would be silently wrong for every KB but the one it was picked on, and wrong
-  in the direction that loses answers rather than the one that costs time.  So the
-  caller says, or the search refuses to start.  Iterative deepening is what would let
-  the engine find the number itself, and it is not built."
+  There is no default because the depth a query needs is a property of the KB's derivation
+  chains, and a wrong default loses answers.  The caller says, or the search refuses to start."
   nil)
 
 (defn- required-depth
@@ -158,28 +150,16 @@
    (reduce-kv (fn [acc k t] (assoc! acc k (res/substitute t sol))) (transient {}) m)))
 
 (defn node-key
-  "The key a node is claimed under: its literals, the depths they carry, the map back to
-  the asker's variables, the set of pending guard identities, and the rewrite start.
+  "The key a node is claimed under: its literals, the depths they carry, the map back to the
+  asker's variables (`:answer-terms`), the set of pending guard identities, `:derived` and the
+  rewrite start.  The literals are already canonical, so alpha-variant conjunctions are one key.
 
-  The literals need no renaming here — they are **already** canonical, which is the point
-  of canonicalizing them, and two alpha-variant conjunctions are one key without anything
-  further being done about it.
-
-  `:answer-terms` is what keeps apart two paths that ask the same question *on behalf of
-  different answers*: the same conjunction, but one path's `?var0` is the asker's `?x` and
-  the other's is `?y` — or one path has already fixed `?x` to `Tom` and the other has
-  not.  Collapsing those loses an answer set.  The **guard identities** keep apart two
-  paths where one carries an `exceptWhen` the other does not — or each carries a
-  *different* rule's: identity is the guard's rule and its term map, never a count.
-  Two distinct guarded rules rewriting one goal to the same canonical residual each
-  carry one guard, so a count reads them as one node and drops the second child before
-  it is enqueued — with it, every answer only its exception admits.
-
-  **`:derived` is in the key for the guards' reason.**  Two paths reaching one residual
-  can have answered different goals on the way, and only one of them may have answered a
-  goal belief defeated — so collapsing them would drop the filter along with the node.
-  It is empty for every node of a KB with no defeat on the predicates in play, which is
-  the common case and costs an empty-vector compare."
+  `:answer-terms` keeps apart two paths that ask the same question for different answers.  A
+  guard's identity is its rule and its term map, never a count, since two distinct guarded
+  rules rewriting one goal to one residual would otherwise read as one node and drop every
+  answer only the second exception admits.  `:derived` keeps apart paths that answered
+  different goals, one of which may have used a goal belief defeated; it is empty for a KB
+  with no defeat on the predicates in play."
   [{:keys [literals answer-terms guards derived from] :as _node}]
   [(mapv :sentence literals)
    (mapv :depth literals)
@@ -320,32 +300,18 @@
 ;; ---- (a) solving a node's conjunction, at depth 0 ------------------------
 
 (defn- solve-inline
-  "Every substitution that proves the node's conjunction against **facts alone** — no
-  rule expansion, which is what the children are for.
+  "Every substitution that proves the node's conjunction against facts alone; rule expansion
+  is for the children.
 
-  Conjuncts run in `plan/order`, the count-aware plan with sideways information passing
-  the DFS uses, and never in the frontier's order: a complete search has to visit the
-  same literals whatever order the nodes happen to pop in, so the join's plan is
-  strategy-independent by construction.
+  Conjuncts run in `plan/order`, the plan the DFS uses, and not in the frontier's order, so the
+  join is strategy-independent.  A deferred literal (`different` / `evaluate` / `unknown`) is
+  computed through the registry, as in the other chainers, and never rewritten in `children`.
+  No substitution map is threaded in: the node's literals already carry every unifier taken.
 
-  A **deferred** literal (`different` / `evaluate` / `unknown`) is *computed* through the
-  registry rather than matched, exactly as in the other two chainers — and, in
-  `children`, never rewritten.
-
-  No substitution map is threaded in.  A node's literals already carry every unifier
-  taken to reach it — a rewrite substitutes into them — so the conjunction here is the
-  question as it now stands, and the solutions are in the node's own namespace.
-
-  `leaf-solver` is what a literal the search will not rewrite is answered *by*.  nil is
-  the stored facts, which is what a query means by a leaf.  A caller that wants a
-  literal answerable by any prover — transitivity, an evaluable, an inferred argument
-  type — passes the registry, and gets this engine's rewriting over those leaves.
-
-  `est-override` is the cost model that leaf is planned by, and travels with it: the
-  index counts stored edges, so over a registry leaf it prices a `genl` conjunct
-  answered from the cached closure as the *cheapest* literal in the conjunction and
-  orders the join around a literal that fans out over a whole type hierarchy.  The DFS
-  chainer takes the same pair (`res/prove-from`), so the two executors plan alike."
+  `leaf-solver` answers a literal the search will not rewrite: nil is the stored facts, and the
+  registry makes every prover answer a leaf.  `est-override` is the cost model that leaf is
+  planned by (the index would price a `genl` conjunct answered from the cached closure as the
+  cheapest literal); the DFS chainer takes the same pair (`res/prove-from`)."
   [kb literals context leaf-solver est-override]
   (let [planned (plan/order kb literals context {:est-override est-override})]
     (reduce (fn [sols literal]
@@ -378,22 +344,14 @@
 
 (defn- collapse-repeats
   "`literals` with each repeated sentence kept once, and the index a repeat folded onto.
+  Conjunction is idempotent, and a residual carrying a repeat has a `node-key` the claimed-key
+  set cannot recognize, so a cyclic rule graph would add a conjunct per turn of the cycle.  A
+  kept literal takes the largest depth of the copies folded onto it, since a deeper copy admits
+  every rewrite a shallower one does.
 
-  Conjunction is idempotent: `A ∧ B ∧ B` holds under exactly the substitutions `A ∧ B`
-  holds under.  The two spellings canonicalize to different `node-key`s, so a residual
-  carrying a repeat is a state the claimed-key set cannot recognize as one already
-  expanded.  A rule graph containing a cycle then adds a conjunct per turn of the cycle
-  rather than returning to a claimed key, and the node count grows with the depth bound.
-
-  A kept literal takes the **largest** depth of the copies folded onto it.  Depth bounds
-  the rewrites a literal may still take, the copies carry one sentence, and a deeper
-  copy admits every rewrite a shallower copy admits.  Keeping the smaller depth would
-  refuse rewrites the conjunction admitted before the collapse and lose the answers
-  under them.
-
-  Returns `[kept fold slots]`.  `fold` is the smallest index in `kept` that a later copy
-  folded onto, and `slots` the index in `kept` each of `literals` landed on; both are nil
-  when no sentence repeated."
+  Returns `[kept fold slots]`.  `fold` is the smallest index in `kept` that a later copy folded
+  onto, and `slots` the index in `kept` each of `literals` landed on; both are nil when no
+  sentence repeated."
   [literals]
   (if (< (count literals) 2)
     [literals nil nil]
@@ -411,26 +369,17 @@
        (when (:fold acc) (mapv #(get (:idx acc) (:sentence %)) literals))])))
 
 (defn- restates-goal?
-  "Does the rewrite's residual ask the goal it replaced again, or something stronger, so
-  that the parent reaches every answer of the child through a sibling?  True when a
-  residual literal would answer `g`, the goal under the head unifier, as a rule
-  consequent does (`res/subsuming-unify` binding nothing: the goal itself, or the goal's
-  arguments under a spec of its functor) and lands at a depth no larger than
-  `goal-depth`, the goal's depth in the parent; the collapse raised no carried literal's
-  depth; and the child's `rewrite-from` reopens nothing left of the parent's `from`.
+  "Does the rewrite's residual ask the goal it replaced again, or something stronger, so that
+  the parent reaches every answer of the child through a sibling?  True when a residual
+  literal would answer `g`, the goal under the head unifier, as a rule consequent does
+  (`res/subsuming-unify` binding nothing) and lands at a depth no larger than `goal-depth`, the
+  goal's depth in the parent; the collapse raised no carried literal's depth; and the child's
+  `rewrite-from` reopens nothing left of the parent's `from`.  A carried literal equal to the
+  goal does not count, since two copies of one goal would drop both rewrites.
 
-  Each answer of such a child derives the goal within the depth the parent gave it, since
-  both leaves and `subsuming-unify` answer a goal from its spec.  The shallowest
-  derivation of the goal does not ask the goal again at its top rewrite, so the sibling
-  that rewrites the goal through that rule reaches the answer.  The last two conditions
-  keep a child the parent does not dominate: one that gives a literal more depth, or one
-  that may rewrite a literal left of the parent's rewrite start.  A carried literal equal to
-  the goal does not count: the parent holds it beside the goal, and two copies of one
-  goal would each see the other and drop both rewrites.
-
-  `spliced` is the conjunction before the collapse, `slots` the collapse's map from each
-  spliced position to its place in `kept` (nil when nothing folded), and positions `i` up
-  to `i + arity` are the residual's."
+  `spliced` is the conjunction before the collapse, `slots` the collapse's map from each spliced
+  position to its place in `kept` (nil when nothing folded), and positions `i` up to `i + arity`
+  are the residual's."
   [kb context g goal-depth from rewrite-from spliced kept slots i arity]
   (let [i     (long i)
         end   (+ i (long arity))
@@ -450,31 +399,15 @@
 (defn- children
   "The nodes reachable from this one by rewriting one literal through one rule.
 
-  Rewriting happens **left to right and never backwards** (`:from`): a conjunction is
-  commutative, so rewriting literals 1-then-2 and 2-then-1 reach the same node by two
-  routes, and without a canonical order the frontier carries every interleaving — k! of
-  them per k rewrites.  Fixing the order keeps every combination and drops every
-  reordering of one; on a two-literal ancestor query it is the difference between 241
-  nodes and 49.
-
-  The rule is **numbered past** this node's variables before anything is unified
-  (`sx/canonical-conjunction` with a start of `:nvars`).  A stored rule is spelled `?var0
-  ?var1 …` and so is a node, so without that step every rule would collide with every
-  node and with every other rule; with it the two namespaces are disjoint by
-  construction, deterministically, and no name has to be decorated to get out of the
-  way.
-
-  The child is then canonicalized in turn, which is what gives it an identity the
-  claimed-key set can recognize — and what obliges every term the node is still
-  accountable for to be **pushed** into the new numbering: the asker's answers, and each
-  pending guard's numbering of its own rule's variables.  `shift-back` is what lets the new
-  rule's guard keep speaking about `?var0` when `?var0` here means something else.
-
-  The spliced conjunction then goes through `collapse-repeats`, which is what keeps a
-  cyclic rule graph from growing the residual a conjunct at a time.
-
-  A child whose residual asks the goal it rewrote again is not built (`restates-goal?`):
-  the rest of the search reaches every answer its subtree would."
+  Rewriting goes left to right and never backwards (`:from`), so the frontier does not carry
+  every interleaving of a conjunction's rewrites: 49 nodes instead of 241 on a two-literal
+  ancestor query.  The rule is numbered past this node's variables
+  (`sx/canonical-conjunction` with a start of `:nvars`) before unifying, since stored rules and
+  nodes are both spelled `?var0 ?var1 …`.  The child is canonicalized in turn, so every term
+  the node is still accountable for is pushed into the new numbering: the asker's answers and
+  each pending guard's numbering (`shift-back`).  The spliced conjunction goes through
+  `collapse-repeats`.  A child whose residual asks the goal it rewrote again is not built
+  (`restates-goal?`)."
   [kb node context defeated]
   (let [{:keys [literals guards supports tree-depth from nvars answer-terms derived]} node]
     (for [i     (range (long from) (count literals))
@@ -562,38 +495,23 @@
     (sx/authored-sentence sx)))
 
 (defn proof-tree
-  "Why this node's conjunction follows — the derivation the search actually took, read
-  back out of the state rather than recorded beside it.  A **vector**, one tree per
-  conjunct of the query:
+  "Why this node's conjunction follows: the derivation the search took, read back out of the
+  state.  A vector, one tree per conjunct of the query:
 
-    {:goal S :via :rule :rule <handle> :sentence <the rule, as written>
-     :because [ <the same map, per antecedent> ]}
-    {:goal S :via :leaf}                     a literal the search never rewrote
+      {:goal S :via :rule :rule <handle> :sentence <the rule, as written>
+       :because [ <the same map, per antecedent> ]}
+      {:goal S :via :leaf}                     a literal the search never rewrote
 
-  `:because` and the recursion read the way `core/why` does, so a proof of an
-  *ephemeral* answer and a proof of a *stored* belief are one shape to learn.  They
-  answer different questions all the same: `why` reads the JTMS about something the KB
-  holds, this reads a search about something it merely derived.
+  `:because` reads as `core/why` does, but this reads a search about something merely derived
+  and `why` reads the JTMS about something the KB holds.
 
-  **How it is rebuilt.**  Every node records the one rewrite that produced it — the
-  rule, the literal index it replaced, and how many antecedents it spliced in — and the
-  session already holds every node.  So the proof is a *replay* of `:parent-id`: start
-  with the root's conjuncts as leaves, and let each rewrite turn one leaf into a rule
-  node whose children are the residual that took its place.  Nothing is re-derived, no
-  unification is redone, and the search pays one small map per node whether or not
-  anybody asks.
-
-  A literal of the node stands for **every** leaf the collapse folded onto it, so a
-  rewrite of that literal grows each of those leaves with the same rule node, and the
-  leaves of a node's proof are exactly that node's literals.  The rewrite's `:slots`
-  says where each spliced literal landed.
-
-  A leaf is a literal the search handed to its leaf solver.  Which *prover* answered it
-  is not recorded, because the leaf solver is a parameter and reports only bindings —
-  the tree is the rewriting the engine did, and it stops where the engine stopped.
-
-  Sentences carry the node's canonical variables, not a solution's values: a proof is
-  about the derivation, which is one tree however many answers came off it."
+  The proof is a replay of `:parent-id`: each node records the one rewrite that produced it
+  (the rule, the literal index it replaced, how many antecedents it spliced in), so the replay
+  starts with the root's conjuncts as leaves and turns one leaf per rewrite into a rule node.
+  A literal stands for every leaf the collapse folded onto it, and the rewrite's `:slots` says
+  where each spliced literal landed.  A leaf is a literal handed to the leaf solver, which
+  reports bindings only, so no prover is recorded.  Sentences carry the node's canonical
+  variables."
   [kb {:keys [nodes]} node]
   (let [ns    @nodes
         chain (node-chain ns node)
@@ -700,26 +618,19 @@
        vec))
 
 (defn step!
-  "Expand the cheapest node: solve its conjunction inline, claim and enqueue its
-  children, and return the solutions it completed — a vector, empty when it completed
-  none.  **nil** when the frontier is empty, which is the only exhaustion signal.
+  "Expand the cheapest node: solve its conjunction inline, claim and enqueue its children, and
+  return the solutions it completed, a vector, empty when it completed none.  **nil** when the
+  frontier is empty, the only exhaustion signal.
 
-  Solutions are run past the node's guards, projected onto the query's variables, and
-  deduped against everything already returned.  A guard is asked *here* rather than at
-  the rewrite that inherited it, because this is the moment the argument is complete —
-  which is the same moment `prove` reaches by pushing a marker behind the antecedents,
-  arrived at without needing the marker.
+  Solutions are run past the node's guards, projected onto the query's variables and deduped
+  against everything already returned.  A guard is asked here because the argument is
+  complete here.  Whether the node produced anything is what the tactician's child bias reads
+  (`tactics/child-bias`).  Under `:first-result?` a productive node builds no children.
 
-  Whether the node produced anything is what the tactician's **child bias** reads
-  (`tactics/child-bias`): a parent that is paying can recommend its children either way,
-  and the bias is how it says so.  Under `:first-result?` a productive node builds no
-  children at all — the one strategy that stops the search rather than steering it.
-
-  `dl` is the `System/nanoTime` instant a leaf's walk stops at (`budget/interruptible`;
-  nil, the 1-arity, is none).  A node the deadline stops inside goes back on the frontier
-  as it was, and the answer is `::budget/interrupted`.
-
-  A thread interrupted before the step throws `InterruptedException` and expands nothing."
+  `dl` is the `System/nanoTime` instant a leaf's walk stops at (`budget/interruptible`; the
+  1-arity has none).  A node the deadline stops inside goes back on the frontier as it was and
+  the answer is `::budget/interrupted`.  A thread interrupted before the step throws
+  `InterruptedException` and expands nothing."
   ([sess] (step! sess nil))
   ([{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
             proof? defeated truncated unenumerated]
@@ -795,28 +706,17 @@
          :else    (recur))))))
 
 (defn search-within
-  "Drive `sess` under `budget` — `:max-ms` and `:max-results` — and return the
-  partial-result contract `budget/collect` returns (`:results` / `:status` / `:count` /
-  `:elapsed-ms` / `:resume`), the shape `core/prove-within` promises.
+  "Drive `sess` under `budget` (`:max-ms` and `:max-results`) and return the partial-result
+  contract `budget/collect` returns (`:results` / `:status` / `:count` / `:elapsed-ms` /
+  `:resume`), the shape `core/prove-within` promises.
 
-  The bounds are checked **before every node expansion**, not between yielded
-  solutions: a `step!` that completes nothing still advances the clock, and a wide
-  unproductive frontier — a converging rule graph under a generous depth — can run
-  many of them before a node yields.  `budget/collect` over `search-seq` would check
-  the deadline only once that node had, which is after the whole stretch.  Here the
-  deadline stops the drive at the next node, within one expansion of the bound.
-
-  The session is the continuation: its frontier is state the next step picks up, so
-  `:resume` drives the same session further under a fresh budget.  Solutions a step
-  completed past a `:max-results` cap ride the continuation as `pending` rather than
-  being dropped or over-delivered — exactly n are returned, and the rest head the
-  next step.  The order of checks is `collect`'s — cap, deadline, then work — so
-  `:capped` with work left and `:timeout` with work left mean what they mean there.
-
-  The deadline also reaches inside an expansion, to a leaf's walk (`step!`'s `dl`).  A
-  node it stops there is back on the frontier, and the continuation expands that first
-  node with no deadline, so a resume loop under a fixed budget gets past a walk longer
-  than the budget and terminates."
+  The bounds are checked before every node expansion, so the deadline stops the drive within
+  one expansion; `budget/collect` over `search-seq` would check only after a node yielded.  The
+  session is the continuation: `:resume` drives it further under a fresh budget.  Solutions
+  completed past a `:max-results` cap ride the continuation as `pending`.  The order of checks
+  is `collect`'s: cap, deadline, then work.  The deadline also reaches a leaf's walk (`step!`'s
+  `dl`); a node stopped there returns to the frontier and the continuation expands it with no
+  deadline, so a resume loop under a fixed budget terminates."
   ([sess budget] (search-within sess budget [] false))
   ([sess budget pending unbounded-first?]
    (budget/check-budget! budget)
@@ -872,30 +772,18 @@
 (defn portfolio-solutions
   "Race several tacticians over `goals` and return the union of their answers.
 
-  **The union equals any single racer's answer set.**  Each racer is a complete search,
-  so the portfolio is a bet that *one ordering finds the answer sooner*, never a way to
-  find more answers — a racer that contributed an answer no other racer found would be a
-  bug in the others.  It gives latency under a bound, where the ordering that
-  suits this query gets there before the deadline and the others do not.
-
-  **Read-only by construction.**  Racing is safe here only because a query in this
-  engine writes nothing: every racer touches its own session's atoms, the KB not at all,
-  and the shared literal cache is an atom whose worst case under a race is duplicated
-  work.  A search that wrote — an abducing one, which asserts its assumptions — must
-  never be raced under the single-writer contract, and is not reachable from here.
-
-  Incomplete strategies are refused rather than raced: `:first-result?` would make the
-  union larger than a racer's own answer set and turn the paragraph above into a lie.
-
-  **The union is deduped on the bindings**, which is what `step!` keys its own dedup on:
-  under `:proof? true` a racer returns `{:bindings … :proof …}`, and two racers that
-  reached one answer down different orderings differ in the proof and in nothing else.
-  Keying on the whole map would hand `core/query` the same answer once per racer, against
-  a contract that says the answers are deduped."
+  Each racer is a complete search, so the union equals any single racer's answer set and the
+  portfolio buys latency under a bound.  Incomplete strategies are refused, since
+  `:first-result?` would enlarge the union.  A query writes nothing, so each racer touches
+  its own session's atoms, and the shared literal cache is an atom whose worst case is
+  duplicated work; no writing search (abduction) is reachable from here.  Each racer reads
+  the belief the caller reads.  The union is deduped on the bindings, as `step!` is, since
+  two racers that reach one answer differ only in the `:proof`."
   ([kb goals context] (portfolio-solutions kb goals context {}))
   ([kb goals context opts]
    (let [base   (tactics/strategy (get opts :strategy *strategy*))
-         racers (get opts :racers default-racers)]
+         racers (get opts :racers default-racers)
+         live?  (or observe/*live* (observe/hold-owner?))]
      (when-not (tactics/complete? base)
        (throw (ex-info (str "a portfolio races complete searches only — the strategy in"
                             " force sets :first-result? "
@@ -903,18 +791,27 @@
                             ", which stops the search rather than steering it.  Drop"
                             " :first-result? to race it, or run it on its own")
                        {:type :incomplete-racer :strategy base})))
-     (let [runs (mapv (fn [t]
-                        ;; `tactics/with-tactician`, not `assoc`: a normalized strategy
-                        ;; carries all three signs, and `strategy` lets an explicit sign
-                        ;; win over the tactician's — so re-pointing one by `assoc` would
-                        ;; race three copies of the base ordering under three names
-                        (future (run-one kb goals context
-                                         (assoc opts :strategy
-                                                (tactics/with-tactician base t)))))
-                      racers)]
-       ;; a racer that throws must not abandon the others mid-search: nothing would
-       ;; consume their answers, and each is a complete search running to exhaustion
-       ;; on the send-off pool
+     (let [states (mapv (fn [_] [(atom :new) (promise)]) racers)
+           runs   (mapv (fn [t [state done]]
+                          ;; `tactics/with-tactician`, not `assoc`: a normalized strategy
+                          ;; carries all three signs, and `strategy` lets an explicit sign
+                          ;; win over the tactician's — so re-pointing one by `assoc` would
+                          ;; race three copies of the base ordering under three names
+                          (future
+                            (when (compare-and-set! state :new :running)
+                              (try
+                                (binding [observe/*handle-cache*            nil
+                                          kb/*chain-authoritative-functors* nil
+                                          observe/*write-record*            nil
+                                          observe/*live*                    live?]
+                                  (run-one kb goals context
+                                           (assoc opts :strategy
+                                                  (tactics/with-tactician base t))))
+                                (finally (deliver done true))))))
+                        racers states)]
+       ;; a racer that throws ends the race, and the rest are cancelled, since nothing would
+       ;; consume their answers.  A caller reading live belief also waits for each started
+       ;; racer to stop, so none reads that belief after the caller writes again
        (try
          (first (reduce (fn [[acc seen] s]
                           (let [k (answer-bindings s)]
@@ -925,6 +822,9 @@
                         (mapcat deref runs)))
          (catch Throwable t
            (run! future-cancel runs)
+           (when live?
+             (doseq [[state done] states]
+               (when-not (compare-and-set! state :new :skipped) @done)))
            (throw t)))))))
 
 (defn solutions
@@ -972,37 +872,25 @@
   (provers/unenumerated-report (:unenumerated sess)))
 
 (defn search-report
-  "One node-engine search over `goals`, driven to completion and **reported** — the
-  answers plus what the run costs and whether the depth bound cut it short:
+  "One node-engine search over `goals`, driven to completion and reported:
 
-    {:answers                 <vector of binding maps, `solutions`' own>
-     :truncated?              <bool>    the depth bound stopped a rewrite the search
-                                        would otherwise have taken — so the answers may
-                                        be incomplete, where `false` with an empty
-                                        `:unenumerated` guarantees they are every
-                                        answer this KB entails within the bound
-     :time-to-first-answer-ms <double|nil>   nil when there are no answers
-     :total-time-ms           <double>
-     :stats                   <tree-stats>
-     :unenumerated            <vector>  the transitive predicates a goal asked with
-                                        both arguments open, whose derived pairs the
-                                        answers may omit (`provers/*unenumerated*`)
-     :unenumerated-in-guards  <vector>  the subset recorded inside an `unknown` or
-                                        `exceptWhen` evaluation (`unenumerated`)}
+      {:answers                 <vector of binding maps, `solutions`' own>
+       :truncated?              <bool>   the depth bound stopped a rewrite the search would
+                                         otherwise have taken; `false` with an empty
+                                         `:unenumerated` means every answer within the bound
+       :time-to-first-answer-ms <double|nil>   nil when there are no answers
+       :total-time-ms           <double>
+       :stats                   <tree-stats>
+       :unenumerated            <vector>  the transitive predicates a goal asked with both
+                                          arguments open (`provers/*unenumerated*`)
+       :unenumerated-in-guards  <vector>  the subset recorded inside an `unknown` or
+                                          `exceptWhen` evaluation (`unenumerated`)}
 
-  Truncation is **conservative**: `true` means at least one branch was stopped at the
-  bound, not that an answer was certainly lost — a converging rule graph reaches one
-  subgoal at several depths, so a branch cut at depth 0 may have been answered by a
-  shallower one.  What `true` rules out is the silent case the bound otherwise has: an
-  empty or short answer that is short *because the search stopped early*, wearing the
-  same shape as a complete one.  A caller tuning `:max-depth` raises it until `:truncated?`
-  is false and the answer set stops growing.
-
-  It drives the **single-strategy** run `solutions` drives — `:auto?` picks one ordering,
-  never a race.  A report is a tuning read of one frontier, and a portfolio's several
-  sessions have no one frontier to report truncation off.  `:track-truncation?` is on,
-  which the plain query path never pays: `session` allocates the flag only when asked, and
-  `step!`'s candidate-rule probe runs only while it is set."
+  `:truncated?` is conservative: `true` means a branch was stopped at the bound, and a shallower
+  branch may have answered it.  A caller tuning `:max-depth` raises it until `:truncated?` is
+  false and the answers stop growing.  It drives the single-strategy run `solutions` drives
+  (`:auto?` picks one ordering, never a race) with `:track-truncation?` on, which `session`
+  allocates only when asked."
   [kb goals context opts]
   (let [pick (when (and (:auto? opts) (not (:strategy opts)))
                (tactics/auto-strategy kb goals context (required-depth (:max-depth opts))))
@@ -1063,28 +951,19 @@
    (unenumerated sess)))
 
 (defn search-tree
-  "Run a bounded backward search for `goals` in `context` and return the tree the run
-  actually built — every node the frontier reached, not only the path that answered — as
-  plain data a client can render without holding the session between requests.  The read
-  behind the inference debugger.
+  "Run a bounded backward search for `goals` in `context` and return the tree the run built,
+  every node the frontier reached, as plain data a client can render without holding the
+  session.  The read behind the inference debugger.
 
-  It bounds the **work** two ways: the depth bound the node engine already requires
-  (`:max-depth`, or it refuses to start), and a node-expansion budget (`:node-budget`,
-  `default-node-budget`) so a wide frontier under a generous depth still terminates.  A
-  wall-clock `:max-ms` stops a run neither bound reaches in time and reports it `:timeout`
-  rather than hanging the caller — the node engine's termination is the depth bound and
-  nothing else.  The caller should pass the same `:leaf-solver`/`:est-override` `query`
-  does, or this searches a different leaf than `query` would.
+  The work is bounded by `:max-depth` (required), a node-expansion budget (`:node-budget`,
+  `default-node-budget`) and a wall-clock `:max-ms` that reports `:timeout`.  Pass the same
+  `:leaf-solver` / `:est-override` as `query`.
 
-  Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats
-  :unenumerated :unenumerated-in-guards}`. `:status` is `:complete` (the frontier emptied), `:bounded` (the node
-  budget), or `:timeout` (the clock).  `:answers` are `query`'s answers under `:proof?
-  true`, each tagged with `:node` — the id of the node it came off, so an answer is
-  reachable to the subtree that produced it.  `:nodes` is every node as `node-data`, in
-  allocation order.  `:unenumerated` and `:unenumerated-in-guards` are `search-report`'s: a
-  run that empties its frontier may still omit the derived pairs of a predicate named there.
-
-  Read-only by construction: a query in this engine writes nothing (`portfolio-solutions`)."
+  Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats :unenumerated
+  :unenumerated-in-guards}`.  `:status` is `:complete`, `:bounded` (the node budget) or
+  `:timeout`.  `:answers` are `query`'s under `:proof? true`, each tagged with the `:node` it
+  came off.  `:nodes` is every node as `node-data`, in allocation order.  Read-only
+  (`portfolio-solutions`)."
   ([kb goals context] (search-tree kb goals context {}))
   ([kb goals context {:keys [node-budget max-ms] :as opts}]
    (let [sess     (session kb (vec goals) context (assoc opts :proof? true))
@@ -1134,19 +1013,13 @@
 (defn compare-tacticians
   "Run `goals` in `context` under each of several tacticians, each to completion (bounded),
   and return one row per tactician: its search (`tree-stats`), its wall-clock `:ms`, its
-  `:status`, and its `:answers` set.  What the debugger tables side by side.
+  `:status` and its `:answers` set.  Every tactician reorders the frontier of a complete search,
+  so the answer sets must be identical, and a differing row is a bug the completeness sweep says
+  cannot happen.  `:first-result?` is a strategy flag and no row carries it.
 
-  Every tactician here is complete — each only reorders the frontier — so the answer sets
-  must be identical, and a caller can **verify** that against these rows rather than trust
-  it: a row whose `:answers` differ from its neighbours' is a bug the completeness sweep
-  says cannot happen.  `:first-result?` is the one mode that returns fewer answers, and it
-  is a strategy flag rather than a tactician, so no row here carries it.
-
-  Bounded exactly as `search-tree` — a `:node-budget` per run and an optional `:max-ms`,
-  reported per row as `:status`.  Each run is timed on its own with
-  `System/currentTimeMillis`, so `:ms` measures latency over a fixed answer set — the
-  comparison the page exists to make.  Pass the same `:leaf-solver`/`:est-override`
-  `query` does."
+  Bounded as `search-tree` is (`:node-budget` per run, optional `:max-ms`, reported per row as
+  `:status`).  Each run is timed with `System/currentTimeMillis`.  Pass the same
+  `:leaf-solver` / `:est-override` as `query`."
   ([kb goals context] (compare-tacticians kb goals context {}))
   ([kb goals context {:keys [tacticians node-budget max-ms] :as opts}]
    (let [ts     (or (seq tacticians) default-compare-tacticians)

@@ -46,10 +46,21 @@
   [dir]
   (.getCanonicalPath (io/file dir)))
 
+(def ^:private resolved-host-name
+  "The resolver's name for the local host, asked once per process: on a host with no
+  resolver entry for its own name, the lookup returns only after the resolver times out."
+  (delay (try (.getHostName (java.net.InetAddress/getLocalHost))
+              (catch Exception _ "?"))))
+
+(defn- host-name
+  "This host's name: `HOSTNAME` in the environment map `env` when it is set, else the
+  resolver's answer for the local host, else `?`."
+  [env]
+  (or (some-> (get env "HOSTNAME") str/trim not-empty)
+      @resolved-host-name))
+
 (defn- holder-tag []
-  (str (.pid (java.lang.ProcessHandle/current))
-       "@" (try (.getHostName (java.net.InetAddress/getLocalHost))
-                (catch Exception _ "?"))
+  (str (.pid (java.lang.ProcessHandle/current)) "@" (host-name (System/getenv))
        " since " (java.time.Instant/now)))
 
 (defn- read-holder
@@ -150,6 +161,28 @@
   "Run `(f)`, returning the exception it threw or nil."
   [f] (try (f) nil (catch Exception e e)))
 
+(defn- try-lock
+  "`ch`'s exclusive lock over the whole file, or nil when another process holds it."
+  ^FileLock [^FileChannel ch]
+  (.tryLock ch 0 Long/MAX_VALUE false))
+
+(defn- unsupported-refusal
+  "The `:lock-unsupported` refusal for a lock request on `path` that the filesystem
+  answered with the I/O error `cause`.  The message offers `vaelii.disk.lock=false` only
+  for a reason a filesystem with no advisory locks gives."
+  [path ^Throwable cause]
+  (let [why    (str (.getMessage cause))
+        nolock (re-find #"(?i)not supported|not implemented|no locks available" why)]
+    (ex-info (str "Disk KB at " path " cannot be locked: the filesystem refused the"
+                  " single-writer lock request (" why ")."
+                  (when nolock
+                    (str "  A filesystem with no POSIX advisory locks refuses it this way, as"
+                         " Android shared storage and some network mounts do."))
+                  "  Open the KB from a directory on a local filesystem, such as one under $HOME"
+                  (if nolock ", or set vaelii.disk.lock=false when no second process opens the directory." "."))
+             {:type :lock-unsupported :dir path :reason why}
+             cause)))
+
 (defn- give-back!
   "Release the OS lock `lk` and close `ch`, the entry `held` keeps for `path`, and drop the
   entry.  Called under `held`'s monitor, by `release!` for the last ref and by `acquire!`
@@ -177,10 +210,10 @@
       (swap! held dissoc path))))
 
 (defn acquire!
-  "Acquire the single-writer lock for `dir`.  Reentrant + ref-counted per canonical
-  dir.  Returns :acquired, :reentrant, or :disabled; throws `ex-info` (`:type
-  :disk-locked`) when another JVM holds it, or (`:type :unreleased`) when this JVM took
-  the lock and could not give it back.
+  "Acquire the single-writer lock for `dir`, reentrant and ref-counted per canonical dir.
+  Returns :acquired, :reentrant or :disabled; throws `:disk-locked` when another JVM
+  holds it, `:lock-unsupported` when the filesystem answers the lock request with an I/O
+  error, and `:unreleased` when this JVM took the lock and could not give it back.
 
   **The lock file is the first thing an open writes**, so a directory that cannot hold
   one is refused here, naming `dir`: `:not-a-directory` when it or an ancestor is
@@ -208,11 +241,13 @@
                      (catch java.io.IOException e
                        (throw (open-refusal dir e))))
                 ch        (.getChannel raf)
-                lk        (try (.tryLock ch 0 Long/MAX_VALUE false)
+                lk        (try (try-lock ch)
                                (catch OverlappingFileLockException _ ::overlapping)
                                (catch Throwable t
                                  (when-let [c (attempt #(.close ch))] (.addSuppressed t c))
-                                 (throw t)))]
+                                 (throw (if (instance? java.io.IOException t)
+                                          (unsupported-refusal path t)
+                                          t))))]
             (cond
               (identical? ::overlapping lk)
               (do (.close ch)

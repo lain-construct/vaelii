@@ -250,3 +250,5 @@ claims a decision that was not made.
 
 **Audit.** For each property a change weighed and declined, the KB states its negation,
 and behind each `(not …)` stands a decision with its counterexample in a `;;` note.
+`kb-integrity` with `:categories #{:undecided-relation-property}` reports each binary
+predicate that carries no mark and no stated denial of one.

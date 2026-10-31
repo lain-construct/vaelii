@@ -206,8 +206,8 @@ exactness.
 
 **Measures are numeric.** `agg/sum` over `(QuantityFn 5 Meter)` normalizes each value
 through `provers/normalize-quantity`, adds in base units, and renders the result with
-`render-quantity` from the same `conversionFactor` table. Which base unit an inconsistent
-table renders in is [quantity.md](quantity.md)'s.
+`render-quantity` from the same `conversionFactor` table. Measures in two base units have
+no sum ([quantity.md](quantity.md#comparison-semantics)).
 
 * `:sum` and `:avg` are linear in the `[lo hi]` bounds, so an interval in gives a
   `QuantityIntervalFn` out.

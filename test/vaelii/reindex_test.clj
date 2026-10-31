@@ -108,10 +108,11 @@
                                    (sx/sentex (list 'likes (ind i) (list 'friendOf (ind (inc i)))) 'CxUniverse)]
                             (zero? (mod i 5)) (conj (sx/sentex (list 'not (list 'dog (ind i))) 'CxUniverse)))]
                     s))]
-    (is (< (long (bytes-per-sentex (mem/memory-index-store {:space 83}) sxs)) 34000)
-        "KvIndexStore, bytes per sentex")
-    (is (< (long (bytes-per-sentex (columnar/columnar-index-store {:space 83}) sxs)) 24000)
-        "ColumnarIndexStore, bytes per sentex")))
+    (when-not (tu/instrumented?)
+      (is (< (long (bytes-per-sentex (mem/memory-index-store {:space 83}) sxs)) 34000)
+          "KvIndexStore, bytes per sentex")
+      (is (< (long (bytes-per-sentex (columnar/columnar-index-store {:space 83}) sxs)) 24000)
+          "ColumnarIndexStore, bytes per sentex"))))
 
 ;; ---- the re-check index ------------------------------------------------------
 

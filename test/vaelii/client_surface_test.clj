@@ -108,7 +108,7 @@
 (deftest the-generated-sections-are-what-the-generator-would-write
   ;; The drift check.  A red here is an op somebody added to `serve/ops`: run
   ;; `lein regen-client`, read the diff, and commit it with the change that moved it.
-  (doseq [{:keys [path] :as target} regen/targets]
+  (let [{:keys [path] :as target} regen/target]
     (testing path
       (is (.exists (io/file path)))
       (is (= (slurp (io/file path)) (regen/rendered target))
@@ -213,7 +213,7 @@
     (let [e (is (thrown? clojure.lang.ExceptionInfo (client/client "localhost" 4200 bad))
                 (pr-str bad))]
       (is (= :unknown-option (:type (ex-data e))) (pr-str bad))
-      (is (= [:timeout-ms :token] (:options (ex-data e))) (pr-str bad))))
+      (is (= [:digests? :timeout-ms :token] (:options (ex-data e))) (pr-str bad))))
   (testing "a non-map opts is refused too, rather than reading every key as absent"
     (let [e (is (thrown? clojure.lang.ExceptionInfo (client/client "localhost" 4200 :nope)))]
       (is (= :unknown-option (:type (ex-data e))))))

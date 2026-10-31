@@ -333,10 +333,10 @@
           "and the mark it excepts still separates a non-exempted pair"))))
 
 (tu/deftest-kb recover-agrees-about-a-denied-exemption
-  ;; `siblingDisjointException` is in the baseline forced-monotonic set, so on this bare KB a `:default`
-  ;; declaration is never a loser and a :monotonic denial of it loses to it: the exemption
-  ;; stands.  rebuild-taxonomy replays the stored declaration and the denial's premise, and
-  ;; the negation nogood is decided again — the same answer either side of a restart.
+  ;; A `:monotonic` denial of a `:default` `siblingDisjointException` is the stronger member
+  ;; of the negation nogood, so the exemption is defeated and the sibling mark separates the
+  ;; pair.  rebuild-taxonomy replays the stored declaration and the denial's premise, and the
+  ;; negation nogood is decided again — the same answer either side of a restart.
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
@@ -345,22 +345,23 @@
     (let [d   (v/assert kb (list 'not (list 'siblingDisjointException a b)) 'CxUniverse
                         {:strength :monotonic})
           kb2 (restart)]
-      (is (= [false false] [(v/disjoint? kb a b) (v/in? kb d)])
-          "the denial loses, so the exemption stands in memory")
+      (is (= [true true] [(v/disjoint? kb a b 'CxUniverse) (v/in? kb d)])
+          "the denial defeats the exemption in memory")
       (v/recover kb2)
-      (is (= [false false] [(v/disjoint? kb2 a b) (v/in? kb2 d)]) "and after a restart"))))
+      (is (= [true true] [(v/disjoint? kb2 a b 'CxUniverse) (v/in? kb2 d)]) "and after a restart"))))
 
 (tu/deftest-kb recover-agrees-about-a-denied-declaration
-  ;; `disjoint` is in the baseline forced-monotonic set, so on this bare KB a `:default`
-  ;; declaration is never a loser and a :monotonic denial of it loses to it, and a restart
-  ;; must give the same answer: the denial's premise is replayed and loses again.
+  ;; A `:monotonic` denial of a `:default` `disjoint` is the stronger member of the negation
+  ;; nogood and defeats the declaration, and a restart must give the same answer: the
+  ;; denial's premise is replayed and wins again.  The reads are at CxUniverse, the denial's
+  ;; vantage: the KB-wide `disjoint?` counts a defeated declaration.
   (let [dog (tu/tmp-type) cat (tu/tmp-type)]
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :default})
     (let [d   (v/assert kb (list 'not (list 'disjoint dog cat)) 'CxUniverse {:strength :monotonic})
           kb2 (restart)]
-      (is (= [true false] [(v/disjoint? kb dog cat) (v/in? kb d)]) "in memory")
+      (is (= [false true] [(v/disjoint? kb dog cat 'CxUniverse) (v/in? kb d)]) "in memory")
       (v/recover kb2)
-      (is (= [true false] [(v/disjoint? kb2 dog cat) (v/in? kb2 d)]) "after a restart"))))
+      (is (= [false true] [(v/disjoint? kb2 dog cat 'CxUniverse) (v/in? kb2 d)]) "after a restart"))))
 
 (tu/deftest-kb recover-decides-a-late-declaration-s-clash-as-the-live-kb-did
   ;; The clash a declaration arriving after both memberships makes is decided the same
@@ -428,8 +429,6 @@
              ['equals '(equals ?x ?y) [(tu/tmp-ind "Ann") (tu/tmp-ind "Bea")] merged?]
              ['genl '(genl ?x ?y) [(relation) (relation)] #(tax/genl?-global (tx %1) %2 %3)]
              ['genlCx '(genlCx ?x ?y) [(tu/tmp-ctx) (tu/tmp-ctx)] #(tax/genlCx?-global (tx %1) %2 %3)]
-             ['disjoint '(disjoint ?x ?y) [(tu/tmp-type "dog") (tu/tmp-type "cat")]
-              #(tax/disjoint? (tx %1) %2 %3)]
              ['arity '(arity ?x ?y) [(tu/tmp-pred "likes") 2]
               (fn [kb a _] (some? (tax/declared-arity (tx kb) a)))]
              ['functional '(functional ?x) [(tu/tmp-pred "likes") (tu/tmp-ind "Ann")]

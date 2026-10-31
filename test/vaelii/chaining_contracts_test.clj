@@ -13,14 +13,10 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- fwd [antes conseq]
-  (list 'set/forwardRule (vr/rule-sentence antes conseq)))
 
 ;; ---- :max-derivations ---------------------------------------------------
 
@@ -35,7 +31,7 @@
   ;; n, and no bound applies to a rule set that builds no term.
   (tu/with-terms [linkA reach_a]
     (let [nodes (vec (repeatedly 401 #(tu/tmp-ind "Node")))]
-      (v/assert kb (fwd [(list linkA '?x '?y) (list reach_a '?y)] (list reach_a '?x))
+      (v/assert kb (tu/fwd [(list linkA '?x '?y) (list reach_a '?y)] (list reach_a '?x))
                 'CxUniverse {:chain? false})
       (doseq [[a b] (partition 2 1 nodes)]
         (v/assert kb (list linkA a b) 'CxUniverse {:chain? false}))
@@ -53,7 +49,7 @@
     (tu/with-terms [SuccFn num]
       (v/assert kb (list 'reifiable_function SuccFn) 'CxUniverse)
       (when result? (v/assert kb (list 'result SuccFn num) 'CxUniverse))
-      (v/assert kb (fwd [(list num '?x)] (list num (list SuccFn '?x))) 'CxUniverse)
+      (v/assert kb (tu/fwd [(list num '?x)] (list num (list SuccFn '?x))) 'CxUniverse)
       (v/assert kb (list num (tu/tmp-ind "Zero")) 'CxUniverse)
       (let [bound    (:max-term-depth v/default-chain-opts)
             last-run (:last (v/chain-stats kb))]
@@ -68,8 +64,8 @@
 (tu/deftest-kb a-recursive-head-existential-ends-at-the-term-nesting-bound
   ;; Each witness is `(SkolemFn … ?x)` over the person it rests on, one level deeper.
   (tu/with-terms [person motherOf Tom]
-    (v/assert kb (fwd [(list person '?x)]
-                      (list 'exists '?m (list 'and (list motherOf '?m '?x) (list person '?m))))
+    (v/assert kb (tu/fwd [(list person '?x)]
+                         (list 'exists '?m (list 'and (list motherOf '?m '?x) (list person '?m))))
               'CxUniverse)
     (v/assert kb (list person Tom) 'CxUniverse)
     (let [bound (:max-term-depth v/default-chain-opts)]
@@ -84,8 +80,8 @@
     (let [deep (nth (iterate #(list SuccFn %) (tu/tmp-ind "Zero"))
                     (+ 4 (:max-term-depth v/default-chain-opts)))]
       (v/assert kb (list 'unreifiable_function SuccFn) 'CxUniverse)
-      (v/assert kb (fwd [(list holds '?x)] (list copied '?x)) 'CxUniverse)
-      (v/assert kb (fwd [(list holds '?x) (list tag '?y)] (list paired '?x (list SuccFn '?y)))
+      (v/assert kb (tu/fwd [(list holds '?x)] (list copied '?x)) 'CxUniverse)
+      (v/assert kb (tu/fwd [(list holds '?x) (list tag '?y)] (list paired '?x (list SuccFn '?y)))
                 'CxUniverse)
       (v/assert kb (list tag T) 'CxUniverse)
       (v/assert kb (list holds deep) 'CxUniverse)
@@ -109,7 +105,7 @@
 
 (tu/deftest-kb an-unbounded-run-is-not-flagged-truncated
   (tu/with-terms [thing marked A B C D E F]
-    (v/assert kb (fwd [(list thing '?x)] (list marked '?x)) 'CxNaturalWorld)
+    (v/assert kb (tu/fwd [(list thing '?x)] (list marked '?x)) 'CxNaturalWorld)
     (doseq [i [A B C D E F]]
       (v/assert kb (list thing i) 'CxNaturalWorld {:chain? false}))
     (let [{:keys [derived truncated?]} (v/forward-chain kb {})]
@@ -127,9 +123,9 @@
   ;; what tests it without over-claiming.
   (tu/with-terms [edge path A B C D E CxGraph]
     (v/assert kb (list 'genlCx CxGraph 'CxUniverse) 'CxUniverse)
-    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
-    (v/assert kb (fwd [(list edge '?x '?y) (list path '?y '?z)]
-                      (list path '?x '?z)) CxGraph)
+    (v/assert kb (tu/fwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
+    (v/assert kb (tu/fwd [(list edge '?x '?y) (list path '?y '?z)]
+                         (list path '?x '?z)) CxGraph)
     (doseq [[a b] [[A B] [B C] [C D] [D E]]]
       (v/assert kb (list edge a b) CxGraph {:chain? false}))
     (let [{:keys [derived truncated? bound]} (v/forward-chain kb {:max-derivations 2 :on-stop :keep})]
@@ -142,9 +138,9 @@
   ;; The other disjunct, for contrast: depth grows, so the depth bound fires.
   (tu/with-terms [edge path A B C D CxGraph]
     (v/assert kb (list 'genlCx CxGraph 'CxUniverse) 'CxUniverse)
-    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
-    (v/assert kb (fwd [(list edge '?x '?y) (list path '?y '?z)]
-                      (list path '?x '?z)) CxGraph)
+    (v/assert kb (tu/fwd [(list edge '?x '?y)] (list path '?x '?y)) CxGraph)
+    (v/assert kb (tu/fwd [(list edge '?x '?y) (list path '?y '?z)]
+                         (list path '?x '?z)) CxGraph)
     (doseq [[a b] [[A B] [B C] [C D]]]
       (v/assert kb (list edge a b) CxGraph {:chain? false}))
     (let [{:keys [truncated?]} (v/forward-chain kb {:max-depth 1})]
@@ -173,9 +169,9 @@
   (tu/with-terms [edge anc A B C CxDescent]
     (v/assert kb (list 'genlCx CxDescent 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'transitive anc) CxDescent {:strength :monotonic :chain? false})
-    (v/assert kb (fwd [(list edge '?x '?y)] (list anc '?x '?y)) CxDescent {:chain? false})
-    (v/assert kb (fwd [(list edge '?x '?y) (list anc '?y '?z)]
-                      (list anc '?x '?z)) CxDescent {:chain? false})
+    (v/assert kb (tu/fwd [(list edge '?x '?y)] (list anc '?x '?y)) CxDescent {:chain? false})
+    (v/assert kb (tu/fwd [(list edge '?x '?y) (list anc '?y '?z)]
+                         (list anc '?x '?z)) CxDescent {:chain? false})
     (doseq [[a b] [[A B] [B C]]]
       (v/assert kb (list edge a b) CxDescent {:chain? false}))
     (let [{:keys [derived truncated?]} (v/forward-chain kb {:max-derivations 500})]
@@ -203,8 +199,8 @@
   (let [edge (tu/tmp-pred "edge"), path (tu/tmp-pred "path"), ctx (tu/tmp-ctx "Graph")
         nodes (vec (repeatedly (inc n) #(tu/tmp-ind "N")))]
     (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) ctx {:chain? false})
-    (v/assert kb (fwd [(list edge '?x '?y) (list path '?y '?z)] (list path '?x '?z))
+    (v/assert kb (tu/fwd [(list edge '?x '?y)] (list path '?x '?y)) ctx {:chain? false})
+    (v/assert kb (tu/fwd [(list edge '?x '?y) (list path '?y '?z)] (list path '?x '?z))
               ctx {:chain? false})
     (doseq [[a b] (partition 2 1 nodes)]
       (v/assert kb (list edge a b) ctx {:chain? false}))
@@ -254,7 +250,7 @@
   (tu/with-terms [NextFn nextOf link tagged]
     (v/assert kb (list 'reifiable_function NextFn) 'CxUniverse)
     (v/assert kb (list 'functionCorrespondingPredicate NextFn nextOf) 'CxUniverse)
-    (v/assert kb (fwd [(list nextOf '?a '?k) (list link '?a '?b)] (list tagged (list NextFn '?b)))
+    (v/assert kb (tu/fwd [(list nextOf '?a '?k) (list link '?a '?b)] (list tagged (list NextFn '?b)))
               'CxUniverse {:chain? false})
     (let [nodes (vec (repeatedly (inc n) #(tu/tmp-ind "Node")))]
       (doseq [[a b] (partition 2 1 nodes)]
@@ -294,7 +290,7 @@
   (tu/with-terms [SuccFn num]
     (v/assert kb (list 'reifiable_function SuccFn) 'CxUniverse)
     (v/assert kb (list 'result SuccFn num) 'CxUniverse)
-    (v/assert kb (fwd [(list num '?x)] (list num (list SuccFn '?x))) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list num '?x)] (list num (list SuccFn '?x))) 'CxUniverse)
     (let [runs (:runs (v/chain-stats kb) 0)
           e    (try (v/assert kb (list num (tu/tmp-ind "Zero")) 'CxUniverse
                               {:max-derivations 30 :max-term-depth nil})
@@ -341,8 +337,8 @@
                                   :solve-with-support (fn [_ _ _] (swap! asks inc) [])
                                   :support-functors   #{okRow}
                                   :support-sources    #{p}}))
-      (v/assert kb (fwd [(list p '?x) (list q '?y) (list r '?z) (list okRow '?x '?y '?z)]
-                        (list joined '?x '?y '?z))
+      (v/assert kb (tu/fwd [(list p '?x) (list q '?y) (list r '?z) (list okRow '?x '?y '?z)]
+                           (list joined '?x '?y '?z))
                 'CxUniverse {:chain? false})
       (doseq [pred [p q r], _ (range 8)]
         (v/assert kb (list pred (tu/tmp-ind "Row")) 'CxUniverse {:chain? false}))
@@ -363,10 +359,10 @@
   (let [edge (tu/tmp-pred "edge"), path (tu/tmp-pred "path"), ctx (tu/tmp-ctx "Graph")
         nodes (vec (repeatedly (inc n) #(tu/tmp-ind "N")))]
     (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
-    (v/assert kb (fwd [(list edge '?x '?y)] (list path '?x '?y)) ctx)
+    (v/assert kb (tu/fwd [(list edge '?x '?y)] (list path '?x '?y)) ctx)
     (doseq [[a b] (partition 2 1 nodes)]
       (v/assert kb (list edge a b) ctx))
-    [edge path ctx (fwd [(list edge '?x '?y) (list path '?y '?z)] (list path '?x '?z))]))
+    [edge path ctx (tu/fwd [(list edge '?x '?y) (list path '?y '?z)] (list path '?x '?z))]))
 
 (defn- kb-state
   "What an interrupted write must leave as it found it: each stored sentex's record (a
@@ -416,8 +412,8 @@
   ;; `(p Rex)` concludes `(q Rex)` and `(r Rex)`, and both go back on the agenda.  A cap
   ;; of 2 leaves nothing unmade; a cap of 1 leaves `(r Rex)` unmade.
   (tu/with-terms [p q r Rex]
-    (v/assert kb (fwd [(list p '?x)] (list q '?x)) 'CxUniverse)
-    (v/assert kb (fwd [(list q '?x)] (list r '?x)) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list p '?x)] (list q '?x)) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list q '?x)] (list r '?x)) 'CxUniverse)
     (let [before (kb-state kb)]
       (is (= :max-derivations
              (first (interruption #(v/assert kb (list p Rex) 'CxUniverse {:max-derivations 1})))))
@@ -442,7 +438,7 @@
         (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
         (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
         (v/assert kb (list 'reifiable_function SuccFn) 'CxUniverse)
-        (v/assert kb (fwd [(list num '?x)] (list num (list SuccFn '?x))) CxA)
+        (v/assert kb (tu/fwd [(list num '?x)] (list num (list SuccFn '?x))) CxA)
         (if (= :fact arrives) (v/assert kb edge 'CxUniverse) (v/assert kb fact CxB))
         (testing (name arrives)
           (when-not (= :edge-in-assert-many arrives)
@@ -478,9 +474,9 @@
         _     (v/assert kb (list 'genlCx ctx 'CxUniverse) 'CxUniverse)
         before (tu/sentex-ids kb)
         e     (try (binding [v/*bulk-load?* true]
-                     (v/assert-many kb (into [(fwd [(list edge '?x '?y)] (list path '?x '?y))
-                                              (fwd [(list edge '?x '?y) (list path '?y '?z)]
-                                                   (list path '?x '?z))]
+                     (v/assert-many kb (into [(tu/fwd [(list edge '?x '?y)] (list path '?x '?y))
+                                              (tu/fwd [(list edge '?x '?y) (list path '?y '?z)]
+                                                      (list path '?x '?z))]
                                              edges)
                                     ctx {:progress-every-ms 0
                                          :stop? #(>= (v/count-with-functor kb path) 24)}))
@@ -501,9 +497,9 @@
   (tu/with-terms [pp qq rr ss Aa Bb CxA CxB]
     (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
-    (v/assert kb (fwd [(list pp '?x)] (list qq '?x)) CxA)
+    (v/assert kb (tu/fwd [(list pp '?x)] (list qq '?x)) CxA)
     (v/assert kb (list pp Aa) CxB)
-    (v/assert kb (fwd [(list rr '?x)] (list ss '?x)) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list rr '?x)] (list ss '?x)) 'CxUniverse)
     (let [edge    (list 'genlCx CxB CxA)
           closure #(set (map :sentence (v/sentexes-with-functor kb qq {:believed? true})))
           e       (try (v/assert-many kb [edge (list rr Bb)] 'CxUniverse
@@ -533,7 +529,7 @@
   (tu/with-terms [SuccFn num]
     (v/assert kb (list 'reifiable_function SuccFn) 'CxUniverse)
     (v/assert kb (list 'result SuccFn num) 'CxUniverse)
-    (v/assert kb (fwd [(list num '?x)] (list num (list SuccFn '?x))) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list num '?x)] (list num (list SuccFn '?x))) 'CxUniverse)
     (v/assert kb (list num (tu/tmp-ind "Zero")) 'CxUniverse {:chain? false})
     (let [base  {:max-term-depth nil :progress-every-ms 0}
           past? #(>= (v/count-with-functor kb num) 10)]
@@ -561,7 +557,7 @@
   ;; removes the denial before its own settle, so that settle leaves the default believed;
   ;; a denial left stored would take it out there, as the settle under `:keep` does.
   (tu/with-terms [flies penguin Tweety]
-    (v/assert kb (fwd [(list penguin '?x)] (list 'not (list flies '?x))) 'CxUniverse
+    (v/assert kb (tu/fwd [(list penguin '?x)] (list 'not (list flies '?x))) 'CxUniverse
               {:strength :monotonic :chain? false})
     (v/assert kb (list penguin Tweety) 'CxUniverse {:strength :monotonic :chain? false})
     (let [hf       (v/assert kb (list flies Tweety) 'CxUniverse {:chain? false})
@@ -611,7 +607,7 @@
   ;; `(count ?n)` → `(count ?n+1)` builds no term, so the term-nesting bound never applies
   ;; and the run goes on until the caller stops it, past the 1000th conclusion.
   (tu/with-terms [cnt]
-    (v/assert kb (fwd [(list cnt '?n) (list 'evaluate '?m (list '+ '?n 1))] (list cnt '?m))
+    (v/assert kb (tu/fwd [(list cnt '?n) (list 'evaluate '?m (list '+ '?n 1))] (list cnt '?m))
               'CxUniverse)
     (let [before  (kb-state kb)
           reached (atom 0)]
@@ -661,7 +657,7 @@
   (tu/with-terms [trig q r T CxHeap]
     (v/assert kb (list 'genlCx CxHeap 'CxUniverse) 'CxUniverse)
     (doseq [_ (range 30)] (v/assert kb (list q (tu/tmp-ind "A")) CxHeap))
-    (v/assert kb (fwd [(list trig '?t) (list q '?y)] (list r '?y)) CxHeap)
+    (v/assert kb (tu/fwd [(list trig '?t) (list q '?y)] (list r '?y)) CxHeap)
     (let [before (kb-state kb)
           marked (atom nil)
           seen   (atom 0)]
@@ -706,7 +702,7 @@
     (tu/with-terms [pp qq Aa CxA CxB CxM]
       (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
-      (v/assert kb (fwd [(list pp '?x)] (list qq '?x)) CxA)
+      (v/assert kb (tu/fwd [(list pp '?x)] (list qq '?x)) CxA)
       (v/assert kb (list pp Aa) CxB)
       (let [before (kb-state kb)
             edge   (list 'genlCx CxB CxA)
@@ -794,11 +790,11 @@
       (v/assert kb (list 'functionCorrespondingPredicate MomFn momOf) 'CxUniverse)
       (v/assert kb (list momOf Muffet Mary) CxStory)
       (v/assert kb (list likes Tom app) 'CxUniverse)
-      (v/assert kb (fwd [(list likes '?x app)] (list fond '?x)) 'CxUniverse)
-      (v/assert kb (fwd [(list stepOf '?x '?y)] (list momOf '?x '?y)) CxStory {:chain? false})
-      (v/assert kb (fwd [(list momOf '?x '?y)] (list seen '?y)) CxStory {:chain? false})
+      (v/assert kb (tu/fwd [(list likes '?x app)] (list fond '?x)) 'CxUniverse)
+      (v/assert kb (tu/fwd [(list stepOf '?x '?y)] (list momOf '?x '?y)) CxStory {:chain? false})
+      (v/assert kb (tu/fwd [(list momOf '?x '?y)] (list seen '?y)) CxStory {:chain? false})
       (let [copies   #(into #{} (keep (fn [s] (v/handle-of kb s CxStory)))
-                            [(list likes Tom Mary) (fwd [(list likes '?x Mary)] (list fond '?x))])
+                            [(list likes Tom Mary) (tu/fwd [(list likes '?x Mary)] (list fond '?x))])
             stored   (copies)
             at-stop  (atom [])
             stop?    #(when (v/handle-of kb (list momOf Muffet Jane) CxStory)
@@ -825,3 +821,65 @@
         (v/assert kb fact CxStory {:chain? false})
         (v/forward-chain kb)
         (is (empty? (copies)) "the settle of the unbounded run drops both copies")))))
+
+(tu/deftest-kb a-stopped-run-that-re-syncs-a-class-membership-leaves-the-kb-as-it-found-it
+  ;; `(binary_predicate likesRel)` rests on the path `rel_kind` → `z_kind` →
+  ;; `binary_predicate`.  The write `(genl rel_kind a_kind)` adds a path through `a_kind`,
+  ;; which `arity/class-paths` takes first, and the rule on `a_kind` concludes
+  ;; `(binary likesRel)` in the write's run, which syncs the class memberships of
+  ;; `likesRel`.  The run stops at the next datum.  The justification over the `z_kind` path
+  ;; is below the write's mark, so the rollback restores it only if the run left it in place;
+  ;; the settle of an unbounded run drops it.
+  (tu/with-terms [rel_kind a_kind z_kind likesRel]
+    (let [m       {:strength :monotonic}
+          member  (list rel_kind likesRel)
+          via-z   #{member (list 'genl rel_kind z_kind) (list 'genl z_kind 'binary_predicate)}
+          edge    (list 'genl rel_kind a_kind)
+          via-a   #{member edge (list 'genl a_kind 'binary_predicate)}
+          support #(when-some [h (v/handle-of kb (list 'binary_predicate likesRel) 'CxUniverse)]
+                     (into #{} (comp (filter (fn [j] (= 'arityClass (:informant j))))
+                                     (map (fn [j] (into #{} (map (fn [a] (:sentence (v/sentex kb a))))
+                                                        (:antecedents j)))))
+                           (v/supporting-justifications kb h)))
+          at-stop (atom [])
+          stop?   #(when (v/handle-of kb (list 'binary likesRel) 'CxUniverse)
+                     (swap! at-stop conj (support))
+                     true)]
+      (doseq [s [(list 'genl rel_kind z_kind) (list 'genl z_kind 'binary_predicate)
+                 (list 'genl a_kind 'binary_predicate) member]]
+        (v/assert kb s 'CxUniverse m))
+      (v/assert kb (tu/fwd [(list a_kind '?x)] (list 'binary '?x)) 'CxUniverse (assoc m :chain? false))
+      (is (= #{via-z} (support)))
+      (let [before  (kb-state kb)
+            stopped (interruption #(v/assert kb edge 'CxUniverse (assoc m :progress-every-ms 0
+                                                                        :stop? stop?)))]
+        (is (= [:stop? false] stopped))
+        (is (= before (kb-state kb))))
+      (is (= [#{via-z via-a}] @at-stop) "the run syncs the class and keeps the `z_kind` path")
+      (v/assert kb edge 'CxUniverse m)
+      (is (= #{via-a} (support)) "the settle of an unbounded run drops the `z_kind` path"))))
+
+(tu/deftest-kb ^:red an-assert-stopped-after-its-settle-leaves-the-kb-as-it-found-it
+  ;; The write `(genlCx CxB CxA)` makes CxB see CxA's `(bad Zero)` beside its own `(not
+  ;; (bad Zero))`, and CxD sees both contexts already.  The assert's own settle runs inside
+  ;; the rollback scope and places the pair's `contradicts` in CxB, dropping the one placed
+  ;; in CxD, whose sentex and justification are below the write's mark.  The bounded
+  ;; re-chain after the settle runs CxA's `SuccFn` rule over CxB's `(num Zero)` and stops at
+  ;; the third derivation.  The rollback deletes the CxB placement above the mark, and its
+  ;; settle places the CxD one again at new handles.
+  (tu/with-terms [SuccFn num Zero bad CxA CxB CxD]
+    (doseq [[s c] [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
+                   [(list 'genlCx CxB 'CxUniverse) 'CxUniverse]
+                   [(list 'genlCx CxD CxA) 'CxUniverse]
+                   [(list 'genlCx CxD CxB) 'CxUniverse]
+                   [(list 'reifiable_function SuccFn) 'CxUniverse]
+                   [(tu/fwd [(list num '?x)] (list num (list SuccFn '?x))) CxA]
+                   [(list num Zero) CxB]
+                   [(list bad Zero) CxA]
+                   [(list 'not (list bad Zero)) CxB]]]
+      (v/assert kb s c))
+    (let [before  (kb-state kb)
+          stopped (interruption #(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse
+                                           {:max-derivations 3}))]
+      (is (= :max-derivations (first stopped)))
+      (is (= before (kb-state kb))))))

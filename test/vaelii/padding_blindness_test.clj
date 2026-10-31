@@ -122,8 +122,6 @@
   (doseq [c stream-contexts] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse mono))
   (doseq [t (take 3 stream-types)] (v/assert kb (list 'genl t 'thing) 'CxUniverse mono)))
 
-(defn- pick [^Random rng coll] (nth coll (.nextInt rng (count coll))))
-
 (defn- ordered-pair
   "Two distinct members of `coll`, the later one first, so edges between them stay
   acyclic."
@@ -146,25 +144,25 @@
               facts   (filter #(not (#{'genl 'genlCx 'disjoint 'set/forwardRule} (first (second (nth ops %)))))
                               asserts)
               op (case (.nextInt rng 13)
-                   (0 1 2) [:assert (list (pick rng stream-types) (pick rng stream-individuals))
-                            (pick rng stream-contexts) (st)]
-                   3       [:assert (list 'not (list (pick rng stream-types) (pick rng stream-individuals)))
-                            (pick rng stream-contexts) (st)]
+                   (0 1 2) [:assert (list (tu/pick rng stream-types) (tu/pick rng stream-individuals))
+                            (tu/pick rng stream-contexts) (st)]
+                   3       [:assert (list 'not (list (tu/pick rng stream-types) (tu/pick rng stream-individuals)))
+                            (tu/pick rng stream-contexts) (st)]
                    4       (let [[a b] (ordered-pair rng stream-types)]
                              [:assert (gen/forward (list 'implies (list b '?x) (list a '?x)))
-                              (pick rng stream-contexts) {}])
+                              (tu/pick rng stream-contexts) {}])
                    5       (let [[a b] (ordered-pair rng stream-types)]
-                             [:assert (list 'genl a b) (pick rng stream-contexts) (st)])
+                             [:assert (list 'genl a b) (tu/pick rng stream-contexts) (st)])
                    6       (let [[a b] (ordered-pair rng stream-contexts)]
                              [:assert (list 'genlCx a b) 'CxUniverse mono])
                    7       (let [[a b] (ordered-pair rng stream-types)]
-                             [:assert (list 'disjoint a b) (pick rng stream-contexts) (st)])
-                   (8 9)   (if (seq asserts) [:retract (pick rng (vec asserts))] [:noop])
-                   10      (if (seq facts) [:except (pick rng (vec facts)) (pick rng stream-contexts)] [:noop])
-                   11      [:preview (list (pick rng stream-types) (pick rng stream-individuals))
-                            (pick rng stream-contexts)]
+                             [:assert (list 'disjoint a b) (tu/pick rng stream-contexts) (st)])
+                   (8 9)   (if (seq asserts) [:retract (tu/pick rng (vec asserts))] [:noop])
+                   10      (if (seq facts) [:except (tu/pick rng (vec facts)) (tu/pick rng stream-contexts)] [:noop])
+                   11      [:preview (list (tu/pick rng stream-types) (tu/pick rng stream-individuals))
+                            (tu/pick rng stream-contexts)]
                    12      (let [[a b] (ordered-pair rng stream-individuals)]
-                             [:assert (list 'sameAs a b) (pick rng stream-contexts) (st)]))]
+                             [:assert (list 'sameAs a b) (tu/pick rng stream-contexts) (st)]))]
           (recur (conj ops op) (inc i)))))))
 
 ;; ---- running a world --------------------------------------------------------------

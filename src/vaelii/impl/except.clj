@@ -4,8 +4,10 @@
   "The visibility `except` set: which handles a believed `except` hides from a
   reading context, with the meta-except cascade; and the read walk that applies the
   placed `defeat`s at a reader.  See docs/exceptions.md and docs/nmtms.md."
-  (:require [vaelii.impl.caches :as caches]
+  (:require [vaelii.impl.budget :as budget]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.decide :as decide]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
@@ -214,17 +216,14 @@
   it."
   ([tms h stop?] (support tms h stop? false))
   ([tms h stop? past-premises?]
-   (loop [seen #{}, stack [h]]
-     (if (empty? stack)
-       seen
-       (let [d (peek stack) stack (pop stack)]
-         (if (or (contains? seen d) (stop? d))
-           (recur seen stack)
-           (recur (conj seen d)
-                  (if (and (not past-premises?) (jtms/premise? tms d))
-                    stack
-                    (into stack (comp (keep #(jtms/justification tms %)) (mapcat jtms/rests-on))
-                          (jtms/supports tms d))))))))))
+   (if (stop? h)
+     #{}
+     (graph/reach-all [h]
+                      (fn [d]
+                        (when-not (and (not past-premises?) (jtms/premise? tms d))
+                          (into [] (comp (keep #(jtms/justification tms %)) (mapcat jtms/rests-on)
+                                         (remove stop?))
+                                (jtms/supports tms d))))))))
 
 ;; ---- a defeat met again on one read: the cycle, broken in content order ------------
 ;;
@@ -233,7 +232,8 @@
 ;; defeats.  The read keeps each defeat it is reading open under the index it opened at
 ;; (`::open`).  A defeat met again while open answers false and lowers the read's mark
 ;; (`::open-low`) to that index, and a value that met an index below its own start is
-;; provisional and is not kept.  The defeats left provisional when the first of them
+;; provisional: it is kept apart (`::provisional`) only until the defeat at that index
+;; closes.  The defeats left provisional when the first of them
 ;; closes form a cycle, which `close-cycle` breaks in content order.  See docs/nmtms.md,
 ;; "A defeat-dependency cycle".
 
@@ -249,11 +249,35 @@
       (vswap! memo assoc ::open-low (min saved low))
       [r low])))
 
+(defn- unit-cleared
+  "`(f)`, with the read's memo `memo` emptied when the unit's budget passes inside it
+  (`budget/check-unit!`): the read stops part-way, and the keys it held open or assumed
+  would answer a later read of the memo."
+  [memo f]
+  (try (f)
+       (catch clojure.lang.ExceptionInfo e
+         (when (budget/unit-over? e) (vreset! memo {}))
+         (throw e))))
+
 (defn- opened
-  "`(f)` with the defeat key `k` open at index `n`."
+  "`(f)` with the defeat key `k` open at index `n`, once the unit's budget is checked
+  (`budget/check-unit!`)."
   [memo k n f]
   (vswap! memo assoc-in [::open k] n)
-  (try (f) (finally (vswap! memo update ::open dissoc k))))
+  (try (unit-cleared memo #(do (budget/check-unit!) (f)))
+       (finally (vswap! memo update ::open dissoc k))))
+
+(defn- provisional
+  "`[value low]` the read keeps for `k` while the defeat open at `low` stays open
+  (`in-force-once`), or nil."
+  [m k]
+  (some (fn [[low ks]] (when-let [e (find ks k)] [(val e) low])) (::provisional m)))
+
+(defn- close-provisional
+  "The memo `m` without the provisional values resting on a defeat open at `n` or above,
+  which closes."
+  [m n]
+  (update m ::provisional #(into {} (filter (fn [[low]] (< (long low) (long n)))) %)))
 
 (defn- kept
   "`(f)`, kept in the read's memo under `k` unless it met a defeat open when it started."
@@ -336,7 +360,7 @@
                             found   (subvec (vec (::cycle @memo [])) (min c (count (::cycle @memo []))))]
                         (vswap! memo (fn [m] (reduce (fn [m rk] (if-let [[_ v] (find saved rk)] (assoc m rk v) (dissoc m rk)))
                                                      m
-                                                     (into [::assumed ::open ::open-low ::cycle ::depth ::low]
+                                                     (into [::assumed ::open ::open-low ::cycle ::provisional ::depth ::low]
                                                            (comp (keep seen-key) (remove #{seen}))
                                                            (keys members)))))
                         [r low found])))
@@ -383,7 +407,9 @@
   "`(f)`, whether the defeat key `k` (`cycle-order`) is in force at the reader, kept in the
   read's memo.  Met again while open it answers false, and held by `close-cycle` it
   answers the value held; either lowers the read's mark.  A value that met a key open
-  below its own is kept nowhere, and its key joins the cycle that lower key closes.  A
+  below its own is kept as provisional (`provisional`) until that lower key closes, so
+  each path of the read reaching it takes the value and lowers its mark, and its key
+  joins the cycle that lower key closes.  A
   cycle whose members rest on a key open below its own index (`close-cycle`) joins the
   cycle that key closes, and lowers the read's mark to it."
   [{:keys [memo] :as st} k f]
@@ -395,19 +421,25 @@
                                       (vswap! memo update ::open-low (fnil min no-low) i)
                                       held)
       :else
-      (let [n (count (::open m)) c (count (::cycle m []))
-            [r low] (marked memo #(opened memo k n f))]
-        (cond
-          (< low n) (do (vswap! memo update ::cycle (fnil conj []) [k f]) r)
-          (and (= low n) (> (count (::cycle @memo [])) c))
-          (let [ms (conj (subvec (::cycle @memo) c) [k f])]
-            (vswap! memo update ::cycle subvec 0 c)
-            (if-let [{:keys [low members]} (close-cycle st n ms)]
-              (do (vswap! memo update ::cycle (fnil into []) members)
-                  (vswap! memo update ::open-low (fnil min no-low) low)
-                  r)
-              (in-force-once st k f)))
-          :else (do (vswap! memo assoc k r) r))))))
+      (if-let [[r low] (provisional m k)]
+        (do (vswap! memo update ::open-low (fnil min no-low) low) r)
+        (let [n (count (::open m)) c (count (::cycle m []))
+              [r low] (marked memo #(opened memo k n f))]
+          (vswap! memo close-provisional n)
+          (cond
+            (< low n) (do (vswap! memo #(-> (update % ::cycle (fnil conj []) [k f])
+                                            (assoc-in [::provisional low k] r)))
+                          r)
+            (and (= low n) (> (count (::cycle @memo [])) c))
+            (let [ms (conj (subvec (::cycle @memo) c) [k f])]
+              (vswap! memo update ::cycle subvec 0 c)
+              (if-let [{:keys [low members]} (close-cycle st n ms)]
+                (do (vswap! memo #(-> (update % ::cycle (fnil into []) members)
+                                      (update ::open-low (fnil min no-low) low)
+                                      (assoc-in [::provisional low k] r)))
+                    r)
+                (in-force-once st k f)))
+            :else (do (vswap! memo assoc k r) r)))))))
 
 ;; ---- a second route at the reader ----------------------------------------------
 
@@ -445,20 +477,23 @@
       (vector? v)       (do (vswap! m update ::low (fnil min Long/MAX_VALUE) (second v)) false)
       (not= ::absent v) v
       :else
-      (let [d   (inc (get @m ::depth 0))
-            low (get @m ::low Long/MAX_VALUE)
-            n   (count (::open @memo))]
-        (vswap! m assoc k [::open d] ::depth d ::low Long/MAX_VALUE)
-        (let [[r flow] (marked memo
-                               #(binding [*routes*            m
-                                          tax/*search*        (if with-excepts? :visibility :belief)
-                                          caches/*open-mark*  (partial open-marked m)]
-                                  (f)))
-              low' (::low @m)
-              open (if (< low' d) low' Long/MAX_VALUE)]
-          (vswap! m (fn [mm] (-> (if (or (< open d) (< flow n)) (dissoc mm k) (assoc mm k r))
-                                 (assoc ::depth (dec d) ::low (min low open)))))
-          r)))))
+      (unit-cleared
+       m
+       (fn []
+         (let [d   (inc (get @m ::depth 0))
+               low (get @m ::low Long/MAX_VALUE)
+               n   (count (::open @memo))]
+           (vswap! m assoc k [::open d] ::depth d ::low Long/MAX_VALUE)
+           (let [[r flow] (marked memo
+                                  #(binding [*routes*            m
+                                             tax/*search*        (if with-excepts? :visibility :belief)
+                                             caches/*open-mark*  (partial open-marked m)]
+                                     (f)))
+                 low' (::low @m)
+                 open (if (< low' d) low' Long/MAX_VALUE)]
+             (vswap! m (fn [mm] (-> (if (or (< open d) (< flow n)) (dissoc mm k) (assoc mm k r))
+                                    (assoc ::depth (dec d) ::low (min low open)))))
+             r)))))))
 
 (defn- witness-paths
   "The witness edges among `sentences` (`{handle sentence}`, one justification's
@@ -515,9 +550,10 @@
                  goals))))
 
 (defn- rerouted
-  "`{justification-id #{handle}}`: for each justification of a handle of `region` that rests
-  on a handle of `forced`, or on a `genl` or `genlCx` edge whose support reaches one and
-  which a second supporter in `up` states with no forced handle in its support, those
+  "`{justification-id #{handle}}`: for each justification of `asked` or of a handle of
+  `region` that is no premise (the fixpoint, `jtms/region-in`, reads none of a premise's)
+  that rests on a handle of `forced`, or on a `genl` or `genlCx` edge whose support
+  reaches one and which a second supporter in `up` states with no forced handle in its support, those
   handles read at their label, when the firing stands at the reader another way.  A rule
   firing stands when the backward search finds each goal it matched through a reach
   reached by a claim the reader believes, over edges it believes, and with
@@ -528,7 +564,7 @@
   believe.  A read inside the search reads its own second routes the same way.
   Nothing is re-derived (docs/nmtms.md, \"Where the layer stops\").  Asks only of a
   justification a forced handle reaches."
-  [{:keys [tms recs tax up] :as st} region forced with-excepts?]
+  [{:keys [tms recs tax up] :as st} region forced with-excepts? asked]
   (let [clear?     #(not-any? forced (support tms % (constantly false)))
         edge-gone? (memoize
                     (fn [h]
@@ -555,7 +591,8 @@
                                                      (route-reaches? st with-excepts? rel a b)))
                                                paths))
                               [(:id j) gone]))))))))
-          (into [] (comp (mapcat #(jtms/supports tms %)) (distinct) (keep #(jtms/justification tms %)))
+          (into [] (comp (filter #(or (= asked %) (not (jtms/premise? tms %))))
+                         (mapcat #(jtms/supports tms %)) (distinct) (keep #(jtms/justification tms %)))
                 region))))
 
 (defn- with-routes
@@ -581,7 +618,7 @@
     (and (seq forced)
          (not (contains? (jtms/region-in tms region region #{} forced
                                          (with-routes belief-only-antecedent
-                                           (when st (rerouted st region forced true)))
+                                           (when st (rerouted st region forced true nil)))
                                          #{})
                          h)))))
 
@@ -1012,13 +1049,6 @@
      (tax/props tax :forced-monotonic) (tax/props tax :forced-between-predicates)
      (tax/sib-exceptions? tax) (boolean (seq (tax/equality-edges tax)))]))
 
-(defn- touch-mark
-  "`jtms/touch-mark` of `tms`, or nil for the network before a write (`kb/prior-kb`), which
-  records no touches: its frames are kept by reading every watched label."
-  [tms]
-  (try (jtms/touch-mark tms)
-       (catch UnsupportedOperationException _ nil)))
-
 (defn- frame-watch
   "What the frames a pass builds from now on are kept under: `frame-inputs`, the stored
   excepts and declarations with the set of those IN, a mark of the touched sets taken
@@ -1027,7 +1057,7 @@
   [kb]
   (let [idx   (:index kb)
         tms   (reasoning/tms kb)
-        mark  (touch-mark tms)
+        mark  (jtms/touch-mark-if-kept tms)
         decls (into [] (mapcat #(reads/as-stored-with-functor idx %)) declaration-functors)
         hs    (into (set decls) (reads/as-stored-with-functor idx sx/except-functor))]
     {:inputs   (frame-inputs kb)
@@ -1051,7 +1081,7 @@
              (= (:inputs w) (frame-inputs kb)))
     (let [tms    (reasoning/tms kb)
           [g]    (:mark w)
-          mark   (touch-mark tms)
+          mark   (jtms/touch-mark-if-kept tms)
           in     (:in w)
           seen   (:watched w)
           labels (if (and g (= g (first mark)))
@@ -1553,11 +1583,14 @@
   `:void` is a firing void under the reader's forced-monotonic reading (`forced-void`),
   read when that reading can void one.  `:exempt` is a `nogood` justification of a
   placement the reader exempts (`exempt-justifications`), read when a placement can be
-  exempt there.  A justification two of them name takes the first in that order."
-  [{:keys [exempting? forced] :as st} x]
-  (merge (when exempting? (zipmap (exempt-justifications st x) (repeat :exempt)))
-         (when (:void? forced) (zipmap (forced-void st x) (repeat :void)))
-         (zipmap (guard-covered st x) (repeat :guard))))
+  exempt there.  A justification two of them name takes the first in that order.  Each
+  answer is kept in the read's memo (`kept`): every walk whose support holds `x` asks it,
+  and each of the three reads every justification of `x`."
+  [{:keys [exempting? forced memo] :as st} x]
+  (kept memo [::invalid x]
+        #(merge (when exempting? (zipmap (exempt-justifications st x) (repeat :exempt)))
+                (when (:void? forced) (zipmap (forced-void st x) (repeat :void)))
+                (zipmap (guard-covered st x) (repeat :guard)))))
 
 (defn- support-read
   "What the walk reads over `h`'s support at the reader: `:in`, the handles of the support
@@ -1579,6 +1612,7 @@
   and only a `respell` justification rests on a handle that caps no class; and the
   support is not walked when nothing in it can be hidden there (`region-at`)."
   [{:keys [tms excepted? up idx forced yielding?] :as st} h with-excepts? invalid]
+  (budget/check-unit!)
   (if-let [region (region-at st h (if (or excepted? (:void? forced) yielding?)
                                     (constantly false)
                                     #(and (= :monotonic (jtms/defeat-class tms %))
@@ -1600,7 +1634,7 @@
       (if (and (empty? forced) (empty? invalid))
         {:in ::all :reasons reasons}
         (let [belief (with-routes (placed-belief-only st (into by-def by-cov) by-conf other)
-                       (when (seq forced) (rerouted st region forced with-excepts?)))
+                       (when (seq forced) (rerouted st region forced with-excepts? h)))
               in     (jtms/region-in tms region region #{} forced belief invalid)
               valid? (delay (jtms/region-valid-fn tms region belief invalid))]
           {:in in :reasons reasons :valid? #(@valid? in %)})))
@@ -1764,14 +1798,27 @@
   [kb ctx]
   (:on? (forced-at kb ctx)))
 
+(defn- defeat-nogoods
+  "`(f [justification members contradicts])` over the placed nogoods whose `defeat` is
+  the handle `d` (`member-sets`), distinct, in content order of their `(contradicts …)`,
+  or nil."
+  [kb d f]
+  (let [recs (:records kb)]
+    (when-let [l (defeat-target* (:sentence (p/get-sentex recs d)))]
+      (into [] (comp (map f) (distinct))
+            (member-sets {:kb kb :recs recs :tms (reasoning/tms kb)} d l)))))
+
 (defn defeat-member-sets
   "The member sets of the placed nogoods whose `defeat` is the handle `d`, one per nogood
   in content order of their `(contradicts …)`, or nil."
   [kb d]
-  (let [recs (:records kb)]
-    (when-let [l (defeat-target* (:sentence (p/get-sentex recs d)))]
-      (into [] (comp (map second) (distinct))
-            (member-sets {:kb kb :recs recs :tms (reasoning/tms kb)} d l)))))
+  (defeat-nogoods kb d second))
+
+(defn defeat-placements
+  "The `(contradicts …)` handles of the placed nogoods whose `defeat` is the handle `d`, in
+  content order, or nil."
+  [kb d]
+  (defeat-nogoods kb d peek))
 
 ;; ---- the reads: belief and visibility at a reader --------------------------------
 ;;

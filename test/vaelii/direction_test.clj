@@ -5,6 +5,7 @@
   predicates."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
@@ -133,6 +134,199 @@
       (testing "the chainers read it forward-capable but not backward-capable"
         (is (vr/forward-sentex? sx))
         (is (not (vr/backward-sentex? sx)))))))
+
+(tu/deftest-kb a-forward-rule-reads-a-lazy-forward-conclusion-and-not-a-backward-one
+  (tu/with-terms [cat feline noted ownerOf Tom Ann]
+    (let [rule   (vr/rule-sentence [(list cat '?x)] (list feline '?x))
+          held?  #(boolean (when-let [h (v/handle-of kb % 'CxFam)] (v/in? kb h)))
+          member (v/assert kb (list cat Tom) 'CxFam)]
+      (v/assert kb (list 'set/backwardRule rule) 'CxFam)
+      (v/assert kb (list 'set/forwardRule
+                         (vr/rule-sentence [(list ownerOf Ann '?x) (list feline '?x)] (list noted '?x)))
+                'CxFam)
+      (v/assert kb (list ownerOf Ann Tom) 'CxFam)
+      (testing "a backward rule's conclusion is not read by a forward join"
+        (is (false? (held? (list noted Tom))))
+        (is (v/provable? kb (list feline Tom) 'CxFam)))
+      (v/assert kb (list 'set/lazyForwardRule rule) 'CxFam)
+      (testing "re-asserted lazy-forward, its conclusion is read and is not stored"
+        (is (= #{:backward :lazy} (:engines (v/sentex kb (v/handle-of kb rule 'CxFam)))))
+        (is (true? (held? (list noted Tom))))
+        (is (nil? (v/handle-of kb (list feline Tom) 'CxFam))))
+      (v/retract! kb member)
+      (testing "the firing rests on the membership the lazy-forward rule read"
+        (is (false? (held? (list noted Tom))))))))
+
+(tu/deftest-kb a-lazy-firing-is-placed-where-no-visible-edge-holds-its-membership
+  (doseq [edge-first? [true false]]
+    (tu/with-terms [dog vocal hasVoice Rex Bark CxA CxB]
+      (let [held? #(boolean (when-let [h (v/handle-of kb % CxA)] (v/in? kb h)))
+            edge  #(v/assert kb (list 'genl dog vocal) CxB)]
+        (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
+        (when edge-first? (edge))
+        (v/assert kb (list 'set/lazyForwardRule
+                           (vr/rule-sentence [(list dog '?x)] (list hasVoice '?x Bark)))
+                  CxA)
+        (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list hasVoice '?x '?v)] (list vocal '?x)))
+                  CxA)
+        (v/assert kb (list dog Rex) CxA)
+        (when-not edge-first? (edge))
+        (is (held? (list vocal Rex)) (str "edge first: " edge-first?))))))
+
+(defn- lazy-voice-world!
+  "The lazy rule `(dog ?x) ⇒ (hasVoice ?x Bark)`, its reader `(hasVoice ?x ?v) ⇒ (vocal ?x)`
+  and `(dog Rex)`, all in `cx`."
+  [kb cx dog vocal hasVoice Rex Bark]
+  (v/assert kb (list 'set/lazyForwardRule (vr/rule-sentence [(list dog '?x)] (list hasVoice '?x Bark))) cx)
+  (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list hasVoice '?x '?v)] (list vocal '?x))) cx)
+  (v/assert kb (list dog Rex) cx))
+
+(tu/deftest-kb a-departing-edge-re-joins-the-lazy-reader-whose-membership-it-held
+  (doseq [edge-first? [true false]]
+    (tu/with-terms [dog vocal hasVoice Rex Bark CxA]
+      (let [stored? #(boolean (when-let [h (v/handle-of kb % CxA)] (v/in? kb h)))
+            edge    #(v/assert kb (list 'genl dog vocal) CxA)
+            e0      (when edge-first? (edge))]
+        (lazy-voice-world! kb CxA dog vocal hasVoice Rex Bark)
+        (v/retract! kb (or e0 (edge)))
+        (is (stored? (list vocal Rex)) (str "edge first: " edge-first?))))))
+
+(tu/deftest-kb a-departing-edge-re-joins-the-lazy-reader-beside-a-member-of-a-subtype
+  (doseq [edge-first? [true false]]
+    (tu/with-terms [dog puppy vocal hasVoice Rex Bark CxA]
+      (let [held? #(boolean (when-let [h (v/handle-of kb % CxA)] (v/in? kb h)))
+            edge  #(v/assert kb (list 'genl puppy vocal) CxA)
+            e0    (when edge-first? (edge))]
+        (v/assert kb (list 'genl puppy dog) CxA)
+        (v/assert kb (list 'set/lazyForwardRule (vr/rule-sentence [(list dog '?x)] (list hasVoice '?x Bark))) CxA)
+        (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list hasVoice '?x '?v)] (list vocal '?x))) CxA)
+        (v/assert kb (list puppy Rex) CxA)
+        (v/retract! kb (or e0 (edge)))
+        (is (held? (list vocal Rex)) (str "edge first: " edge-first?))))))
+
+(tu/deftest-kb a-genl-edge-leaves-a-lazy-reader-s-membership-its-taxonomy-holds-unstored-in-either-order
+  (doseq [edge-first? [true false]]
+    (tu/with-terms [dog vocal hasVoice Rex Bark CxA]
+      (when edge-first? (v/assert kb (list 'genl dog vocal) CxA))
+      (lazy-voice-world! kb CxA dog vocal hasVoice Rex Bark)
+      (when-not edge-first? (v/assert kb (list 'genl dog vocal) CxA))
+      (is (nil? (v/handle-of kb (list vocal Rex) CxA)) (str "edge first: " edge-first?))
+      (is (v/provable? kb (list vocal Rex) CxA) (str "edge first: " edge-first?)))))
+
+(tu/deftest-kb a-converse-reader-reads-the-genl-edges-its-placement-context-sees
+  (doseq [edge-first? [true false]]
+    (tu/with-terms [dog vocal hasVoice Rex Bark CxA CxB]
+      (let [held? #(boolean (when-let [h (v/handle-of kb % CxA)] (v/in? kb h)))
+            edge  #(v/assert kb (list 'genl vocal dog) CxB)]
+        (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
+        (when edge-first? (edge))
+        (lazy-voice-world! kb CxA dog vocal hasVoice Rex Bark)
+        (when-not edge-first? (edge))
+        (is (held? (list vocal Rex)) (str "edge first: " edge-first?))))))
+
+(tu/deftest-kb a-genl-edge-withholds-a-converse-reader-s-firing-in-either-order-until-it-departs
+  (doseq [edge-first? [true false]]
+    (tu/with-terms [dog vocal hasVoice Rex Bark CxA]
+      (let [held? #(boolean (when-let [h (v/handle-of kb % CxA)] (v/in? kb h)))
+            edge  #(v/assert kb (list 'genl vocal dog) CxA)
+            e0    (when edge-first? (edge))]
+        (lazy-voice-world! kb CxA dog vocal hasVoice Rex Bark)
+        (let [e (or e0 (edge))]
+          (is (false? (held? (list vocal Rex))) (str "edge first: " edge-first?))
+          (v/retract! kb e)
+          (is (true? (held? (list vocal Rex))) (str "retracted, edge first: " edge-first?)))))))
+
+(tu/deftest-kb a-lazy-rule-s-exception-withholds-its-readers-firings-in-either-order
+  (doseq [exception-first? [true false]]
+    (tu/with-terms [dog deaf vocal hasVoice Rex Bark CxA]
+      (let [held? #(boolean (when-let [h (v/handle-of kb % CxA)] (v/in? kb h)))
+            lazy  (list 'set/lazyForwardRule (vr/rule-sentence [(list dog '?x)] (list hasVoice '?x Bark)))
+            exc   #(v/assert kb (list 'exceptWhen (list deaf '?x) lazy) CxA)
+            e0    (when exception-first? (exc))]
+        (v/assert kb lazy CxA)
+        (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list hasVoice '?x '?v)] (list vocal '?x)))
+                  CxA)
+        (v/assert kb (list dog Rex) CxA)
+        (let [e (or e0 (exc))]
+          (is (false? (held? (list vocal Rex))) (str "exception first: " exception-first?))
+          (v/retract! kb e)
+          (is (true? (held? (list vocal Rex))) (str "retracted, exception first: " exception-first?)))))))
+
+(tu/deftest-kb a-batch-runs-each-owed-lazy-re-join-once-at-its-settle
+  (tu/with-terms [cat feline noted ownerOf Ann Tom Kit Rex]
+    (let [held?  #(boolean (when-let [h (v/handle-of kb % 'CxFam)] (v/in? kb h)))
+          reader (vr/rule-sentence [(list ownerOf Ann '?x) (list feline '?x)] (list noted '?x))
+          runs   (atom [])
+          run    @#'chain/run-owed-rejoin
+          member (with-redefs [chain/run-owed-rejoin
+                               (fn [kb marker & more]
+                                 (swap! runs conj (second marker))
+                                 (apply run kb marker more))]
+                   (v/with-deferred-settle kb
+                     (v/assert kb (list 'set/lazyForwardRule
+                                        (vr/rule-sentence [(list cat '?x)] (list feline '?x)))
+                               'CxFam)
+                     (v/assert kb (list 'set/forwardRule reader) 'CxFam)
+                     (last (for [x [Tom Kit Rex]]
+                             (do (v/assert kb (list ownerOf Ann x) 'CxFam)
+                                 (v/assert kb (list cat x) 'CxFam))))))]
+      (is (= 1 (count (filter #{(v/handle-of kb reader 'CxFam)} @runs))))
+      (is (every? #(held? (list noted %)) [Tom Kit Rex]))
+      (v/retract! kb member)
+      (is (false? (held? (list noted Rex))))
+      (is (held? (list noted Kit))))))
+
+(tu/deftest-kb a-lazy-reader-s-re-join-proves-the-lazy-literal-from-the-arriving-membership
+  (tu/with-terms [cat feline noted Tom]
+    (let [held? #(boolean (when-let [h (v/handle-of kb % 'CxFam)] (v/in? kb h)))
+          rows  (atom 0)
+          solve @#'chain/solve-lazy]
+      (v/assert kb (list 'set/lazyForwardRule (vr/rule-sentence [(list cat '?x)] (list feline '?x))) 'CxFam)
+      (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list feline '?x)] (list noted '?x))) 'CxFam)
+      (dotimes [_ 12] (v/assert kb (list cat (tu/tmp-ind "Kit")) 'CxFam))
+      (with-redefs [chain/solve-lazy (fn [& args]
+                                       (let [r (doall (apply solve args))] (swap! rows + (count r)) r))]
+        (v/assert kb (list cat Tom) 'CxFam))
+      (is (= 1 @rows))
+      (is (held? (list noted Tom))))))
+
+(defn- nonempty-reader!
+  "A lazy-forward rule concluding `(inhabited ?c)` from `(nonempty ?c)` and a forward rule
+  concluding `(noted ?c)` from it, in CxFam, `(listed ?c)` an antecedent of the lazy rule
+  when `in-lazy?` and of the forward rule otherwise."
+  [kb in-lazy? inhabited listed noted]
+  (let [l (list listed '?c) i (list inhabited '?c)]
+    (v/assert kb (list 'set/lazyForwardRule
+                       (vr/rule-sentence (if in-lazy? [l (list 'nonempty '?c)] [(list 'nonempty '?c)]) i))
+              'CxFam)
+    (v/assert kb (list 'set/forwardRule (vr/rule-sentence (if in-lazy? [i] [l i]) (list noted '?c)))
+              'CxFam)))
+
+(tu/deftest-kb a-nonempty-lazy-reader-notes-a-type-whose-member-arrives-after-it
+  (doseq [in-lazy? [true false]]
+    (tu/with-terms [inhabited listed noted dog Fido]
+      (let [held? #(boolean (when-let [h (v/handle-of kb % 'CxFam)] (v/in? kb h)))]
+        (nonempty-reader! kb in-lazy? inhabited listed noted)
+        (v/assert kb (list listed dog) 'CxFam)
+        (is (false? (held? (list noted dog))) (str "listed in the lazy rule: " in-lazy?))
+        (let [m (v/assert kb (list dog Fido) 'CxFam)]
+          (is (true? (held? (list noted dog))) (str "listed in the lazy rule: " in-lazy?))
+          (v/retract! kb m)
+          (is (false? (held? (list noted dog))) (str "retracted, listed in the lazy rule: " in-lazy?)))))))
+
+(tu/deftest-kb a-membership-re-joins-a-nonempty-lazy-rule-s-readers-over-the-types-it-moves
+  (tu/with-terms [inhabited listed noted other Odd]
+    (let [rows  (atom 0)
+          solve @#'chain/solve-lazy]
+      (nonempty-reader! kb true inhabited listed noted)
+      (dotimes [_ 12]
+        (let [t (tu/tmp-type "kind")]
+          (v/assert kb (list listed t) 'CxFam)
+          (v/assert kb (list t (tu/tmp-ind "Kit")) 'CxFam)))
+      (with-redefs [chain/solve-lazy (fn [& args]
+                                       (let [r (doall (apply solve args))] (swap! rows + (count r)) r))]
+        (v/assert kb (list other Odd) 'CxFam))
+      (is (zero? @rows)))))
 
 (tu/deftest-kb a-wrapper-combination-the-record-cannot-hold-is-refused
   ;; The wrappers say how a rule runs (a direction, `set/defaultRule`) and what its head is

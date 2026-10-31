@@ -12,7 +12,10 @@
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.inference :as inf]
+            [vaelii.impl.kb :as kb]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.plan :as plan]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.tactics :as tac]
             [vaelii.test-util :as tu]))
 
@@ -385,6 +388,24 @@
                    @seen)
                 "the racers ordered by fewer distinct strategies than they name")))))))
 
+(tu/deftest-kb a-portfolio-racer-runs-with-none-of-the-callers-write-scope-maps
+  ;; a racer is a future, which carries the caller's bindings to its thread, and each of
+  ;; these is a `java.util` map a write scope fills from the writing thread alone
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxPort]
+    (tu/with-terms [PtA PtB PtC]
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxPort [PtA PtB PtC])
+      (let [seen (atom #{})]
+        (binding [observe/*handle-cache*            (java.util.HashMap.)
+                  kb/*chain-authoritative-functors* (java.util.HashMap.)
+                  observe/*write-record*            (java.util.IdentityHashMap.)
+                  inf/*estimate* (fn [kb strat node]
+                                   (swap! seen conj [observe/*handle-cache*
+                                                     kb/*chain-authoritative-functors*
+                                                     observe/*write-record*])
+                                   (tac/estimate kb strat node))]
+          (dorun (inf/portfolio-solutions kb [(list reach '?x '?z)] CxPort {:max-depth 4})))
+        (is (= #{[nil nil nil]} @seen))))))
+
 ;; ---- choosing one without a caller ---------------------------------------
 
 (tu/deftest-kb auto-strategy-reads-the-shape-of-the-query
@@ -448,3 +469,39 @@
         (testing "the DFS ignores it entirely"
           (binding [v/*query-engine* :dfs v/*query-options* {:portfolio? true}]
             (is (seq (v/prove kb goal CxOpt)))))))))
+
+(tu/deftest-kb a-portfolio-race-under-the-caller-s-belief-hold-answers-as-the-caller-reads
+  (tu/with-terms [edgeOf anc reach mid1 mid2 CxPort]
+    (tu/with-terms [PtA PtB PtC PtD]
+      (branching-kb! kb edgeOf anc reach mid1 mid2 CxPort [PtA PtB PtC])
+      (let [q    [(list reach '?x '?z)]
+            held (#'settle/hold-belief! kb)]
+        (try
+          (v/assert kb (list edgeOf PtC PtD) CxPort)
+          (is (= (set (inf/solutions kb q CxPort {:max-depth 4}))
+                 (set (inf/portfolio-solutions kb q CxPort {:max-depth 4})))
+              "the racers read the belief the hold's owner reads")
+          (finally (#'settle/publish-belief! held)))))))
+
+(tu/deftest-kb a-portfolio-race-that-throws-under-live-belief-returns-after-its-started-racers-stop
+  (let [n       (count inf/default-racers)
+        running (atom 0)]
+    (with-redefs [inf/run-one
+                  (fn [_ _ _ opts]
+                    (if (= (first inf/default-racers) (:tactician (:strategy opts)))
+                      (do (loop [i 0]
+                            (when (and (< @running (dec n)) (< i 500))
+                              (Thread/sleep 10)
+                              (recur (inc i))))
+                          (throw (ex-info "the racer failed" {})))
+                      (do (swap! running inc)
+                          (dotimes [_ 3] (try (Thread/sleep 100) (catch InterruptedException _ nil)))
+                          (swap! running dec)
+                          [])))]
+      (is (= ["the racer failed" 0]
+             [(binding [observe/*live* true]
+                (try (inf/portfolio-solutions kb '[(probeOf ?x ?y)] 'CxUniverse {})
+                     nil
+                     (catch Exception e (ex-message (or (ex-cause e) e)))))
+              @running])
+          "each racer that started, and ignored its interrupt, ran to its end before the throw"))))

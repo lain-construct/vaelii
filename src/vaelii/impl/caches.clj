@@ -1,45 +1,13 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.caches
-  "What this process is holding beside the stores — one register every derived,
-  droppable structure declares itself in, and one read over the lot.
-
-  The stores are measured elsewhere: `catalog/heap` reports the JVM's own figure and
-  `catalog/footprint` estimates what a loaded KB costs.  Neither says anything about the
-  **caches** — the atoms and plain maps holding answers the engine would otherwise
-  recompute — and a hit rate is the only evidence a cost model has.  \"The
-  second query was fast\" is a demo; \"the second query was fast because it was served
-  from a cache, and here is the rate\" is a measurement.
-
-  **A register rather than a dozen accessors.**  This namespace requires only `config` and
-  the logger, neither of which holds a cache, so the reader still has no require edge down
-  to a namespace holding one: every such namespace requires *this* one and declares itself at load, and
-  there is no list here that a new cache has to be added to twice.  The `config` edge reads
-  one switch, `VAELII_CACHE_SCALE`, and `limit-of` applies it to every count-bounded
-  cache's limit.  A cache in a namespace this
-  process never loaded — a qualitative calculus nobody registered, the metric-time
-  reasoner — is absent from the read because it is absent from the process, rather than
-  present as a row of zeroes.
-
-  **Two scopes, and never one wearing the other's clothes.**  `:scope` says what a row's
-  `:entries` counts: `:kb` for a cache hanging off a KB record, `:process` for a static
-  one every KB in the JVM shares.  `:counters` says the same about `:hits` / `:misses`,
-  separately: the closure neighbours keep process counters over entries only a live
-  search step can count, and a row counted by a derived-state tally counts per structure.
-
-  **`:unit` is not decoration.**  One cache counts literals, another counts networks, a
-  third counts symbols, and a column of bare integers compares none of them.
-
-  A row whose `:entries` is nil is one that cannot be counted from outside — the
-  scope-bound caches, bound for the length of one chaining run or one search step and
-  garbage when it returns.  They are registered all the same, with the reason in
-  `:note`, so the list is complete rather than merely finite.
-
-  **A row answers for itself, and fails for itself.**  The register is open, so a read
-  here runs code this namespace has never seen; one that throws is reported as a row
-  carrying `:error` rather than allowed to take the answer down with it.  A diagnostic
-  is worth most while something is already wrong, which is exactly when it must not be
-  the next thing to break."
+  "What this process holds beside the stores: one register every derived, droppable
+  structure declares itself in at namespace load, and one read over it (`rows`). The
+  register requires only `config` and the logger, so it has no require edge down to a
+  namespace holding a cache. A row's `:scope` says what `:entries` counts and `:counters`
+  says the same for `:hits` and `:misses`; a nil `:entries` marks a scope-bound cache that
+  cannot be counted from outside. A read that throws is reported as a row carrying
+  `:error`. See docs/caches.md."
   (:require [taoensso.trove :as trove]
             [vaelii.impl.config :as config])
   (:import [com.sun.management GarbageCollectionNotificationInfo]
@@ -52,15 +20,8 @@
 ;; ---- the bound every registered cache takes ------------------------------
 
 (defn assoc-bounded
-  "Store `v` at `k` in map `m`, **clearing `m` wholesale** when it already holds `limit`
-  entries.
-
-  The bound policy, in one place rather than spelled out at each cache.  Wholesale
-  clearing rather than eviction is `literal-cache/cache-limit`'s argument and
-  `observe/resident-limit`'s before it: evicting exactly the right entry costs more
-  bookkeeping than the entry saved, and a cache that has grown past its bound is one
-  whose queries have moved on.  That is a judgement about every cache here at once, so
-  it is worth being able to revisit in one edit rather than six."
+  "Store `v` at `k` in map `m`, clearing `m` wholesale when it already holds `limit` entries.
+  The one bound policy of the plain-map caches; see docs/caches.md, \"The bound\"."
   [m limit k v]
   (assoc (if (>= (count m) limit) {} m) k v))
 
@@ -80,6 +41,16 @@
       (swap! cache assoc-bounded limit k v)
       v)))
 
+(defn get-or!
+  "The value at `k` in the map held by volatile `memo`, else `(f)`, stored and returned.
+  A computed nil or false counts as a hit."
+  [memo k f]
+  (if-let [hit (find @memo k)]
+    (val hit)
+    (let [v (f)]
+      (vswap! memo assoc k v)
+      v)))
+
 (def ^:dynamic *open-mark*
   "nil outside a second-route search.  Inside one (`exc/route-answer`), a fn of a thunk
   answering `[value settled?]`: the thunk's value, and false when its computation read a
@@ -97,12 +68,9 @@
 
 ;; ---- the tunable bound: an operator scale, a guard pressure, overrides --
 ;;
-;; Every count-bounded cache reads its limit through `limit-of`, so the operator's profile
-;; and the memory-pressure guard move numbers that both the store path that enforces the
-;; bound and the `rows` entry that reports it read.  At the default profile — scale 1.0,
-;; pressure 1.0 and no override — `limit-of` returns the shipped default unchanged, so the
-;; process holds the bounds it held before a scale existed, and the goldens and cost budgets
-;; are unmoved.
+;; Every count-bounded cache reads its limit through `limit-of`, so the bound a store path
+;; enforces and the bound `rows` reports are one number. At scale 1.0, pressure 1.0 and no
+;; override `limit-of` returns the shipped default.
 
 (def ^:private min-limit
   "The fewest entries a scaled bound is taken to, whatever the scale.  Below this a cache
@@ -128,19 +96,12 @@
   @the-profile)
 
 (defn limit-of
-  "The bound cache `id` enforces now, given its shipped default `default`.  An override names
-  an absolute limit and replaces `default`: the operator's `:scale` leaves it alone, but the
-  guard's `:pressure` still multiplies it, so a filling heap shrinks an overridden cache like every
-  other.  A `default` with no override is multiplied by both `:scale` and `:pressure`.  Either
-  result is floored at `min-limit` and saturates at `Long/MAX_VALUE`: `set-cache-scale`
-  takes any number 0 or more, `##Inf` included, and a product past the range of a long
-  is a bound no cache reaches rather than a throw on every store.  A nil `default` with no
-  override — a cache bounded by something other than a count — stays nil, since no
-  multiplier acts on it.
-
-  Read on a cache's store path and by its `rows` entry, so the bound enforced and the bound
-  reported are one number.  At scale 1.0 and pressure 1.0 with no override the shipped
-  `default` is returned as it stands."
+  "The bound cache `id` enforces now, given its shipped default `default`. An override is an
+  absolute limit that replaces `default`; `:scale` leaves it alone and `:pressure` still
+  multiplies it. A `default` with no override is multiplied by `:scale` and `:pressure`.
+  The result is floored at `min-limit` and saturates at `Long/MAX_VALUE`. A nil `default`
+  with no override stays nil. Read on a cache's store path and by its `rows` entry, so the
+  bound enforced and the bound reported are one number."
   [id default]
   (let [{:keys [scale pressure overrides]} @the-profile
         p (double (or pressure 1.0))]
@@ -191,49 +152,25 @@
 (defonce ^:private registry (atom {}))
 
 (defn register-cache
-  "Declare that this namespace holds a cache.  Called at namespace load, once per cache.
-  Bare, not `!`: it installs a descriptor the next load replaces, the way `set-solver`
-  installs a setting.
+  "Declare that this namespace holds a cache. Called at namespace load, once per cache. Bare,
+  not `!`: it installs a descriptor the next load replaces. The descriptor
+  (docs/caches.md, \"The register\"):
 
-  The descriptor:
-
-    :cache     a keyword naming it, unique across the process
-    :label     what to call it on screen
-    :scope     :kb or :process — what `:entries` counts
-    :unit      what one entry *is*, since entries mix units across caches
-    :limit     entries held before it is cleared wholesale, or nil for a cache
-               bounded by something other than a count (say what, in `:note`).
-               **A thunk where the bound is a dynamic var or profile-scaled** —
-               `limit-thunk` builds the profile-scaled one; see below
-    :counters  :kb, :process, or nil when nothing counts hits and misses
-    :note      one line: what it holds, and what retires an entry
-    :read      (fn [kb]) -> {:entries n :hits h :misses m}, any key absent where
-               there is no number, and any further count the row reports.  **O(1)** —
-               this runs on a page that polls.  A `:limit` it answers is the bound in
-               `kb` and replaces the descriptor's in the row.
-               A nil `:entries` says the cache cannot be counted from here.
-    :clear     (fn [kb]) -> entries dropped, or absent when nothing drops it by hand.
-               **Scoped to `kb`.**  A clear that reached past its argument would make
-               `clear-caches` a process-wide control wearing a per-KB signature
-    :trim      (fn [kb target]) -> entries dropped, or absent.  The **partial** drop the
-               memory-pressure guard uses: bring the cache down to `target` entries while
-               keeping the rest, where `:clear` drops everything.  A `:process` cache
-               ignores `kb`; `trim-map!` is the plain-map one, the LRU trims by recency
-    :reset-counters (fn [kb]) -> the counters as they stood, or absent.  Only a cache
-               whose `:counters` are `:process` has one, and it is separate from `:clear`
-               precisely because it is wider than `kb`
-
-  `:read`, `:clear` and `:reset-counters` all take the KB even when the cache is
-  process-wide, so a caller needs no second calling convention for the static ones; they
-  ignore it.
-
-  **`:limit` takes a thunk for the same reason `:read` is a function.**  A descriptor is
-  built once, at namespace load, so a constant captured into it is that constant forever
-  — which is right for a `def` and wrong for a `^:dynamic` var, since being rebindable is
-  the only reason such a var is dynamic.  Reporting the root bound while the engine
-  enforces a bound somebody rebound would misreport the one field a reader uses to judge
-  whether a cache is about to flush.  Write `:limit (fn [] *the-var*)` and the row reads
-  it where it is read."
+    :cache     keyword, unique across the process
+    :label     display name
+    :scope     :kb or :process, what `:entries` counts
+    :unit      what one entry is
+    :limit     entries held before a wholesale clear, nil for a cache bounded by something
+               else (say what in `:note`); a thunk where the bound is a dynamic var or
+               profile-scaled (`limit-thunk`)
+    :counters  :kb, :process, or nil
+    :note      one line: what it holds and what retires an entry
+    :read      (fn [kb]) -> {:entries n :hits h :misses m}, a key absent where there is no
+               number. O(1). A `:limit` it answers replaces the descriptor's in the row.
+    :clear     (fn [kb]) -> entries dropped, or absent. Scoped to `kb`.
+    :trim      (fn [kb target]) -> entries dropped, or absent: the partial drop the
+               memory-pressure guard uses (`trim-map!` for a plain map)
+    :reset-counters (fn [kb]) -> the counters as they stood, or absent"
   [{:keys [cache] :as descriptor}]
   (swap! registry assoc cache descriptor)
   cache)
@@ -249,16 +186,11 @@
   (contains? @registry id))
 
 (defn override-problem
-  "Why an override cannot move registered cache `id`'s bound, as a phrase, or nil when it
-  can.
-
-  An override moves a bound exactly when the descriptor's `:limit` is the `limit-thunk` for `id`,
-  the one bound `limit-of` reads the overrides into.  Two kinds of registered cache fail
-  that: a nil-bound cache, bounded by something other than a count the profile holds
-  (hot records by its own knob, `vaelii.disk.cache`), and a bound standing outside the
-  profile — the symbol pool's and the scoped-closure budget's dynamic vars
-  (docs/caches.md).  `set-cache-limit` refuses an override on either rather than recording one
-  nothing enforces.  Nil for an id nothing has registered, which `registered?` answers."
+  "Why an override cannot move registered cache `id`'s bound, as a phrase, or nil when it can.
+  An override moves a bound exactly when the descriptor's `:limit` is the `limit-thunk` for
+  `id`. A nil-bound cache and a bound outside the profile (the symbol pool's and the
+  scoped-closure budget's dynamic vars) fail, and `set-cache-limit` refuses an override on
+  either. Nil for an id nothing has registered (`registered?`)."
   [id]
   (when-let [d (get @registry id)]
     (let [limit (:limit d)]
@@ -269,12 +201,9 @@
 
 ;; ---- the derived-state tallies ------------------------------------------
 ;;
-;; A derived-state row filled at a read keeps a tally beside the structure holding its
-;; entries: in the metadata of that atom (`tallied`), or in a weighted LRU's own map.  So
-;; a KB's tally counts that KB's reads alone, and a structure made again (an open, a
-;; recover's rebuild, a detached copy) counts from zero.  A hit and a miss are one
-;; increment each; the comparison that finds a spurious miss runs only while
-;; `start-tally!` is on (docs/caches.md, "Counting the register").
+;; A row filled at a read keeps its tally beside the structure holding its entries, so a
+;; KB's tally counts that KB's reads alone and a structure made again counts from zero.
+;; The comparison that finds a spurious miss runs only while `start-tally!` is on.
 
 (defonce ^:private derived (atom {}))
 
@@ -394,30 +323,13 @@
     (str (.getSimpleName (class t)) (when (seq m) (str ": " m)))))
 
 (defn rows
-  "Every registered cache, read against `kb`, ranked by entries.
-
-  A row is the descriptor's static half — `:cache :label :scope :unit :limit :counters
-  :note` — plus whatever its `:read` answered, plus `:hit-rate` and `:clearable?`.  No
-  row walks the KB: each is a count off a map the engine is already holding, which is
-  what makes this pollable.
-
-  **A row is data all the way down.**  The descriptor's three function slots — `:read`,
-  `:clear`, `:reset-counters` — are dropped, and what a caller needs of the last two is
-  the `:clearable?` flag and the `:counters` scope beside it.  This is a public read
-  (`vaelii.core/caches`), served over RPC and rendered on a page, so a function left in a
-  row is a value neither can carry.
-
-  **A read that throws costs its own row and no other**, and the row carries `:error`
-  saying what went wrong.  One broken descriptor taking the whole answer down would fail
-  the read exactly when the process is in the state it exists to describe.
-
-  **A cache a derived-state row counts** (`row-tally`) reports that row's tally: `:hits`
-  and `:misses` where its `:read` gives none, `:recompute-ns`, `:retired`, `:compared`,
-  `:spurious` and `:evicted`, with `:counters :kb`.
-
-  Ranked by entries **descending, ties broken on the cache's own name**, so the order is
-  a function of the content and two processes holding the same caches list them the
-  same way.  A row that cannot be counted sorts last, since a nil is not a small number."
+  "Every registered cache, read against `kb`, ranked by entries descending with ties on the
+  cache's name; a row that cannot be counted sorts last. A row is the descriptor's static
+  half (`:cache :label :scope :unit :limit :counters :note`) plus what its `:read` answered,
+  `:hit-rate` and `:clearable?`; the function slots are dropped. A read that throws costs
+  its own row, which carries `:error`. A cache a derived-state row counts (`row-tally`)
+  reports that row's tally: `:hits` and `:misses` where its `:read` gives none,
+  `:recompute-ns`, `:retired`, `:compared`, `:spurious`, `:evicted`, with `:counters :kb`."
   [kb]
   (let [row-of (into {} (keep (fn [[id d]] (when (:cache d) [(:cache d) id]))) @derived)]
     (->> (vals @registry)
@@ -445,31 +357,12 @@
          vec)))
 
 (defn clear-caches
-  "Drop every cache that offers a clear, and say what went: `{:cleared [{:cache :label
-  :entries} …] :entries total}`, ranked like `rows`.
-
-  Not `!`, and the reason is the whole point of the control: every entry is derived, the
-  next read recomputes it, and no belief moves.  That makes a clear a measuring
-  instrument rather than an edit — clear, ask the same question again, and watch the
-  miss the second ask no longer gets to skip.
-
-  **Scoped to `kb`, because the argument says so.**  Every `:clear` drops that cache's
-  entries *for this KB* and nothing else.  The hit and miss counters some caches keep are
-  process-wide — they measure the mechanism rather than a store — and zeroing one would
-  reset a rate every other KB in the JVM is reporting, mid-measurement.  So it is not
-  done here: `{:counters? true}` asks for it, in a call that says out loud it is reaching
-  past its argument, and the answer then carries `:counters-reset` naming the caches it
-  touched.  A function whose signature names one KB must not quietly be a per-process
-  control; `caches`' `:counters` column is how a caller knows which rows the option is
-  about.  The same option zeroes `kb`'s derived-state tallies (`row-tally`), and the
-  answer carries `:tallies-reset`, `[{:row id …what it held}]`.
-
-  A cache with no `:clear` is left alone and is not in the answer.  Those are the
-  structural ones — the symbol pool, the compiled relation algebras — where dropping the
-  entries costs the sharing they exist for and buys no measurement.
-
-  A clear that throws costs its own entry and no other, the way a read does: its row
-  carries `:error` and an entry count of zero."
+  "Drop every cache that offers a clear: `{:cleared [{:cache :label :entries} …] :entries
+  total}`, ranked like `rows`. Bare, not `!`: every entry is derived and no belief moves.
+  Scoped to `kb`. `{:counters? true}` also zeroes the process-wide hit and miss counters
+  and `kb`'s derived-state tallies (`row-tally`); the answer then carries `:counters-reset`
+  and `:tallies-reset` (`[{:row id …what it held}]`). A cache with no `:clear` is not in the
+  answer. A clear that throws gives its row `:error` and an entry count of zero."
   ([kb] (clear-caches kb nil))
   ([kb {:keys [counters?]}]
    (let [cleared (->> (vals @registry)
@@ -517,13 +410,9 @@
 
 ;; ---- the weighted LRU: a bound on what is held, evicting the coldest ----
 ;;
-;; `assoc-bounded` counts entries and clears wholesale, which is right for a cache whose
-;; entries cost about the same and whose queries move on.  A cache whose entries differ in
-;; size by orders of magnitude — a supertype closure of one type against one of a
-;; thousand — needs its bound on the **sum** of what it holds, and one whose hot entries
-;; recur (the upper types every closure walk passes) needs to keep them when it evicts.
-;; So: an access-ordered map, a running weight, and eviction from the cold end until the
-;; weight is back under the bound.
+;; A cache whose entries differ in size by orders of magnitude bounds the **sum** of their
+;; weights: an access-ordered map, a running weight, and eviction from the cold end until
+;; the weight is under the bound.
 
 (defn weighted-lru
   "An empty weighted LRU.  `limit` is a thunk answering the most weight it holds — a
@@ -620,22 +509,10 @@
 
 ;; ---- the memory-pressure guard ------------------------------------------
 ;;
-;; A post-collection listener reads how full the old generation is after each garbage
-;; collection and moves the profile's `:pressure` between two marks: over `pressure-high` it
-;; halves pressure and trims the caches to the new, lower bound, so the next collection has
-;; something to reclaim; under `pressure-low` it raises pressure back toward the operator's
-;; scale, so a transient spike does not leave the caches small for the life of the process.
-;; The trim is partial (`trim-map!`, or a cache's own shape-aware `:trim`), not a wholesale
-;; clear, so the work behind the surviving half is not thrown away and recomputed the moment
-;; pressure passes.  The host installs the listener (it holds the list of live KBs the trim
-;; needs); nothing attaches it at engine load, so a library embedding pays for no listener it
-;; did not ask for.  The pure-heap caches are the guard's charge; the disk hot-record cache
-;; stays on its own `vaelii.disk.cache` cap, since its records are re-thawable from disk and
-;; its bound is set at store open.
-;;
-;; The heap mark (`arm-heap-mark!`) is separate from the guard: `open-kb` arms it, so a
-;; chaining run in a library embedding refuses over a nearly full old generation
-;; (`heap-critical?`) instead of running into an `OutOfMemoryError`.
+;; A post-collection listener moves the profile's `:pressure` between `pressure-low` and
+;; `pressure-high` and trims the caches partially (`trim-map!`, or a cache's own `:trim`).
+;; The host installs it; the disk hot-record cache stays on `vaelii.disk.cache`. The heap
+;; mark (`arm-heap-mark!`) is separate. See docs/caches.md, "The memory-pressure guard".
 
 (def ^:private pressure-high
   "The old-generation fraction, measured after a collection, over which the guard shrinks.
@@ -795,15 +672,10 @@
 
 (defn arm-heap-mark!
   "Set the old generation's collection-usage threshold at `pressure-critical` and attach a
-  listener that sets `heap-critical?` when a collection leaves the pool over it; answer
-  the armed pool's name, or nil.  `kb/open-kb` calls it unless `vaelii.heap.mark` is off.
-
-  Arms once per JVM and is never disarmed.  The pool is the one the guard reads
-  (`old-gen-name?`), so the guard's per-collection reset and the threshold agree on one
-  reading.  A JVM-wide threshold has one value per pool and the last writer sets it, so an
-  embedder that sets its own turns the mark off with `vaelii.heap.mark=false`.  A collector
-  with no old-generation pool arms nothing (docs/caches.md, \"The heap mark\").  `!`
-  because it sets a JVM-wide threshold."
+  listener that sets `heap-critical?` when a collection leaves the pool over it; answer the
+  armed pool's name, or nil. `kb/open-kb` calls it unless `vaelii.heap.mark` is off. Arms
+  once per JVM and is never disarmed; a collector with no old-generation pool arms nothing.
+  `!` because it sets a JVM-wide threshold. See docs/caches.md, \"The heap mark\"."
   []
   (locking guard-lifecycle
     (when-not @heap-mark
@@ -868,18 +740,12 @@
    :heap-mark  (armed-pool-name)})
 
 (defn install-memory-guard!
-  "Attach a post-collection listener to the JVM's garbage collectors that moves the cache
-  profile's `:pressure` with how full the old generation is: over `pressure-high` it shrinks
-  the caches so the next collection reclaims, under `pressure-low` it grows them back.
-
-  `:kbs` is a thunk answering the live KB records whose per-KB caches the trim reaches — the
-  host supplies it from its catalog, since the engine holds no list of open KBs.
-
-  Attached by the servers and by nothing at engine load, so a library embedding pays for no
-  listener it did not ask for.  Idempotent: a second call replaces the `:kbs` thunk and arms
-  no second listener, and two concurrent calls arm one between them (`guard-lifecycle`).  A
-  JVM whose collectors emit no such notification keeps pressure at 1.0 — the guard is a
-  best-effort relief, not a guarantee.  `!` because it attaches to the process's collectors;
+  "Attach a post-collection listener that moves the cache profile's `:pressure` with how full
+  the old generation is: over `pressure-high` it shrinks the caches, under `pressure-low` it
+  grows them back. `:kbs` is a thunk answering the live KB records whose per-KB caches the
+  trim reaches. Idempotent: a second call replaces the `:kbs` thunk and arms no second
+  listener (`guard-lifecycle`). A JVM whose collectors emit no such notification keeps
+  pressure at 1.0. `!` because it attaches to the process's collectors;
   `uninstall-memory-guard!` detaches."
   [{:keys [kbs]}]
   (locking guard-lifecycle
@@ -1054,31 +920,29 @@
     :else d))
 
 (defn register-derived
-  "Declare a row of derived state.  Called at namespace load, once per row; the loading
-  namespace is recorded as its `:owner`.  The descriptor:
+  "Declare a row of derived state. Called at namespace load, once per row; the loading
+  namespace is recorded as its `:owner`. The descriptor (docs/caches.md, \"The derived-state
+  register\"):
 
     :id :label     the row's id and name
     :kind          one of `kinds`
-    :holds-content? true when an entry holds a sentence the KB holds or would hold that
-                   no store holds; `lein lint`'s `derived` check fails such a row unless
-                   its allowlist names it (docs/nmtms.md, \"3. Separated state\")
+    :holds-content? true when an entry holds a sentence the KB holds or would hold that no
+                   store holds; `lein lint`'s `derived` check fails such a row unless its
+                   allowlist names it
     :keyed-by      what an entry is keyed by
-    :reads         the ids of the rows and `stores` it is computed from
+    :reads         ids of the rows and `stores` it is computed from
     :retired-by    `{event code}`: each event in `events` that retires entries, and how
-    :computed      :write, :settle, :read or :pass: where an entry is computed
+    :computed      :write, :settle, :read or :pass
     :imaged?       which section of a reasoning image carries it, or false
-    :at            its locations, each `[reasoning-field & keys]`, where it is one; a
-                   symbol in a key, a reader, is written `::caches/reader`
-    :var           the var holding it, where it is one
-    :cache         the `register-cache` id it is registered under as well, where it is one
-    :bound         its bound, as a phrase, where `:cache` gives none
+    :at            its locations, each `[reasoning-field & keys]`; a reader symbol in a key
+                   is written `::caches/reader`
+    :var :cache    the var holding it; the `register-cache` id it is also registered under
+    :bound         its bound as a phrase, where `:cache` gives none
     :value         `(fn [kb])` -> its current value, where `:at` does not reach it
-    :covered-by    `{:perf [check …] :perf-ab [probe …]}`: the measurements that fail
-                   when the row is replaced by a recompute at its read; `lein lint`'s
-                   `derived` check requires it of the files it lists
-    :live          `(fn [kb])` -> how many of its entries are current, for a row whose
-                   retired entries stay held until a read replaces them; `start-tally!`
-                   counts a retirement of such a row as a fall in this number
+    :covered-by    `{:perf [check …] :perf-ab [probe …]}` that fail when a recompute at the
+                   read replaces the row; the `derived` check requires it of the files it lists
+    :live          `(fn [kb])` -> how many entries are current, for a row whose retired entries
+                   stay held until a read; `start-tally!` counts a retirement as a fall in it
     :note          one line"
   [descriptor]
   (let [d (check-descriptor descriptor)]

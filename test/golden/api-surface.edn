@@ -57,6 +57,8 @@
   deprecated? "[[conn term] [conn term context]]",
   describe
   "[[conn term] [conn term context] [conn term context opts]]",
+  digest "[[conn handle] [conn sentence context]]",
+  digests "[[conn handles] [conn handles opts]]",
   direct-genls "[[conn t] [conn t context]]",
   direct-specs "[[conn t] [conn t context]]",
   disjoint-metatypes "[[conn]]",
@@ -249,6 +251,9 @@
   deprecated? "[[kb term] [kb term context]]",
   describe "[[kb term] [kb term context] [kb term context opts]]",
   describe-opt-keys [:limit],
+  digest "[[kb handle] [kb sentence context]]",
+  digest? "[[x]]",
+  digests "[[kb handles] [kb handles opts]]",
   direct-genls "[[kb t] [kb t context]]",
   direct-specs "[[kb t] [kb t context]]",
   disjoint-metatypes "[[kb]]",
@@ -298,7 +303,7 @@
   last-program "[[kb]]",
   levels "[[]]",
   load-foreign! "[[kb kind path opts]]",
-  load-text! "[[kb source]]",
+  load-text! "[[kb source] [kb source opts]]",
   log-level "[[]]",
   lookup "[[kb level goal] [kb level goal context]]",
   mark-inert! "[[kb opts]]",
@@ -453,6 +458,8 @@
    :dependent-justifications
    :deprecated?
    :describe
+   :digest
+   :digests
    :direct-genls
    :direct-specs
    :disjoint-metatypes
@@ -592,6 +599,8 @@
    :dependent-justifications
    :deprecated?
    :describe
+   :digest
+   :digests
    :direct-genls
    :direct-specs
    :disjoint-metatypes

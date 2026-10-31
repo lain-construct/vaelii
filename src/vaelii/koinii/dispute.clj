@@ -40,7 +40,7 @@
   than reading a clock: this module supplies the mechanism, the driver supplies the policy.
 
   Additive, like the sibling koinii modules: only the public core API (`argue`,
-  `canonical-sentex`, `sentex-handle`) — nothing under `vaelii.impl`, and nothing in core
+  `canonical-sentex`, `digests`) — nothing under `vaelii.impl`, and nothing in core
   loads it."
   (:require [vaelii.core :as v]
             [vaelii.koinii.identity :as id]
@@ -50,41 +50,42 @@
 
 (defn dispute-id
   "The stable id of a dispute `entry` (from `disputes-in`, `contradictions`, or
-  `conflicts`): its side `:handle`s, sorted.  Order-independent, so the same clash always
-  yields the same id however the engine happened to order the sides — the key the driver
-  attaches lifecycle state to.
+  `conflicts`): the content digests (`v/digests`) of its side `:handles`, sorted.  A seat
+  holding the clash at other handles computes the same id, and the side order the engine
+  reported does not change it.  The id is the key the driver attaches lifecycle state to.
 
-  Two handles for a rebuttal and three for an `anti_transitive` chain: a nogood is a *set*
+  Two digests for a rebuttal and three for an `anti_transitive` chain: a nogood is a *set*
   and the engine reports it whole (docs/nmtms.md), so this reads `:handles` rather than
   destructuring it as a pair."
-  [entry]
-  (vec (sort (:handles entry))))
+  [kb entry]
+  (koinii-types/needs-kb! `dispute-id kb)
+  (vec (sort (v/digests kb (:handles entry)))))
 
 (defn dispute-key
-  "`id` in the ONE spelling every reader compares — the sorted handle pair `dispute-id`
+  "`id` in the ONE spelling every reader compares — the sorted digest vector `dispute-id`
   builds.  The single home for that sort, and the reason there is one: a caller may hold
-  the pair either way round (`dispute-id` sorts, but its contract accepts any two-handle
+  the digests in either order (`dispute-id` sorts, but its contract accepts any digest
   seq and `disputes-in` hands the entries out), and a mark or a provenance tag written
-  under `[479 478]` is invisible to a read for `[478 479]` — a standing ruling no guard
+  under one order is invisible to a read for the other — a standing ruling no guard
   can see.  A non-sequential id passes through unchanged."
   [id]
   (if (sequential? id) (vec (sort id)) id))
 
 (defn dispute-term
   "The structural term naming a dispute by its id, for the stored lifecycle marks:
-  `(DisputeFn (sentexHandle h) …)`, handles sorted (`dispute-key`) so the term is a function
-  of the clash and not of argument order.  `id` is a `dispute-id` or any handle seq.
+  `(DisputeFn \"sha256:…\" …)`, digests sorted (`dispute-key`) so the term is a function
+  of the clash and not of argument order, and names no handle.  `id` is a `dispute-id`.
 
-  **As many handles as the clash has**, never the first two.  A nogood is a *set* and
+  **As many digests as the clash has**, never the first two.  A nogood is a *set* and
   `anti_transitive` forms one over three sentexes (docs/nmtms.md), so `disputes-in` hands
   back three-handle entries — and a term keyed on a pair would name two different
-  three-member disputes identically whenever they shared their two lowest handles, and
+  three-member disputes identically whenever they shared their two lowest digests, and
   name a three-member one the same as the pair over those two.  The marks this term keys
   are the notify and stale sweeps' idempotency key, so a collision is a dispute silently
   never announced."
   [id]
   (let [k (dispute-key id)]
-    (list* 'DisputeFn (map v/sentex-handle (if (sequential? k) k [k])))))
+    (list* 'DisputeFn (if (sequential? k) k [k]))))
 
 ;; ---- disputes-in: the whole surface, scoped to what a context sees -------
 
@@ -118,15 +119,15 @@
   (->> (concat (map #(assoc % :dispute-class :contradiction) (v/contradictions kb))
                (map #(assoc % :dispute-class :conflict)      (v/conflicts kb)))
        (filter #(observed-by? kb ctx %))
-       (mapv   #(assoc % :dispute-id (dispute-id %)))))
+       (mapv   #(assoc % :dispute-id (dispute-id kb %)))))
 
 ;; ---- disputed?: the per-sentence hot path, and the thin any-path ---------
 
 (defn disputed?
   "Is there an open dispute?  Two arities:
 
-  - **`(disputed? kb ctx)`** — is *anything* disputed in `ctx`?  Thin over
-    `disputes-in`.
+  - **`(disputed? kb ctx)`** — is *anything* disputed in `ctx`?  `disputes-in`'s two clash
+    reads without grounds, the conflicts read only when `ctx` observes no contradiction.
 
   - **`(disputed? kb S ctx)` / `(disputed? kb S ctx opts)`** — is the named sentence `S`
     disputed in `ctx`?  THE HOT PATH: a scoped `argue` read, which never computes whole-KB
@@ -141,7 +142,8 @@
   Arity tells the two apart: 2 args is `(kb ctx)`, 3+ is `(kb S ctx …)`."
   ([kb ctx]
    (koinii-types/needs-kb! `disputed? kb)
-   (boolean (seq (disputes-in kb ctx))))
+   (boolean (or (some #(observed-by? kb ctx %) (v/contradictions kb nil {:grounds? false}))
+                (some #(observed-by? kb ctx %) (v/conflicts kb {:grounds? false})))))
   ([kb S ctx] (disputed? kb S ctx nil))
   ([kb S ctx opts]
    (koinii-types/needs-kb! `disputed? kb)
@@ -157,7 +159,7 @@
 
 (def state-context
   "The coordination context the stored lifecycle marks (`:notified`, `:stale`) live in.
-  A dispute id is globally unique within the KB (a handle pair), so one well-known place
+  A dispute id is globally unique within the KB (a digest vector), so one well-known place
   to look suffices; the marks are bookkeeping, not channel knowledge, so they sit apart
   from the channels' own reasoning."
   'CxDisputes)
@@ -238,7 +240,7 @@
   `conflicts`.  A whole-KB scan; the lifecycle driver is not the hot path (that is the
   named `disputed?`), so this is where the scan is affordable."
   [kb]
-  (into #{} (map dispute-id) (concat (v/contradictions kb) (v/conflicts kb))))
+  (into #{} (map #(dispute-id kb %)) (concat (v/contradictions kb) (v/conflicts kb))))
 
 (defn- mark-state
   "The state implied by the stored marks alone (`:stale` > `:notified` > `:open`), for a

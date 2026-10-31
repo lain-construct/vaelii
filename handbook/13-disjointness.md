@@ -21,8 +21,10 @@ section below is one decision an author makes before writing a separation.
 ## What a separation commits the KB to
 
 **Practice.** Write a separation only for two types that share no instance in any context
-that sees the declaration. Choose the pair from the kind each type names, not from the
-examples at hand.
+that sees the declaration, except a context that states the overlap by denying the
+separation. Choose the pair from the kind each type names, not from the examples at hand.
+Write the separation `:monotonic` when no context may deny it, and `:default` when a
+fiction or a theory below may ([ch. 24](24-strength.md#catbus-principle)).
 
 **Example.** `abstract.txt` separates animals from the made things a person lives in,
 wears or sits on:
@@ -48,16 +50,17 @@ wears or sits on:
   answers a denial nobody stated: with `(dog Rex)` believed and `dog` separated from
   `building`, `query` answers `(not (building Rex))` and `argue` of `(building Rex)`
   answers `:false`. The denial climbs only `genl` edges held at `:monotonic`, because a
-  `:default` edge does not contrapose.
-- *Engine.* `disjoint` is in the forced-monotonic set. A `disjoint` is never the loser of a
-  nogood and leaves belief only by retraction, so the separation an author writes is the
-  separation the KB keeps until someone retracts it.
+  `:default` edge does not contrapose. A `:default` separation answers the denial while it
+  is believed at the reader.
+- *Engine.* A separation keeps the strength it is written at. It is a ground of the
+  membership nogood and never a member, so the verdict weighs the two memberships alone.
+  A `(not (disjoint A B))` forms a nogood with the declaration: a `:monotonic` denial
+  defeats a `:default` separation at the denial's context and below, and the memberships
+  it separated clash with nothing there. A `:monotonic` separation is never defeated, so
+  it stays until someone retracts it.
 - *Maintenance.* A false separation costs more as the KB grows. Every term that really is
   both kinds becomes a nogood, and the settle defeats whichever membership is weaker. The
   defeated membership is a true fact the KB no longer believes.
-
-*In development:* `disjoint` as a forced-monotonic predicate is in development
-([ch. 24](24-strength.md#the-forced-monotonic-set)).
 
 **Why not the other ways.** Leaving a true separation unstated gives up the clash check
 and the denial for every term of the two kinds, and the disjointness audit reports the

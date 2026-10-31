@@ -50,6 +50,18 @@ Each descriptor carries what a reader needs to compare rows that count different
   them, so that row reports a rate against a blank count. A row a derived-state tally
   counts is `:kb` (below, "Counting the register").
 - **`:note`** — one line: what it holds and what retires an entry.
+- **`:read`, `:clear`, `:trim`, `:reset-counters`** — functions of the KB. `:read`, `:clear`
+  and `:reset-counters` take the KB even for a process-wide cache and ignore it, so a caller
+  needs one calling convention. `:clear` is scoped to its argument: a clear that reached
+  past it would make `clear-caches` a process-wide control with a per-KB signature. `:trim`
+  is the partial drop the memory-pressure guard uses, bringing a cache down to a target
+  while keeping the rest. `:reset-counters` exists only for a cache whose `:counters` are
+  `:process`, and stays separate from `:clear` because it is wider than one KB.
+- **`:limit` as a thunk.** A descriptor is built once at namespace load, so a constant
+  captured into it is fixed. A bound that is a `^:dynamic` var or profile-scaled is written
+  `:limit (fn [] *the-var*)` (`limit-thunk` builds the profile-scaled one), and the row
+  reads it where it is read; a captured root value would misreport the bound somebody
+  rebound.
 
 A row whose `:entries` is nil cannot be counted from outside — it is scope-bound, alive
 for the length of one chaining run or one search step and garbage when it returns. It is
@@ -202,12 +214,21 @@ collection runs no engine code, and a firing pays one volatile read per check.
 - `(caches kb)` — one row per registered cache: `:entries :limit :unit :hits :misses
   :hit-rate`, plus `:scope` / `:counters` / `:note`, and `:error` where a row's own read
   threw (one broken descriptor costs its row, not the answer). Each row is a count off a
-  map the engine already holds, **O(1)**, so the page that shows it can poll.
+  map the engine already holds, **O(1)**, so the page that shows it can poll. A row is
+  data all the way down: the three function slots are dropped and `:clearable?` and
+  `:counters` stand for them, because the read is served over RPC and rendered on a page.
+  Rows rank by entries descending, ties broken on the cache's name, and a row that cannot be
+  counted sorts last, so two processes holding the same caches list them the same way.
 - `(clear-caches kb)` — drop every cache that offers a clear and say what went. Bare, not
   `!`: every entry is derived and no belief moves, which makes a clear a *measuring
   instrument* — clear, ask the same question again, watch the miss the second ask no
   longer skips. Scoped to `kb`; `{:counters? true}` also zeroes the process-wide rates, in
-  a call that says out loud it reaches past its argument.
+  a call that says out loud it reaches past its argument. The hit and miss counters of some caches are process-wide, so zeroing one
+  would reset a rate every other KB in the JVM reports mid-measurement; the answer then
+  carries `:counters-reset`, and `:tallies-reset` for the derived-state tallies. A cache with
+  no `:clear` (the symbol pool, the compiled relation algebras) is left alone, since dropping
+  its entries costs the sharing they exist for. A clear that throws costs its own entry and
+  no other.
 
 Both are on the remote surface (`vaelii.host.serve`) and drive the browser's caches page.
 
@@ -347,7 +368,7 @@ The tables are generated from the register by `lein regen-goldens`, and
 | R1 | Literal matches | `literal-cache` | literal | index M1 T1 | E21 W, every other event G* | read | cache | no | `:literal-matches` |  |
 | R2 | Closure answers | `provers` | node | index M1 | E21 W, every other event G* | read | cache | no | `:closure-answers` |  |
 | R3 | Resident derived values | `observe` | context | index M1 | E19 W, E21 W, every other event G* | read | cache | no | `:resident` |  |
-| R4 | QCN join baselines | `qcn-kb` | context | R3 | E19 W | write | cache | no |  |  |
+| R4 | QCN join baselines and settled passes | `qcn-kb` | context | R3 M1 records | E19 W | write | cache | no |  |  |
 | R5 | Inherit question memo | `inherit` | value | index T1 | P | pass | pass | no |  |  |
 | R6 | Preservation crossing reads | `inherit` | global | index records | E1 I, E3 I, E4 I, E17 W, E21 W | read | cache | no | `:preservation-crossing` |  |
 | R7 | Search-step memos | `observe` | node | index M1 | P | pass | pass | no | `:closure-neighbours` |  |
@@ -370,12 +391,14 @@ The tables are generated from the register by `lein regen-goldens`, and
 | K10 | Prover registry summary | `provers` | value |  | every event I | read | cache | no |  |  |
 | K11 | Calculus registry memo | `qcn-kb` | value |  | every event I | read | cache | no |  |  |
 | K12 | Built calculi | `qcn-kb` | value |  | C | read | cache | no |  |  |
+| K13 | Mint rule handles | `special` | value | index | E1 W, E3 W, E17 W, E19 W | read | cache | no |  |  |
+| K14 | Lazy-forward rule presence | `special` | value | index | E1 W, E3 W, E17 W, E19 W | read | cache | no |  |  |
 
 | id | event | choke points | names | rows it retires |
 |---|---|---|---|---|
-| E1 | `stored` | `kb/create-sentex` | handle, sentence, context | T5 T7 T12 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 R1 R2 R3 R6 R9 R10 R13 K10 K11 |
+| E1 | `stored` | `kb/create-sentex` | handle, sentence, context | T5 T7 T12 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 R1 R2 R3 R6 R9 R10 R13 K10 K11 K13 K14 |
 | E2 | `integrated` | `special/integrate-sentex`, `special/derived-sentex-added`, `special/integrate-twin` | handle, functor | S5 T4 T5 T7 X1 X3 R1 R2 R3 K10 K11 |
-| E3 | `removed` | `integrate/sentex-removed!` | record, except target | S5 T4 T5 T7 T12 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 D3 Q7 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 |
+| E3 | `removed` | `integrate/sentex-removed!` | record, except target | S5 T4 T5 T7 T12 J1 J2 N1 N2 N3 N5 N6 N8 N10 X1 X3 D3 Q7 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 K13 K14 |
 | E4 | `respelled` | `kb/respell-sentex!` | old and new sentex, one handle | T5 T7 T12 J1 J2 N1 N2 N5 N6 X1 X3 R1 R2 R3 R6 R8 R9 R10 R13 K10 K11 |
 | E5 | `relabelled` | `jtms/supersede`, `jtms/ensure-node`, `jtms/add-premise`, `jtms/suspend-premise`, `jtms/add-justification`, `jtms/restrength-informant`, `jtms/set-forced`, `jtms/relabel`, `jtms/set-blocked`, `jtms/retract!`, `jtms/sweep!`, `jtms/drop-justification!` | the handles of the region, held in the network | T5 T7 T12 M1 M2 M4 N3 N10 X1 X3 R1 R2 R3 K10 K11 |
 | E6 | `held` | `settle/hold-belief!`, `settle/publish-belief!` | hold token | T5 T7 T12 M3 X1 X3 Q4 R1 R2 R3 K10 K11 |
@@ -389,9 +412,9 @@ The tables are generated from the register by `lein regen-goldens`, and
 | E14 | `recheck` | `special/mark-recheck` | rules; a trigger, :all or :all-rejoin | T5 T7 X1 X3 R1 R2 R3 K10 K11 |
 | E15 | `inherited` | `decide.inherited/install-inherited!`, `decide.inherited/update-inherited!` | clash rows | T5 T7 J1 J2 N7 X1 X3 D3 R1 R2 R3 K10 K11 |
 | E16 | `settle-exit` | `settle/settle-finish` | region | T1 T5 T7 T12 M2 X1 X3 D3 Q2 Q3 Q5 Q6 R1 R2 R3 K10 K11 |
-| E17 | `recover` | `recovery/recover-from-records`, `recovery/install-rebuilt!` | the whole store | S5 T1 T2 T3 T4 T5 T7 T11 T12 M1 M2 J1 J2 J4 J5 J6 N1 N2 N3 N5 N6 N7 N8 N10 X1 X3 D3 Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 Q9 R1 R2 R3 R6 R9 K10 K11 |
+| E17 | `recover` | `recovery/recover-from-records`, `recovery/install-rebuilt!` | the whole store | S5 T1 T2 T3 T4 T5 T7 T11 T12 M1 M2 J1 J2 J4 J5 J6 N1 N2 N3 N5 N6 N7 N8 N10 X1 X3 D3 Q1 Q2 Q3 Q4 Q5 Q6 Q7 Q8 Q9 R1 R2 R3 R6 R9 K10 K11 K13 K14 |
 | E18 | `image-install` | `reasoning-image/install-from!` | the image | S5 S7 T1 T2 T3 T4 T5 T7 T12 M1 J1 J2 J5 J6 N1 N2 N3 N5 N6 N7 N10 X1 X3 D3 Q1 Q2 Q5 Q7 Q10 R1 R2 R3 K10 K11 |
-| E19 | `cleared` | `vaelii.core/clear!`, `reindex/reindex`, `io.import/clearing-on-refusal` | the stores, wiped | S5 T5 T7 X1 X3 Q2 Q8 Q9 Q10 R1 R2 R3 R4 R10 K10 K11 |
+| E19 | `cleared` | `vaelii.core/clear!`, `reindex/reindex`, `io.import/clearing-on-refusal` | the stores, wiped | S5 T5 T7 X1 X3 Q2 Q8 Q9 Q10 R1 R2 R3 R4 R10 K10 K11 K13 K14 |
 | E20 | `closed` | `vaelii.core/close!` | the KB | T5 T7 X1 X3 R1 R2 R3 R9 K10 K11 |
 | E21 | `caches-cleared` | `caches/clear-caches`, `caches/shrink!` | the KB, or every live KB | T5 T7 T11 N8 X1 X3 R1 R2 R3 R6 R9 K3 K4 K5 K6 K10 K11 |
 | E22 | `settle-pass` | `settle/pass-work`, `settle/apply-pass!` | the region, the queues a pass drains | S5 T5 T7 J1 J6 N2 N3 N5 N6 N8 N10 X1 X3 D3 Q1 Q3 Q5 Q7 Q8 Q9 R1 R2 R3 K10 K11 |

@@ -30,7 +30,6 @@
 
 ;; ---- the world ---------------------------------------------------------
 
-(defn- pick [^Random rng coll] (nth coll (.nextInt rng (count coll))))
 (defn- chance [^Random rng p] (< (.nextDouble rng) p))
 
 (defn- depth [writes i]
@@ -59,7 +58,7 @@
                      [(nth cxs i) (nth cxs (.nextInt rng i))]))
         edges (into [] (distinct) (concat dag extra))
         facts (vec (distinct (for [_ (range (+ 2 (.nextInt rng 3)))]
-                               [(list (pick rng tys) (pick rng inds)) (pick rng cxs)])))
+                               [(list (tu/pick rng tys) (tu/pick rng inds)) (tu/pick rng cxs)])))
         rules (vec (concat
                     (for [_ (range (inc (.nextInt rng 2)))
                           :let [[a b c] (shuffle-by rng tys)]]
@@ -67,7 +66,7 @@
                          (list 'implies (list a '?x) (list b '?x))
                          (let [[a b] (sort-by str [a b])]
                            (list 'implies (list 'and (list a '?x) (list b '?x)) (list c '?x))))
-                       (pick rng cxs)])
+                       (tu/pick rng cxs)])
                     ;; the edges point to earlier contexts, so y after x keeps the DAG
                     (when (chance rng 0.4)
                       (let [[x y] (sort-by #(.indexOf ^java.util.List cxs %) (take 2 (shuffle-by rng cxs)))]
@@ -77,11 +76,11 @@
         n     (count base)
         edge-ids (vec (keep #(when (= 'genlCx (first (:sentence %))) (:id %)) base))
         fact-ids (vec (keep #(when (contains? (set tys) (first (:sentence %))) (:id %)) base))
-        ex1   (when (chance rng 0.8) {:id n :except (pick rng edge-ids) :context (pick rng cxs)})
+        ex1   (when (chance rng 0.8) {:id n :except (tu/pick rng edge-ids) :context (tu/pick rng cxs)})
         ex2   (when (chance rng 0.6) {:id (count (cond-> base ex1 (conj ex1)))
-                                      :except (pick rng fact-ids) :context (pick rng cxs)})
+                                      :except (tu/pick rng fact-ids) :context (tu/pick rng cxs)})
         ex3   (when (and ex1 (chance rng 0.4)) {:id (count (cond-> base ex1 (conj ex1) ex2 (conj ex2)))
-                                                :except (:id ex1) :context (pick rng cxs)})
+                                                :except (:id ex1) :context (tu/pick rng cxs)})
         writes (into base (remove nil?) [ex1 ex2 ex3])
         named (into #{} (keep :except) writes)
         ;; an except is moved to just after its target until none precedes it

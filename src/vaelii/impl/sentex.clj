@@ -286,7 +286,7 @@
 
 (def rule-direction-wrappers
   '{set/forwardRule :forward, set/backwardRule :backward, set/inertRule :inert,
-    set/forwardOnlyRule :forward-only})
+    set/forwardOnlyRule :forward-only, set/lazyForwardRule :lazy-forward})
 
 (def default-rule-wrapper 'set/defaultRule)
 
@@ -325,7 +325,8 @@
   rather than a set of its own."
   (into {}
         (map (fn [s] [s s]))
-        (for [f [nil :forward] b [nil :backward] v [nil :solve]] (into #{} (remove nil?) [f b v]))))
+        (for [f [nil :forward] b [nil :backward] l [nil :lazy] v [nil :solve]]
+          (into #{} (remove nil?) [f b l v]))))
 
 (defn canonical-engines
   "The shared instance of the engine set `engines`."
@@ -335,11 +336,13 @@
 (def direction-engines
   "The engines each `set/*Rule` direction runs a rule in, as the `:direction` opt and the
   wrappers spell them.  `:forward` and `:both` are one set: a forward rule answers
-  backward goals too."
+  backward goals too.  `:lazy` makes a backward rule's conclusion one a forward join
+  proves on demand (docs/inference.md, \"A lazy-forward rule\")."
   {:backward     (canonical-engines #{:backward})
    :forward      (canonical-engines #{:forward :backward})
    :both         (canonical-engines #{:forward :backward})
    :forward-only (canonical-engines #{:forward})
+   :lazy-forward (canonical-engines #{:backward :lazy})
    :inert        (canonical-engines #{})})
 
 (def solve-engines
@@ -348,13 +351,16 @@
 
 (defn engines-direction
   "The direction whose `set/*Rule` wrapper spells the base engines of `engines` (`:solve`
-  aside) — `:backward`, `:forward`, `:forward-only` or `:inert`."
+  aside) — `:backward`, `:forward`, `:forward-only`, `:lazy-forward` or `:inert`.  A
+  forward rule stores its conclusions, so `:lazy` beside `:forward` spells `:forward`."
   [engines]
-  (let [base (disj (set engines) :solve)]
-    (cond (= #{:forward :backward} base) :forward
-          (= #{:forward} base)           :forward-only
-          (= #{:backward} base)          :backward
-          :else                          :inert)))
+  (let [base (disj (set engines) :solve)
+        fwd  (disj base :lazy)]
+    (cond (= #{:forward :backward} fwd) :forward
+          (= #{:forward} fwd)           :forward-only
+          (= #{:backward :lazy} base)   :lazy-forward
+          (= #{:backward} base)         :backward
+          :else                         :inert)))
 
 (defn wrapper-effect
   "The `:effect` a rule's head wrappers give it: `:choose` under `set/assumptionRule`,
@@ -569,18 +575,11 @@
   (nth (walk-exception-strength form) 2))
 
 (defn peel-exception-strength
-  "`[sentence monotonic?]` — `sentence` with the strength wrapper taken off its
-  `exceptWhen` query, and the class that wrapper stated for the **exception alone**.
-
-  `assert` passes one `opts` to both halves of an `(exceptWhen Q R)`: the rule is stored
-  at that strength and so is the meta-sentex carrying `Q`.  That says everything for
-  three of the four rule×exception pairings and cannot say the fourth — a known-true
-  exception on a default rule — which is what this reads instead.  Nothing below the
-  assert entry point sees the wrapper: the split, the naming checks and the store all read the
-  sentence they always did.
-
-  **Untouched when there is none**, rather than rebuilt identically, so a sentence with
-  no wrapper is the object it arrived as."
+  "`[sentence monotonic?]`: `sentence` with the strength wrapper taken off its `exceptWhen`
+  query, and the class that wrapper stated for the exception alone.  `assert` passes one
+  `opts` to both halves of an `(exceptWhen Q R)`, which cannot state a known-true exception on
+  a default rule.  Nothing below the assert entry point sees the wrapper.  A sentence with no
+  wrapper is returned as the same object."
   [sentence]
   (let [[peeled mono? problem] (walk-exception-strength sentence)]
     (when problem
@@ -609,22 +608,17 @@
   (boolean (some #{solve-rule-wrapper} (wrapper-stack form))))
 
 (defn wrapper-stack-problems
-  "What is wrong with the combination of `set/*` wrappers around one rule, as strings.
-  The wrappers state two things: how a rule runs (a direction wrapper, `set/defaultRule`)
-  and what its head is (`set/assumptionRule` a choice, `set/hardConstraint` /
-  `set/softConstraint` a contradiction marker).  Four combinations state nothing the
-  record can hold, and each would otherwise be dropped in silence:
+  "What is wrong with the combination of `set/*` wrappers around one rule, as strings.  A
+  direction wrapper or `set/defaultRule` states how a rule runs; `set/assumptionRule` (a
+  choice), `set/hardConstraint` and `set/softConstraint` state its head.  Four combinations
+  state nothing the record can hold:
 
-  * two different direction wrappers — the record holds one direction, and the innermost
-    would win;
-  * two different head wrappers — a head is one of a choice, a hard constraint and a soft
-    one;
-  * a head wrapper with a direction wrapper, `set/defaultRule` or `set/solveRule` — a
-    choice or constraint head is decided by a solve and never chained or believed, so how
-    it would chain, and what strength its conclusions would carry, say nothing, and it
-    runs in a solve already (docs/solving.md);
-  * `set/solveRule` with `set/defaultRule` — one answer set has no defeat to apply, so a
-    defeasible rule has no reading inside a solve."
+  - two different direction wrappers;
+  - two different head wrappers;
+  - a head wrapper with a direction wrapper, `set/defaultRule` or `set/solveRule`, since a
+    choice or constraint head is decided by a solve and never chained or believed
+    (docs/solving.md);
+  - `set/solveRule` with `set/defaultRule`, since one answer set has no defeat to apply."
   [form]
   (let [stack (wrapper-stack form)
         ;; a wrapper repeated says one thing twice, so only distinct ones count
@@ -790,25 +784,15 @@
   (and (sequential? form) (= not-functor (first form)) (= 2 (count form))))
 
 (def exact-arity-classes
-  "What each exact-arity class membership says the arity is.  The `arity` sentexes and
-  these memberships derive each other through the core.txt rules, so a declared
-  relation normally has both — but a `{:chain? false}` assert or a KB loaded without
-  the rules has only what was written, so both spellings are read.
+  "What each exact-arity class membership says the arity is.  The `arity` sentexes and these
+  memberships derive each other through the core.txt rules, but a `{:chain? false}` assert or
+  a KB loaded without the rules has only what was written, so both spellings are read.
 
-  **Fifteen spellings, because core.txt ships fifteen classes.**  `unary` / `binary` /
-  `ternary` / `quaternary` / `quinary` are the relation-wide ones and the other ten
-  specialize them by kind, so a KB may write
-  the arity of a function as `(binary_function F)` exactly as it writes a predicate's as
-  `(binary_predicate P)`.  The arity readers read a **stored** membership by its own
-  functor (`arity-binding`), and what a KB stored is whichever of the fifteen its author
-  wrote.
-
-  The three arities never disagree across the spellings one term holds: a class and its
-  specializations map to one number, and one `separating` declaration under `fixed_arity`
-  separates the relation-wide five, which the ten inherit through their `genl` edges.
-
-  Here, below the index, `arity/relation-length` and `kb/relation?`, because all of them
-  read it; a table copied twice is a table that drifts."
+  core.txt ships fifteen classes: `unary` … `quinary` are relation-wide and ten specialize
+  them by kind, so a function's arity may be written `(binary_function F)`.  The arity readers
+  read a stored membership by its own functor (`arity-binding`).  The spellings of one term
+  never disagree: a class and its specializations map to one number.  The table lives here,
+  below the index, because `arity/relation-length` and `kb/relation?` read it."
   '{unary 1 binary 2 ternary 3 quaternary 4 quinary 5
     unary_predicate 1 binary_predicate 2 ternary_predicate 3
     quaternary_predicate 4 quinary_predicate 5
@@ -867,6 +851,11 @@
   the head is the whole answer.  False for a rule, which holds no sentence."
   [sx]
   (negation? (:sentence sx)))
+
+(defn positive-fact?
+  "Is `sx` a stored literal that is not negative: not nil, no rule, no `(not S)`?"
+  [sx]
+  (and sx (nil? (:antecedent sx)) (not (negative? sx))))
 
 (defn polarity
   "`:negative` for a negative literal, `:positive` for any other sentex — the keyword a
@@ -972,58 +961,24 @@
   '#{lessThan})
 
 (def deferred-predicates
-  "Predicates that *consume* bindings rather than produce them — evaluable tests and
-  computations.  Antecedent order is operational for these: `(evaluate ?z (+ ?x ?y))`
-  can only run once `?x`/`?y` are bound, so they must stay after the literals that
-  bind them.  Canonical ordering therefore keeps them last, in the author's relative
-  order (one computation may feed the next).
+  "Predicates that *consume* bindings rather than produce them: evaluable tests and
+  computations.  Antecedent order is operational for these, so canonical ordering keeps them
+  last, in the author's relative order.
 
-  `different` is here for the same reason and no other.  It is a ground-only test
-  over the equality closure (`vaelii.impl.provers`), so a `different` antecedent
-  sorted ahead of the literal that binds its variables is not merely slow — it is
-  inapplicable, and the rule silently stops firing.
-
-  Being deferred is *all* `different` shares with the comparisons: it is deliberately
-  absent from `comparison-siblings` and `chained-comparisons` below.  The obvious
-  analogy is wrong.  `lessThan` merges chains because it is **transitive** — `a<b`
-  and `b<c` give `a<b<c` for free — whereas `different` is **not**: `A≠B` and `B≠C`
-  say nothing whatever about `A` and `C`, so merging `(different A B)` with
-  `(different B C)` into `(different A B C)` would manufacture a pairwise claim
-  nobody asserted.  The only sound merge would be a clique (every pair present),
-  which is more machinery than the feature is worth.  And since `different` is never
-  stored, there is nothing to canonicalize *for*: canonical form exists so that
-  logically identical knowledge stores once, and this stores never.  See
-  docs/equality.md.
-
-  `unknown` is here for the same reason: it consumes the bindings its argument's
-  `free-vars` need and produces none.  `thereExists` is absent, because a standalone one
-  is desugared to its body (`desugar-there-exists`, docs/naf.md).
-
-  The **quantity comparisons** (`sameQuantity` / `quantityLessThan` /
-  `quantityGreaterThan` / `quantityLessThanOrEqual` / `quantityGreaterThanOrEqual`) are
-  deferred for the `evaluate` reason: `QuantityProver` (`vaelii.impl.provers`) *computes*
-  them from two ground measure terms, so a comparison sorted ahead of the literal that
-  binds its measure variable is inapplicable and the rule silently stops firing —
-  placing it after its binders is what a rule antecedent like
-  `(quantityGreaterThan ?q (QuantityFn 100 Kilogram))`, whose `?q` a `(mass ?o ?q)`
-  produces, needs.  Like `different`, being deferred is *all* they share with the
-  arithmetic comparisons: they are absent from `comparison-siblings` and
-  `chained-comparisons` above.  `sameQuantity` is symmetric, not directional, so it
-  folds onto no `<` sibling; and while `quantityLessThan` is transitive, a measure chain
-  crosses units, so collapsing `(quantityLessThan a b)` + `(quantityLessThan b c)` into
-  one variable-arity literal would smuggle in a normalization the prover has not run —
-  the same over-eager analogy the `different` note warns against.
-
-  The **aggregates** are deferred because a group variable such as `?x` in `(agg/count
-  ?n ?v (ancestorOf ?v ?x))` must be bound first, or the census counts the whole
-  relation (docs/aggregate.md).
-
-  `matchesPattern` and the value kinds (`integer`, `string`, `number`, `boolean`,
-  `keyword`, `character`) are here for the `lessThan` reason: `EvaluableProver` computes
-  them from ground arguments and nothing stores them, so a rule's join sends
-  `(matchesPattern ?s \"a+b\")` or `(string ?s)` to the registry once the literal binding
-  `?s` has run.  A value kind of a constant or a compound is read from the store instead
-  (`provers/term-value-kind-goal?`)."
+  - `different` is a ground-only test over the equality closure (`vaelii.impl.provers`) and
+    is never stored.  It is absent from `comparison-siblings` and `chained-comparisons`
+    because it is not transitive: `A≠B` and `B≠C` say nothing about `A` and `C`
+    (docs/equality.md).
+  - `unknown` consumes the bindings its argument's `free-vars` need.  `thereExists` is absent:
+    a standalone one is desugared to its body (`desugar-there-exists`, docs/naf.md).
+  - The quantity comparisons (`sameQuantity`, `quantityLessThan`, `quantityGreaterThan`,
+    `quantityLessThanOrEqual`, `quantityGreaterThanOrEqual`) are computed by `QuantityProver`
+    from two ground measures.  They fold onto no arithmetic sibling: `sameQuantity` is
+    symmetric, and a measure chain crosses units.
+  - The aggregates need their group variable bound first (docs/aggregate.md).
+  - `matchesPattern` and the value kinds (`integer`, `string`, `number`, `boolean`,
+    `keyword`, `character`) are computed by `EvaluableProver` from ground arguments.  A value
+    kind of a constant or a compound is read from the store (`provers/term-value-kind-goal?`)."
   (into '#{evaluate lessThan greaterThan different unknown matchesPattern
            integer string number boolean keyword character
            sameQuantity quantityLessThan quantityGreaterThan
@@ -1133,15 +1088,15 @@
   and its `?n` (docs/naf.md, \"Fully bound to evaluate\")."
   [form]
   (cond
+    (variable? form)     #{form}
+    (not (sequential? form)) #{}
     (unknown? form)      (free-vars (second form))
     (or (there-exists? form) (forall? form))
     (into #{} (remove (quantified-vars form)) (free-vars (nth form 2)))
     (aggregate? form)    (disj (into #{} (free-vars (aggregate-body form)))
                                (aggregate-value-var form)
                                (when (variable? (second form)) (second form)))
-    (variable? form)     #{form}
-    (sequential? form)   (into #{} (mapcat free-vars) form)
-    :else                #{}))
+    :else                (into #{} (mapcat free-vars) form)))
 
 ;; ---- what a deferred literal reads, and what it writes -------------------
 ;; A deferred literal is *computed*, so unlike a matched one it has a direction: some
@@ -1325,22 +1280,20 @@
                        :exception (vec exception) :antecedents (vec antecedents)})))))
 
 (defn check-naf-closed
-  "Throw unless rule antecedents `antes` (with consequent `conseq` and exception `exc`)
-  use their NAF and deferred literals soundly:
+  "Throw unless rule antecedents `antes` (with consequent `conseq` and exception `exc`) use
+  their NAF and deferred literals soundly:
 
-  * every free variable of an `unknown`, aggregate or other deferred literal is bound by
-    a generator antecedent or by a deferred literal written before it
-    (`:naf-not-closed`);
-  * a `thereExists` binder or an aggregate's reduction variable appears nowhere outside
-    its own literal (`:quantifier-not-local`);
-  * a quantified variable a computed conjunct of an `unknown` query reads is produced by
-    a generator conjunct of the same query (`unproducible-inputs`, `:naf-not-closed`),
-    and an aggregate's local census variables are ones `census-bound-vars` reaches;
-  * an `unknown` query is not an empty conjunction, a reduction slot holds a variable, and
-    so does every `thereExists`, `forall` and head `exists` binder (`:not-well-formed`).
+  - every free variable of an `unknown`, aggregate or other deferred literal is bound by a
+    generator antecedent or by a deferred literal written before it (`:naf-not-closed`);
+  - a `thereExists` binder or an aggregate's reduction variable appears nowhere outside its
+    own literal (`:quantifier-not-local`);
+  - a quantified variable a computed conjunct of an `unknown` query reads is produced by a
+    generator conjunct of the same query (`unproducible-inputs`, `:naf-not-closed`), and an
+    aggregate's local census variables are ones `census-bound-vars` reaches;
+  - an `unknown` query is not an empty conjunction, and a reduction slot and every
+    `thereExists`, `forall` and head `exists` binder hold a variable (`:not-well-formed`).
 
-  docs/naf.md, \"Fully bound to evaluate\", and docs/aggregate.md, \"Grouping\", give
-  the reasons."
+  See docs/naf.md, \"Fully bound to evaluate\", and docs/aggregate.md, \"Grouping\"."
   [antes conseq exc]
   (let [scope    (vec (concat antes [conseq] exc))
         ;; delayed: a rule with no quantifier never counts occurrences
@@ -1678,21 +1631,12 @@
     :args (vec (sort (distinct (filter #(<= 1 (long %) arity) v))))))
 
 (defn commuting-components
-  "The **components** `groups` licences at runtime arity `arity`: sorted position vectors,
-  themselves in sorted order, each holding at least two positions.
-
-  Overlapping groups are merged rather than applied one after another.  Two groups that
-  share a position do not describe two independent permutations — `(commutativeInArgs P 1
-  2)` beside `(commutativeInArgs P 2 3)` says 1 and 2 interchange and 2 and 3 do, so 1 and
-  3 interchange through 2 — and sorting the two separately is not even well defined: the
-  result would depend on which was applied first, which is an order dependence in the
-  storage key.  Merging into connected components makes the canonical form a function of
-  the declaration *set*.
-
-  A component of one position licences nothing and is dropped, so a mark whose positions
-  fall outside the literal's arity leaves the literal alone: `(commutativeInArgAndRest P
-  3)` on a binary `(P a b)` names position 3 only, and the empty result is what makes a
-  one-argument predicate marked `commutative` identity-only rather than a special case."
+  "The components `groups` licences at runtime arity `arity`: sorted position vectors,
+  themselves in sorted order, each holding at least two positions.  Overlapping groups merge
+  into connected components, since `(commutativeInArgs P 1 2)` beside `(commutativeInArgs P 2
+  3)` makes 1 and 3 interchange and applying the two separately would depend on order.  A
+  component of one position is dropped, so a mark whose positions fall outside the literal's
+  arity leaves the literal alone."
   [groups arity]
   (when (and (seq groups) (pos? arity))
     (let [sets (into [] (comp (map #(group-positions % arity))
@@ -1710,27 +1654,15 @@
               (recur more (conj miss (reduce into x hit))))))))))
 
 (defn- sort-commuting-args
-  "Put the arguments of a **fully ground** literal into canonical order within each
-  commuting component, so every permitted permutation of a fact stores as one sentex.
-  Positions outside a component keep the slot they were written in.
+  "Put the arguments of a **fully ground** literal into canonical order within each commuting
+  component, so every permitted permutation of a fact stores as one sentex.  Positions outside
+  a component keep their slot.  `groups-of` is `(fn [functor arity] -> groups)`; a predicate
+  declaring nothing answers nil and the literal is returned untouched.
 
-  `groups-of` is `(fn [functor arity] -> groups)`; a predicate that declares nothing
-  answers nil, and the literal is returned untouched.
-
-  **The declaration read comes before the groundness walk.**  This runs on every literal
-  the assert entry point canonicalizes, and `sortable-term?` descends the whole argument
-  list where `groups-of` is one map lookup — so an unmarked predicate, which is all but a
-  handful, pays the lookup and a `count` and nothing else.  `sort-symmetric-args` above
-  reads the same way round for the same reason, its arity-2 test standing in front of
-  the walk.
-
-  Ground literals only, for `sort-symmetric-args`' reason: a literal holding a variable
-  is a *pattern*, variables sort last, and sorting one would move its ground arguments
-  off the positions the stored fact has them at.  Order-insensitive lookup is handled at
-  match time instead (`res/raw-match` fans the pattern over its permitted arrangements).
-
-  Repeats keep their multiplicity — this sorts a sequence, it does not dedup one.
-  Commutativity changes order, never content or arity."
+  The declaration read comes before the groundness walk, since this runs on every literal
+  `assert` canonicalizes (as in `sort-symmetric-args`).  Ground literals only: a pattern's
+  variables sort last, and `res/raw-match` fans a pattern over its arrangements instead.
+  Repeats keep their multiplicity."
   [form groups-of]
   (if-not (and (sequential? form) (symbol? (first form)) (next form))
     form
@@ -1822,31 +1754,17 @@
                          (cartesian per-comp))))))))
 
 (defn commuting-arrangements
-  "Every rearrangement of `form` a lookup has to probe for, given the components
-  `groups-of` licences at this literal's arity.  `form` itself is first; a literal that
-  commutes nothing yields just the one.
+  "Every rearrangement of `form` a lookup has to probe for, given the components `groups-of`
+  licences at this literal's arity.  `form` is first; a literal that commutes nothing yields
+  only itself.
 
-  **Pruned to the arrangements a stored fact can actually have.**  Storage sorts a ground
-  literal within each component (`sort-commuting-args`), so a stored fact never holds its
-  ground arguments out of order inside a component — and an arrangement that does can be
-  skipped without losing an answer.  The argument: unification is positional, so an
-  arrangement's ground argument at a slot must equal the stored fact's, and a sorted
-  sequence read at any subset of its slots is itself sorted; an arrangement that unifies
-  therefore already holds its ground arguments in order, and is one of these.
-
-  That rests on the stored fact being canonical under the declaration the fan is reading,
-  which `integrate/commute-existing` is what maintains — the same precondition
-  `sort-symmetric-args` has made since the mirror probe existed, and the reason a late
-  declaration migrates what is stored rather than leaving lookup to find both spellings.  That is what keeps the fan off the factorial: with
-  `v` variables among a component of `g` positions the probes are `g!/(g-v)!` rather than
-  `g!`, so a pattern whose tail is ground probes once however long the tail is, and one
-  holding a single variable probes `g` times.  Where the fan really is factorial the
-  *answer set* is too — a pattern of `g` distinct variables matches one stored fact `g!`
-  ways, each a different binding, exactly as `(sibOf ?a ?b)` matches a stored pair twice
-  (`res/raw-match`).
-
-  Distinct by form: two arrangements that write the same literal are one probe, which is
-  what collapses a repeated variable (`(P ?a ?a)`) back to a single probe."
+  Pruned to the arrangements a stored fact can have: storage sorts a ground literal within
+  each component (`sort-commuting-args`), unification is positional, and a sorted sequence
+  read at a subset of its slots is sorted.  This relies on stored facts being canonical under
+  the declaration, which `integrate/commute-existing` maintains.  With `v` variables among a
+  component of `g` positions the probes number `g!/(g-v)!` and not `g!`.  Where the fan is
+  factorial the answer set is too (`res/raw-match`).  Distinct by form, so `(P ?a ?a)` is one
+  probe."
   [form groups-of]
   (if-not (and (sequential? form) (symbol? (first form)) (next form))
     [form]
@@ -2145,20 +2063,15 @@
 (defn- literal-var-sets [g] (map #(into #{} (form-vars %)) g))
 
 (defn- pruneable-groups
-  "For each tie group, whether `prune-by-tail` may bound it.  Two conditions, both
-  needed for the tail projection to be exact *and* independent of author order:
+  "For each tie group, whether `prune-by-tail` may bound it.  Both conditions are needed for
+  the tail projection to be exact and independent of author order:
 
-    * **joinless** — no variable occurs in two of the group's literals, so every
-      ordering renders the identical antecedent block (the automorphic case); the only
-      thing an ordering changes is what the consequent says about it.
-    * **tail-isolated** — none of the group's variables occurs in any *other*
-      antecedent (another group, or a held-back literal), so its ordering cannot move
-      any antecedent but its own.  The consequent is then the whole tiebreak, and it is
-      a never-reordered form — so projecting it is a function of the rule's content,
-      not of the order it was written in.
+  - joinless: no variable occurs in two of the group's literals, so every ordering renders
+    the same antecedent block;
+  - tail-isolated: none of the group's variables occurs in another antecedent, so the
+    consequent, a never-reordered form, is the whole tiebreak.
 
-  A group that fails either stays on the exact `extend-minimally` search, whose
-  antecedent minimization already collapses a join to O(k²).  `outside` is the
+  A group that fails either stays on the exact `extend-minimally` search.  `outside` is the
   variables of every form outside the groups but the projected tail."
   [groups outside]
   (let [gvars (mapv #(into #{} (mapcat form-vars) %) groups)
@@ -2171,35 +2084,19 @@
           (range (count groups)) groups)))
 
 (defn- prune-by-tail
-  "Break an antecedent tie by the tail, for a joinless, tail-isolated group (see
-  `pruneable-groups`).  Every ordering of such a group renders the identical
-  antecedents, so `cmp-render` decides between them purely on `proj-forms` — the
-  consequent.  Project it under each survivor's partial numbering (an unnumbered
-  variable → a sentinel that sorts last), keep only the survivors whose projection is
-  minimal, and collapse any left interchangeable on the projected variables.
+  "Break an antecedent tie by the tail, for a joinless, tail-isolated group
+  (`pruneable-groups`).  Every ordering of such a group renders the same antecedents, so
+  `cmp-render` decides on `proj-forms`, the consequent.  Project it under each survivor's
+  partial numbering (an unnumbered variable is a sentinel that sorts last), keep the survivors
+  whose projection is minimal, and collapse any left interchangeable on the projected
+  variables.
 
-  This is what makes the automorphic case tractable without a cap.  k interchangeable
-  antecedents that a consequent numbers differently render the same antecedents but a
-  different consequent, so the exact search keeps all k! orderings and picks the
-  minimal consequent only at the end.  Projecting it *during* the search keeps only the
-  minimal-so-far survivors each round — O(k²) states, not k!.  It is exact, not a
-  heuristic: numbering is monotonic across rounds (round r assigns larger numbers than
-  round r-1), so a still-unnumbered variable can only be given a *larger* number than
-  one already placed.  A survivor whose projection is strictly larger at the first
-  differing position is therefore strictly larger in the final rendering too, and can
-  never be the whole-rule minimum — dropping it discards no candidate the end-stage
-  `cmp-render` would have chosen.
-
-  Two sets, not one.  `keep-min` *ranks* survivors by `proj-forms` (the tail), grouped
-  by `[:origin :order]` — the tail is the true tiebreak only among survivors that render
-  the same antecedents *and* descend from the same incoming survivor (`:origin`), since
-  those alone are antecedent-equal for good (a joinless, tail-isolated group changes no
-  antecedent but its own).  Two survivors from *different* origins differ on an earlier
-  group's antecedents, which outrank the tail, so `keep-min` never compares them.  The
-  dedup then *merges* only survivors interchangeable on `relevant` — every variable that
-  recurs downstream (later groups and the tail), the set `prune-survivors` uses — never
-  on the tail alone: two survivors can render the tail identically yet still differ on a
-  variable a later group needs, and merging them there would drop a distinct rule."
+  This keeps O(k²) states instead of k!, and it is exact: numbering is monotonic across
+  rounds, so a survivor whose projection is larger at the first differing position is larger
+  in the final rendering and cannot be the whole-rule minimum.  `keep-min` ranks survivors by
+  the tail, grouped by `[:origin :order]`, since survivors from different origins differ on an
+  earlier group's antecedents.  The dedup merges only survivors interchangeable on `relevant`,
+  every variable that recurs downstream (`prune-survivors`), never on the tail alone."
   [states proj-forms relevant]
   (let [keep-min (fn [grp]
                    (let [projed (mapv (fn [s] [(mapv #(project-form (:m (:st s)) %) proj-forms) s])
@@ -2229,30 +2126,17 @@
           (range (count forms))))
 
 (defn- minimal-orders
-  "Every ordering of the tie `groups` whose canonically-numbered literal vector is
-  lexicographically minimal — the candidates the whole-rule tie-break then chooses
-  between, numbered on from `st0`.  `later` is the variables of the forms numbered
-  after the groups (the held-back literals, then the consequent); they decide which
-  survivors still differ.  `number` numbers one literal, `(fn [st form later-delay])`
-  returning every minimal `[numbered st']` (`naf-numberings`).
+  "Every ordering of the tie `groups` whose canonically numbered literal vector is
+  lexicographically minimal, numbered on from `st0`: the candidates the whole-rule tie-break
+  chooses between.  `later` is the variables of the forms numbered after the groups; they
+  decide which survivors still differ.  `number` numbers one literal, `(fn [st form
+  later-delay])`, returning every minimal `[numbered st']` (`naf-numberings`).
 
-  This is prefix minimization, not enumeration.  The numbering of a prefix depends
-  only on that prefix, and `cmp-literals` is lexicographic over the literal vector,
-  so a globally minimal order has a minimal prefix at every step: extending only the
-  minimal prefixes is *exact*.  It is also what makes the cost structural rather than
-  combinatorial — a tie group whose literals are distinguishable at all collapses to
-  one survivor as soon as the first pick numbers a shared variable (a join chain does
-  it immediately), so k literals cost O(k²) numberings rather than k!.
-
-  The remaining hard shape is genuine **automorphism**: k antecedents of one predicate
-  sharing no variable with each other are a cross product, so every ordering renders
-  the same antecedents and the tie falls entirely to what the consequent says about
-  them.  A group that is joinless and tail-isolated (`pruneable-groups`) is bounded by
-  `prune-by-tail`, which folds the consequent/exception into the search and keeps only
-  the survivors whose projected tail is minimal each round — so the automorphic case
-  stays O(k²) too rather than enumerating k!.  Every reduction is exact (see
-  `extend-minimally` and `prune-by-tail`), so the search has no cutoff.  `outside` is
-  `pruneable-groups`'s and `proj-forms` the consequent."
+  Prefix minimization is exact: a prefix's numbering depends only on that prefix and
+  `cmp-literals` is lexicographic.  A distinguishable tie group collapses to one survivor at
+  the first shared variable, so k literals cost O(k²) numberings.  A joinless, tail-isolated
+  group (`pruneable-groups`, `outside`) is bounded by `prune-by-tail` over the consequent
+  `proj-forms`."
   [st0 groups later outside proj-forms number]
   ;; `after` / `eligible` are only consulted when a group ties or a NAF literal is
   ;; numbered, so they are computed on demand
@@ -2333,18 +2217,11 @@
 (defn canonical-exception
   "An `exceptWhen` exception's conjuncts, already in the rule's canonical variables
   `rule-vars`, in their stored form: sorted (`sort-conjuncts`), with every variable a
-  quantifier inside them binds numbered past the rule's own.  Two exceptions that differ
-  only in a binder's name are then one meta-sentex, as two rules that differ only in a
-  variable's name are one rule.
-
-  Each conjunct is numbered alone first, the conjunctions inside it ordered as a rule's
-  `unknown` antecedent's are (`sort-query-conjunctions`, `naf-numberings`), so the sort
-  reads structure rather than the author's binder names; then once more across the
-  sorted conjuncts, so two conjuncts' binders stay distinct names.  A deferred literal
-  inside a conjunct keeps its written place among the deferred literals of its
-  conjunction, after the generators: the forward join runs a deferred literal whose
-  inputs are not yet bound in that order, and an aggregate binds what a later test
-  reads."
+  quantifier inside them binds numbered past the rule's own, so exceptions differing only in a
+  binder's name are one meta-sentex.  Each conjunct is numbered alone first, its conjunctions
+  ordered as a rule's `unknown` antecedent's are (`sort-query-conjunctions`,
+  `naf-numberings`), then once more across the sorted conjuncts.  A deferred literal keeps its
+  written place among the deferred literals of its conjunction, after the generators."
   [conjuncts rule-vars]
   (let [base   {:n (count rule-vars) :m (zipmap rule-vars rule-vars) :vm {}}
         alone  (fn [c] (reduce #(if (neg? (cmp-term %2 %1)) %2 %1)
@@ -2376,28 +2253,15 @@
   "Canonical antecedent order + canonical variables for a rule.  Returns
   [antecedents consequent varmap].
 
-  Only the *generator* literals are reordered.  Two kinds are held back, in the
-  author's relative order, because their position is operational rather than
-  logical: **deferred** (evaluable) literals, which consume bindings the generators
-  produce, and the **recursive** literal of a recursive rule — reordering that one
-  could turn an author's right-recursive rule left-recursive, which the backward
-  chainers cannot execute (see `vaelii.impl.resolution`).
-
-  Generators are sorted with the variable-blind comparator, so the pre-numbering
-  order can never depend on the author's variable names.  Literals that tie under it
-  (a same-predicate self-join, say) are resolved by searching the orderings of the
-  tie group and keeping the one whose *canonically numbered* form is smallest — so
-  the result is a function of the rule's structure, not of the order it was written
-  in.  Smallest is judged on the **whole** rule (`cmp-render`): antecedents first,
-  then the consequent, because two orderings can agree on the antecedents and
-  disagree on what the consequent says about them.  The search is `minimal-orders`,
-  which is exact and has no cutoff.  A held-back `unknown` literal's conjunctions are
-  ordered by the same search, from the numbering the rule has reached
-  (`naf-numberings`).
-
-  An `exceptWhen` exception is not part of the rule and takes no part here: it is a
-  separate meta-sentex whose variables are aligned to this rule's `varmap` when the
-  exception is asserted (`vaelii.core`)."
+  Only the generator literals are reordered.  Two kinds are held back in the author's relative
+  order: deferred (evaluable) literals, and the recursive literal of a recursive rule, whose
+  reordering could make it left-recursive (`vaelii.impl.resolution`).  Generators are sorted
+  with the variable-blind comparator; ties (a same-predicate self-join) are resolved by
+  searching the orderings of the tie group (`minimal-orders`, exact, no cutoff) and keeping
+  the one whose canonically numbered form is smallest on the whole rule (`cmp-render`:
+  antecedents, then consequent).  A held-back `unknown` literal's conjunctions are ordered by
+  the same search (`naf-numberings`).  An `exceptWhen` is a separate meta-sentex aligned to
+  this rule's `varmap` at assert (`vaelii.core`)."
   [antes conseq marks]
   (let [norm       #(normalize-literal % marks)
         all        (collapse-comparison-chains (mapv norm antes))
@@ -2464,19 +2328,17 @@
     [cond]))
 
 (defn defn-companion-rules
-  "The forward rule sentence(s) a `defn*` sentence expands into, each relating
-  `(Coll ?x)` to the condition on the member `?x`:
+  "The forward rule sentence(s) a `defn*` sentence expands into, each relating `(Coll ?x)` to
+  the condition on the member `?x`:
 
-    (defnNecessary  Coll C) -> [(implies (Coll ?x) C)]   ; member => condition
-    (defnSufficient Coll C) -> [(implies C (Coll ?x))]   ; condition => member
-    (defnIff        Coll C) -> both
+      (defnNecessary  Coll C) -> [(implies (Coll ?x) C)]   ; member => condition
+      (defnSufficient Coll C) -> [(implies C (Coll ?x))]   ; condition => member
+      (defnIff        Coll C) -> both
 
-  Built from the sentence as written, where the member is still `?x`; each rule is
-  canonicalized when stored, and a necessary condition that is a conjunction splits into
-  one rule per conjunct like any conjunctive consequent.  A sufficient condition in which
-  no generator conjunct names `?x` — `(and (integer ?x) (greaterThan ?x 0))`, every
-  conjunct computed — expands to no rule: nothing binds the member for a join, so
-  `check-naf-closed` would refuse it, and `DefnSufficientProver` answers membership."
+  Built from the sentence as written and canonicalized when stored; a conjunctive necessary
+  condition splits into one rule per conjunct.  A sufficient condition with no generator
+  conjunct naming `?x` expands to no rule (`check-naf-closed` would refuse it), and
+  `DefnSufficientProver` answers membership."
   [[pred coll cond]]
   (let [member     (list coll defn-member-var)
         ;; A companion rule materializes membership (or the condition) forward, so it is
@@ -2561,20 +2423,17 @@
         (sentex-types/->LiteralSentex stored ctx nil nil)))))
 
 (defn sentex
-  "Construct a sentex — a `LiteralSentex` or a `RuleSentex` — canonicalizing the structural
+  "Construct a sentex, a `LiteralSentex` or a `RuleSentex`, canonicalizing the structural
   connectives into the record and the sentence into canonical form (see the namespace
-  docstring).  Context defaults to 'default; id defaults to nil until the record store
-  assigns a handle.
+  docstring).  Context defaults to 'default; id defaults to nil until the record store assigns
+  a handle.
 
-  `opts` may carry the canonicalization reads: `:symmetric?`, a predicate telling
-  whether a functor is declared symmetric, so its two arguments can be sorted;
-  `:groups-of`, `(fn [functor arity] -> groups)` giving the commutativity groups the
-  functor declares, so the arguments inside each component can be; `:opaque?`, a
-  predicate naming the functors whose applications keep their arguments as written; and
-  the term marks `:associative?`, `:idempotent?` and `:meet-order`, `(fn [functor] ->
-  (fn [a b] a-below-b?))` or nil.  The sorts apply to the literal and to every compound
-  below it, the term marks to the compounds below it (`canonical-term`).  Without them no
-  predicate commutes anything (a pure, KB-free construction)."
+  `opts` may carry the canonicalization reads: `:symmetric?`, a predicate on functors;
+  `:groups-of`, `(fn [functor arity] -> groups)`; `:opaque?`, a predicate naming the functors
+  whose applications keep their arguments as written; and the term marks `:associative?`,
+  `:idempotent?` and `:meet-order`, `(fn [functor] -> (fn [a b] a-below-b?))` or nil.  The
+  sorts apply to the literal and every compound below it, the term marks to the compounds
+  below it (`canonical-term`).  Without them no predicate commutes anything."
   ([sentence] (sentex sentence 'default))
   ([sentence context] (sentex sentence context nil))
   ([sentence context {:keys [symmetric? groups-of opaque? associative? idempotent? meet-order]
@@ -2643,43 +2502,21 @@
   #{unknown-functor there-exists-functor forall-functor})
 
 (defn connective-problems
-  "Structural problems with `sentence`'s connective frames, as strings (empty if OK) —
-  read by `check` and thrown by `assert` under `:not-well-formed` before anything is
-  stored:
+  "Structural problems with `sentence`'s connective frames, as strings (empty if OK), read by
+  `check` and thrown by `assert` under `:not-well-formed` before anything is stored:
 
-  * a structural connective at an arity it does not have — `(not A B)` would store as
-    a positive fact whose record and index disagree about what it says, an `implies`
-    at arity 2 would throw a bare exception, and one at arity 4 would silently drop
-    its tail;
-  * a rule or exception literal that is not itself a sentence — a bare symbol in
-    antecedent or consequent position matches nothing and checks as nothing, and one
-    as the operand of a rule wrapper or a `not` is no rule and no fact.  A bare
-    variable is a term, so it is refused in every rule role and as a wrapper's operand;
+  - a structural connective at an arity it does not have;
+  - a rule or exception literal that is not itself a sentence; a bare variable is a term, and
     a derived sentence whose predicate a firing binds is written `(?pred . ?args)`;
-  * a head existential outside consequent position — `exists` marks a consequent
-    variable for skolemization and is not a predicate;
-  * an `(ist Ctx S)` in any rule position — as a read the literal matches nothing, and
-    as a consequent it places a conclusion where the rule and its facts need not be
-    visible (`ist-rule-problem`);
-  * a nested `implies` anywhere but a rule's consequent — a rule is a sentence, not a
-    literal, and consequent position is the one place it means something else: a
-    **generator**, whose firing generates the inner rule (docs/generators.md).  The
-    nesting is not capped there: a generated rule may generate one in turn, and each level
-    is checked in the ordinary rule roles;
-  * a negated rule — `not` over an `implies`, bare or wrapped: negation lives on
-    facts, and what a rule's negation would mean is said as an exception or a
-    retraction instead (the record has no shape for it — a rule under `not` would
-    store a sentence its own key cannot be computed from);
-  * a top-level `and` — a conjunction is an antecedent or a query, never one
-    assertable sentence; assert its conjuncts;
-  * a top-level `or`, or a `not` over one — nothing expands an `or` outside a rule
-    antecedent (docs/canonicalization.md), so either would store as one opaque literal;
-  * a `not` over `unknown`, `thereExists` or `forall` in an antecedent or an exception,
-    at any depth — no prover answers a negated query, so the condition never holds
-    (docs/naf.md);
-  * a combination of `set/*` wrappers the record cannot hold — two directions, two head
-    wrappers, or a choice or constraint head under a direction or `set/defaultRule`
-    (`wrapper-stack-problems`)."
+  - a head existential outside consequent position;
+  - an `(ist Ctx S)` in any rule position (`ist-rule-problem`);
+  - a nested `implies` anywhere but a rule's consequent, where it is a generator
+    (docs/generators.md), checked at each level in the ordinary rule roles;
+  - a negated rule: `not` over an `implies`, bare or wrapped;
+  - a top-level `and`, or a top-level `or`, or a `not` over one (docs/canonicalization.md);
+  - a `not` over `unknown`, `thereExists` or `forall` in an antecedent or an exception, at any
+    depth (docs/naf.md);
+  - a combination of `set/*` wrappers the record cannot hold (`wrapper-stack-problems`)."
   [sentence]
   (letfn
    [;; the one sentence a wrapper or a `not` takes.  Below the top level a bare symbol
@@ -2821,21 +2658,12 @@
      :message (str "not well-formed: " (str/join "; " ps))}))
 
 (defn rename-vars
-  "`form` with every variable `m` names replaced by the name it maps to — **one pass**,
-  each position rewritten at most once.  Unmapped terms are left alone, and a vector
-  stays a vector so a conjunction keeps its shape.
-
-  One pass is the whole point, and it is what separates a **renaming** from a
-  *substitution*.  `res/substitute` chases: it looks a variable up, then looks its
-  value up, until it reaches something unbound — right for a unifier, whose bindings
-  form an acyclic chain to a term (the occurs check is what guarantees that).  A
-  renaming is a *permutation*, and permutations have cycles: applying `{?var0 ?var1,
-  ?var1 ?var0}` to `(P ?var0 ?var1)` must give `(P ?var1 ?var0)`, where chasing would
-  follow `?var0 → ?var1 → ?var0` and never stop.  So the two maps look alike and cannot
-  share a function.
-
-  This is the operation that carries a form between two canonical namings — the map
-  `canonical-conjunction` hands back, a rule's `:varmap`, a cache's rename-back."
+  "`form` with every variable `m` names replaced by the name it maps to, in one pass: each
+  position is rewritten at most once.  Unmapped terms are left alone and a vector stays a
+  vector.  A renaming is a permutation and has cycles, so `{?var0 ?var1, ?var1 ?var0}` over
+  `(P ?var0 ?var1)` gives `(P ?var1 ?var0)`, where `res/substitute` would chase
+  `?var0 → ?var1 → ?var0`.  It carries a form between two canonical namings: the map
+  `canonical-conjunction` returns, a rule's `:varmap`, a cache's rename-back."
   [form m]
   (cond
     (and (variable? form) (contains? m form)) (get m form)
@@ -2861,26 +2689,15 @@
     (sentence-of sx)))
 
 (defn canonical-conjunction
-  "`[canonical varmap]` for a conjunction: every variable across **all** of `literals`
-  renumbered `?var0 ?var1 …` by first occurrence under one shared numbering, and the map
-  from each canonical name back to the name it replaced.
+  "`[canonical varmap]` for a conjunction: every variable across all of `literals` renumbered
+  `?var0 ?var1 …` by first occurrence under one shared numbering, and the map from each
+  canonical name back to the name it replaced.  Two conjunctions differing only in variable
+  names become the same value, so a search can recognize a repeat.  `varmap` carries a
+  solution back to the caller's names, applied with `rename-vars` in one pass because the map
+  can be a permutation.
 
-  One numbering across the whole conjunction, not one per literal — a variable shared
-  between two literals is what joins them, and numbering them apart would break the join
-  into two questions.
-
-  The point of canonicalizing a *conjunction* (rather than a rule, which
-  `canonicalize-rule` already does at storage) is identity: two conjunctions that differ
-  only in what their variables are called become the same value, so a search that
-  reaches one twice can recognize it.  `varmap` is how a solution found in canonical
-  space is carried back to the names the caller used — applied with `rename-vars`, which
-  is one pass because this map can be a permutation.
-
-  `start` numbers from `?var<start>` instead of `?var0`, which is how a form is renamed
-  **clear of** another one whose variables are already numbered `?var0 … ?var<start-1>`:
-  the two namespaces become disjoint by construction rather than by inventing decorated
-  names.  A stored rule is spelled `?var0 ?var1 …`, so unifying one against a conjunction
-  spelled the same way needs exactly this before it can mean anything."
+  `start` numbers from `?var<start>`, which renames a form clear of another whose variables
+  are `?var0 … ?var<start-1>`, as unifying a stored rule against a conjunction requires."
   ([literals] (canonical-conjunction literals 0))
   ([literals start]
    (let [[canon st] (number-forms (assoc empty-numbering :n (long start)) literals)]
@@ -2967,37 +2784,20 @@
 ;; ---- indexing key -------------------------------------------------------
 
 (defn- key-tokens
-  "The trie tokens for a sentex, with the `implies` / `and` rule frame canonicalized
-  out and variables α-renamed.  A rule is keyed
-  `[:rule <antecedents> <consequent> <choice> <constraint>]` (a negative literal
-  inside keeps its `not` — its polarity); a negative fact `[:false <body>]` (body kept
-  whole so a `(not ?s)` pattern matches); a positive fact is its body **linearized** —
-  the functor then each argument in preorder, so a nested compound is a run of trie
-  levels rather than one opaque token (see the structural section above).
+  "The trie tokens for a sentex, with the `implies` / `and` rule frame canonicalized out and
+  variables α-renamed.  A rule is keyed `[:rule <antecedents> <consequent> <choice>
+  <constraint>]` (a negative literal inside keeps its `not`); a negative fact `[:false
+  <body>]`; a positive fact is its body linearized, the functor then each argument in
+  preorder, so a nested compound is a run of trie levels.
 
-  The two trailing slots spell the rule's `:effect` — `true` in the first for a choice
-  rule, `:hard` / `:soft` in the second for a constraint rule — and are **constant
-  slots**, present (as nil) on every rule, so a choice / constraint rule and its bare
-  twin get distinct keys and every rule keys at one depth — a ragged level would let a
-  wildcard context slot descend into it and read child tokens as handles.  An
-  `exceptWhen` exception is *not* keyed here: it is
-  a separate meta-sentex, so a rule and its excepted twin are the same sentex (asserting
-  the exception amends the rule in place).
+  The two trailing slots spell the rule's `:effect` (`true` in the first for a choice rule,
+  `:hard` / `:soft` in the second for a constraint rule) and are present, as nil, on every
+  rule, so every rule keys at one depth and a wildcard context slot cannot descend into child
+  tokens.  An `exceptWhen` is a separate meta-sentex and is not keyed here.
 
-  Rules and `:false` bodies keep their literals whole (their tokens are lists, never
-  markers): a rule pattern is only ever looked up for dedup, where whole-literal
-  canonical numbering already gives an exact key, and a negative body stays one token
-  so `(not ?s)` — whose body *is* a variable token — fans the child set the way it
-  always has.  Linearizing them would add a dotted-rest (`(?pred . ?args)`) case and
-  buy no retrieval selectivity, since neither is matched through a trie lookup of its
-  own pattern.
-
-  That last clause is a **constraint on the matcher, not an observation about it**.  A
-  body kept whole means a negative key matches only *exactly*: `[:false (dog ?0) c]`
-  and `[:false (dog Tom) c]` are different keys, and no part of the body is a level to
-  narrow on, so a trie lookup of an open negative finds nothing rather than finding
-  less.  `res/candidate-handles` is what honours it, routing an open negative to the
-  secondary roots — which span both polarities — instead of here."
+  Rules and `:false` bodies keep their literals whole.  A negative key therefore matches only
+  exactly, and `res/candidate-handles` routes an open negative to the secondary roots, which
+  span both polarities."
   [{:keys [sentence antecedent effect] :as sx}]
   (if (some? antecedent)
     ;; the rule's whole form, renamed as one, so the antecedents and the consequent
@@ -3109,26 +2909,17 @@
 
 (def ^:dynamic *min-indexed-depth*
   "How deep inside a content literal a ground **compound** must sit to earn its own
-  inverted-index key — `0` being the literal itself, `1` a subterm of it, and so on.
+  inverted-index key: `0` is the literal itself, `1` a subterm of it.
 
-  The default **1** drops each literal's own whole-compound key.  That key is what makes
-  the token dictionary fact-scaled instead of vocabulary-scaled: a fact's body is a
-  subterm of itself, so it mints one key holding exactly one handle, per record.  Over a
-  12,070-record corpus of 511 names, 12,054 of the 12,565 distinct tokens are those keys;
-  in the shipped starter, 1,724 of 2,077 — against 4 compounds that are genuinely nested.
-  At the floor and deeper the nesting is what a probe is *for*: `(sentexHandle H)` inside
-  an `exceptWhen` meta, the sentence inside an `(ist Ctx S)`.
+  The default 1 drops each literal's own whole-compound key, which mints one key holding one
+  handle per record and makes the token dictionary fact-scaled: 12,054 of 12,565 distinct
+  tokens in a 12,070-record corpus, 1,724 of 2,077 in the shipped starter.  The keys kept at
+  depth 1 are the nesting a probe is for: `(sentexHandle H)` inside an `exceptWhen` meta and
+  the sentence inside an `(ist Ctx S)`.  `2` and up also drop that wrapped sentence.  `0` keys
+  every compound.
 
-  `2` and up also drop that wrapped sentence — the corpus where the nesting is itself
-  per-record — at the cost of the read `ist` exists to serve, so the corpus decides.  `0`
-  keys every compound, the literal included.
-
-  It is read at **write** time, so moving it over a populated store changes what the next
-  sentex is indexed under and leaves the keys already written where they are: a posting
-  outside the new bound is stale rather than wrong (every read fetches the record, and a
-  dead handle drops out there), and `reindex` is what applies a new setting wholesale.
-  The token ids themselves are content-keyed and durable — a store keeps the ones it no
-  longer mints, which is not a migration."
+  It is read at write time.  Moving it over a populated store leaves written keys, which are
+  stale and not wrong, and `reindex` applies a new setting."
   1)
 
 (def ^:const max-indexed-compound

@@ -410,6 +410,28 @@
     (when (and sx (map? a) (mac= (:mac a) (attestation-mac (:creator a) sx)))
       (:creator a))))
 
+(defn- reseal-replayed
+  "An `import!` `:on-replayed` fn over `kb`: when the attestation a rebase carried onto
+  `handle` verifies for `old`, the record the rebase captured, it is written again over
+  `handle`.  An attestation that does not verify for `old`, or any under a malformed
+  `*attest-key*`, stays as carried, so the rebase finishes."
+  [kb]
+  (fn [old handle]
+    (let [a (:attestation (v/provenance kb handle))]
+      (when (and (map? a)
+                 (try (mac= (:mac a) (attestation-mac (:creator a) old))
+                      (catch clojure.lang.ExceptionInfo _ false)))
+        (attest! kb (:creator a) handle)))))
+
+(defn rebase!
+  "`(v/import! kb dir (assoc opts :rebase? true))`, sealing again over its new handle each
+  fork premise whose attestation verified for its captured handle under the current
+  `*attest-key*`, and each write a stopped rebase left that this one finishes first.  A
+  rebase `open-kb` finishes after a stop seals none.  Returns `import!`'s summary."
+  [kb dir opts]
+  (koinii-types/needs-kb! `rebase! kb)
+  (v/import! kb dir (assoc opts :rebase? true :on-replayed (reseal-replayed kb))))
+
 (defn- write
   "The one provenance-recording write chokepoint.  Enforces the write boundary, binds
   `*creator*` to the principal id, rides its provenance hints in the open map, and goes

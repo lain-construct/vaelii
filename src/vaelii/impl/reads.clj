@@ -388,6 +388,13 @@
   (prof/record-read :predicate-extent)
   (p/family-leaf index :shape-lengths [f]))
 
+(defn as-stored-mint-rules
+  "The `[kind handle]` of every **stored** rule of `kv/mint-rules`, as a set: one name-set
+  read."
+  [index]
+  (prof/record-read :mint-rules)
+  (p/family-leaf index :mint-rules []))
+
 (defn stored-count-shape-tuples-global
   "How many **stored** positive facts of functor `f` hold `n` arguments, in every
   context: one count read."
@@ -698,7 +705,8 @@
 
 (defn as-stored-rules-in
   "Handles of the **stored** rules of `kind` stated in one of `contexts`: `:rule` for
-  every rule, `:solve` for the rules a solve reads (`rules/solve-sentex?`).  The rule
+  every rule, `:solve` for the rules a solve reads (`rules/solve-sentex?`), `:lazy` for
+  the rules whose `:engines` take `:lazy`.  The rule
   extent ends in the context, so this costs min(|contexts stating one|, |contexts|) probes
   plus a leaf read per context kept."
   [index kind contexts]
@@ -713,11 +721,12 @@
   (p/family-handles index :rule-extent [kind] p/every-context))
 
 (defn stored-rule-count-global
-  "How many rules the store holds, in every context: the rule extent's node count, with
-  no handle set built."
-  [index]
-  (prof/record-read :rule-index)
-  (long (p/family-count index :rule-extent [:rule] p/every-context)))
+  "How many rules of `kind` (`as-stored-rules-in`, default `:rule`) the store holds, in
+  every context: the rule extent's node count, with no handle set built."
+  ([index] (stored-rule-count-global index :rule))
+  ([index kind]
+   (prof/record-read :rule-index)
+   (long (p/family-count index :rule-extent [kind] p/every-context))))
 
 (defn stores-rule-in?
   "Does a context of `contexts` **store** a rule?  The rule extent's children intersected

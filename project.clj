@@ -1,7 +1,7 @@
 ;; Defines `jdk-major`, `bash` and `test-jvm-opts`, which the `~` forms below read.
 (load-file (str (.getParent (java.io.File. *file*)) "/project-env.clj"))
 
-(defproject com.vaelii/vaelii "0.30.0"
+(defproject com.vaelii/vaelii "0.31.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -66,7 +66,8 @@
   ;; about a second or more, `^:multi-jvm` one that forks a second JVM, `^:fuzz` the
   ;; exhaustive truncation sweep, `^:full-kb` a probe of a full-size KB on disk, and
   ;; `^:red` a test asserting behaviour the engine does not have yet, which fails until
-  ;; that behaviour lands and then loses the mark. What each selects: CONTRIBUTING.md §5.
+  ;; that behaviour lands and then loses the mark (`lein test-red` fails on one that
+  ;; passes). What each selects: CONTRIBUTING.md §5.
   ;; **Four of the five are opt-in only**, so neither `:default` nor `:all` selects
   ;; them and every other selector has to exclude them by name. `:all` is therefore
   ;; not `(complement :multi-jvm)`: a complement of one mark silently adopts the next
@@ -233,6 +234,8 @@
                     ;; already maintains.  Installed here rather than from a test namespace so it
                     ;; is in place before the first one loads, and so the counting cannot
                     ;; depend on which namespace happened to require it.
+                    ;; `VAELII_TEST_VERDICTS` prints one pass/fail line per test the same
+                    ;; way, which `lein test-red` reads.
                     :injections
                     [(require 'vaelii.impl.logging 'vaelii.impl.config)
                      ((resolve 'vaelii.impl.logging/set-level)
@@ -240,7 +243,10 @@
                      (let [prop-bool (resolve 'vaelii.impl.config/prop-bool)]
                        (when (prop-bool "VAELII_TEST_NS_COUNTS" false)
                          (require 'vaelii.ns-counts)
-                         ((resolve 'vaelii.ns-counts/install!))))]}
+                         ((resolve 'vaelii.ns-counts/install!)))
+                       (when (prop-bool "VAELII_TEST_VERDICTS" false)
+                         (require 'vaelii.ns-counts)
+                         ((resolve 'vaelii.ns-counts/install-verdicts!))))]}
              ;; sampling profiler for a repl: `(prof/profile (…))`, flamegraphs under
              ;; /tmp/clj-async-profiler/results/, `(prof/serve-ui 8080)`. The -XX pair
              ;; keeps inlined frames off their caller's line; the attach flag is how it
@@ -366,6 +372,7 @@
             "lint-prose"      ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-prose.py \"\\$@\"" "--"]
             ;; a stateful def or Reasoning field with no derived-state register row
             "lint-derived"    ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-derived-state.py"]
+            "lint-doc-size"   ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-doc-size.py \"\\$@\"" "--"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
             "gate"            ["shell" ~bash "scripts/gate.sh"]
@@ -408,6 +415,9 @@
             ;; a matrix row would repeat identical work.  Once, not once per row.  Set
             ;; `VAELII_TEST_TMPDIR` to a tmpfs: a couple of minutes rather than ten.
             "test-fuzz"       ["shell" ~bash "scripts/test-selector.sh" ":fuzz"]
+            ;; the `^:red` tests with the verdict inverted per test: it fails on a red
+            ;; test that passes, whose behaviour has landed and whose mark is stale
+            "test-red"        ["shell" ~bash "scripts/test-selector.sh" ":red"]
             ;; the `^:full-kb` probes, opt-in because they need a full-size KB on disk and
             ;; a 44g heap beside nothing else large: KB-DIR (default checkouts/kb) upgraded
             ;; to this engine, then a clone of it probed (scripts/test-full-kb.sh)

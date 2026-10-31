@@ -10,7 +10,8 @@
             [vaelii.browser.backup :as backup]
             [vaelii.browser.catalog :as catalog]
             [vaelii.browser.web]
-            [vaelii.core :as v])
+            [vaelii.core :as v]
+            [vaelii.test-util :as tu])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]
            [java.time LocalDateTime]))
@@ -32,11 +33,6 @@
     (io/make-parents (io/file dir "index" "records.edn"))
     (spit (io/file dir "index" "records.edn") (pr-str {:records ["localhost" 5432 "vaelii" "s_1"]}))
     (is (= {:host "localhost" :port 5432 :db "vaelii" :schema "s_1"} (backup/store-records dir)))))
-
-(defn- rm-rf! [f]
-  (let [f (io/file f)]
-    (when (.isDirectory f) (run! rm-rf! (.listFiles f)))
-    (.delete f)))
 
 (deftest only-a-loaded-entry-is-backed-up
   (is (= :unknown-entry (:type (ex-data (backup/refusal "no-such-entry"))))))
@@ -69,7 +65,7 @@
         {:type (try (backup/backup! kb dir out (fn [_])) nil
                     (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))
          :left? (.exists (io/file out))})
-      (finally (v/close! kb) (rm-rf! root)))))
+      (finally (v/close! kb) (tu/rm-rf! root)))))
 
 (deftest a-kb-that-does-not-seal-is-not-backed-up
   (is (= {:type :not-sealed :left? false}
@@ -112,7 +108,7 @@
           (is (= "dump a" (slurp (io/file a "records.dump"))) "the first backup is intact")
           (is (= ["x"] (vec (.list (io/file a "store")))) "and its clone holds no second one")
           (is (= "dump b" (slurp (io/file b "records.dump"))))))
-      (finally (v/close! kb) (rm-rf! root)))))
+      (finally (v/close! kb) (tu/rm-rf! root)))))
 
 (deftest a-failed-backup-deletes-a-link-in-its-clone-and-not-what-it-names
   ;; the store copy keeps a link as a link; the dump fails after the copy
@@ -136,7 +132,7 @@
                                    (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
       (is (not (.exists (io/file out))))
       (is (= "kept" (slurp (io/file named "kept"))))
-      (finally (v/close! kb) (rm-rf! root)))))
+      (finally (v/close! kb) (tu/rm-rf! root)))))
 
 (deftest the-progress-names-the-directory-the-backup-writes
   (let [root  (str (Files/createTempDirectory "vaelii-backup" (make-array FileAttribute 0)))
@@ -153,7 +149,7 @@
                                              (if (= "pg_dump" (first argv)) (spit (last argv) "-") (cp argv tick))))]
         (is (= (str out "-2") (:dir (backup/backup! kb store out #(vswap! notes conj (:note %)))))))
       (is (some #(str/includes? (str %) (str out "-2")) @notes))
-      (finally (v/close! kb) (rm-rf! root)))))
+      (finally (v/close! kb) (tu/rm-rf! root)))))
 
 ;; ---- end to end, against a server ----------------------------------------
 
@@ -202,7 +198,7 @@
           (is (zero? (:exit (psql (str "ALTER SCHEMA " schema " RENAME TO " schema "_replaced")))))
           (let [r (sh "pg_restore" "-h" "localhost" "-d" "vaelii" (str out "/records.dump"))]
             (is (zero? (:exit r)) (:out r)))
-          (rm-rf! dir)
+          (tu/rm-rf! dir)
           (is (zero? (:exit (sh "cp" @#'backup/copy-flags (str out "/store") dir))))
           (let [kb (v/open-kb opts)]
             (try
@@ -214,7 +210,7 @@
         (finally
           (psql (str "DROP SCHEMA IF EXISTS " schema " CASCADE; DROP SCHEMA IF EXISTS "
                      schema "_replaced CASCADE"))
-          (rm-rf! root))))))
+          (tu/rm-rf! root))))))
 
 (deftest the-card-offers-a-backup-only-for-a-postgres-store
   (let [card @#'vaelii.browser.web/entry-card

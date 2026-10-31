@@ -91,16 +91,34 @@
   computed batch (every type is also a unary_predicate).  Within a layer, every file
   present is loaded (discovered from the classpath), so adding a domain or a theory is
   dropping a file in kb/upper/ or kb/middle/, no code change."
-  (:require [vaelii.core :as v]
+  (:require [taoensso.trove :as trove]
+            [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.progress :as progress]
             [vaelii.impl.sentex :as sx]))
 
+(defn warn-retired
+  "Log at `:warn` each symbol of `retired` that a stored sentex of `kb` names, with how
+  many name it, and return those counts as a sorted map.  One term-index read per symbol
+  (`v/find-sentexes`), so an empty `retired` reads nothing."
+  [kb retired]
+  (let [named (into (sorted-map)
+                    (keep (fn [s] (let [n (count (v/find-sentexes kb s))]
+                                    (when (pos? n) [s n]))))
+                    retired)]
+    (doseq [[s n] named]
+      (trove/log! {:level :warn :id ::retired-symbol
+                   :msg  (str n (if (= 1 n) " stored sentex names " " stored sentexes name ") s
+                              ", which a release retired; `upgrade --sync` lists the premises")
+                   :data {:symbol s :sentexes n}}))
+    named))
+
 (defn load-into
   "Populate `kb` with the starter schema — every file under resources/kb/upper/ and
-  resources/kb/middle/, loaded on kb start by default. Returns kb.
+  resources/kb/middle/, loaded on kb start by default, then `warn-retired` over every
+  release's `:retired` set (`seed/release-renames`). Returns kb.
 
   `loaded`, when given, is called with each load's context right after it is asserted —
   `CxUniverse` after the upper ontology, then each middle context in load order — and
@@ -110,10 +128,8 @@
   ([kb loaded]
    (let [loaded (or loaded (fn [_]))]
      ;; The whole starter is one batch: belief settles once at the end, not once per
-     ;; sentence (`v/with-deferred-settle`, belief computed from current state, so the
-     ;; single closing reconciliation reaches the same beliefs as N per-assert ones).  The
-     ;; nested `core-context/load-into` defers into this batch — its own wrapper is a no-op
-     ;; and this one's settle reconciles both.
+     ;; sentence (`v/with-deferred-settle`).  The nested `core-context/load-into` defers
+     ;; into this batch: its own wrapper is a no-op and this one's settle reconciles both.
      (v/with-deferred-settle kb
        (core-context/load-into kb)
        (loaded sx/root-context)
@@ -126,8 +142,8 @@
      ;; The subtypes of thing are unary types. Other genl components may relate
      ;; predicates of any arity and do not imply unary membership.  `specs` is read after the
      ;; batch above settles, so its extent is the believed one; a second batch stores the
-     ;; marks.  A type an argument declaration names already holds its mark, entailed by the
-     ;; declaration (docs/argtypes.md), and is skipped.
+     ;; marks.  A type an argument declaration names already holds its mark (docs/argtypes.md)
+     ;; and is skipped.
      (v/with-deferred-settle kb
        (let [ts (into [] (remove #(seq (v/sentexes-matching kb (list 'unary_predicate %)
                                                             sx/root-context)))
@@ -138,4 +154,5 @@
              (v/assert kb (list 'unary_predicate t) sx/root-context)
              (progress/tick! r)))))
      (loaded :unary-predicates)
+     (warn-retired kb (:retired (seed/release-renames)))
      kb)))

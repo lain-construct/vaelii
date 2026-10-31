@@ -83,74 +83,24 @@
             [vaelii.impl.sentex :as sx]))
 
 (def index-layout-version
-  "Which key shapes this build's index is written in.
-
-  The key families below — `[:trie :count|:children|:handles prefix]`, the context root,
-  the five count tries ending in the context, the exception index, the term index and the
-  name sets — *are*
-  the index's portable form, so a dump of them is only readable by a build that agrees on
-  them.  An index written in a layout this build does not use reads as **empty** rather
-  than as wrong (a lookup finds no key and answers nothing), which is fail-safe and
-  undiagnosable — so the layout is stated as a number and checked, rather than discovered
-  by a KB that quietly stopped answering.
-
-  **Bump it whenever a key shape changes**: a new family, a renamed tag, a different
-  arity, or a different value type at an existing key.
-
-  2 scopes the argument roots by predicate (`[:argument-root pred pos term]`) and adds
-  the `[:argument-slot pos term]` slot predicate set that keeps the predicate-agnostic reads
-  answerable.  3 adds the `[:unary-slot term]` unary predicate set beside it, which is what lets a
-  membership question read a term's types without fetching every fact that names it.
-  4 keys the argument roots as a count trie over `[pred pos term ctx]`: a node's
-  `[:argument-root :count|:children [pred pos term]]` and the leaf
-  `[:argument-root :handles [pred pos term ctx]]`.  5 replaces the functor root with the
-  predicate extent, a count trie over `[pred ctx]`, and keys the two rule indexes as count
-  tries over `[key ctx]` (`:rule-antecedent`, `:rule-consequent`).  6 adds the rule
-  extent, a count trie over `[kind ctx]` (`:rule-extent`), and the antecedent trie's root
-  level, `[:rule-antecedent-keys]`.  7 adds the bodies stored in both polarities: the
-  count trie `:opposed` over `[body ctx]`, its root level `[:opposed-bodies]`, and the
-  members by context, `[:opposed-in ctx]`.  8 adds the taxonomy's supporter families: a
-  count trie over `[k ctx]` keyed by the key a declaration installs (`:tax-support`), and
-  `[:tax-installs h]`.  9 adds the mint family: the `:mint` count trie over `[term ctx]`
-  with its root level `[:mint-terms]`, and the `:mint-in` count trie over `[ctx]`.  10
-  adds the length set, `[:shape-count f n]` and `[:shape-lengths f]`, `[:unary-multi]`,
-  the terms the unary predicate set lists two or more predicates of, and the self-tuple count
-  trie over `[pred ctx]` (`:self-tuple`).  11 adds the same terms by predicate,
-  `[:unary-kept pred]` and `[:unary-kept-types]`, and the terms a stored denial names by
-  predicate, `[:unary-denied pred]` and `[:unary-denied-types]`.  12 adds the arity
-  bindings: the count trie `:arity-binding` over `[pred kind value ctx]`, with
-  `[:arity-binding-kinds pred]` and `[:arity-bound]` above its nodes.  13 replaces the
-  shape counter with the count trie `:shape-tuple` over `[f n ctx]`, the positive facts of
-  functor `f` holding `n` arguments, with `[:shape-lengths f]` above its nodes.  14 adds
-  the count trie `:tax-named` over `[rel functor ctx]`, the positive `except` and `defeat`
-  facts naming a stored supporter of a taxonomy relation.  15 keys the term-name set
-  as `[:term-names]`.  16 adds the opposed bodies by functor, `[:opposed-between f]`
-  holding those `nm/between-predicates?` and `[:opposed-functor f]` the rest."
-  16)
+  "Which key shapes this build's index is written in.  The key families below are the index's
+  portable form, so a dump of them is readable only by a build that agrees on them.  An index
+  written in another layout reads as empty, which is fail-safe and undiagnosable, so the layout
+  is a number that is checked.  Bump it whenever a key shape changes: a new family, a renamed
+  tag, a different arity, or a different value type at an existing key.  The families are in
+  `index-families` and docs/indexing.md."
+  17)
 
 (defn apply-op
   "Apply one `kv-batch` write op to map `m`, returning `[m' reply]`.  Only
-  `:increment`/`:decrement` carry a meaningful reply (the post-op counter value); the
-  rest reply nil.  `:remove-from-set` drops the key when the set empties, so an absent
-  key and an empty set are indistinguishable — a set with no members does not exist.
+  `:increment`/`:decrement` reply meaningfully (the post-op counter value); the rest reply nil.
+  `:remove-from-set` drops the key when the set empties, so an absent key and an empty set are
+  indistinguishable.  `:decrement` floors at zero, per the `KvBackend` contract.
 
-  **The op semantics live here, with the protocol that names them, and not in the
-  backends.**  Both map-shaped backends fold their writes through this — the in-memory
-  one (`vaelii.impl.memory`) over its state map, the on-disk one
-  (`vaelii.impl.disk.kv`) over the RAM half of its write-ahead log, where it is also
-  what *replays* the log, since a WAL frame there is the write op itself rather than
-  the resulting value.  Written twice, the two copies could answer one op differently,
-  and the disk side is replay: a seventh op added to the live path and missed in the
-  fold would be a write that applies once and never comes back.
-
-  An unrecognized op goes to `unknown-op!`, which every adapter shares: a bulk load
-  taking the transient path, a dense backend's own batch, a fork decorator's, and an
-  ordinary write taking this one may not disagree about what an unreadable op is.
-
-  `:decrement` floors at zero, per the `KvBackend` contract: these counters are
-  cardinalities.  The floor is in every fold rather than in one of them, because the WAL
-  replays through this and the live write went through a backend — a floor applied on
-  only one side would make a reopened store disagree with the one that wrote it."
+  The op semantics live here and not in the backends: the in-memory backend
+  (`vaelii.impl.memory`) and the on-disk one (`vaelii.impl.disk.kv`) both fold through this, and
+  the disk one also replays its write-ahead log through it, where a frame is the op itself.  An
+  unrecognized op goes to `unknown-op!`, shared by every adapter."
   [m [op k a]]
   (case op
     :put  [(assoc m k a) nil]
@@ -166,25 +116,24 @@
 
 (def index-families
   "The index families, one row per key tag (the first element of every key the index
-  writes), as data.  `dense-kv`'s handle-posting test reads `:leaf`, the importer's
-  records-only test reads `:source`, and the root-set keys below read `:root`.
-  docs/indexing.md, \"The index-family registry\", states what each field decides.
+  writes), as data.  `dense-kv`'s handle-posting test reads `:leaf`, the importer's records-only
+  test reads `:source`, and the root-set keys below read `:root`.  docs/indexing.md, \"The
+  index-family registry\", states what each field decides.
 
-  - `:shape` — `:trie`, `:count-trie` (`[tag :count|:children node]` and `[tag
-    :handles (conj node ctx)]`), `:set` or `:counter`.
-  - `:leaf` — `:handles` (int postings) or `:names` (terms, keys); nil for a counter.
-  - `:context-last?` — whether the key's last level is the context.
-  - `:children?` — whether a node lists the contexts below it.
-  - `:root` — the tag of the name set one level above the family's nodes, where one is
-    stored.
-  - `:canon?` — whether a key term is `sx/canon`'d.
-  - `:source` — what the write posts from: `:sentex` (`index-sentex`), `:rule`
-    (`rules/index-rule`, `rules/index-exception`), `:justification` (`special/post-mint!`)
-    or `:taxonomy` (`taxonomy`'s `post!`).
-  - `:class` — what a KB without the family loses: `:access-path`, `:scan-recoverable` or
-    `:sole-witness`, with `:class-evidence` holding `:oracle` (test vars) and `:via`
-    (the families the other path reads), `:writes` (the writes that read the family,
-    empty when none does) or `:readers`."
+  - `:shape`: `:trie`, `:count-trie` (`[tag :count|:children node]` and `[tag :handles (conj
+    node ctx)]`), `:set` or `:counter`.
+  - `:leaf`: `:handles` (int postings) or `:names` (terms, keys); nil for a counter.
+  - `:context-last?`: whether the key's last level is the context.
+  - `:children?`: whether a node lists the contexts below it.
+  - `:root`: the tag of the name set one level above the family's nodes, where one is stored.
+  - `:canon?`: whether a key term is `sx/canon`'d.
+  - `:source`: what the write posts from: `:sentex` (`index-sentex`), `:rule`
+    (`rules/index-rule`, `rules/index-exception`), `:justification` (`special/post-mint!`) or
+    `:taxonomy` (`taxonomy`'s `post!`).
+  - `:class`: what a KB without the family loses: `:access-path`, `:scan-recoverable` or
+    `:sole-witness`, with `:class-evidence` holding `:oracle` (test vars) and `:via` (the
+    families the other path reads), `:writes` (the writes that read the family, empty when none
+    does) or `:readers`."
   (let [ctrie (fn [source m] (merge {:shape :count-trie :leaf :handles :context-last? true
                                      :children? true :canon? false :source source} m))
         name-set (fn [source m] (merge {:shape :set :leaf :names :context-last? false
@@ -249,7 +198,10 @@
                                           (scan "special/trigger-entailments" "special/migrate-handle-metas"
                                                 "except/conflicts-naming" "settle's partners"
                                                 "chain/placed-justifications-within")))
-     :term-names (name-set :sentex (scan))}))
+     :term-names (name-set :sentex (scan))
+     :mint-rules (name-set :sentex {:class :access-path
+                                    :class-evidence {:oracle '[vaelii.index-test/the-mint-rule-family-agrees-with-the-trie]
+                                                     :via [:trie]}})}))
 
 (defn- root-of
   "The tag of family `tag`'s root set (`index-families`)."
@@ -283,8 +235,8 @@
 ;;   :predicate-extent  node [pred]            `pred`'s facts, either polarity
 ;;   :rule-antecedent   node [key]             the rules with an antecedent on `key`
 ;;   :rule-consequent   node [key]             the rules whose consequent files under `key`
-;;   :rule-extent       node [kind]            every rule (`:rule`), and the rules a solve
-;;                                             reads (`:solve`)
+;;   :rule-extent       node [kind]            every rule (`:rule`), the rules a solve
+;;                                             reads (`:solve`), lazy-forward (`:lazy`)
 ;;   :opposed           node [body]            the facts of a body stored in both
 ;;                                             polarities, either polarity
 ;;   :self-tuple        node [pred]            `pred`'s ground positive binary self
@@ -451,12 +403,13 @@
   node, and a length binding its `:arity-binding` node.  A negative
   fact enters its positive body's nodes (polarity lives in the record), so
   `sentexes-with-functor` covers both polarities.  A rule enters the rule extent's
-  `[:rule]` node, and its `[:solve]` node when a solve reads it (`:solve` among its
-  `:engines`); its predicates live in the rule indexes.  Empty for a non-fact."
+  `[:rule]` node, and its `[:solve]` / `[:lazy]` node when that engine is among its
+  `:engines`; its predicates live in the rule indexes.  Empty for a non-fact."
   [sentex]
   (if (some? (:antecedent sentex))
     (cond-> [[:rule-extent [:rule]]]
-      (contains? (:engines sentex) :solve) (conj [:rule-extent [:solve]]))
+      (contains? (:engines sentex) :solve) (conj [:rule-extent [:solve]])
+      (contains? (:engines sentex) :lazy)  (conj [:rule-extent [:lazy]]))
     (let [b (sx/body sentex)]
       (if (and (sequential? b) (seq b) (symbol? (first b)))
         (let [ab (arity-binding sentex)
@@ -586,20 +539,17 @@
         preds))
 
 (defn slot-adds
-  "Conj onto the transient `ops` the write ops entering a sentex's predicates in their
-  slots, one per `[:argument-root [pred pos term]]` of `fnodes` (`fact-nodes`) whose node
-  holds no context yet - read BEFORE the postings are written, so a predicate is entered
-  exactly by the fact that creates its node.  Returns `ops`.
+  "Conj onto the transient `ops` the write ops entering a sentex's predicates in their slots,
+  one per `[:argument-root [pred pos term]]` of `fnodes` (`fact-nodes`) whose node holds no
+  context yet.  Read before the postings are written, so a predicate is entered by the fact
+  that creates its node.  Returns `ops`.
 
-  The unary predicate set is the exception and takes no read at all: its entry is written by
-  every unary fact rather than by the first, because the node that guards the others is
-  `[pred 1 term]`, which a *binary* fact of the same predicate about the same term also
-  creates - so a reference count read off it would skip the unary entry whenever the
-  binary fact arrived first, and a missing entry there loses a membership.  An
-  `:add-to-set` of a member already present is a no-op inside the same batch.  A term
-  joins `unary-multi-key` when the entry is its second predicate, which two reads of the
-  unary predicate set decide, and `unary-kept-key` under each predicate it then holds
-  (`kept-adds`)."
+  The unary predicate set takes no read: every unary fact writes its entry, since the guarding
+  node `[pred 1 term]` is also created by a binary fact of the same predicate about the same
+  term, and a skipped entry loses a membership.  An `:add-to-set` of a present member is a
+  no-op inside the batch.  A term joins `unary-multi-key` when the entry is its second
+  predicate, decided by two reads of the unary predicate set, and `unary-kept-key` under each
+  predicate it then holds (`kept-adds`)."
   [ops backend sentex fnodes]
   (let [ops (reduce (fn [ops [tag node]]
                       (if (and (identical? :argument-root tag)
@@ -861,6 +811,62 @@
              (into [] (keep (fn [ch] (let [hs (leaf (conj prefix ch))] (when (seq hs) [ch hs]))))
                    (children prefix)))})
 
+;; ---- the inert rules the argument-type mints are justified under ----------
+;; Here, below `kb` and `special`, because the index posts a stored rule of `mint-rules`
+;; under `mint-rules-key` (`mint-rule-adds`), and `nat` and `special` read them.
+
+(def mint-rule-context
+  "The context the inert rules of `mint-rules` are stored in."
+  'CxUniverse)
+
+(def mint-rules
+  "`{kind rule}`: per declaring kind, the `set/inertRule` that states its entailment, which
+  `core.txt` states and every mint of that kind is justified under
+  (`special/entail-arg-type`).  The kinds are those `special/entailing-declarations` names,
+  and `resultArg`, whose mint types a reified constant off its `natFormula` fact.  Each rule concludes the type from the declaration and a fact
+  holding the term at the declared position (`argN`), over a variable-arity fact pattern
+  `(?relation . ?args)`, so one rule covers every position and arity.  Neither engine runs
+  them; the engine computes the mints in code and names the rule (docs/argtypes.md)."
+  '{arg             (set/inertRule (implies (and (arg ?relation ?position ?type) (?relation . ?args) (argN ?term ?position (?relation . ?args))) (?type ?term)))
+    genlArg         (set/inertRule (implies (and (genlArg ?relation ?position ?type) (?relation . ?args) (argN ?term ?position (?relation . ?args))) (genl ?term ?type)))
+    argArg          (set/inertRule (implies (and (argArg ?relation ?position ?typePosition) (?relation . ?args) (argN ?term ?position (?relation . ?args)) (argN ?type ?typePosition (?relation . ?args))) (?type ?term)))
+    interArg        (set/inertRule (implies (and (interArg ?relation ?position1 ?type1 ?position2 ?type2) (?relation . ?args) (argN ?trigger ?position1 (?relation . ?args)) (?type1 ?trigger) (argN ?term ?position2 (?relation . ?args))) (?type2 ?term)))
+    interArgEqual   (set/inertRule (implies (and (interArgEqual ?relation ?position1 ?thing ?position2 ?type) (?relation . ?args) (argN ?thing ?position1 (?relation . ?args)) (argN ?term ?position2 (?relation . ?args))) (?type ?term)))
+    argAndRest      (set/inertRule (implies (and (argAndRest ?relation ?start ?type) (?relation . ?args) (argN ?term ?position (?relation . ?args)) (not (lessThan ?position ?start))) (?type ?term)))
+    argsGenl        (set/inertRule (implies (and (argsGenl ?relation ?type) (?relation . ?args) (argN ?term ?position (?relation . ?args)) (greaterThan ?position 0)) (genl ?term ?type)))
+    argAndRestGenl  (set/inertRule (implies (and (argAndRestGenl ?relation ?start ?type) (?relation . ?args) (argN ?term ?position (?relation . ?args)) (not (lessThan ?position ?start))) (genl ?term ?type)))
+    interArgs       (set/inertRule (implies (and (interArgs ?relation ?type) (?relation . ?args) (argN ?trigger ?position1 (?relation . ?args)) (greaterThan ?position1 0) (?type ?trigger) (argN ?term ?position2 (?relation . ?args)) (greaterThan ?position2 0)) (?type ?term)))
+    interArgAndRest (set/inertRule (implies (and (interArgAndRest ?relation ?start ?type) (?relation . ?args) (argN ?trigger ?position1 (?relation . ?args)) (not (lessThan ?position1 ?start)) (?type ?trigger) (argN ?term ?position2 (?relation . ?args)) (not (lessThan ?position2 ?start))) (?type ?term)))
+    resultArg       (set/inertRule (implies (and (resultArg ?function ?position) (natFormula ?constant (?function . ?args)) (argN ?type ?position (?function . ?args))) (?type ?constant)))})
+
+(def ^:private stored-mint-rules
+  "`{sentence kind}`: the stored spelling of each rule of `mint-rules`."
+  (delay (into {} (map (fn [[k r]] [(sx/sentence-of (sx/sentex r mint-rule-context)) k]))
+               mint-rules)))
+
+(defn mint-rule-kind
+  "The kind whose rule of `mint-rules` the stored sentex `s` is, or nil, read off `s`
+  alone.  A sentex that is not an inert rule costs two field reads."
+  [s]
+  (when (and (some? (:antecedent s)) (empty? (:engines s))
+             (= mint-rule-context (:context s)))
+    (get @stored-mint-rules (sx/sentence-of s))))
+
+(def ^:private mint-rules-key
+  "The name set of `[kind handle]`, one per stored rule of `mint-rules`."
+  [:mint-rules])
+
+(defn- mint-rule-adds
+  "Write ops entering the sentex `s`, stored under `handle`, in `mint-rules-key` when it
+  is a rule of `mint-rules`.  No read."
+  [s handle]
+  (when-let [k (mint-rule-kind s)] [[:add-to-set mint-rules-key [k handle]]]))
+
+(defn- mint-rule-retires
+  "The mirror of `mint-rule-adds`.  No read."
+  [s handle]
+  (when-let [k (mint-rule-kind s)] [[:remove-from-set mint-rules-key [k handle]]]))
+
 ;; ---- the non-trie write path ---------------------------------------------
 ;; `KvIndexStore` and `ColumnarIndexStore` store the trie differently and store
 ;; everything under it identically: the inverted term index, the context root, the
@@ -872,9 +878,9 @@
 ;; two stores: which families a sentex enters, the order its ops land in, and the numbers
 ;; the tally reports.  The order belongs to the definition because `assert_cost_test` asserts
 ;; the per-family read/write counts one assert costs, on either store.  `:roots` counts
-;; the root postings, the count-trie nodes' ops and the opposed family's ops together.
-;; `trie` is the store's own trie reads (`trie-reads`), which only the opposed family
-;; takes.
+;; the root postings, the count-trie nodes' ops, the opposed family's ops and the mint
+;; rules' ops together.  `trie` is the store's own trie reads (`trie-reads`), which only
+;; the opposed family takes.
 
 (defn flat-family-adds
   "`{:ops ops :counts {:terms n :roots n :term-names n :slots n}}` — conjes onto the transient
@@ -883,8 +889,8 @@
   using it, and seals it with `persistent!`.
 
   The families conj straight onto `ops`, so no vector is built per family or per sentex;
-  the order is terms, roots, nodes, opposed, named, term names, slots, and `assert_cost_test`
-  asserts the per-family counts.  Every read runs here, before the caller batches the ops, so
+  the order is terms, roots, nodes, opposed, named, mint rules, term names, slots, and
+  `assert_cost_test` asserts the per-family counts.  Every read runs here, before the caller batches the ops, so
   a name enters the term-name set and a predicate enters its argument slot exactly on the
   first sentex to carry it."
   [ops backend trie sentex handle]
@@ -913,6 +919,7 @@
                         ops fnodes)
         ops     (reduce conj! ops (opposed-adds backend trie sentex handle)) ; reads the trie
         ops     (reduce conj! ops (named-adds backend sentex handle))        ; reads the target's installs
+        ops     (reduce conj! ops (mint-rule-adds sentex handle))
         n2      (count ops)
         ops     (reduce (fn [ops t] (conj! ops [:add-to-set term-names-key t])) ops fresh)
         n3      (count ops)
@@ -942,15 +949,16 @@
         nodes   (into [] (mapcat :ops) retires)
         opposed (opposed-retires backend trie sentex handle) ; likewise, and the trie
         named   (named-retires backend sentex handle)   ; likewise, and the target's installs
+        mrules  (mint-rule-retires sentex handle)
         names   (term-names-retires backend terms handle)   ; likewise
         slots   (-> (slot-retires backend sentex retires) (into (shape-retires retires))
                     (into (binding-retires backend retires))
                     (into (denied-retires backend trie sentex)))]
     {:ops    (concat (map (fn [t] [:remove-from-set (term-key t) handle]) terms)
                      (map (fn [k] [:remove-from-set k handle]) roots)
-                     nodes opposed named names slots)
+                     nodes opposed named mrules names slots)
      :counts {:terms  (count terms)
-              :roots  (+ (count roots) (count nodes) (count opposed) (count named))
+              :roots  (+ (count roots) (count nodes) (count opposed) (count named) (count mrules))
               :term-names (count names)
               :slots  (count slots)}}))
 

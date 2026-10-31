@@ -70,11 +70,10 @@
 
 ;; ---- the KB, where the handles are real ----------------------------------
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (space/spatial-prover))
-                        (v/add-prover (iv/allen-prover)))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (space/spatial-prover))
+                                      (v/add-prover (iv/allen-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

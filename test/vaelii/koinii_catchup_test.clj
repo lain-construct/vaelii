@@ -32,11 +32,12 @@
   (:import [java.util.concurrent CountDownLatch TimeUnit]
            [org.eclipse.jetty.server Server]))
 
-(defn- household-kb []
-  (tu/load-dumped! (tu/fresh) :koinii/speech-acts
+(defn- household-kb [kb]
+  (tu/load-dumped! kb :koinii/speech-acts
                    #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
-(use-fixtures :each (tu/neutral-fresh household-kb))
+(use-fixtures :once (tu/loaded household-kb))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private goal (list 'queries '?a '?q))
 

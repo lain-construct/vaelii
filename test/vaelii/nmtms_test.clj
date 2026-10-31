@@ -10,21 +10,17 @@
   `exceptWhen`, which `except_test` covers."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.types.solve :as solve-types]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- the headline: order independence -----------------------------------
 
 (tu/deftest-kb default-withdrawn-when-negation-arrives-later
   (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) sky (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'CxUniverse)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert kb (list bird sky) 'CxUniverse)
     (testing "the default conclusion holds first"
       (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse))))
@@ -37,7 +33,7 @@
 (tu/deftest-kb defeated-default-revives-when-defeater-retracted
   (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) sky (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'CxUniverse)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert kb (list bird sky) 'CxUniverse)
     (let [no-fly (v/assert kb (list 'not (list flies sky)) 'CxUniverse {:strength :monotonic})]
       (is (empty? (v/sentexes-matching kb (list flies sky) 'CxUniverse)))       ; defeated
@@ -54,7 +50,7 @@
     (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'genl bird animal)  'CxUniverse)
     (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse {:direction :forward})   ; bare rule
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)  ; defeasible default
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)  ; defeasible default
     (v/assert kb (list bird robin) 'CxUniverse)
     (testing "Robin flies by default"
       (is (seq (v/sentexes-matching kb (list flies robin) 'CxUniverse))))
@@ -71,7 +67,7 @@
   ;; a defeated default is kept for revival only while something still derives it
   (let [foo (tu/tmp-pred) bar (tu/tmp-pred) x (tu/tmp-ind)]
     (v/assert kb (list foo x) 'CxUniverse)
-    (v/assert kb (default-rule [(list foo '?x)] (list bar '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list foo '?x)] (list bar '?x)) 'CxUniverse)
     (v/assert kb (list 'not (list bar x)) 'CxUniverse {:strength :monotonic})   ; defeats (bar X)
     (let [handle-of (fn [sen] (:id (first (filter #(= sen (:sentence %))
                                                   (v/find-sentexes kb x)))))
@@ -92,8 +88,8 @@
   ;; `except_test` asserts that both sides coexist; this asserts the report
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/assert kb (list quaker nixon)     'CxUniverse)
     (v/assert kb (list republican nixon) 'CxUniverse)
     (let [pos (v/handle-of kb (list pacifist nixon)             'CxUniverse)
@@ -134,8 +130,8 @@
   ;; hard clashes are collected at the terminal round, not once per round
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind) happy (tu/tmp-pred) tom (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/assert kb (list quaker nixon)     'CxUniverse)
     (v/assert kb (list republican nixon) 'CxUniverse)                       ; default/default → dilemma
     (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
@@ -167,14 +163,14 @@
   ;; derivation of one side relabels nothing, so a memo keyed on the region alone would
   ;; carry a report naming fewer justifications than the KB holds.
   (tu/with-terms [quaker pacifist republican churchgoer Nixon]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))            'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))            'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/assert kb (list quaker Nixon)     'CxUniverse)
     (v/assert kb (list republican Nixon) 'CxUniverse)
     (let [pos (v/handle-of kb (list pacifist Nixon) 'CxUniverse)]
       (is (= 1 (count (v/contradictions kb))) "the dilemma is reported")
       ;; a second rule reaching the same conclusion: no belief moves, no label moves
-      (v/assert kb (default-rule [(list churchgoer '?x)] (list pacifist '?x)) 'CxUniverse)
+      (v/assert kb (tu/default-rule [(list churchgoer '?x)] (list pacifist '?x)) 'CxUniverse)
       (v/assert kb (list churchgoer Nixon) 'CxUniverse)
       (is (= 2 (count (v/supporting-justifications kb pos)))
           "the KB now holds two derivations of the positive side")
@@ -194,8 +190,8 @@
   ;; solver that is never consulted passes
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind) called (atom 0)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/set-solver kb
                   (reify vaelii.impl.types.solve/Solver
                     (solve [_ {:keys [assumptions contradictions]}]

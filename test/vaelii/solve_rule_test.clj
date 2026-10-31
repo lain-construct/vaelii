@@ -40,11 +40,6 @@
   [pick labeling]
   (set (keep #(when (= pick (first %)) (second %)) (:true labeling))))
 
-(defn- refusal-type
-  "The `:type` a refusal thrown by `f` carries, or nil when `f` returns."
-  [f]
-  (:type (ex-data (try (f) nil (catch clojure.lang.ExceptionInfo e e)))))
-
 ;; ---- 1. the wrapper and the record ---------------------------------------
 
 (deftest a-solve-rule-adds-the-solve-engine
@@ -411,18 +406,18 @@
                       #(v/assert kb (list 'do/label ctx (tu/tmp-ctx "Bad") :one) ctx)))]
         (testing "a negated head, which a labeling could not record"
           (is (= :not-well-formed
-                 (refusal-type (label [(list 'set/inertRule
-                                             (list 'set/solveRule
-                                                   (list 'implies (list pick '?s)
-                                                         (list 'not (list odd '?s)))))])))))
+                 (tu/refusal-type (label [(list 'set/inertRule
+                                                (list 'set/solveRule
+                                                      (list 'implies (list pick '?s)
+                                                            (list 'not (list odd '?s)))))])))))
         (testing "a negated literal the positive ones leave open"
           (is (= :not-well-formed
-                 (refusal-type (label [(list 'set/inertRule
-                                             (list 'set/solveRule
-                                                   (list 'implies (list 'and (list pick '?s)
-                                                                        (list 'not (list covered '?x)))
-                                                         (list odd '?s))))])))))
+                 (tu/refusal-type (label [(list 'set/inertRule
+                                                (list 'set/solveRule
+                                                      (list 'implies (list 'and (list pick '?s)
+                                                                           (list 'not (list covered '?x)))
+                                                            (list odd '?s))))])))))
         (testing "more derived atoms than the cap"
           ;; four choice heads, then three covered atoms: past a cap of five
           (with-redefs [sc/max-derived-atoms 5]
-            (is (= :not-well-formed (refusal-type (label []))))))))))
+            (is (= :not-well-formed (tu/refusal-type (label []))))))))))

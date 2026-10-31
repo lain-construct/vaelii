@@ -57,6 +57,7 @@ interpreted on assert, not stored as facts:
 | `set/forwardRule`  | yes | yes |
 | `set/backwardRule` | no  | yes |
 | `set/forwardOnlyRule` | yes | no |
+| `set/lazyForwardRule` | no; a forward join proves its conclusion | yes |
 | `set/inertRule`    | no  | no (documentation) |
 | (bare `implies`)   | no  | yes |
 
@@ -114,6 +115,88 @@ recorded (`restrength-informant`), so conclusions derived under the earlier spel
 carry the resolved class too. To *remove* a direction or defeasibility a rule has
 acquired, retract it and re-assert the narrower spelling.
 
+### A lazy-forward rule
+
+`set/lazyForwardRule` stores a rule with engines `#{:backward :lazy}`. Backward proof
+uses it as it uses a backward rule, and forward chaining fires it on no datum, so it
+stores no conclusion. A forward rule's antecedent on the functor a lazy-forward rule
+concludes is proved inside the join (`chain/solve-lazy`): the lazy rule's variables are
+renamed apart, its antecedents are joined under the bindings its consequent takes from
+the literal, and each row's conclusion is unified back into the join. The row carries
+the lazy rule's handle and the handles its join read, so the firing's justification rests
+on them, and retracting any of them withdraws the conclusion through the JTMS. A
+backward rule's conclusion is not read by a forward join. Cyc's `backchainRequired` is
+the analogue of the marking.
+
+A datum on a lazy rule's antecedent predicate owes a re-join to each rule whose join
+proves what the lazy rule concludes (`chain/lazy-readers`), by the route a computed
+antecedent's source takes (`chain/owe-computed-rejoins`), keeping past the lazy
+antecedent the rows that rest on an owing positive datum. A join state resting on no
+owing datum proves the lazy literal from those datums alone (`chain/delta-lazy-rows`):
+each is matched at each of the lazy rule's antecedents, and the others are joined from
+there. A lazy rule with an antecedent the matcher does not answer alone, or a datum read
+in another argument order, is joined in full instead. The re-joins are owed per
+settle: a write outside a batch runs them at the end of its own chaining run, and inside
+a `with-deferred-settle` batch they collect in `chain/*batch-rejoins*` and the closing
+settle runs each owed rule once (`chain/run-batch-rejoins`). A restore replays a batch's
+frames the same way: they collect in `oplog/*replay-batch*` under the batch id each frame
+records, and the batch's `:settle` frame runs them. A batch that throws leaves them unrun,
+as it leaves its settle, and the next batch's frames start an empty map. The
+`lazy-reader-load` perf check holds the per-membership cost of a one-settle load flat,
+and `lazy-reader-rejoin-outside-a-batch` the cost of one membership written alone. A
+lazy rule's own arrival, or a re-assert that adds `:lazy` to a backward rule, re-joins
+the same readers. A membership that moves `(nonempty C)` re-joins the forward readers of
+a lazy rule reading `nonempty` over the moved types alone, each variable the reader's
+literal puts at the `nonempty` argument bound to each type
+(`chain/rejoin-lazy-readers-over-types`), and the
+`nonempty-lazy-reader-beside-unrelated-membership` perf check holds that cost flat.
+
+- `chain/delta-lazy-rows` starts from the owing datums at the lazy literal alone. A
+  reader whose plan joins another antecedent before the lazy literal joins that
+  antecedent's whole extent on each write that owes the reader a re-join
+  (`chain/run-owed-rejoin`), so the cost of that write grows with the extent.
+  `core.txt`'s `(commutative ?p) ∧ (predicate ?p) ∧ (arity ?p 2) ⇒ (symmetric ?p)` is
+  such a reader when its plan joins `commutative` or `predicate` before the lazy
+  `(arity ?p 2)`.
+- A lazy rule is not offered to the join of its own antecedents (`chain/*lazy-solving*`),
+  so a recursive lazy-forward rule answers one level deep in a forward join.
+- A lazy rule with an `unknown`, aggregate, `different` or closed-extent antecedent, or
+  with an `exceptWhen`, is not offered: the join decides none of those. A firing resting
+  on a lazy rule that is not offered is blocked (`chain/lazy-firing-blocked?`), and an
+  `exceptWhen` arriving on the rule or leaving it re-joins the rule's readers
+  (`settle/rechain-exception-rules`), so a reader believes the same in either order.
+- The literal's functor must be the lazy rule's consequent functor. A lazy rule
+  concluding a sub-predicate does not answer a literal on its `genl`.
+- A rule concluding the predicate that a lazy rule on the literal's functor reads takes
+  the matcher alone for that literal, as `walks-its-own-conclusion?` does for a walk. The
+  forward class rule `(arity ?r 2) ⇒ (binary ?r)` beside its lazy converse `(binary ?r) ⇒
+  (arity ?r 2)` therefore runs no cycle ([generators.md](generators.md)). A rule concluding
+  a predicate below the one the lazy rule reads joins the literal, and its firing places
+  nothing in a placement context whose `genls` of the concluded predicate hold the read one
+  (`chain/converse-lazy-reading?`); its justification is blocked there
+  (`chain/lazy-firing-blocked?`).
+- A firing that proves a lazy literal and concludes a membership `(C x)` beside a matched
+  fact `(T x)` places nothing in a placement context whose `genls` of `T` holds `C`
+  (`chain/unrestated-placements`), since that context's taxonomy holds the conclusion from
+  that fact. `core.txt`'s `(arity ?r ?n) ⇒ (fixed_arity ?r)` and `at_least_*` rules draw
+  such a firing for every relation its exact-arity class declares. Inside a
+  `with-deferred-settle` batch, a firing with a placement context whose `T` is below no
+  `C` yet places nothing either and owes its rule a re-join at the batch's settle, so the
+  batch's whole taxonomy decides every such firing in any arrival order. Outside a batch,
+  an edge arriving in a later write blocks the placed firing's justification
+  (`chain/lazy-firing-blocked?`), and the sweep removes the conclusion.
+- A `genl` edge arriving, departing or moving in belief queues `:all-rejoin` the forward
+  readers whose placement it moves (`special/lazy-guard-readers`): one concluding on a
+  predicate at or below the edge's lower end beside a lazy rule reading a predicate at or
+  above its upper end, and one concluding a membership at or above its upper end beside
+  a type at or below its lower end that holds a stored fact and sits at or below a
+  predicate the reader or its lazy rules read without the edge. The settle blocks a
+  firing the edge turns into a converse reading or a membership its taxonomy holds, and
+  re-joins each such reader in full, so a firing an edge withheld is placed once the edge
+  departs. The `genl-edge-beside-lazy-reader-members` perf check holds the cost of an
+  edge that moves no reader flat in the lazy rule's extent.
+- `edit-records!` refuses a direction onto or off `:lazy-forward`.
+
 ## Forward chaining
 
 Semi-naive fixpoint (`chain/chain`), with **one agenda for every forward rule,
@@ -139,11 +222,11 @@ the same path as any other rule's.
 **Connected conjunctive antecedents.** Antecedents that share a variable **join** —
 a binding from one match is carried into the next. The starter leans on this:
 `(implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z))` joins on
-`?y`. The test world's `(implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns
-?p ?part))` joins on `?whole`, and its placement is context-sensitive
-([contexts.md](contexts.md)). The starter states that reach, and a part's location, as
-`transitiveInArgInverse` declarations along `tangiblePartOf`, which kb-integrity's
-rule-macro pass suggests for a rule of this shape ([integrity.md](integrity.md)). The `vaelii.world-fables` stories derive their morals the
+`?y`; a transitive `locatedIn` plus `(implies (and (tangiblePartOf ?part ?whole) (locatedIn
+?whole ?place)) (locatedIn ?part ?place))` puts a part wherever its whole is; and
+`(implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` propagates
+ownership to a whole's parts (its placement is context-sensitive — see
+[contexts.md](contexts.md)). The `vaelii.world-fables` stories derive their morals the
 same way — a 2- or 3-antecedent join over the tale's facts.
 
 **Antecedents nothing stored.** Two kinds of antecedent are satisfied by content that
@@ -437,6 +520,15 @@ path. It is **off by default** (the reference matcher is the root of `chain/*mat
 There is no **beta network**: TREAT re-joins from the alpha memories on every firing,
 so a repeated multi-way join is recomputed rather than cached.
 
+A run caches `inherit/declarations-exist?` (`chain/*declarations-cell*`), whether the KB
+declares any preservation, since `preserving-antecedent?` asks it of every non-trigger
+antecedent of every firing attempt and the two cardinality reads answer false for nearly
+every KB. `chain` binds it once and `derive-conclusion` resets it when a placed conclusion
+roots at a declaration functor (`note-placed-declaration!`, asked of every firing that
+reached placement, including one that dedups onto a stored sentex and adds only a
+justification). Only a cached false can go stale, because a declaration leaves only outside
+a run (`retract!`).
+
 ## What a run pays per witness (`chain/*agenda-arrivals*`)
 
 A conclusion reached k ways costs k **firings**, and the cost of a firing is not the
@@ -502,6 +594,8 @@ a firing there is enumerable at one trigger and not at the other:
   rather than the fact that satisfied the position, and `rejoin-qualitative`, which
   re-joins over the pairs that moved rather than at a trigger position at all.
 
+Declining the filter is always safe, since it re-derives a duplicate justification the TMS rejects, where suppressing wrongly loses a firing.
+
 A `<=` at every position rather than a `<` after the trigger admits one combination
 twice, the **self-join** where one fact satisfies two positions of the same rule and
 ties with itself; both of its triggers build the identical justification and the dedup
@@ -531,6 +625,22 @@ is a positive memo over that lookup, bound for the length of a run by `chain/cha
   `(symmetric p)` declaration arriving, leaving, or changing belief — replaces that set,
   and a cache-key mismatch empties the map. Nothing else in a sentex's key is a function of
   the KB, so nothing else can go stale.
+
+**A cache miss as proof of absence.** For a functor the store held no sentex under when the
+run began, nothing outside the run could have stored one and everything the run stored is
+cached, so a miss skips the trie walk (a ~5-level walk per novel conclusion; `find-sentex-handle`
+fell from 9.95% to 2.47% in the `w4.join` profile). `kb/functor-cache-authoritative?` records the
+verdict per functor at its first probe, before the first conclusion is placed.
+
+- **The verdict is as old as the cache's filling.** The cache empties when its key moves
+  (`observe/cache-generation`; a rule concluding `(symmetric P)` moves it mid-fixpoint), so the
+  memo drops every verdict when the generation steps.
+- **Armed only for a bulk frontier** (`chain-authority-min-frontier`). The probe is a
+  `count-with-functor` read, repaid when a run concludes many facts of the functor; an incremental
+  `assert` seeds one fact and would pay a probe it cannot amortize.
+- **The key is the store's root key.** A negative roots under its positive body's predicate
+  (`kv/root-keys`), so the memo keys on `(sx/body built)`'s functor and not on `not`. A rule has
+  no body and no extent posting, so the memo declines it.
 
 **Justification dedup, indexed for the length of a run.** `has-justification?` asks
 whether a conclusion already rests on exactly these antecedents, and a conclusion
@@ -574,6 +684,12 @@ forward-chaining subsumption an exact-functor unify rejects. `predicate_subsumpt
 both directions (it is one-way — a sub-predicate satisfies a super, not the reverse),
 forward chaining and `ask` reaching through it, belief-following on retract, and that
 `match-pattern` equals exactly the union of raw matches over the spec closure.
+
+A `context` scopes `match1`'s closure to the edges that context sees, so a watcher in one context
+(`core/watch-match`) does not answer through another's edge, as `ask` from that context would not.
+The two-arity is unscoped for `chain/fire-rules-for`: the forward trigger match is a candidate
+filter, and placement re-derives the genlCx supporters the firing rests on, so a subsumption
+invisible to the placement context drops out at placement.
 
 **Under a negation the fan reverses.** A `genl` edge carries the other way through
 one: `dog ⊑ animal` puts a stored `(dog Muffet)` under the pattern `(animal ?x)`, and
@@ -819,6 +935,16 @@ forward chaining agree about the rule.
   binder (`open-ends`). A literal whose variables the other antecedents all bind is
   joined after every planned literal (`chain/planned-join`), so it tests two bound ends
   and never enumerates the types separated from one of them.
+- **A `disjoint` literal a closure literal waits on leads a second join.** In `(and
+  (disjoint ?a ?b) (genl ?a ?b))` each literal binds the other's ends and nothing else
+  binds either, so the join reaches the `genl` literal with both ends open and reads the
+  stored edges alone. `chain/separation-lead` names the held `disjoint` literal, and
+  `planned-join` joins a second time with that literal first. The second join reads the
+  stored `disjoint` sentences, and the closure arm tests each pair, as a trigger on the
+  sentence does. A first-join row that matched a stored `disjoint` sentence yields to the
+  second join's row for the same bindings, so a stated pair over a stated edge is read
+  once, as a closure pair. The rule fires on a pair two edges apart, with one
+  justification, whichever ingredient arrived last (`closure_join_test`).
 - **`core.txt`'s emptiness rule reads `(disjoint ?type ?type)`.** A type below two separated
   types is disjoint from itself, so the rule tests one type per `unary` binding, where a
   pair of `genl` literals would test every pair of its supertypes.
@@ -844,7 +970,7 @@ forward chaining agree about the rule.
   `disjoint` antecedent under a `{::separation types}` marker
   (`special/recheck-on-separation`). The next settle re-decides the firings and refusals
   whose bindings name a moved type, and re-joins the rule once per moved type with a
-  `disjoint` antecedent's variable end bound to it (`chain/fire-rule-over-separation`).
+  `disjoint` antecedent's variable end bound to it (`chain/fire-rule-over-types`).
   A `disjoint` antecedent with a ground end among the moved types re-joins the rule in
   full. So a `genl` edge retracted between two marked types separates them as an edge
   never stated does, one arriving withdraws the firing, and the write costs the types it
@@ -857,6 +983,50 @@ forward chaining agree about the rule.
 withdrawal by the cover declaration and by an edge, the exception, a `genl` edge between two marked
 types arriving and leaving, and the arrival orders;
 `emptiness_test` asserts `core.txt`'s rule over a partition.
+
+## A negated antecedent reads a separation's denial
+
+`DisjointnessNegationProver` answers a ground `(not (T x))` from a believed membership
+`(S x)` whose type a separation holds apart from `T` ([taxonomy.md](taxonomy.md), *A
+separation answers a denial*). A forward join answers a negated unary antecedent on a `T` a
+separation reaches the same way: `chain/solve-separation-denial` unions the separations'
+denials with the matcher's stored negations. So with `(disjoint dog cat)` and `(cat
+Tom)`, the rule `(implies (and (pet ?x) (not (dog ?x))) (stray ?x))` derives `(stray
+Tom)` forward, as `prove` answers it backward.
+
+- **The arm answers a bound argument.** It reads the memberships of a ground argument,
+  as the prover does, and contributes nothing for an open one. A negated literal whose
+  variable another antecedent binds is joined after every planned literal
+  (`chain/join-order`). An open literal is answered by the stored negations alone.
+- **A firing rests on one membership and one route.** Each believed membership `(S x)` and
+  each route a declaration separates `S` from `T` through (`tax/separation-routes-held`)
+  yields its own firing. The membership and the route's declarations are antecedents, one
+  believed supporter per declaration, and a disjoint metatype's membership takes only a
+  `:monotonic` supporter. The `genl` subsumptions the route climbs, on both sides, go on
+  the firing as contrapositive links under the literal's `[:not T]` key, so placement
+  witnesses each with a path of `:monotonic` edges (`chain/negated-links`). A `:default`
+  edge on either side places nothing, which is the rule `res/separation-denials` applies
+  to the query.
+- **The conclusion's context decides an exception or a mark spared.** The join reads no
+  `siblingDisjointException` and the global closure. A firing whose conclusion's context
+  sees no believed negation of the literal, and answers no denial of it at level 6
+  (`provers/exception-holds?`), is refused as `:separation` or blocked
+  (`chain/separation-exempted?`). The level-6 question reads a separation and a closed
+  extent alike, so a literal a grant withholds from the join is not refused here.
+- **An arriving membership re-joins the rules it can satisfy.** The rule index files the
+  antecedent under `[:not T]`, which `(S x)` does not trigger.
+  `chain/separation-denial-rejoins` reads the stored `[:not T]` keys a declaration
+  separates from `S`, and re-joins each such rule with the literal's variable bound to
+  `x`. A lazy-forward rule among them owes its readers a re-join (`chain/lazy-readers`).
+- **A separation moving re-joins the rules in full.** A sentence that moves separations
+  (`tax/sentence-separation-ends`) queues `:all-rejoin` for each rule with a `[:not T]`
+  antecedent whose `T` lies below an end, above an end, or apart from an end by a
+  declaration (`special/requeue-separation-denial-rules`). The settle re-decides every
+  firing of the rule and re-joins its extent. The queue holds the rule alone, so the
+  readers of a lazy-forward rule a separation moves are not re-joined.
+
+`closure_join_test` asserts the arrival orders, the withdrawal by each ingredient, the
+`:monotonic` edge rule on both sides, the exception, and an edge between two marked types.
 
 ## Backward chaining
 
@@ -1069,6 +1239,17 @@ A search opens two things for its length and closes them after: the resident-val
 appear at once — a rule's join solves one antecedent per binding of the join variable,
 so the closure walk repeats over nodes those bindings share, and a caller placing
 conclusions as it consumes the join would otherwise re-derive a network per solution.
+
+Forward chaining binds the held values per agenda datum (`chain/process-datum`). Holding
+them fixed is the fixpoint and not an approximation of it: an immediate-consequence step is
+computed from one state by definition, and what a step enables is picked up by the next
+round and not mid-step. A join over one network keyed on the change clock alone would
+re-derive that network per solution and join half its bindings against a state the other
+half never saw. The scope is therefore never wider than the thing whose answer must come
+from one state. The change clock is global and coarse by design: a finer one would need a
+judgement at each choke point about which caches a change concerns, which is the judgement
+that gets a cache wrong, so a clock-keyed reader re-derives more often than it must and
+never less.
 
 The scope is one **search step**: one `prove-from` call (a `loop`, eager throughout) and
 one node expansion for the node engine (`step!`, which reduces its solutions to a vector
@@ -1335,9 +1516,14 @@ route → dive.
 of it: **each racer is a complete search, so the union equals any single racer's answer
 set** — diversity buys latency, not completeness. Racing is safe only because a query
 here writes nothing; a search that wrote would have to stay out under the single-writer
-contract (see [storage.md](storage.md)). A race is also not an *anytime* mode: it is
-driven to completion before it can be unioned, so it has no partial answer to hand back,
-and `prove-within` drives the ordinary stream instead.
+contract (see [storage.md](storage.md)). Each racer runs with the write's `java.util` maps
+unbound (the handle cache, the chain authority memo and the write record), so a race that a
+prover starts inside a forward-chaining run leaves them to the writing thread. Each racer
+reads the belief its caller reads: a race started inside a settle reads the belief the
+settle is deciding, not the belief the settle holds for other threads
+([storage.md](storage.md#the-single-writer-contract)). A race is
+also not an *anytime* mode: it is driven to completion before it can be unioned, so it has
+no partial answer to hand back, and `prove-within` drives the ordinary stream instead.
 
 ### Reading the search back (`search-tree` / `compare-tacticians`)
 
@@ -2161,6 +2347,31 @@ Witnessed by
 `order_independence_test/a-rule-joined-to-a-growing-transitive-extent-is-order-independent`
 over every linear extension of the three ingredients.
 
+## Full re-joins on an arriving datum (`chain/rejoin-in-full`)
+
+An arriving sentence can change what an antecedent answers without unifying with it, and
+the facts the antecedent now reaches have already arrived, so no trigger enumerates them.
+Each of these datums re-joins the rules it moved, in full and not at a trigger position:
+
+| datum | rules re-joined | function |
+|---|---|---|
+| a permuting mark (`symmetric`, `commutative`, `commutativeInArgs`, `commutativeInArgAndRest`) | an antecedent on `P` or a super-predicate of it (`genls`, since the matcher asks whether any sub-predicate of the functor carries the mark) | `permuting-rejoin-rules` |
+| the `(transitive P)` declaration, or an edge of a declared walk (a fact on `P`, a sub-predicate, or an `inverse` partner) | an antecedent whose own functor is the declared one; over-approximating, since a re-join too many is a firing the TMS dedups and one too few depends on which hop arrived last | `transitive-rejoin-rules` |
+| a `genl` or `genlCx` edge, or a cover | an antecedent on the same relation (`special/closure-edge-relation`) | `closure-rejoin-rules` |
+| a datum on a predicate a `SupportingProver` reads | `special/computed-reading-rules` | |
+| a datum on a lazy-forward rule's antecedent predicate, or the lazy rule itself | an antecedent on the functor the lazy rule concludes, and on through the lazy rules among those | `lazy-readers` |
+| a preservation declaration or its reach | `inherit/rejoin-rules` | |
+
+`bfn` is the functor of the sentence's underlying body, so a believed `(not (causes B C))`
+reaches `transitive-rejoin-rules` too. Each arm is bounded by the rules with an antecedent
+on the predicate involved, and answers by a symbol compare for every other datum. Without
+the re-join the same sentences derive a conclusion or not depending on which of them came
+last (6 of the 24 orderings for `symmetric`). A commutativity mark re-spells an out-of-order
+stored fact (`integrate/commute-existing`), which reaches the rules as new content; a fact
+already in canonical order is reached only by this re-join. `delta` is `planned-join`'s, nil
+for the full join. A rule is re-joined only when forward-capable and believed, because the
+index posts on storage.
+
 ## Deferred antecedents in a forward join
 
 A **deferred** (evaluable) literal is computed, not stored. `sentex/deferred-predicates`
@@ -2320,6 +2531,30 @@ queues the rules over a kind a length moves for a re-check of every firing and a
 memberships beside those of the sources (`provers/stated-kind-handles`), so a membership
 stated in a context of its own classifies the form for that context's readers.
 
+**`NonemptyProver` reads every membership.** It answers `(nonempty C)`, C a type, when a
+membership of C, or of a type S below C, is believed in a context the asking context
+sees. The support is the content-least such membership and, for a member of S, one
+believed supporter per edge of a `genl` path from S to C, so `why` names the member and
+the edges, and the conclusion withdraws when one goes. Its `support-sources` is empty,
+since any type is a source. A membership, a `genl`, `covering`, `separating` or
+`partition` sentence and a `genlCx` edge, arriving or leaving, queue every rule the
+re-check index posts under `nonempty` for the next settle
+(`special/recheck-nonempty-readers`). A membership `(T x)` queues them with `T` and its
+supertypes, the types whose answer it moves. The settle re-joins the rule once per type
+with the `nonempty` antecedent's argument bound to it (`chain/fire-rule-over-types`). The
+settle re-decides no firing, since a firing rests on that support and the JTMS relabels
+the firing when the support moves. A membership costs the types it moves rather than the
+readers' joins or firings: `perf`'s `nonempty-reader-beside-unrelated-membership`
+measures one membership beside n reader bindings. An edge re-checks every firing and
+re-joins every reader. That test runs only when the re-check index watches a rule, so a
+KB holding no `nonempty` reader reads nothing more per write; inside
+`with-deferred-settle` the re-joins run once, at the batch's settle. The join asks the
+goal at the contexts holding a member of C or of a type below it
+(`provers/nonempty-contexts`). An open `(nonempty ?c)` is not enumerated: `est-bindings`
+defers the goal until an earlier antecedent binds `?c`. A stored `(empty C)` beside a
+computed `(nonempty C)` is no clash, since the computed answer is not stored and the
+`partition` check reads stored memberships.
+
 **The transitive one carries no functor list.**
 `support-functors` and `support-sources` are constants on a prover, and which predicates
 `TransitivePredicateProver` answers is whatever a KB declared `(transitive P)` of — a
@@ -2352,7 +2587,7 @@ chain's length — [taxonomy.md](taxonomy.md)), so a rule that wants the closure
 end with an earlier antecedent. And a rule that **concludes** on the predicate it would
 walk takes the matcher alone (`chain/walks-its-own-conclusion?`): its conclusions land
 inside the fixpoint, so which chain is shortest would depend on firing order, and such a
-rule is the closure written out anyway. A plain `ask` is unchanged — a forward-derived edge
+rule is the closure written out anyway. Only that direction suppresses the walk: a rule concluding a *super*-predicate of the walked one states no fact about it, so the walk and the firing cannot disagree about its chains, and suppressing the walk there would drop sound two-hop derivations. A plain `ask` is unchanged — a forward-derived edge
 is a hop there as it always was.
 
 Two datums re-join such a rule rather than triggering it: an **edge**, whose licensed pairs
@@ -2370,6 +2605,26 @@ arithmetic and licensed by no constraint, and it holds of every instant. The fir
 needs a handle, so `planned-join` drops a firing of such a rule whose combined handles are
 empty, and a rule over the diagonal alone concludes nothing.
 
+### An answer no record holds
+
+`argue` explains a side that no stored, believed record holds by its derivation's leaves.
+A `:via :leaf` node whose ground goal a `SupportingProver` answers carries `:supports`:
+one vector per reading, each entry a `{:handle :sentence :context}` naming a sentex
+`solve-with-support` paired with the answer (`core/answer-supports`). Below a positive
+depth the derivation is that one leaf. The provers read belief at the query context, so a
+defeated edge or an unbelieved claim names no reading. Entries and readings sort on
+sentence and context, never on handle. `TransitiveInArgProver` reports
+`inherit/answer-readings`: for a positive goal the claim, each declaration that permits a
+move and the edges the move crossed (`inherit/supports-for`), and for a denial the stated
+denial with its strongest reading. `why` reads a handle, and such an answer has none.
+
+A prover that does not implement the protocol names nothing, so these retrieval-time
+answers carry a leaf without `:supports`: a membership the `genl` closure answers from a
+sub-type's fact, the `symmetric` mirror, an `inverse` partner, a `negates` or
+disjointness denial, a covering, a closed extent, a `defnSufficient` membership and an
+equality rewrite. An evaluable comparison reads nothing stored, and a backward rule's
+answer is a rule node.
+
 The over-approximation is deliberate and is in one direction: a reading taken over a *set*
 of declarations names all of them, so retracting one of two agreeing rows withdraws a
 conclusion the survivor would still license. Naming only the survivor would make belief
@@ -2377,6 +2632,56 @@ depend on which row arrived first, which is the worse of the two.
 `computed_support_test` asserts all of it, and `transitive_chain_test` asserts the walk's half —
 two hops fired across, `why` naming the edges, the middle hop's retraction and its defeat
 taking the far conclusion and leaving the near one, and both arrival orders.
+
+## Resolution reads: mechanism notes (`vaelii.impl.resolution`)
+
+- **`substitute` is eager.** It sits on every join, rule expansion and proof hop, and its result
+  goes to `sentex/canon`, which flattens any sequential to a `PersistentList`. `mapv` fills one
+  transient vector and `PersistentList/create` conses it in reverse, so a substituted literal costs
+  two eager passes and no `LazySeq` or `Cons` per element.
+- **`project-answer` projects by name.** A derivation path accumulates one flat binding map, and
+  each rule instance adds its own renamed variables (`freshen-rule`), so a six-rule proof of a
+  two-variable query resolves fourteen names. Projecting to the query's variables makes a solution
+  a map over the question, so two engines reaching one answer by different derivations return one
+  value. A query that writes `?var0` itself gets `?var0`.
+- **`*arg-intersect*`** takes `:two` (default: the two lowest-`count-with-arg` ground columns),
+  `:all`, `:above-floor` (`:two`, only when the leading column's agnostic count exceeds
+  `*arg-intersect-floor*`) or `:off` (the single leading column). Each result is a subset of the
+  leading column and a superset of the matches, so only cost moves. A symmetric literal and a
+  literal with fewer than two ground columns keep the single-column lead: intersecting a
+  symmetric literal's forward columns would drop the mirror-stored matches. `:above-floor`
+  intersects only past the floor because below it one `unify` sweep costs less than allocating
+  an intersection set. `lein bench-argindex join` chose the default.
+- **`slot-cut`** cuts a wide predicate fan to the members whose slot predicate sets hold every
+  indexable ground argument. A member read costs a pattern build and an index probe even when
+  nothing is stored under it; a ground `(different A B)` under 3,054 sub-predicates took 54 ms
+  uncut. The slot sets over-approximate (a set outlives a disbelieved fact) and never drop a match.
+- **`fanned-match`** is the one fan-out all matchers share, so a new matcher cannot fan a negation
+  the wrong way or skip the singleton short-circuit (`f` itself is the whole closure, counted
+  rather than compared with a built `#{f}`).
+- **`concludes?`** reads the variable-consequent bucket first, then each spec's bucket until one
+  holds a rule, in every context. `concluding-rule-handles` costs one probe per spec (364 for a type
+  with 364 subtypes), sized by the taxonomy and not the rule count. A ground `(different A B)` under
+  3,054 sub-predicates took 12 ms built as a whole set.
+- **`matches-visible` cache key.** The key holds the literal (alpha-renamed), the change clock,
+  all three retrieval-strategy vars, `*belief-blind*`, `tax/*search*` and `tax/*network-belief*`.
+  Each var selects a path that must agree with the others, or reads a different belief, so omitting
+  it would serve one path's answers to the other. `cached?` false skips the cache for a closure walk
+  (`provers/cached-reach`), which asks each neighbour once and would push the cache past its bound. It is
+  an argument and not a rebinding of `literal-cache/*enabled*`, which would cover every read under
+  the walk and leave the var thread-bound for the life of the process.
+  `*belief-blind*` is in the key because a `CxEverything` read and an ordinary read ask one literal
+  at one context: whichever ran first would fill the entry the other is served, hiding a defeated
+  default from the blind read or reporting one to the ordinary read. A sentex an `except` hides from
+  the view context is filtered out; forward chaining's join runs at `'?ctx`, where the hidden set is
+  empty, and applies the block per placement (`chain/antecedent-hidden?`, `justification-excepted?`).
+- **`prove` stack fields.** The answer variables and the term base ride the stack, which is the
+  continuation, so a `resume` projects and measures growth from what its own frames met.
+  `planned-antecedents` substitutes before planning so the planner costs `count-at [parentOf Tom]`
+  exactly; the reorder changes cost only.
+- **`prove-seq`** runs `prove-from` capped at one result and resumes from `:stack`. Over a
+  120-answer recursive chain, realizing every answer costs 40.3 ms against 40.4 ms for `prove`,
+  and taking one costs 19.0 ms against 35.0 ms. `prove` remains the call for a vector.
 
 ## Dotted rest patterns
 
@@ -2546,6 +2851,11 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `function` and R's length, cited to the `natFormula` statement, those statements and the
   `genl` path it read ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete
   (50): a stored membership answers beside it.
+- **NonemptyProver** — `(nonempty C)`, C a type, answered when a membership of C or of a
+  type below it is believed in a context the asking context sees, cited to that
+  membership and one `genl` path from its type to C
+  ([above](#what-a-computed-answer-rests-on)). Not complete (50): a stored `(nonempty C)`
+  answers beside it.
 - **ResultTypeProver** — `(T (F a…))` over a ground application, answered when a type
   `F`'s `result` declares, or a `resultArg` position of the application names, reaches
   `T` through the `genl` edges visible from the context
@@ -2646,8 +2956,10 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `x` is a `T'` (and, by genl, every supertype). So `arg` reads two ways — a
   **constraint** when asserting, and an **inference** when querying (Muffet eats
   Bone1 and eat's 2nd argument is food ⇒ Bone1 is food). On-demand, never
-  materialized. Partial (50). An open `(T ?x)` is answered only from a declaration no
-  stored membership covers ([argtypes.md](argtypes.md#the-open-membership-goal)).
+  materialized. The usage is read from the asking context: a reader that cannot see
+  `(eats Muffet Bone1)` does not learn from it that `Bone1` is food, so a sibling theory's
+  facts type no term for a context that was never told them. Partial (50). An open
+  `(T ?x)` is answered only from a declaration no stored membership covers ([argtypes.md](argtypes.md#the-open-membership-goal)).
 - **BeliefProjectionProver** — a registered `(modal_predicate P)` of arity 2 with a ground
   agent: `(believes A P)` is answered by running `P` through the registry in the agent's
   own context rather than the asker's. `:compute`, partial (50) — `believes` stays an
@@ -2659,7 +2971,9 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   reads a super-predicate's declaration against a sub's tuple, so the query surface
   descends with it or one declaration means two things. A bounded closure walk rather than a preservation
   declaration, which would route every `arg` lookup in the KB through the general
-  machinery. `:compute`, partial (50) — it augments the stored declaration `FactProver`
+  machinery and its chaining sweeps, a per-query cost the subsystem's presence check exists to
+  avoid because almost no predicate is preserved (a stored `(transitiveInArgInverse arg …)`
+  would turn that check true for the most-queried predicates there are). `:compute`, partial (50) — it augments the stored declaration `FactProver`
   already answers. See [argtypes.md](argtypes.md).
 - **AdmitsArgnumProver** — `(admitsArgnum P n)`, whether a well-formed application of `P`
   has a positive position `n`, computed from `P`'s length, inherited through `genl`

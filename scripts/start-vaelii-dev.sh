@@ -10,8 +10,8 @@
 # browser opens on the starter ontology and loads KB-DIR as a catalog job with belief
 # recovered (VAELII_KB_DIR, docs/web.md); the KB becomes the active one when the load
 # finishes, and /kbs shows its progress until then. KB-DIR defaults to
-# checkouts/kb beside this checkout. The heap is VAELII_HEAP, default 40g
-# (scripts/lib/start.sh).
+# checkouts/kb beside this checkout. The heap is VAELII_HEAP, else half of physical
+# memory up to 31g (scripts/lib/start.sh).
 #
 # An edit under src shows on the next page refresh, and a KB loaded before it keeps
 # answering. An edit to a file under resources/kb/upper/ or resources/kb/middle/ is
@@ -32,7 +32,8 @@ KB="$(start_kb_dir "${1:-}")" || exit 1
 cd "$ROOT"
 
 export VAELII_KB_DIR="$KB" VAELII_DEV=1 VAELII_PROFILER=1
-JVM_OPTS="${JVM_OPTS:-} $(start_jvm_opts)"
+JVM_HEAP_OPTS="$(start_jvm_opts)" || exit 1
+JVM_OPTS="${JVM_OPTS:-} $JVM_HEAP_OPTS"
 export JVM_OPTS
 
 echo "vaelii dev: browser :${VAELII_WEB_PORT:-3000}, profiler :${VAELII_PROFILER_PORT:-8080}, loading $KB" >&2

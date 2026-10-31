@@ -163,12 +163,6 @@
   (boolean (or (any-functional-violation? kb)
                (some #(= :functional (:kind %)) (concat (v/contradictions kb) (v/conflicts kb))))))
 
-(defn- ex-type
-  "The `:type` of the ex-info a thunk throws, or nil.  A refusal that collapses into an
-  arity or naming error is exactly the regression a bare `thrown?` stays green through."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
-
 ;; ---- the regression half: arity 2 must not move -------------------------
 
 (tu/deftest-kb functional-in-arg-2-on-a-binary-predicate-is-todays-functional
@@ -680,7 +674,7 @@
   ;; though it did — nor take the assert down on the way.
   (tu/with-terms [parentOf Tom Mary]
     (v/assert kb (list parentOf Tom Mary) U)
-    (check (some? (ex-type #(v/assert kb (list 'functionalInArg parentOf 'Two) U)))
+    (check (some? (tu/refusal-type #(v/assert kb (list 'functionalInArg parentOf 'Two) U)))
            "a non-integer position is refused outright")
     (check (not (any-functional-violation? kb))
            "and nothing is swept on its behalf")))

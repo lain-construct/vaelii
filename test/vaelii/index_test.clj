@@ -509,6 +509,20 @@
       (v/reindex kb)
       (agrees? "reindexed"))))
 
+(tu/deftest-kb the-mint-rule-family-agrees-with-the-trie
+  ;; The family's other path is the trie's exact leaf of each rule of `kv/mint-rules`.  A
+  ;; fresh KB stores `arg`'s rule with its first `arg` declaration.
+  (tu/with-terms [animal parentOf CxWorld]
+    (let [trie    #(into {} (keep (fn [[k r]] (when-let [h (v/handle-of kb r kv/mint-rule-context)] [k h])))
+                         kv/mint-rules)
+          agrees? (fn [label] (is (= (trie) (into {} (reads/as-stored-mint-rules (:index kb)))) label))]
+      (agrees? "a fresh KB")
+      (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+      (is (contains? (trie) 'arg))
+      (agrees? "asserted")
+      (v/reindex kb)
+      (agrees? "reindexed"))))
+
 ;; ---- the family methods ---------------------------------------------------
 
 (defmacro ^:private delegating-index

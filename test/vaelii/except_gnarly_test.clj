@@ -20,12 +20,6 @@
 
 ;; ---- helpers ------------------------------------------------------------
 
-(defn- ex-type
-  "The `:type` a write thunk meets: the ex-info it throws, or the argument conviction its
-  fact is held inert under (`tu/write-type`), or nil."
-  [f]
-  (tu/write-type tu/*kb* f))
-
 ;; ---- 1. cross-context except --------------------------------------------
 
 (tu/deftest-kb cross-context-except
@@ -926,7 +920,7 @@
          (tu/with-terms [other]
            (v/assert kb (list 'genl other 'thing) CxAG {:strength :monotonic})
            (v/assert kb (list 'disjoint other root) CxAG {:strength :monotonic})
-           (is (= :arg-genl (ex-type #(v/assert kb (list typeRel other (tu/tmp-type)) CxAG))))))
+           (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list typeRel other (tu/tmp-type)) CxAG))))))
        (let [eh (v/assert kb (list 'except (sx/sentex-handle agh)) CxAG {:strength :monotonic})]
          (testing "the genlArg sentex is hidden from query"
            (is (empty? (v/sentexes-matching kb (list 'genlArg typeRel 1 root) CxAG))))

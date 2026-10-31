@@ -75,21 +75,12 @@
 (def max-parked
   "How many long polls may be **parked at once** on one daemon.
 
-  A parked poll holds an HTTP worker thread for the length of its wait (the worker waits
-  for the op's own thread, `serve/handle-op`), so the ceiling that matters here is the
-  server's thread pool rather than anything this namespace owns:
-  park more polls than the pool has threads and the daemon answers nothing at all —
-  `/health`, a write, another caller's read — until one of them times out.  Moving the
-  wait outside `serve`'s monitor is what keeps a parked poll from blocking the *writer*;
-  it does nothing about the *threads*, and the two are separate ceilings.
-
-  So this one is deliberately well under `vaelii.host.serve/http-threads`, and
-  `serve_test` asserts that relationship rather than trusting the two numbers to stay
-  related.  Over it, a poll asking to wait is **refused** (`:too-many-waiters`) rather
-  than parked: the caller is told to poll on a timer instead, which costs the daemon one
-  request and no held thread, and is the same feed at a worse latency.  Answering it an
-  immediate empty page would be the cheaper lie — the caller would see a long poll that
-  never waits and a latency it has no way to explain."
+  A parked poll holds an HTTP worker thread for the length of its wait (`serve/handle-op`),
+  so parking more polls than the server's thread pool has threads leaves the daemon
+  answering nothing until one times out.  This ceiling is therefore well under
+  `vaelii.host.serve/http-threads`, and `serve_test` asserts that relationship.  Over it,
+  a poll asking to wait is **refused** (`:too-many-waiters`) rather than parked, and the
+  caller polls on a timer instead: the same feed at a worse latency."
   16)
 
 (def idle-ms
@@ -100,17 +91,13 @@
   300000)
 
 (defn registry
-  "The subscription state one daemon holds — `serve/app` builds one per handler, beside
-  the monitor, because a token names a subscription *on this daemon* and means nothing
-  anywhere else.
+  "The subscription state one daemon holds.  `serve/app` builds one per handler, beside the
+  monitor, because a token names a subscription *on this daemon*.
 
   `:next` is the token counter, monotone and never reissued, so a token from a dropped
-  subscription is refused rather than landing on somebody else's — `feed/register!`'s
-  reasoning one layer up.
-
-  `:parked` is how many long polls are holding a thread right now — a property of the
-  handler rather than of any one subscription, and the thing `max-parked` bounds.
-  `:stopping` is set by `release-parked`, and a poll answers without parking once it is."
+  subscription is refused rather than landing on somebody else's.  `:parked` is how many
+  long polls are holding a thread now, the thing `max-parked` bounds.  `:stopping` is set
+  by `release-parked`, and a poll answers without parking once it is."
   []
   (atom {:next 0 :subs {} :parked 0 :stopping false}))
 
@@ -212,6 +199,15 @@
   (doseq [sub (vals (:subs @reg))]
     (wake! (:signal sub))))
 
+(defn release-listeners
+  "Take every subscription's listener off the KB it was registered on, and keep each entry
+  and its ring for a poll to read.  A daemon that stops calls this (`serve/stop-ops`) once
+  no op can register another, since the daemon's KB can outlive the daemon and no client
+  polls the daemon after the stop."
+  [reg]
+  (doseq [sub (vals (:subs @reg))]
+    (unregister! sub)))
+
 (defn unwatch-kb
   "Drop every subscription over `kb` — the KB each was registered on, by identity — and
   answer how many went.  Each listener comes off `kb`, and a poll parked on one is woken
@@ -223,25 +219,27 @@
   [reg kb]
   (drop-where! reg (fn [sub] (identical? kb (:watch-kb sub)))))
 
+(defn unwatch-all
+  "Drop every subscription in `reg` as `unwatch-kb` drops those over one KB, and answer how
+  many went.  The registry stays open: a later `watch` registers as usual."
+  [reg]
+  (drop-where! reg (constantly true)))
+
 (defn watch
   "Register a subscription over `kb` and answer `{:token :cursor :max-events}`.
 
-  `goal` and `context` are `core/watch`'s, and nil for the whole feed — so a goal this
-  engine cannot answer from a moved region is refused here by exactly the code that
-  refuses it in process (`:not-watchable`), and the two cannot drift because there is
-  only one check.
+  `goal` and `context` are `core/watch`'s, and nil for the whole feed.  A goal this engine
+  cannot answer from a moved region is refused by the code that refuses it in process
+  (`:not-watchable`).
 
-  **A context with no goal is refused**, and that one cannot be left to `core/watch`:
-  its whole-feed arity takes no context at all, so a `[nil CxDeploy]` would register an
-  unscoped listener while this registry stored `CxDeploy` and `subscriptions` reported
-  it back — the daemon naming a scope it is not applying.  Scoping is the goal's
-  (`core/watch` refuses a goal without one for the mirror-image reason), so a context
-  arriving alone is a request this entry point cannot honour rather than one to drop.
+  **A context with no goal is refused** here, since `core/watch`'s whole-feed arity takes
+  no context at all: `[nil CxDeploy]` would register an unscoped listener while the
+  registry reported `CxDeploy`.
 
-  The entry lands in the registry **before** the listener is registered, so an event
-  fired between the two has somewhere to go; a refused goal takes the entry back out
-  again.  The token is read inside the swap that allocates it, so two concurrent
-  registrations cannot be handed one."
+  The entry lands in the registry **before** the listener is registered, so an event fired
+  between the two has somewhere to go; a refused goal takes the entry back out.  The token
+  is read inside the swap that allocates it, so two concurrent registrations cannot be
+  handed one."
   [reg kb goal context]
   (when (and (nil? goal) (some? context))
     (throw (ex-info (str "a whole-feed subscription is not scoped, and " (pr-str context)
@@ -279,13 +277,11 @@
                      (catch Throwable t
                        (swap! reg update :subs dissoc token)
                        (throw t)))]
-      ;; Guarded like `file-event!` and `poll`'s `:polled-at` write, and for a sharper
-      ;; reason than either: a bare `assoc-in` on a token that has gone **recreates** the
-      ;; entry, with no `:polled-at`, `:events`, `:delivered` or `:signal` in it — and
-      ;; `reap` runs at the head of every feed op, so the next one anywhere on this daemon
-      ;; reads `(- at nil)` and throws.  One lost race would take the whole feed down
-      ;; until restart, so the entry either survived and takes its token or the listener
-      ;; comes straight back off the KB.
+      ;; Guarded like `file-event!` and `poll`'s `:polled-at` write: a bare `assoc-in` on a
+      ;; token that has gone **recreates** the entry with no `:polled-at`, `:events`,
+      ;; `:delivered` or `:signal`, and `reap` runs at the head of every feed op, so the next
+      ;; one anywhere on this daemon reads `(- at nil)` and throws.  The entry either
+      ;; survived and takes its token or the listener comes straight back off the KB.
       (let [[old] (swap-vals! reg (fn [r] (cond-> r
                                             (get-in r [:subs token])
                                             (update-in [:subs token] assoc
@@ -309,8 +305,7 @@
   (opts/check! opts poll-opt-keys "poll")
   (when-let [w (:wait-ms opts)]
     ;; `nat-int?` rather than `number?`: a double admits `##NaN`, which coerces to 0 and
-    ;; turns a long poll into one that answers instantly forever — the silent-default
-    ;; failure this fn exists to refuse, wearing the right key.  It also admits `##Inf`
+    ;; turns a long poll into one that answers instantly forever.  It also admits `##Inf`
     ;; and a magnitude no long holds, which reached `long` below as an
     ;; `IllegalArgumentException` and answered **500** for a well-formed request.
     (when-not (nat-int? w)
@@ -322,17 +317,13 @@
   "Hold the calling thread until this subscription has an event past `cursor`, the
   subscription goes away, or `deadline` passes.
 
-  The whole loop runs **inside** the monitor, and `file-event!` takes it to notify: the
-  obvious spelling — read the registry, then wait — loses an event filed between the two
-  and then answers empty for the full wait, which is the one failure a long poll must
-  not have.  `.wait` releases the monitor while parked, so holding it here costs the
-  writer a compare rather than the wait.
+  The whole loop runs **inside** the monitor, and `file-event!` takes it to notify: reading
+  the registry and then waiting would lose an event filed between the two and answer empty
+  for the full wait.  `.wait` releases the monitor while parked.
 
-  `release-parked` ends the park the way the deadline does.  **So does an interrupt**,
-  and it puts itself back: `.wait` clears the flag on its way out, so letting the
-  exception travel would answer a 500, which the caller takes for the feed stopping, and
-  would lose the interrupt for whoever owns the thread.  Returning instead answers the
-  events it has, which is what a wait that ran out answers too."
+  `release-parked` ends the park the way the deadline does.  **So does an interrupt**, and
+  it puts the flag back (`.wait` clears it): letting the exception travel would answer a
+  500, which the caller takes for the feed stopping.  Returning answers the events held."
   [reg token cursor ^Object sig deadline]
   (locking sig
     (loop []
@@ -355,15 +346,10 @@
     (poll reg 3 17 {:wait-ms 20000}) => the same, waiting for the first one
 
   `:wait-ms` is the long poll: park until an event arrives or the wait runs out, capped
-  at `max-wait-ms`.  It buys the latency a feed is for while keeping one wire format and
-  one content type; nothing about the reply changes, so a caller that does not want it
-  omits the key and polls on a timer.
-
-  Refused rather than answered empty: a `token` naming no live subscription
-  (`:unknown-subscription` — dropped, timed out, or from another daemon), and a `cursor`
-  that is not a whole number or that runs ahead of what the subscription has delivered
-  (`:bad-cursor`).  Either of those answered `{:events []}` would be a feed that has
-  stopped without saying so."
+  at `max-wait-ms`.  The reply is unchanged, so a caller that does not want it polls on a
+  timer.  Refused rather than answered empty: a `token` naming no live subscription
+  (`:unknown-subscription`), and a `cursor` that is not a whole number or that runs ahead
+  of what the subscription has delivered (`:bad-cursor`)."
   ([reg token cursor] (poll reg token cursor nil))
   ([reg token cursor opts]
    (check-poll-opts! opts)
@@ -394,8 +380,7 @@
      (let [wait (long (min max-wait-ms (:wait-ms opts 0)))]
        ;; A permit is taken only when this poll would really block.  With events already
        ;; past the cursor, or with no wait asked for, `park` returns at once and holds no
-       ;; thread worth counting — so an ordinary timer poll is never refused, whatever
-       ;; the daemon is holding.
+       ;; thread, so an ordinary timer poll is never refused.
        (when (and (pos? wait) (<= (long (:delivered sub)) (long cursor)))
          (if (claim-park! reg)
            (try (park reg token cursor (:signal sub) (+ at wait))
@@ -433,19 +418,13 @@
 
 (defn subscriptions
   "What this daemon is holding open, in token order: the goal and context each
-  subscription watches, how far it has been delivered, and how many events are waiting
-  on its ring.  The listener functions are left out for `core/watchers`' reason — a
-  token is what the ops take, and a listener is not a value to compare.
+  subscription watches, how far it has been delivered, and how many events are waiting on
+  its ring.  The listener functions are left out, for `core/watchers`' reason.
 
-  `:delivered` is how many events the subscription has been handed and `:pending` how
-  many its ring still holds — neither is the *reader's* position, which lives on the
-  client and is a thing this daemon has no way to know.  Together they are the read that
-  answers \"is the caller keeping up\": a `:pending` sitting at `max-events` is a
-  subscriber already dropping events.
-
-  Reaps first, like the other three, so it answers what the daemon is holding rather
-  than what it has not got round to letting go of — a listing naming a subscription the
-  very next call would drop is a listing nobody can act on."
+  `:delivered` is how many events the subscription has been handed and `:pending` how many
+  its ring still holds; neither is the *reader's* position, which lives on the client.  A
+  `:pending` at `max-events` is a subscriber already dropping events.  Reaps first, like
+  the other three."
   [reg]
   (reap reg (now))
   (->> (vals (:subs @reg))

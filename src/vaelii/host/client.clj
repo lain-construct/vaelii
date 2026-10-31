@@ -42,20 +42,17 @@
 
 (def ^:private client-opt-keys
   "Every key `client` reads."
-  #{:timeout-ms :token})
+  #{:timeout-ms :token :digests?})
 
 (defn client
   "A connection handle to a daemon at `host`:`port` (opts: `:timeout-ms`, default
   30000).  Holds a reusable `HttpClient`; no network happens until a call.
 
   `:token` is the bearer token every call presents.  Omitted, it is `VAELII_API_TOKEN`
-  (`guard/api-token`) — the same variable the daemon reads, so a client and a daemon in
-  one environment agree without either being configured; an explicit nil sends no
-  `Authorization` header, which is what an open daemon wants and what a test of the
-  refusal needs.
-
-  A key outside those two, and a non-map `opts`, are refused (`:unknown-option`) at the
-  shared entry point every other entry point in this tree runs its options through."
+  (`guard/api-token`), the variable the daemon reads; an explicit nil sends no
+  `Authorization` header, which is what an open daemon wants.  `:digests? true` asks
+  every reply to carry each sentex's content `:digest` (docs/operations.md, \"Daemon\").
+  Another key, or a non-map `opts`, is refused (`:unknown-option`)."
   ([host port] (client host port {}))
   ([host port {:keys [timeout-ms] :or {timeout-ms 30000} :as opts}]
    (opts/check! opts client-opt-keys "client"
@@ -67,6 +64,7 @@
      {:base-url   (str "http://" host ":" port)
       :timeout-ms timeout-ms
       :token      (if (contains? opts :token) (:token opts) (guard/api-token))
+      :digests?   (true? (:digests? opts))
       :http       (.build b)})))
 
 (defn- with-token
@@ -157,8 +155,8 @@
   reaches this client looking exactly like one inside it."
   ([conn op args] (call conn op args nil))
   ([conn op args {:keys [timeout-ms]}]
-   (let [[status reply] (send-edn conn "/op" (pr-str {:op op :args (vec args)})
-                                  (or timeout-ms (:timeout-ms conn)))]
+   (let [body           (cond-> {:op op :args (vec args)} (:digests? conn) (assoc :digests? true))
+         [status reply] (send-edn conn "/op" (guard/edn-str body) (or timeout-ms (:timeout-ms conn)))]
      (if (:ok reply)
        (:result reply)
        ;; the daemon's own `:type` when it sent one, so a caller discriminates on the one
@@ -199,119 +197,121 @@
 
 ;; ---- generated: one wrapper per daemon op, from serve/ops ---------------
 
-(defn abduce
+(defn ^:daemon-op abduce
   "What would have to be true for `goal` to be provable in `context`."
   ([conn goal] (call conn :abduce [goal]))
   ([conn goal context] (call conn :abduce [goal context]))
   ([conn goal context opts] (call conn :abduce [goal context opts])))
 
-(defn abduce-discard!
+(defn ^:daemon-op abduce-discard!
   "Discard an abduction's scratch context — every hypothesis in it, and everything they
   licensed."
   [conn result]
   (call conn :abduce-discard [result]))
 
-(defn add-provenance
+(defn ^:daemon-op add-provenance
   "Merge `m` into `handle`'s provenance map (creating it if absent), returning the merged
   map."
   [conn handle m]
   (call conn :add-provenance [handle m]))
 
-(defn all-functional-at-instant-violations
+(defn ^:daemon-op all-functional-at-instant-violations
   "Audit every `(functional_at_instant f)` declaration visible in `context`, and return `{f
   #{violation…} …}` — declarations that clash nowhere are omitted, so an empty map is a
   clean sweep."
   [conn context]
   (call conn :all-functional-at-instant-violations [context]))
 
-(defn all-specified-violations
+(defn ^:daemon-op all-specified-violations
   "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
   `context`, and every *Exists* declaration (`exists-violations`, keyed `[functor pred a
-  b]`), and return `{[functor pred indep] result…}` — each result carrying a `:status`,
-  either `{:status :audited :violations #{…}}` or a `{:status :gap …}` diagnostic
-  (`:missing-slot-typing`, or `:legacy-ternary-declaration` for a stored pre-migration
-  ternary sentex the bulk import path can carry past the assert-time refusal)."
+  b]`), and return `{[functor pred indep] result…}`, each result `{:status :audited
+  :violations #{…}}` or a `{:status :gap …}` diagnostic (`:missing-slot-typing`, or
+  `:legacy-ternary-declaration` for a stored pre-migration ternary sentex, keyed by its
+  whole argument tuple)."
   [conn context]
   (call conn :all-specified-violations [context]))
 
-(defn argue
+(defn ^:daemon-op argue
   "Four-valued epistemic status of a ground assertion."
   ([conn asent context] (call conn :argue [asent context]))
   ([conn asent context opts] (call conn :argue [asent context opts])))
 
-(defn ask
-  "Answer `goal` in `context` with the pluggable prover engine — the stored facts, the
-  taxonomy closures, transitivity, disjointness, the predicate metadata, the evaluables,
-  NAF, arg type inference, and any prover the application added."
+(defn ^:daemon-op ask
+  "Answer `goal` in `context` with the pluggable prover engine: stored facts, taxonomy
+  closures, disjointness, predicate metadata, evaluables, NAF, argument-type inference and
+  any prover the application added."
   ([conn goal] (call conn :ask [goal]))
   ([conn goal context] (call conn :ask [goal context]))
   ([conn goal context opts] (call conn :ask [goal context opts])))
 
-(defn ask-within
-  "Anytime `ask`: answer `goal` in `context`, but bounded by `budget` — a map of any of
+(defn ^:daemon-op ask-within
+  "Anytime `ask`: answer `goal` in `context`, bounded by `budget`, a map of any of
   `{:max-ms n :max-results n :max-cost <tier>}`."
   ([conn goal budget] (call conn :ask-within [goal budget]))
   ([conn goal context budget] (call conn :ask-within [goal context budget])))
 
-(defn ask?
+(defn ^:daemon-op ask?
   "Is `goal` answerable via the prover engine? `ask`'s caveats are this one's too — in
   particular it expands no rule."
   ([conn goal] (call conn :ask? [goal]))
   ([conn goal context] (call conn :ask? [goal context]))
   ([conn goal context opts] (call conn :ask? [goal context opts])))
 
-(defn assert
+(defn ^:daemon-op assert
   "Assert `sentence` in `context` (default 'CxUniverse) as a JTMS premise: enforce naming,
-  arg, and disjointness constraints, persist, index (trie + term index), mark IN,
-  integrate into the taxonomy / rule index, then forward-chain."
+  arg and disjointness constraints, persist, index, mark IN, integrate into the taxonomy
+  and rule index, then forward-chain."
   ([conn sentence] (call conn :assert [sentence]))
   ([conn sentence context] (call conn :assert [sentence context]))
   ([conn sentence context opts] (call conn :assert [sentence context opts])))
 
-(defn assert-many
+(defn ^:daemon-op assert-many
   "Assert every sentence in `sentences` (into one shared `context`, optional shared `opts`)
-  with belief settled **once** at the end — the collection form of `with-deferred-settle`."
+  with belief settled **once** at the end: the collection form of `with-deferred-settle`."
   ([conn sentences context] (call conn :assert-many [sentences context]))
   ([conn sentences context opts] (call conn :assert-many [sentences context opts])))
 
-(defn assert-rule
+(defn ^:daemon-op assert-rule
   "Assert a rule (a sentex whose sentence is an implication) in `context`."
   ([conn antecedents consequent] (call conn :assert-rule [antecedents consequent]))
   ([conn antecedents consequent context] (call conn :assert-rule [antecedents consequent context]))
   ([conn antecedents consequent context opts] (call conn :assert-rule [antecedents consequent context opts])))
 
-(defn belief-status
-  "Explain `handle`'s belief and visibility from `context` as a deterministic map."
+(defn ^:daemon-op belief-status
+  "Explain `handle`'s belief and visibility from `context` as a deterministic map: storage,
+  raw JTMS IN, context-visible exception force, withdrawal from `context`,
+  assertion-context inheritance, and the terminal answers `:believed?` / `:visible?`."
   [conn handle context]
   (call conn :belief-status [handle context]))
 
-(defn believed
+(defn ^:daemon-op believed
   "The subset of `handles` `in?` answers true for, as a set — `in?` asked of many handles
   at once."
   [conn handles]
   (call conn :believed [handles]))
 
-(defn believed?
+(defn ^:daemon-op believed?
   "Is `handle` JTMS IN and not withdrawn from `context` — hidden by the `(except ...)`
   cascade visible from it, the target of a placed `defeat` in force there, or resting only
   on such a handle (docs/nmtms.md, \"A defeat is scoped to its vantage\")?"
   [conn handle context]
   (call conn :believed? [handle context]))
 
-(defn blocked-justifications
+(defn ^:daemon-op blocked-justifications
   "The ids of the justifications the network currently holds **blocked**: a block their
-  rule carries holds (a closed extent, a withdrawn `different`), so the JTMS holds them
-  invalid and they confer nothing — even with every antecedent IN (docs/exceptions.md)."
+  rule carries holds (a closed extent, a withdrawn `different`), so they confer nothing
+  even with every antecedent IN (docs/exceptions.md)."
   [conn]
   (call conn :blocked-justifications []))
 
-(defn caches
-  "What this process is holding beside the stores — every derived structure the engine
+(defn ^:daemon-op caches
+  "What this process is holding beside the stores: every derived structure the engine
   caches, ranked by entries."
   [conn]
   (call conn :caches []))
 
-(defn calculi
+(defn ^:daemon-op calculi
   "The shipped qualitative calculi as data — one map apiece, naming the calculus, the base
   relations it distinguishes (jointly exhaustive and pairwise disjoint, so exactly one
   holds of any two terms), the identity it puts on the diagonal, and the predicates it
@@ -319,114 +319,114 @@
   [conn]
   (call conn :calculi []))
 
-(defn canonical-sentex
-  "The canonical sentex for `sentence` in `context`, **without storing it** — the un-stored
-  counterpart of `sentex`."
+(defn ^:daemon-op canonical-sentex
+  "The canonical sentex for `sentence` in `context`, **without storing it**: the un-stored
+  counterpart of `sentex`, built through the store's own constructor, so it is the form
+  `assert` would key on (docs/canonicalization.md)."
   [conn sentence context]
   (call conn :canonical-sentex [sentence context]))
 
-(defn chain-report
-  "Per forward rule, what forward chaining did with it — how many firings it **placed**,
-  how many it **refused** and why, or whether it did nothing at all."
+(defn ^:daemon-op chain-report
+  "Per forward rule, what forward chaining did with it: how many firings it **placed**, how
+  many it **refused** and why, or whether it did nothing."
   [conn]
   (call conn :chain-report []))
 
-(defn chain-stats
+(defn ^:daemon-op chain-stats
   "Chaining-run instrumentation: `{:runs n :last {:derived n :truncated? bool}}`."
   [conn]
   (call conn :chain-stats []))
 
-(defn check
-  "Would `(assert kb sentence context opts)` succeed, and if not, why? Returns a **vector
-  of problems** — empty when the sentence is admissible — and **stores nothing**: no
-  sentex, no index entry, no taxonomy edge, no chaining, no settle."
+(defn ^:daemon-op check
+  "Would `(assert kb sentence context opts)` succeed, and if not, why? Returns a vector of
+  problems, empty when the sentence is admissible, and stores nothing."
   ([conn sentence] (call conn :check [sentence]))
   ([conn sentence context] (call conn :check [sentence context]))
   ([conn sentence context opts] (call conn :check [sentence context opts])))
 
-(defn check-edit
-  "`check` over a whole `edit` batch — `{:add [[sentence context opts?] …] :remove [handle
-  …]}`, the shape `edit` takes — storing nothing."
+(defn ^:daemon-op check-edit
+  "`check` over a whole `edit` batch, `{:add [[sentence context opts?] …] :remove [handle
+  …]}`, storing nothing."
   [conn batch]
   (call conn :check-edit [batch]))
 
-(defn clear-caches
+(defn ^:daemon-op clear-caches
   "Drop every cache that offers a clear, and say what went: `{:cleared [{:cache :label
   :entries}…] :entries total}`."
   ([conn] (call conn :clear-caches []))
   ([conn opts] (call conn :clear-caches [opts])))
 
-(defn common-genls
+(defn ^:daemon-op common-genls
   "The supertypes **every** type in `types` has, a collection of types: the intersection of
   their `genls`."
   ([conn types] (call conn :common-genls [types]))
   ([conn types context] (call conn :common-genls [types context])))
 
-(defn common-specs
+(defn ^:daemon-op common-specs
   "The subtypes **every** type in `types` has: the intersection of their `specs`."
   ([conn types] (call conn :common-specs [types]))
   ([conn types context] (call conn :common-specs [types context])))
 
-(defn compare-tacticians
-  "Run `goal` in `context` under several **tacticians** — the node engine's search
-  orderings — each to completion, and return one row per tactician: the search it ran, its
-  wall-clock, its `:status`, its `:unenumerated` and its answer set."
+(defn ^:daemon-op compare-tacticians
+  "Run `goal` in `context` under several **tacticians** (the node engine's search
+  orderings), each to completion, and return one row per tactician: the search it ran, its
+  wall-clock `:ms`, its `:status`, its `:unenumerated` and its answer set."
   ([conn goal] (call conn :compare-tacticians [goal]))
   ([conn goal context] (call conn :compare-tacticians [goal context]))
   ([conn goal context opts] (call conn :compare-tacticians [goal context opts])))
 
-(defn conflicts
-  "The contradictions the last settle could not satisfy — the reported 'solve result'."
+(defn ^:daemon-op conflicts
+  "The contradictions the last settle could not satisfy: irreducible clashes among
+  known-true content, two `:monotonic` beliefs that cannot both hold."
   ([conn] (call conn :conflicts []))
   ([conn opts] (call conn :conflicts [opts])))
 
-(defn context-down
+(defn ^:daemon-op context-down
   "The contexts that inherit from `c`, reflexively — `c` plus every context that sees it."
   [conn c]
   (call conn :context-down [c]))
 
-(defn context-up
+(defn ^:daemon-op context-up
   "The contexts `c` inherits from, reflexively — `c` plus everything it *sees* via
   `genlCx`."
   [conn c]
   (call conn :context-up [c]))
 
-(defn contexts
+(defn ^:daemon-op contexts
   "Every context currently in the genlCx hierarchy — the nodes of the closure."
   [conn]
   (call conn :contexts []))
 
-(defn contexts-of
+(defn ^:daemon-op contexts-of
   "The contexts in which `sentence` is stored **and believed** — a read through
   `sentexes-matching`, so the context of a defeated or unsupported sentex is not listed."
   [conn sentence]
   (call conn :contexts-of [sentence]))
 
-(defn contradictions
-  "The coexisting pairs the last settle left standing — **represented dilemmas**, not
-  failures."
+(defn ^:daemon-op contradictions
+  "The coexisting pairs the last settle left standing: represented dilemmas, not failures."
   ([conn] (call conn :contradictions []))
   ([conn context] (call conn :contradictions [context]))
   ([conn context opts] (call conn :contradictions [context opts])))
 
-(defn count-in-context
+(defn ^:daemon-op count-in-context
   "How many sentexes are **stored** in `context` — one set-size read, O(1), nothing
   fetched."
   [conn context]
   (call conn :count-in-context [context]))
 
-(defn count-with-arg
+(defn ^:daemon-op count-with-arg
   "How many fact sentexes hold `term` at argument position `pos`, as **stored** — cheap,
   one O(1) set-size read per predicate declaring an argument at that slot."
   [conn pos term]
   (call conn :count-with-arg [pos term]))
 
-(defn count-with-functor
+(defn ^:daemon-op count-with-functor
   "How many fact sentexes with functor `pred` are **stored** — one set-size read, O(1)."
   [conn pred]
   (call conn :count-with-functor [pred]))
 
-(defn covers-of
+(defn ^:daemon-op covers-of
   "The believed `covering`, `separating` and `partition` sentexes whose whole is `whole`,
   in every context, as a set of `[kind parts]`: `kind` is `:covering`, `:separating` or
   `:partition`, and `parts` is the declared part vector, deduplicated and sorted by
@@ -434,81 +434,93 @@
   [conn whole]
   (call conn :covers-of [whole]))
 
-(defn defeat-class
+(defn ^:daemon-op defeat-class
   "The current defeat-class of a believed handle (:monotonic / :default), or nil when it is
   OUT — the effective strength of the belief after settling."
   [conn handle]
   (call conn :defeat-class [handle]))
 
-(defn dependent-justifications
-  "Justifications that use `handle` as an antecedent — what rests on it, which is what an
-  impact analysis before a `retract!` asks for."
+(defn ^:daemon-op dependent-justifications
+  "Justifications that use `handle` as an antecedent, in content order as
+  `supporting-justifications` is: what rests on it, as an impact analysis before a
+  `retract!` asks."
   [conn handle]
   (call conn :dependent-justifications [handle]))
 
-(defn deprecated?
+(defn ^:daemon-op deprecated?
   "Did a believed `rewriteOf` name `term` the dispreferred side? False for a `sameAs` or
   `equals` member: those merge without retiring either name."
   ([conn term] (call conn :deprecated? [term]))
   ([conn term context] (call conn :deprecated? [term context])))
 
-(defn describe
+(defn ^:daemon-op describe
   "Everything the KB holds about one term, as one map, keyed by the term's own role
-  (`term-role`) — the read behind \"what can I ask about `X`?\"."
+  (`term-role`; stored content overrides it, `described-role`)."
   ([conn term] (call conn :describe [term]))
   ([conn term context] (call conn :describe [term context]))
   ([conn term context opts] (call conn :describe [term context opts])))
 
-(defn direct-genls
+(defn ^:daemon-op digest
+  "The **content digest** of a sentex: `\"sha256:\"` and the lowercase hex SHA-256 of its
+  context, sign and canonical sentence (docs/storage.md, \"Content digests\")."
+  ([conn handle] (call conn :digest [handle]))
+  ([conn sentence context] (call conn :digest [sentence context])))
+
+(defn ^:daemon-op digests
+  "`(mapv #(digest kb %) handles)`, digesting each record a chain of references names once."
+  ([conn handles] (call conn :digests [handles]))
+  ([conn handles opts] (call conn :digests [handles opts])))
+
+(defn ^:daemon-op direct-genls
   "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
   parents, where `genls` is everything they reach."
   ([conn t] (call conn :direct-genls [t]))
   ([conn t context] (call conn :direct-genls [t context])))
 
-(defn direct-specs
+(defn ^:daemon-op direct-specs
   "The types that are a subtype of `t` by **one** `genl` edge in the closure — its direct
   children."
   ([conn t] (call conn :direct-specs [t]))
   ([conn t context] (call conn :direct-specs [t context])))
 
-(defn disjoint-metatypes
+(defn ^:daemon-op disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise disjoint
   by `(disjoint_metatype M)`."
   [conn]
   (call conn :disjoint-metatypes []))
 
-(defn disjoint?
+(defn ^:daemon-op disjoint?
   "Are types `a` and `b` provably disjoint (via disjoint declarations, closed under genl)?
   With a `context`, only declarations and genl edges visible from it count — the vantage
   every definitional check now judges from."
   ([conn a b] (call conn :disjoint? [a b]))
   ([conn a b context] (call conn :disjoint? [a b context])))
 
-(defn edit!
+(defn ^:daemon-op edit!
   "Apply a batch of assertions and retractions in **one settle**."
   ([conn batch] (call conn :edit [batch]))
   ([conn batch opts] (call conn :edit [batch opts])))
 
-(defn edit-with-consequences!
-  "`edit`, plus what the batch turned out to **mean** — the belief it added and the belief
-  it took away, in `preview`'s entry shapes."
+(defn ^:daemon-op edit-with-consequences!
+  "`edit`, plus what the batch turned out to **mean**: the belief it added and took away,
+  in `preview`'s entry shapes."
   ([conn batch] (call conn :edit-with-consequences [batch]))
   ([conn batch opts] (call conn :edit-with-consequences [batch opts])))
 
-(defn equiv-class
+(defn ^:daemon-op equiv-class
   "Every term known equal to `term`, itself included."
   ([conn term] (call conn :equiv-class [term]))
   ([conn term context] (call conn :equiv-class [term context])))
 
-(defn escalate
-  "The cheapest level that answers `goal` — climb the stack from `floor` and stop at the
-  first level with results."
+(defn ^:daemon-op escalate
+  "The cheapest level that answers `goal`: climb from `floor` and stop at the first level
+  with results."
   ([conn goal] (call conn :escalate [goal]))
   ([conn goal context] (call conn :escalate [goal context]))
   ([conn goal context floor] (call conn :escalate [goal context floor]))
   ([conn goal context floor opts] (call conn :escalate [goal context floor opts])))
 
-(defn exists-violations
+(defn ^:daemon-op exists-violations
   "The audit result for one *Exists* declaration in `context`, `{:status :audited
   :violations #{x…}}`: for `(predAllExists pred indep dep)` each member x of `indep` with
   no believed `(pred x y)` whose y is a member of `dep`; for `(predExistsAll pred dep
@@ -518,119 +530,112 @@
   [conn declaration context]
   (call conn :exists-violations [declaration context]))
 
-(defn explain-levels
+(defn ^:daemon-op explain-levels
   "What every level yields for `goal`: a seq of {:level :name :count}."
   ([conn goal] (call conn :explain-levels [goal]))
   ([conn goal context] (call conn :explain-levels [goal context])))
 
-(defn export!
+(defn ^:daemon-op export!
   "Write `kb` out as a portable **export dump** in `dir` and return a summary:"
   ([conn dir] (call conn :export [dir]))
   ([conn dir opts] (call conn :export [dir opts])))
 
-(defn exposed-clashes
+(defn ^:daemon-op exposed-clashes
   "Every disjointness clash the KB currently makes jointly visible: a term holding two
   types some context can see as disjoint, where each membership was admissible where it
   was written."
   [conn]
   (call conn :exposed-clashes []))
 
-(defn filed-violations
+(defn ^:daemon-op filed-violations
   "The filed ledger alone: the entries `violations` begins with, in its order, without the
   `:forced-conclusion`, `:inert-argument` and `:inert-rule` entries it reads off the
   stored firings and held sentexes."
   [conn]
   (call conn :filed-violations []))
 
-(defn find-sentexes
+(defn ^:daemon-op find-sentexes
   "Every stored sentex that contains `term` anywhere (any position, any nesting)."
   [conn term]
   (call conn :find-sentexes [term]))
 
-(defn find-sentexes-all
+(defn ^:daemon-op find-sentexes-all
   "Every stored sentex that contains all of `terms`."
   [conn terms]
   (call conn :find-sentexes-all [terms]))
 
-(defn find-terms
+(defn ^:daemon-op find-terms
   "The vocabulary terms whose name matches `q`, sorted by name."
   ([conn q] (call conn :find-terms [q]))
   ([conn q opts] (call conn :find-terms [q opts])))
 
-(defn forward-chain
-  "Run forward chaining to a fixpoint over every believed sentex, then settle belief
-  (resolve contradictions)."
+(defn ^:daemon-op forward-chain
+  "Run forward chaining to a fixpoint over every believed sentex, then settle belief."
   ([conn] (call conn :forward-chain []))
   ([conn opts] (call conn :forward-chain [opts])))
 
-(defn functional-at-instant-violations
+(defn ^:daemon-op functional-at-instant-violations
   "The per-instant functionality clashes of one `(functional_at_instant f)` declaration in
-  `context`, as a set of maps `{:function f :subject s :instant t :values #{v…} :kind k}`
-  — one per moment `t` at which more than one distinct value of the fluent function `f`
+  `context`, as a set of maps `{:function f :subject s :instant t :values #{v…} :kind k}`,
+  one per moment `t` at which more than one distinct value of the fluent function `f`
   holds for one subject `s`."
   [conn f context]
   (call conn :functional-at-instant-violations [f context]))
 
-(defn genl?
+(defn ^:daemon-op genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`? Types, not individuals — for an
   individual's type membership use `isa?`."
   ([conn sub super] (call conn :genl? [sub super]))
   ([conn sub super context] (call conn :genl? [sub super context])))
 
-(defn genls
+(defn ^:daemon-op genls
   "The supertypes of type `t`, reflexively — `t` itself plus everything reachable from it
   by `genl`."
   ([conn t] (call conn :genls [t]))
   ([conn t context] (call conn :genls [t context])))
 
-(defn handle-of
+(defn ^:daemon-op handle-of
   "The handle of the sentex already storing `sentence` in `context`, or **nil**."
   [conn sentence context]
   (call conn :handle-of [sentence context]))
 
-(defn handles
-  "Every live sentex handle in the KB — premises and anything forward-derived alike, read
-  straight off the record store."
+(defn ^:daemon-op handles
+  "Every live sentex handle in the KB, premises and forward-derived alike, read off the
+  record store."
   [conn]
   (call conn :handles []))
 
-(defn has-prop?
-  "Does `pred` carry the metadata property `kind`? The kinds are the ones the grammar's
-  declarations maintain — `vaelii.impl.predicates/prop-kinds` enumerates them, and
-  docs/api.md lists them: the relation algebra (`:transitive`, `:symmetric`,
-  `:asymmetric`, `:reflexive`, `:functional`, `:irreflexive`, `:anti-symmetric`,
-  `:anti-transitive`), the grants (`:decontextualized`, `:forced-decontextualized`,
-  `:forced-monotonic`, `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the
-  function kinds (`:reifiable`, `:unreifiable`) and the `:declares-*` kinds naming a
-  predicate as the subject of an argument constraint."
+(defn ^:daemon-op has-prop?
+  "Does `pred` carry the metadata property `kind`? `vaelii.impl.predicates/prop-kinds`
+  enumerates the kinds (docs/api.md)."
   ([conn kind pred] (call conn :has-prop? [kind pred]))
   ([conn kind pred context] (call conn :has-prop? [kind pred context])))
 
-(defn in?
+(defn ^:daemon-op in?
   "Is the sentex handle believed as the context it is stored in reads it: JTMS IN, and not
   hidden there by a placed `defeat` in force there or by resting only on a handle one
   hides (docs/nmtms.md, \"A read with no reader\")? Visibility `except`s are not applied."
   [conn handle]
   (call conn :in? [handle]))
 
-(defn inverse-of
+(defn ^:daemon-op inverse-of
   "The predicate declared inverse to `pred` by an `(inverse P Q)` sentex, or nil."
   ([conn pred] (call conn :inverse-of [pred]))
   ([conn pred context] (call conn :inverse-of [pred context])))
 
-(defn isa?
+(defn ^:daemon-op isa?
   "Is individual `x` (transitively) of type `t`? Considers only type memberships visible
   from `context` (default: any context)."
   ([conn x t] (call conn :isa? [x t]))
   ([conn x t context] (call conn :isa? [x t context])))
 
-(defn justification
+(defn ^:daemon-op justification
   "The justification for an id, or nil — nil in, nil out; a non-id is refused
   (`:bad-handle`)."
   [conn jid]
   (call conn :justification [jid]))
 
-(defn justification-verdicts
+(defn ^:daemon-op justification-verdicts
   "The verdict `context` reads on each justification of `handle`, as `{justification-id
   reason}`: `:supports` where every handle it rests on is believed there, else
   `:antecedent-out`, unless the network blocks it (`:blocked`, its rule's `exceptWhen`
@@ -640,94 +645,95 @@
   [conn handle context]
   (call conn :justification-verdicts [handle context]))
 
-(defn kb-diff
+(defn ^:daemon-op kb-diff
   "What two KBs disagree about, as content: `{:added :removed :moved :belief-changed}`."
   [conn b]
   (call conn :kb-diff [b]))
 
-(defn kb-integrity
+(defn ^:daemon-op kb-integrity
   "Run the bounded, read-only integrity sweep in `context`."
   ([conn candidate-terms context] (call conn :kb-integrity [candidate-terms context]))
   ([conn candidate-terms context options] (call conn :kb-integrity [candidate-terms context options])))
 
-(defn kb-quality
-  "Seven readings about the **knowledge** — one map, seven keys, each a distribution rather
-  than a number:"
+(defn ^:daemon-op kb-quality
+  "Seven readings about the knowledge, one map with the keys `:rules`, `:extents`,
+  `:chains`, `:taxonomy`, `:declarations`, `:subsumption` and `:clashes`, each a
+  distribution rather than a number (shapes: docs/quality.md, \"The result map\")."
   ([conn] (call conn :kb-quality []))
   ([conn opts] (call conn :kb-quality [opts])))
 
-(defn last-program
+(defn ^:daemon-op last-program
   "The last edge `Program` handed to the solver — the contested assumptions and the nogoods
   among them — or nil if no tie has ever been arbitrated."
   [conn]
   (call conn :last-program []))
 
-(defn levels
+(defn ^:daemon-op levels
   "The stack as data: {:level :name :below :adds} per level."
   [conn]
   (call conn :levels []))
 
-(defn lookup
+(defn ^:daemon-op lookup
   "Answer `goal` in `context` using exactly the machinery of `level`:"
   ([conn level goal] (call conn :lookup [level goal]))
   ([conn level goal context] (call conn :lookup [level goal context])))
 
-(defn max-common-specs
+(defn ^:daemon-op max-common-specs
   "The **maximal** common subtypes of `types`: the members of `common-specs` that are no
   member of `types` and have no other such member strictly above them."
   ([conn types] (call conn :max-common-specs [types]))
   ([conn types context] (call conn :max-common-specs [types context])))
 
-(defn max-context-children
+(defn ^:daemon-op max-context-children
   "The **maximal** contexts that inherit from context `c`: the contexts that reach `c` over
   one `genlCx` edge with no other such context strictly above them."
   [conn c]
   (call conn :max-context-children [c]))
 
-(defn max-specs
+(defn ^:daemon-op max-specs
   "The **maximal** subtypes of type `t`: its direct children (`direct-specs`) with no other
   direct child of `t` strictly above them."
   ([conn t] (call conn :max-specs [t]))
   ([conn t context] (call conn :max-specs [t context])))
 
-(defn metatype-members
+(defn ^:daemon-op metatype-members
   "The member types of disjoint metatype `m` — the set whose every pair `disjoint?` holds
   of, closed under genl."
   [conn m]
   (call conn :metatype-members [m]))
 
-(defn min-common-genls
+(defn ^:daemon-op min-common-genls
   "The **minimal** common supertypes of `types`: the members of `common-genls` that are no
   member of `types` and have no other such member strictly below them."
   ([conn types] (call conn :min-common-genls [types]))
   ([conn types context] (call conn :min-common-genls [types context])))
 
-(defn min-context-parents
+(defn ^:daemon-op min-context-parents
   "The **minimal** contexts context `c` inherits from: the contexts `c` reaches over one
   `genlCx` edge with no other such context strictly below them."
   [conn c]
   (call conn :min-context-parents [c]))
 
-(defn min-genls
+(defn ^:daemon-op min-genls
   "The **minimal** supertypes of type `t`: its direct parents (`direct-genls`) with no
   other direct parent of `t` strictly below them."
   ([conn t] (call conn :min-genls [t]))
   ([conn t context] (call conn :min-genls [t context])))
 
-(defn owed-releases
+(defn ^:daemon-op owed-releases
   "How many departures and arrivals the settles of an open, a recover, an upgrade or a bulk
   load left owed: the general argument-type mints a departed specific membership had
   withheld are not drawn until `release-withheld!` runs, so the KB may miss them."
   [conn]
   (call conn :owed-releases []))
 
-(defn possible-relations
+(defn ^:daemon-op possible-relations
   "The base relations `calculus` still allows between `a` and `b`, given everything
   believed in `context` — the set `ask` checks a goal against, exposed directly."
   [conn calculus context a b]
   (call conn :possible-relations [calculus context a b]))
 
-(defn premise?
+(defn ^:daemon-op premise?
   "Is the sentex at `handle` a **premise** — asserted in its own right rather than derived?
   A premise rests on nothing, so no justification names it as a conclusion and retracting
   its supports cannot take it OUT; a derived sentex is the other case, and
@@ -735,104 +741,103 @@
   [conn handle]
   (call conn :premise? [handle]))
 
-(defn preview
-  "What would this batch do to the KB — **without** leaving it done."
+(defn ^:daemon-op preview
+  "What would this batch do to the KB, **without** leaving it done."
   ([conn batch] (call conn :preview [batch]))
   ([conn batch opts] (call conn :preview [batch opts])))
 
-(defn props
+(defn ^:daemon-op props
   "The set of predicates carrying metadata property `kind` (see `has-prop?`)."
   [conn kind]
   (call conn :props [kind]))
 
-(defn provable?
-  "Is `goal` provable in `context`? Takes the same single-sentence or vector-of- sentences
-  conjunction as `prove`; a conjunction is provable iff all its conjuncts are, under one
-  consistent binding of their shared variables."
+(defn ^:daemon-op provable?
+  "Is `goal` provable in `context`? Takes `prove`'s goal; a conjunction is provable iff all
+  its conjuncts are, under one consistent binding."
   ([conn goal] (call conn :provable? [goal]))
   ([conn goal context] (call conn :provable? [goal context]))
   ([conn goal context opts] (call conn :provable? [goal context opts])))
 
-(defn prove
-  "Backward-chain in `context` with the simple recur DFS prover; returns a vector of
-  solution binding maps."
+(defn ^:daemon-op prove
+  "Backward-chain in `context` with the DFS prover; returns a vector of solution binding
+  maps, type-aware and visible from `context`."
   ([conn goal] (call conn :prove [goal]))
   ([conn goal context] (call conn :prove [goal context]))
   ([conn goal context opts] (call conn :prove [goal context opts])))
 
-(defn prove-within
+(defn ^:daemon-op prove-within
   "Anytime `prove`: run the depth-first backward chainer over `goal` (a sentence or a
-  conjunction vector, as `prove`) in `context`, bounded by `budget` — a map of any of
+  conjunction vector, as `prove`) in `context`, bounded by `budget`, a map of any of
   `{:max-ms n :max-results n :max-depth n :max-term-growth n}`."
   ([conn goal budget] (call conn :prove-within [goal budget]))
   ([conn goal context budget] (call conn :prove-within [goal context budget])))
 
-(defn provenance
+(defn ^:daemon-op provenance
   "The provenance map recorded for `handle` — `{:creator … :created … …}` — or nil if none."
   [conn handle]
   (call conn :provenance [handle]))
 
-(defn qualitative-network
+(defn ^:daemon-op qualitative-network
   "The constraint network `calculus` computes over everything **believed and visible** in
-  `context`: every pair of terms its predicates relate, tightened by path consistency to
-  the base relations still possible between them."
+  `context`: every pair of terms its predicates relate, tightened by path consistency."
   [conn calculus context]
   (call conn :qualitative-network [calculus context]))
 
-(defn qualitative-scenario
-  "One concrete arrangement consistent with everything believed in `context` — `{[a b] →
-  relation}`, one base relation per pair — or nil when the believed facts are
+(defn ^:daemon-op qualitative-scenario
+  "One concrete arrangement consistent with everything believed in `context`, `{[a b] →
+  relation}` with one base relation per pair, or nil when the believed facts are
   unsatisfiable."
   [conn calculus context]
   (call conn :qualitative-scenario [calculus context]))
 
-(defn qualitative-scenarios
+(defn ^:daemon-op qualitative-scenarios
   "Up to `limit` distinct arrangements, as `qualitative-scenario` renders one."
   [conn calculus context limit]
   (call conn :qualitative-scenarios [calculus context limit]))
 
-(defn quality-report
+(defn ^:daemon-op quality-report
   "A `kb-quality` map as Markdown — the counts first and the capped lists after."
   [conn quality]
   (call conn :quality-report [quality]))
 
-(defn query
-  "Answer `goal` in `context` — the public entry point — as a seq of **binding maps** (`{?x
-  val …}`) projected onto the goal's own variables."
+(defn ^:daemon-op query
+  "Answer `goal` in `context` as a seq of **binding maps** (`{?x val …}`) projected onto
+  the goal's own variables."
   ([conn goal] (call conn :query [goal]))
   ([conn goal context] (call conn :query [goal context]))
   ([conn goal context opts] (call conn :query [goal context opts])))
 
-(defn query-plan
-  "How a goal would be answered, at whichever of the two scales the goal has."
+(defn ^:daemon-op query-plan
+  "How a goal would be answered."
   ([conn goal] (call conn :query-plan [goal]))
   ([conn goal context] (call conn :query-plan [goal context])))
 
-(defn query-status
-  "`query`'s answers, plus a **report** of the run — what a bare `query` cannot say."
+(defn ^:daemon-op query-status
+  "`query`'s answers, plus a **report** of the run, so a query truncated at the depth bound
+  reads differently from one whose goal is unprovable."
   ([conn goal context] (call conn :query-status [goal context]))
   ([conn goal context opts] (call conn :query-status [goal context opts])))
 
-(defn query?
+(defn ^:daemon-op query?
   "Is `goal` answerable under `opts`? `query`, asked for one answer: the search stops at
   the first."
   ([conn goal] (call conn :query? [goal]))
   ([conn goal context] (call conn :query? [goal context]))
   ([conn goal context opts] (call conn :query? [goal context opts])))
 
-(defn readable-sentence
+(defn ^:daemon-op readable-sentence
   "A sentex's sentence with the author's variable names restored — pass a sentex map (from
   `sentex` / `sentexes-matching`)."
   [conn sx]
   (call conn :readable-sentence [sx]))
 
-(defn relation-arity
+(defn ^:daemon-op relation-arity
   "The exact number of places that binds `term`, its own or one inherited through `genl`,
   or nil when no exact length binds it (a `variable_arity` relation, or none stored)."
   [conn term]
   (call conn :relation-arity [term]))
 
-(defn relation?
+(defn ^:daemon-op relation?
   "Is `term` a relation of two or more places by what the KB stores of it, visible from
   `context` (default `?ctx`, every context): an `(arity P n)` declaration or exact-arity
   class membership of two or more, or a `variable_arity` membership, or, where none of
@@ -840,231 +845,211 @@
   ([conn term] (call conn :relation? [term]))
   ([conn term context] (call conn :relation? [term context])))
 
-(defn representative
+(defn ^:daemon-op representative
   "The term standing for `term`'s equivalence class — `term` itself when nothing has merged
   it, so this is total and never nil."
   ([conn term] (call conn :representative [term]))
   ([conn term context] (call conn :representative [term context])))
 
-(defn retract!
+(defn ^:daemon-op retract!
   "Retract premise support for a handle, tear down solely-supported sentexes and
   justifications (keeping anything re-derivable via other witnesses), and reverse their
   taxonomy / rule-index effects."
   [conn handle]
   (call conn :retract [handle]))
 
-(defn same-class?
+(defn ^:daemon-op same-class?
   "Do `a` and `b` denote the same thing? Distinct symbols denote distinct individuals until
   an equality sentex says otherwise."
   ([conn a b] (call conn :same-class? [a b]))
   ([conn a b context] (call conn :same-class? [a b context])))
 
-(defn search-tree
-  "The backward search for `goal` in `context`, as data — every node the frontier reached,
-  not only the path that answered."
+(defn ^:daemon-op search-tree
+  "The backward search for `goal` in `context` as data: every node the frontier reached,
+  what each cost and what was dropped."
   ([conn goal] (call conn :search-tree [goal]))
   ([conn goal context] (call conn :search-tree [goal context]))
   ([conn goal context opts] (call conn :search-tree [goal context opts])))
 
-(defn sees?
+(defn ^:daemon-op sees?
   "Does context `k` see assertions made in context `y`? True iff `y` is in `k`'s genlCx
   up-closure (reflexively, so a context sees itself)."
   [conn k y]
   (call conn :sees? [k y]))
 
-(defn sentence-of
+(defn ^:daemon-op sentence-of
   "A sentex map's canonical sentence: a literal's `:sentence`, or for a rule the `(implies
   <antecedent> <consequent>)` form built from its `:antecedent` and `:consequent` — a rule
   map carries no `:sentence` of its own."
   [conn sx]
   (call conn :sentence-of [sx]))
 
-(defn sentex
+(defn ^:daemon-op sentex
   "The sentex for a handle as a **map**, or nil."
   [conn handle]
   (call conn :sentex [handle]))
 
-(defn sentex-count
+(defn ^:daemon-op sentex-count
   "How many sentexes the KB holds, in total — the count the count-aware trie keeps at its
   root, so O(1) and nothing fetched."
   [conn]
   (call conn :sentex-count []))
 
-(defn sentexes-in-context
-  "Every **stored** sentex asserted in `context` (its extent, rules included) — a defeated
+(defn ^:daemon-op sentexes-in-context
+  "Every **stored** sentex asserted in `context` (its extent, rules included), a defeated
   or unsupported one included."
   ([conn context] (call conn :sentexes-in-context [context]))
   ([conn context opts] (call conn :sentexes-in-context [context opts])))
 
-(defn sentexes-matching
-  "*Believed* sentexes matching `sentence` in `context` (context defaults to ?ctx)."
+(defn ^:daemon-op sentexes-matching
+  "*Believed* sentexes matching `sentence` in `context` (default ?ctx)."
   ([conn sentence] (call conn :sentexes-matching [sentence]))
   ([conn sentence context] (call conn :sentexes-matching [sentence context])))
 
-(defn sentexes-naming
+(defn ^:daemon-op sentexes-naming
   "Every **stored** sentex whose sentence nests `(sentexHandle handle)` — the meta-sentexes
   naming `handle` — a defeated or unsupported one included."
   ([conn handle] (call conn :sentexes-naming [handle]))
   ([conn handle opts] (call conn :sentexes-naming [handle opts])))
 
-(defn sentexes-with-arg
+(defn ^:daemon-op sentexes-with-arg
   "Every **stored** fact sentex holding `term` at 1-based argument position `pos` — a
   defeated or unsupported one included."
   ([conn pos term] (call conn :sentexes-with-arg [pos term]))
   ([conn pos term opts] (call conn :sentexes-with-arg [pos term opts])))
 
-(defn sentexes-with-functor
+(defn ^:daemon-op sentexes-with-functor
   "Every **stored** fact sentex whose functor is `pred`, any arity, either polarity — a
   defeated or unsupported one included."
   ([conn pred] (call conn :sentexes-with-functor [pred]))
   ([conn pred opts] (call conn :sentexes-with-functor [pred opts])))
 
-(defn separating-covers
+(defn ^:daemon-op separating-covers
   "The believed `separating` and `partition` declarations, as a set of `[whole parts
   kind]`: every two distinct `parts` are disjoint, and `disjoint?` reads them from this
   table."
   [conn]
   (call conn :separating-covers []))
 
-(defn settle-stats
-  "Instrumentation for the `exceptWhen` fixpoint in `settle`."
+(defn ^:daemon-op settle-stats
+  "Instrumentation for the `exceptWhen` fixpoint in `settle`: `{:iterations n :passes n
+  :histogram {n count}}`."
   [conn]
   (call conn :settle-stats []))
 
-(defn specified-violations
+(defn ^:daemon-op specified-violations
   "The audit result for one binary `(predAllSpecified pred indep)` integrity requirement in
-  `context`, always carrying a `:status`: `{:status :audited :violations #{x…}}` — every
+  `context`, always carrying a `:status`: `{:status :audited :violations #{x…}}`, every
   member x of `indep` for which no believed `(pred x y)` carries a **determinate** filler
-  y satisfying `pred`'s derived slot contract, an empty set where the requirement holds —
-  or `{:status :gap :gap :missing-slot-typing …}` where `pred` carries no visible slot
-  typing at the audited position."
+  y satisfying `pred`'s derived slot contract, or `{:status :gap :gap :missing-slot-typing
+  …}` where `pred` carries no visible slot typing at the audited position."
   ([conn pred indep context] (call conn :specified-violations [pred indep context]))
   ([conn pred indep context arg-pos] (call conn :specified-violations [pred indep context arg-pos])))
 
-(defn specs
+(defn ^:daemon-op specs
   "The subtypes of type `t`, reflexively — `t` itself plus everything that reaches it by
   `genl`."
   ([conn t] (call conn :specs [t]))
   ([conn t context] (call conn :specs [t context])))
 
-(defn stored-first-args
+(defn ^:daemon-op stored-first-args
   "The terms **stored** at argument 1 of a fact with functor `pred`, as a set: the index's
   own child set under `pred`, one read — no record fetched and no belief consulted, so a
   defeated or unsupported fact's term is in it."
   [conn pred]
   (call conn :stored-first-args [pred]))
 
-(defn subsumption-status
+(defn ^:daemon-op subsumption-status
   "The subsumption relationship of type `a` to type `b`, one of: `:coextensional` (each is
-  `genl` the other), `:genl` (`(genl a b)` holds — `a` is a subtype of `b`), `:spec`
-  (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
-  instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither subsumes the other and
-  not disjoint, but a shared instance the registry answers without rule expansion exists,
-  or a shared subtype not provably empty), `:unknown` (none of the above is provable), or
-  `:inconsistent` (multiple contradictory relationships hold, e.g. both genl-related and
-  disjoint)."
+  `genl` the other), `:genl` (`a` is a subtype of `b`), `:spec` (`a` is a supertype of
+  `b`), `:disjoint` (provably no shared instance), `:orthogonal` (see
+  `subsumption-statuses`), `:unknown` (none provable) or `:inconsistent` (contradictory
+  relationships hold)."
   ([conn a b] (call conn :subsumption-status [a b]))
   ([conn a b context] (call conn :subsumption-status [a b context])))
 
-(defn subsumption-statuses
+(defn ^:daemon-op subsumption-statuses
   "The set of applicable subsumption relationships between types `a` and `b`: any subset of
   `#{:coextensional :genl :spec :disjoint :orthogonal}`."
   ([conn a b] (call conn :subsumption-statuses [a b]))
   ([conn a b context] (call conn :subsumption-statuses [a b context])))
 
-(defn supporting-justifications
-  "Justifications that conclude `handle` (its supporting justifications), in **content**
-  order — the informant's own sentence, then the antecedent sentences
-  (`kb/justification-content-key`)."
+(defn ^:daemon-op supporting-justifications
+  "Justifications that conclude `handle`, in **content** order
+  (`kb/justification-content-key`), so one knowledge base answers identically whatever
+  order it arrived in."
   [conn handle]
   (call conn :supporting-justifications [handle]))
 
-(defn term-count
+(defn ^:daemon-op term-count
   "How many distinct terms the KB's vocabulary holds — one set-size read, O(1), nothing
   fetched."
   [conn]
   (call conn :term-count []))
 
-(defn term-expression
+(defn ^:daemon-op term-expression
   "The functional expression a reified term denotes — `(FruitFn AppleTree)` for the
   constant minted from it — or nil for an ordinary term, and for a reified one whose
   `(natFormula K E)` map is not believed."
   [conn term]
   (call conn :term-expression [term]))
 
-(defn terms
-  "Every term the index is keyed by — the KB's vocabulary: each predicate, individual,
-  type, and context name mentioned by a stored sentex, at any nesting depth."
+(defn ^:daemon-op terms
+  "Every term the index is keyed by: each predicate, individual, type and context name
+  mentioned by a stored sentex, at any nesting depth, as a vector sorted by name."
   [conn]
   (call conn :terms []))
 
-(defn try-assert
+(defn ^:daemon-op try-assert
   "`assert`, refusing a sentence that would open a definitional clash with believed content
-  visible from `context`: a `:disjoint`, `:functional`, `:asymmetric`, `:anti-transitive`
-  or `:cover` clash formed by the sentence, by a membership its argument declarations
-  mint, or, for a `(forced_decontextualized_predicate P)` declaration, by a `(P …)`
-  premise it moves into CxUniverse (`rehome-forced-extent!`); an argument holding a type
-  the taxonomy separates from its declared type (`:arg-type`, `:arg-genl`,
-  `:inter-arg-type`), under either argtype reading; an `arg` / `genlArg` / `interArg`
-  declaration a stored tuple breaks; a rule one of whose variables no term can fill
-  (`:arg-variable`); an `arg` / `genlArg` / `quotedArg` declaration that would convict a
-  stored, believed rule so, which names the rule in `:clashes-with`; a fact whose length
-  breaks its relation's length binding, or a length binding, `genl` edge or `:monotonic`
-  metatype membership or edge that would break the length of stored tuples, or an `except`
-  of a binding (`:arity`); an argument declaration naming a position past its predicate's
-  bound length, or a length binding, `genl` edge or `:monotonic` metatype membership or
-  edge that would strand a stored, believed one so (`:arg-position`); a `genlArg` on an
-  `instance_relation_predicate`, or a membership stating a predicate one over a stored,
-  believed `genlArg` on it (`:arg-constraint-kind`); a self tuple of an `irreflexive`
-  relation, or an `irreflexive` mark over stored ones (`:irreflexive`), or the converse of
-  a believed tuple of an `anti_symmetric` one (`:anti-symmetric`), where the relation is
-  marked or below a marked one through `genl`; and a literal whose complement (`(not S)`
-  for `S`, `S` for `(not S)`) a read from `context` answers `:monotonic` through
-  `:monotonic` edges alone (`:complement`), a forced-monotonic complement at either
-  written strength, unless the literal is itself a forced-monotonic positive."
+  visible from `context`."
   ([conn sentence] (call conn :try-assert [sentence]))
   ([conn sentence context] (call conn :try-assert [sentence context]))
   ([conn sentence context opts] (call conn :try-assert [sentence context opts])))
 
-(defn types
+(defn ^:daemon-op types
   "Every type currently in the genl hierarchy — the nodes of the closure, i.e. every type
   named by some believed `genl` edge."
   ([conn] (call conn :types []))
   ([conn context] (call conn :types [context])))
 
-(defn types-of
+(defn ^:daemon-op types-of
   "The types asserted of individual `x` — functors of unary sentexes (T x), found via the
   term index."
   ([conn x] (call conn :types-of [x]))
   ([conn x context] (call conn :types-of [x context])))
 
-(defn unsupported
+(defn ^:daemon-op unsupported
   "The stored records the last `recover` found with no premise mark, no justification and
   no `:inert` mark, as `{:n n :handles [h …]}`, ascending, re-checked against the KB now:
   a handle since premise-marked, concluded, marked `:inert` or retracted is left out."
   [conn]
   (call conn :unsupported []))
 
-(defn violations
-  "The definitional constraints a *derived* conclusion would have broken during the last
-  forward-chaining run, and what a bounded pass did not reach."
+(defn ^:daemon-op violations
+  "The ledger of definitional constraints a derived conclusion would have broken during
+  forward chaining, and what a bounded pass did not reach: a vector of `{:violation <kind>
+  :sentence S :context C :rule handle :run n :detail {…}}`."
   [conn]
   (call conn :violations []))
 
-(defn vocabulary-audit
-  "Every term core.txt comments in `kb`, classified — `{:enforced [[term why] …] :inert
+(defn ^:daemon-op vocabulary-audit
+  "Every term core.txt comments in `kb`, classified: `{:enforced [[term why] …] :inert
   [[term why] …] :unclassified [term …] :retired [term …] :contradicted [term …]}`."
   [conn]
   (call conn :vocabulary-audit []))
 
-(defn why
+(defn ^:daemon-op why
   "Why does the KB believe `handle`? The justification graph reachable from `handle`, as
   data:"
   [conn handle]
   (call conn :why [handle]))
 
-(defn why-not
-  "Why does the KB *not* believe `handle`? The complement of `why`, as data:"
+(defn ^:daemon-op why-not
+  "Why does the KB *not* believe `handle`? The complement of `why`, as data: `{:handle h
+  :sentence S :context C :believed? false :reason <keyword> …}`, with one `:reason` per
+  way a handle goes unbelieved (`:not-stored`, `:superseded`, `:defeated`, `:withdrawn`,
+  `:inert`, `:forced-conclusion`, `:unsupported`, `:excepted`, `:closed-extent`)."
   ([conn handle] (call conn :why-not [handle]))
   ([conn sentence context] (call conn :why-not [sentence context]))
   ([conn sentence context opts] (call conn :why-not [sentence context opts])))

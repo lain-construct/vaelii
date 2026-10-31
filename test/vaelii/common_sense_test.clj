@@ -138,6 +138,26 @@
   (testing "people without a recorded birth year are not ordered"
     (is (not (v/query? kb '(olderThan Dave Tom) '?ctx {:max-depth 2})))))
 
+(tu/deftest-kb a-birth-date-at-any-calendar-precision-states-the-birth-year
+  (tu/with-terms [Ann Bea Cy Dot]
+    (v/assert kb (list 'birthDate Ann '(YearFn 1960)) N)
+    (v/assert kb (list 'birthDate Bea '(MonthFn 1970 5)) N)
+    (v/assert kb (list 'birthDate Cy '(DayFn 1980 5 3)) N)
+    (v/assert kb (list 'birthDate Dot '(InstantFn 1990 5 3 14 0 0)) N)
+    (testing "each precision concludes birthYearOf"
+      (is (= [1960 1970 1980 1990]
+             (for [x [Ann Bea Cy Dot]]
+               (get (tu/sole-answer (v/ask kb (list 'birthYearOf x '?y) N)) '?y)))))
+    (testing "and the age theory reads on from the year"
+      (is (true? (v/query? kb (list 'olderThan Ann Dot) '?ctx {:max-depth 2})))
+      (is (not (v/query? kb (list 'olderThan Dot Ann) '?ctx {:max-depth 2}))))
+    (testing "a day and its year are both a birth date, and agree on the year"
+      (v/assert kb (list 'birthDate Cy '(YearFn 1980)) N)
+      (is (not (tu/stored-in-clash? kb (list 'birthDate Cy '(YearFn 1980)) N))))
+    (testing "two birth dates in different years conclude a functional clash"
+      (v/assert kb (list 'birthDate Ann '(DayFn 1961 1 1)) N)
+      (is (tu/stored-in-clash? kb (list 'birthYearOf Ann 1961) N)))))
+
 (tu/deftest-kb a-plant-has-a-parent-a-birth-year-and-an-age
   ;; Kinship and age are about being born, which every organism is, so a tree's parent
   ;; is stored as a dog's is, the kinship theory reads on from it, and neither tree is
@@ -380,7 +400,7 @@
     (v/assert kb (list 'dog Dam) N)
     (v/assert kb (list 'motherOf Pup Dam) N)
     (testing "maternity entails parenthood, and the kinship theory reads on from there"
-      (is (seq (v/sentexes-matching kb (list 'parentOf Dam Pup) N)))
+      (is (v/ask? kb (list 'parentOf Dam Pup) N))
       (is (v/ask? kb (list 'childOf Pup Dam)))
       (is (v/ask? kb (list 'ancestorOf Dam Pup))))
     (testing "and a sentence about `the mother of Pup` is a sentence about her"
@@ -421,7 +441,7 @@
       (testing "the witness is a minted constant and not a name anybody wrote"
         (is (v/reified-term? (nth (:sentence sx) 2))))
       (testing "and the theory reads on from it exactly as it would from a named mother"
-        (is (seq (v/sentexes-matching kb (list 'parentOf (nth (:sentence sx) 2) Stray) N)))))))
+        (is (v/ask? kb (list 'parentOf (nth (:sentence sx) 2) Stray) N))))))
 
 ;; ---- measures -----------------------------------------------------------
 
@@ -473,9 +493,9 @@
 ;; ---- where a thing is ---------------------------------------------------
 
 (tu/deftest-kb a-part-is-wherever-its-whole-is
-  ;; Two theories meeting: the test world's join rule carries location down parthood,
-  ;; and locatedIn is transitive, so the piston is in the house through four facts and
-  ;; neither of them is about pistons or houses.
+  ;; Two theories meeting: mereology carries location down parthood, and locatedIn is
+  ;; transitive, so the piston is in the house through four facts and neither of them
+  ;; is about pistons or houses.
   (testing "the rule fires down one level and stores what it concluded"
     (is (seq (v/sentexes-matching kb '(locatedIn Engine1 Garage1) N))))
   (testing "and the chain answers further than anything stored reaches"

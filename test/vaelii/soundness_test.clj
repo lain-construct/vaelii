@@ -16,9 +16,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
-
 ;; ---- 1. a specific exception wins by blocking, not by out-ranking -------
 ;; A default/default collision is not arbitrated by *specificity* — scoring each rule
 ;; by the genl up-closure size of its antecedent predicates so that `penguin ⇒ ¬flies`
@@ -43,15 +40,15 @@
     (v/assert kb (list 'genl bird 'thing)  'CxUniverse)
     ;; general: birds fly, *except* penguins.  specific: penguins do not.
     (v/assert kb (list 'exceptWhen (list penguin '?x)
-                       (default-rule [(list bird '?x)] (list flies '?x)))
+                       (tu/default-rule [(list bird '?x)] (list flies '?x)))
               'CxUniverse)
-    (v/assert kb (default-rule [(list penguin '?x)] (list 'not (list flies '?x)))  'CxUniverse)
+    (v/assert kb (tu/default-rule [(list penguin '?x)] (list 'not (list flies '?x)))  'CxUniverse)
     ;; the same shape with the polarities swapped: birds do not swim, except
     ;; penguins; penguins do.  Blocking must behave identically.
     (v/assert kb (list 'exceptWhen (list penguin '?x)
-                       (default-rule [(list bird '?x)] (list 'not (list swims '?x))))
+                       (tu/default-rule [(list bird '?x)] (list 'not (list swims '?x))))
               'CxUniverse)
-    (v/assert kb (default-rule [(list penguin '?x)] (list swims '?x))              'CxUniverse)
+    (v/assert kb (tu/default-rule [(list penguin '?x)] (list swims '?x))              'CxUniverse)
     (v/assert kb (list penguin Opus) 'CxUniverse {:strength :monotonic})
     (testing "only the excepted rule's conclusion survives"
       (is (seq    (v/sentexes-matching kb (list 'not (list flies Opus)) 'CxUniverse)))

@@ -148,6 +148,15 @@ and those files describe the project around it.
       whitespace aside.  A block written for the page
       rather than quoted opens with ```clojure composed, and only its `v/` calls
       are checked.
+  E22 A release's renames file (`resources/renames/<version>.edn`) that does not
+      hold.  `unreleased.edn` must read as one map.  The changelog's newest
+      section answers to its own file, `unreleased.edn` until the cut dates it
+      and `<version>.edn` after: that file must carry a row for each qualified
+      name or keyword on the `*Breaks:*` line of a Breaking entry there whose
+      title renames, merges, drops or retires.  `unreleased.edn` must name a
+      new spelling the shipped KB or the API goldens hold.  In every file, a
+      renamed-away, merged or retired symbol is absent from the shipped KB, and
+      no rename lands on a symbol any file renames away or retires.
 
   W1  Line-number citations into .clj files (`foo.clj:123`) — warned, not
       failed: cite the var name instead, line numbers always rot.
@@ -1317,6 +1326,136 @@ if os.path.exists(changelog):
                      f" from a sibling that is fine. One line under the entry, holding"
                      f" each name a caller would have written (CONTRIBUTING §3.8)")
 
+# ── E22: a release's renames are data that holds ──────────────────────────
+# `vaelii.host.sync/rename!` composes every file under resources/renames/, since
+# no store records the release that wrote it. That reading is sound only while a
+# renamed-away or retired symbol stays out of the shipped KB for good and no
+# rename lands on one, which this check holds. A rename the changelog announces
+# and the file lacks leaves a downstream store unrewritten.
+RENAMES_DIR = pjoin(ROOT, "resources", "renames")
+EDN_TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|;[^\n]*|#\{|[{}\[\]()]|[^\s,{}\[\]()";]+')
+RENAME_TITLE = re.compile(r"\b(renames?|renamed|merges?|merged|drops?|dropped|removes?"
+                          r"|removed|retires?|retired|no longer publishes)\b", re.I)
+
+def edn_atoms(text):
+    return [t for t in EDN_TOKEN.findall(text) if not t.startswith(";")]
+
+def read_edn(text):
+    toks, pos = edn_atoms(text), 0
+    def parse():
+        nonlocal pos
+        t = toks[pos]; pos += 1
+        close = {"{": "}", "#{": "}", "[": "]", "(": ")"}.get(t)
+        if close is None:
+            return t
+        items = []
+        while toks[pos] != close:
+            items.append(parse())
+        pos += 1
+        if t == "{":
+            return dict(zip(items[::2], items[1::2]))
+        return frozenset(items) if t == "#{" else tuple(items)
+    return parse()
+
+def rename_rows(m):
+    """(sources, targets, re-meant, retired) of one section of a renames map."""
+    src, tgt = set(), set()
+    for k in (":renames", ":context-merges"):
+        d = m.get(k) or {}
+        src.update(d.keys()); tgt.update(d.values())
+    return src, tgt, set((m.get(":re-meanings") or {}).keys()), set(m.get(":retired") or ())
+
+renames_parsed = {}
+if os.path.isdir(RENAMES_DIR):
+    for f in sorted(os.listdir(RENAMES_DIR)):
+        if not f.endswith(".edn"):
+            continue
+        path = pjoin(RENAMES_DIR, f)
+        try:
+            m = read_edn(open(path).read())
+            if not isinstance(m, dict):
+                raise ValueError("the top-level form is not a map")
+        except (IndexError, ValueError) as e:
+            flag("E22", path, f, f"resources/renames/{f} does not read as one EDN map ({e})")
+            continue
+        extra = set(m) - {":renames", ":context-merges", ":re-meanings", ":retired", ":api"}
+        if extra:
+            flag("E22", path, f, f"resources/renames/{f} holds keys {sorted(extra)}: a renames"
+                 f" file holds :renames, :context-merges, :re-meanings, :retired and :api")
+        renames_parsed[f] = m
+
+if os.path.exists(changelog) and "unreleased.edn" not in renames_parsed:
+    flag("E22", changelog, "resources/renames/unreleased.edn",
+         "resources/renames/unreleased.edn is missing: the release being written records"
+         " its renames, merges, re-meanings and retirements there (CONTRIBUTING §3.8)")
+
+if renames_parsed:
+    kb_tokens = set()
+    for dirpath, _, fs in os.walk(pjoin(ROOT, "resources", "kb")):
+        for f in fs:
+            if f.endswith(".txt"):
+                kb_tokens.update(t for t in edn_atoms(open(pjoin(dirpath, f), errors="replace").read())
+                                 if not t.startswith('"'))
+    api_present = set()
+    for golden in ("api-surface.edn", "koinii-surface.edn"):
+        gpath = pjoin(ROOT, "test", "golden", golden)
+        if not os.path.exists(gpath):
+            continue
+        g = read_edn(open(gpath).read())
+        for top in (g, g.get(":vars") or {}):
+            for ns, vs in top.items():
+                if isinstance(vs, dict):
+                    api_present.update(f"{ns}/{v}" for v in vs)
+                    api_present.update(t for x in vs.values() if isinstance(x, (tuple, frozenset))
+                                       for t in x if t.startswith(":"))
+    gone_vocab, gone_api = set(), set()
+    for m in renames_parsed.values():
+        s_, _, _, r_ = rename_rows(m); gone_vocab |= s_ | r_
+        s_, _, _, r_ = rename_rows(m.get(":api") or {}); gone_api |= s_ | r_
+    for f, m in renames_parsed.items():
+        path = pjoin(RENAMES_DIR, f)
+        for label, sec, gone, held, where in (
+                ("", m, gone_vocab, kb_tokens, "the shipped KB (resources/kb/)"),
+                (":api ", m.get(":api") or {}, gone_api, api_present, "the API goldens")):
+            src, tgt, meant, retired = rename_rows(sec)
+            for sym in sorted(tgt & gone):
+                flag("E22", path, f"{f}:{sym}", f"the {label}rename onto"
+                     f" `{sym}` lands on a symbol a renames file renames away or retires, so"
+                     f" composing the files rewrites it again")
+            for sym in sorted((src | retired) & held):
+                flag("E22", path, f"{f}:{sym}", f"`{sym}` is renamed away or retired,"
+                     f" and it is still in {where}")
+            if f == "unreleased.edn":
+                for sym in sorted((tgt | meant) - held):
+                    flag("E22", path, f"{f}:{sym}", f"`{sym}` is a {label}rename target or"
+                         f" re-meaning missing from {where}")
+
+    sections = re.split(r"^## ", open(changelog, errors="replace").read(), flags=re.M) \
+        if os.path.exists(changelog) else []
+    newest = sections[1] if len(sections) > 1 else ""
+    own = "unreleased.edn" if newest.startswith("Unreleased") else newest.split(" ", 1)[0] + ".edn"
+    rows = set()
+    for sec in (renames_parsed.get(own) or {}, (renames_parsed.get(own) or {}).get(":api") or {}):
+        for part in rename_rows(sec):
+            rows |= part
+    if os.path.exists(changelog) and "unreleased.edn" in renames_parsed:
+        for part in re.split(r"^(?=### )", newest, flags=re.M)[1:]:
+            breaking_heading = re.match(r"### Breaking\b", part) is not None
+            for entry in re.split(r"\n(?=- \*\*)", part)[1:]:
+                if not (breaking_heading or BREAKING_TITLE.search(entry)) or "**" not in entry:
+                    continue
+                title = re.sub(r"\s+", " ", entry.split("**")[1])
+                breaks = re.search(r"\*Breaks:\*(.*?)(?=\n\s*\*[A-Z]|\Z)", entry, re.S)
+                if not (RENAME_TITLE.search(title) and breaks):
+                    continue
+                for tok in re.findall(r"`([^`\s]+)`", breaks.group(1)):
+                    if (re.fullmatch(r"[\w.\-]+/\S+", tok) or re.fullmatch(r":[\w\-?!*]+", tok)) \
+                            and tok not in rows:
+                        flag("E22", changelog, f"CHANGELOG.md:{tok}",
+                             f"CHANGELOG: the Breaking entry \"{title[:60]}\" renames, merges,"
+                             f" drops or retires `{tok}`, and resources/renames/{own}"
+                             f" holds no row naming it (CONTRIBUTING §3.8)")
+
 # ── E16: an index read is an entry point's, and an as-stored one is named ───────────
 # The `IndexStore` posting sets are storage: they hold a defeated default, a
 # conclusion whose support was withdrawn and a spelling an equality retired,
@@ -1496,15 +1635,22 @@ E16_GLOBAL_ALLOW = {
     ("src/vaelii/core.clj", "term-count"),
     ("src/vaelii/core.clj", "find-terms"),
     ("src/vaelii/impl/quality.clj", "vocabulary-pass"),
-    # A rule read keyed by predicate over the rules stated in any context: a forward firing
-    # or a re-join places each firing from its antecedents' contexts, a definitional check
-    # or a report reads every stored rule, and `direct-concluders` is the stored graph.
+    # A rule read keyed by predicate over the rules stated in any context: a forward firing,
+    # a re-join or a lazy-forward proof places each firing from its antecedents' contexts,
+    # a definitional check or a report reads every stored rule, and `direct-concluders` is
+    # the stored graph.
     ("src/vaelii/impl/chain.clj", "fire-rules-for"),
     ("src/vaelii/impl/chain.clj", "permuting-rejoin-rules"),
     ("src/vaelii/impl/special.clj", "rules-taking"),
     ("src/vaelii/impl/chain.clj", "transitive-rejoin-rules"),
     ("src/vaelii/impl/chain.clj", "closure-rejoin-rules"),
+    ("src/vaelii/impl/chain.clj", "lazy-table"),
+    ("src/vaelii/impl/kb.clj", "stores-lazy-rule?"),
+    ("src/vaelii/impl/chain.clj", "lazy-readers"),
+    ("src/vaelii/impl/special.clj", "lazy-guard-readers"),
     ("src/vaelii/impl/special.clj", "recheck-on-separation"),
+    ("src/vaelii/impl/chain.clj", "separation-denial-rejoins"),
+    ("src/vaelii/impl/special.clj", "requeue-separation-denial-rules"),
     ("src/vaelii/impl/inherit.clj", "rejoin-rules"),
     ("src/vaelii/impl/special.clj", "recheck-on-qualitative"),
     ("src/vaelii/impl/provers.clj", "closed-extent-rules"),
@@ -1642,6 +1788,12 @@ E17_ALLOW = {
     ("src/vaelii/core.clj", "common-specs"),
     ("src/vaelii/core.clj", "min-common-genls"),
     ("src/vaelii/core.clj", "max-common-specs"),
+    # The subsumption reading behind `disjointness-audit` and `subsumption-statuses`:
+    # at its five-argument arity `genl?` and the shared subtypes read every edge, as the
+    # documented short arities of `genl?` and `specs` do, and the vantage reaches the
+    # separation and the overlap witnesses only.  The `:open-sibling-pair` pass passes
+    # `scoped?` and reads the audit context's edges instead.
+    ("src/vaelii/impl/integrity.clj", "subsumption-reading"),
     # Assert-time refusals. A refusal is a claim about the KB and not about a vantage:
     # a cycle refused when asked from one context and allowed from another is not a
     # refusal, it is a coin toss.  `disjoint-problems` is the deliberate exception and
@@ -1680,6 +1832,12 @@ E17_ALLOW = {
     ("src/vaelii/impl/chain.clj", "solve-separation"),
     ("src/vaelii/impl/chain.clj", "separated-from"),
     ("src/vaelii/impl/special.clj", "separation-moved-types"),
+    ("src/vaelii/impl/special.clj", "nonempty-moved-types"),
+    ("src/vaelii/impl/special.clj", "requeue-separation-denial-rules"),
+    # The structural genlCx producer's candidate reads: a superset of the pairs its oracle
+    # then decides under the scoped closure (`r-evidence`).
+    ("src/vaelii/impl/context_nat.clj", "comparable-terms"),
+    ("src/vaelii/impl/context_nat.clj", "pairs-across"),
     ("src/vaelii/impl/inherit.clj", "moved-in"),
     ("src/vaelii/impl/inherit.clj", "witness?"),
     ("src/vaelii/impl/inherit.clj", "licensing-functors"),
@@ -1691,6 +1849,9 @@ E17_ALLOW = {
     ("src/vaelii/impl/inherit.clj", "stated-reached?"),
     ("src/vaelii/impl/inherit.clj", "goal-reached?"),
     ("src/vaelii/impl/provers.clj", "subsumption-routes"),
+    # The contexts a forward join asks `(nonempty C)` at, a superset over every reader;
+    # each context then asks the answer from its own vantage.
+    ("src/vaelii/impl/provers.clj", "nonempty-contexts"),
     # Re-check triggers. A trigger must over-approximate in the direction the answer
     # is: a declaration this edge cannot see still qualifies a rule in some context
     # that can, and a missed trigger is a wrong belief where a spare one is a query
@@ -1700,6 +1861,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/special.clj", "arg-declared-types"),
     ("src/vaelii/impl/special.clj", "recheck-arg-inferred"),
     ("src/vaelii/impl/special.clj", "composed-exception-rules"),
+    ("src/vaelii/impl/special.clj", "lazy-guard-readers"),
     ("src/vaelii/impl/special.clj", "answered-predicates"),
     ("src/vaelii/impl/special.clj", "recheck-typed-admission"),
     ("src/vaelii/impl/special.clj", "negated-rechecks"),
@@ -1866,6 +2028,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/resolution.clj", "store-marks"),
     ("src/vaelii/impl/resolution.clj", "respell-walk"),
     ("src/vaelii/impl/resolution.clj", "formula-type?"),
+    ("src/vaelii/impl/resolution.clj", "reference-positions"),
     ("src/vaelii/impl/nat.clj", "formula-declared-predicates"),
     ("src/vaelii/impl/nat.clj", "names-open-application?"),
     ("src/vaelii/impl/integrity.clj", "uncorresponded-units"),
@@ -1884,6 +2047,7 @@ E17_ALLOW = {
     ("src/vaelii/impl/decide/membership.clj", "separation-tests"),
     ("src/vaelii/impl/decide/membership.clj", "cover-convicted-at?"),
     ("src/vaelii/impl/decide/related.clj", "contradicted-somewhere?"),
+    ("src/vaelii/impl/decide/related.clj", "edge-routes"),
     ("src/vaelii/impl/decide/tuple.clj", "prop-marks"),
     ("src/vaelii/impl/decide/tuple.clj", "det-marks"),
     ("src/vaelii/impl/decide/tuple.clj", "note-converse!"),

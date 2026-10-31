@@ -16,25 +16,12 @@
             [vaelii.impl.handle-set :as hs]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.types.sentex :as sentex-types])
-  (:import [java.io RandomAccessFile]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-drs-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
-
-(defn- with-tmp
-  "Run `(f dir)` in a fresh temp directory, deleting it afterwards."
-  [f]
-  (let [dir (tmpdir)]
-    (try (f dir) (finally (rm-rf! dir)))))
+            [vaelii.impl.types.sentex :as sentex-types]
+            [vaelii.test-util :as tu])
+  (:import [java.io RandomAccessFile]))
 
 (deftest put-get-delete-across-kinds
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -57,7 +44,7 @@
           (finally (drs/close! s)))))))
 
 (deftest premises-are-derived-from-strength
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -80,7 +67,7 @@
   ;; `fetch`'s guard: a non-integer informant or a negative id is a key the store does not
   ;; hold, answered `:default` — never a `read-slot` coercion throw — exactly as the memory
   ;; store answers, or the backend leaks through a read.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [d (drs/open-record-store dir)
             m (mem/memory-record-store {:space ::bad-id-premise})]
@@ -97,7 +84,7 @@
   ;; the premise set follows the record set: a handle with no sentex takes no mark, on
   ;; the memory store exactly as on the disk one — the two must answer `premise-ids`
   ;; identically for the same call sequence, or the backend matrix reads a phantom
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [d (drs/open-record-store dir)
             m (mem/memory-record-store {:space ::phantom-premise})]
@@ -184,7 +171,7 @@
   ;; `premise-strength` reads the rank off the slot, so a clean open would trust a torn
   ;; one.  A dirty open rewrites the slot to the record's rank.
   (doseq [tok [false true]]
-    (with-tmp
+    (tu/with-tmp
       (fn [dir]
         (let [s (drs/open-record-store dir {:tokenize? tok})
               a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})]
@@ -205,7 +192,7 @@
   ;; A torn page can flip the bit too: a slot claiming premise over a record that is not
   ;; one, and the reverse.  The set follows the records and the slots are rewritten to match.
   (doseq [tok [false true]]
-    (with-tmp
+    (tu/with-tmp
       (fn [dir]
         (let [s (drs/open-record-store dir {:tokenize? tok})
               a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})   ; a premise
@@ -230,7 +217,7 @@
 (deftest a-clean-open-does-not-reconcile-the-flags
   ;; The reconcile is a dirty-open cost only.  A clean reopen trusts the slots as written,
   ;; so a stale one survives it untouched — which is what keeps the fast path fast.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)
             a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})]
@@ -245,7 +232,7 @@
       (is (= 1 (f/slot-strength (slot-flags dir 1))) "the slot was not rewritten on a clean open"))))
 
 (deftest every-write-path-annotates-its-slot
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (p/put-sentex s {:sentence '(dog Muffet) :context 'C})                     ; 1
@@ -285,9 +272,9 @@
                                 (mapv #(p/write-record! snk %) rs))
                               (mapv #(p/put-sentex s %) rs))]
                     (try [ids (state s ids)] (finally (drs/close! s)))))]
-    (with-tmp
+    (tu/with-tmp
       (fn [a]
-        (with-tmp
+        (tu/with-tmp
           (fn [b]
             (let [[sink-ids sink-state] (run a true)
                   [loop-ids loop-state] (run b false)]
@@ -310,7 +297,7 @@
   ;; `write-slots!` coalesces a run of consecutive ids into one positional write, so a
   ;; batch that is *not* one run is the case that exercises the splitting — a dump whose
   ;; handles have gaps, which is any dump written after a retraction.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [ids [40 1 41 2 900 42]
             s   (drs/open-record-store dir)]
@@ -336,7 +323,7 @@
   ;; never writes it, and a negative one is a size nothing can be partitioned into.  The
   ;; refusal is at the open, where a caller can still name a different number, rather than
   ;; part-way through a load that has already stored millions of frames.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -354,7 +341,7 @@
           (finally (drs/close! s)))))))
 
 (deftest the-premise-set-agrees-with-the-records-it-is-derived-from
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (dotimes [i 8] (p/put-sentex s {:sentence (list 'p i) :context 'C}))     ; 1..8
@@ -379,7 +366,7 @@
           (is (= [expected :monotonic] (reopened))))))))
 
 (deftest compaction-carries-the-premise-bit-across
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (dotimes [i 20] (p/put-sentex s {:sentence (list 'p i) :context 'C}))
@@ -402,7 +389,7 @@
               (drs/close! s2))))))))
 
 (deftest persistence-round-trip
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s1 (drs/open-record-store dir)
             a  (p/put-sentex s1 {:sentence '(dog Muffet) :context 'C})
@@ -426,7 +413,7 @@
               (finally (drs/close! s2)))))))))
 
 (deftest clear-records-empties-the-store
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -440,7 +427,7 @@
           (finally (drs/close! s)))))))
 
 (deftest compaction-reclaims-dead-frames-preserving-live-records
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -467,7 +454,7 @@
   ;; rewrite a moment later runs to completion while the close waits out its whole
   ;; timeout for it.  Here the gap is the whole of the test: the abort is set with
   ;; nothing running at all, and the rewrite that follows has to honour it.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -493,7 +480,7 @@
           (finally (drs/close! s)))))))
 
 (deftest next-id-never-reuses-a-handle-across-recovery
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (dotimes [_ 5] (p/put-sentex s {:sentence 'x :context 'C}))   ; ids 1..5
@@ -512,7 +499,7 @@
           (drs/close! s))))))
 
 (deftest compaction-of-the-highest-deleted-slot-preserves-next-id
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (dotimes [_ 5] (p/put-sentex s {:sentence 'x :context 'C}))   ; ids 1..5
@@ -527,7 +514,7 @@
           (drs/close! s))))))
 
 (deftest an-orphan-frame-is-harmless-and-reclaimed
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (p/put-sentex s {:sentence '(dog Muffet) :context 'C})          ; id 1, slot 1
@@ -550,7 +537,7 @@
         (drs/close! s)))))
 
 (deftest repeated-compaction-and-reopen-stay-consistent
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -648,7 +635,7 @@
   wipe — so one seed of enough steps reaches them all."
   [seeds steps]
   (doseq [seed seeds]
-    (with-tmp
+    (tu/with-tmp
       (fn [dir]
         (let [rnd (java.util.Random. seed)
               *s  (volatile! (drs/open-record-store dir))
@@ -671,7 +658,7 @@
   (check-dead-ratio-oracle (range 2 6) 200))
 
 (deftest a-probe-of-an-unchanged-store-reads-no-idx-bytes
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -695,7 +682,7 @@
   ;; the counter: a torn tail, an orphan frame no slot names, a slot past the log's end,
   ;; and a slot whose frame the log cannot give back.  The seeded counter must match the
   ;; walk after the open, and after the compaction that drops the lost frame's handle.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (dotimes [i 12] (p/put-sentex s {:sentence (list 'p i) :context 'C}))
@@ -733,7 +720,7 @@
   ;; once per live frame during that rewrite, so a one-shot hook on it fires exactly there
   ;; — modelling a concurrent writer that interleaves mid-compaction — and those writes
   ;; must be folded into the compacted result, not lost or overwritten by stale frames.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -779,7 +766,7 @@
   ;; A `clear-records!` that lands in the lock-free rewrite must win: the compactor
   ;; snapshotted the pre-wipe state, so replaying its temps would resurrect it.  The
   ;; abort flag makes the reconcile discard the temps instead.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -822,7 +809,7 @@
         (real raf tmp)))))
 
 (deftest a-post-marker-install-failure-is-retried
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -845,7 +832,7 @@
           (finally (drs/close! s)))))))
 
 (deftest a-post-marker-install-that-keeps-failing-makes-the-kind-refuse
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)
             a (p/put-sentex s {:sentence '(dog Muffet) :context 'C})
@@ -871,7 +858,7 @@
               (finally (drs/close! s2)))))))))
 
 (deftest torn-log-tail-recovers-on-reopen
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s1 (drs/open-record-store dir)
             a  (p/put-sentex s1 {:sentence '(dog Muffet) :context 'C})
@@ -900,7 +887,7 @@
   ;; The marker lets an open skip the torn-tail walk.  What makes that safe is that it
   ;; describes a store nobody holds: written at close, deleted at open, and believed only
   ;; while the log is still exactly that long.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [root (str dir "/records")
             s1   (drs/open-record-store dir)]
@@ -930,7 +917,7 @@
                          ["absent — no marker at all"
                           (fn [root _] (f/remove-clean-marker! root))]]]
     (testing label
-      (with-tmp
+      (tu/with-tmp
         (fn [dir]
           (let [s1 (drs/open-record-store dir)
                 a  (p/put-sentex s1 {:sentence '(dog Muffet) :context 'C})]
@@ -962,7 +949,7 @@
   (some-> ^java.util.Map (:cache (kind (:kinds store))) (.get id)))
 
 (deftest hot-cache-stays-consistent-with-the-store
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -1016,7 +1003,7 @@
 ;; parks there, and the writer's `kill!` runs while it is parked: the put must not land
 ;; after the writer's drop, or the tombstoned record answers every later read.
 (deftest a-read-cannot-put-a-record-back-after-the-writer-drops-it
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -1046,7 +1033,7 @@
           (finally (drs/close! s)))))))
 
 (deftest hot-cache-is-bounded-and-lru
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       ;; An explicit capacity, well under the load: at the `vaelii.disk.cache` default of
       ;; 65,536 a two-thousand-record load evicts nothing, so the bound and the eviction
@@ -1083,7 +1070,7 @@
   ;; without paging the record for one keyword.  Proven white-box: with the hot-record
   ;; cache cold, a strength read must leave it cold, because a record fetch would populate
   ;; it (`hot-cache-stays-consistent-with-the-store` asserts that a `get-sentex` caches).
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)
             a (p/put-sentex s {:sentence '(dog Muffet) :context 'C :strength :monotonic})
@@ -1130,7 +1117,7 @@
           (range n))))
 
 (deftest a-bulk-premise-mark-the-slots-already-record-pages-no-record
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir {:cache-capacity 0})]
         (try
@@ -1141,7 +1128,7 @@
           (finally (drs/close! s)))))))
 
 (deftest a-bulk-premise-mark-that-changes-a-strength-writes-the-record-and-the-slot
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)
             a (p/put-sentex s {:sentence '(dog Muffet) :context 'C :strength :default})
@@ -1159,7 +1146,7 @@
         (is (= (repeat 2 (f/premise-flags true 2)) (map #(slot-flags dir %) [a b])))))))
 
 (deftest a-bulk-premise-mark-skips-an-unwritten-and-a-killed-handle
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -1172,7 +1159,7 @@
           (finally (drs/close! s)))))))
 
 (deftest a-bulk-premise-mark-reads-the-slots-in-handle-order
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try
@@ -1191,7 +1178,7 @@
 ;; real close → reopen, and a reopen that has *not* asked for tokenized writes.
 
 (deftest tokenized-store-round-trips-across-a-restart
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s1 (drs/open-record-store dir {:tokenize? true})
             a  (p/put-sentex s1 {:sentence '(dog Muffet) :context 'C})
@@ -1232,7 +1219,7 @@
               (finally (drs/close! s3)))))))))
 
 (deftest a-wipe-empties-the-dictionary-too
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir {:tokenize? true})]
         (try
@@ -1251,7 +1238,7 @@
   ;; machine crash between ticks can leave the record log's tail ahead of the
   ;; dictionary's.  That is the same cross-file skew `validate-idx-tail!` repairs
   ;; between a log and its idx, and it is repaired the same way.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [tl (str dir "/records/tokens.log")
             s1 (drs/open-record-store dir {:tokenize? true})
@@ -1307,7 +1294,7 @@
     (try (count (p/sentex-ids s)) (finally (drs/close! s)))))
 
 (deftest a-damaged-token-frame-refuses-the-open-and-tombstones-nothing
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (thirty-one-records! dir)
       (let [tl    (str dir "/records/tokens.log")
@@ -1327,7 +1314,7 @@
             "with the two bytes restored every record is still on disk")))))
 
 (deftest an-error-inside-a-token-thaw-fails-the-open-and-tombstones-nothing
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (thirty-one-records! dir)
       (let [thaw   @#'f/thaw-bytes
@@ -1348,7 +1335,7 @@
   ;; and persisting the handle counter is a temp file, an fsync of it, an ATOMIC_MOVE and
   ;; an fsync of the directory.  A KB nobody is writing to must not pay those four
   ;; operations a tick forever, so the blob is rewritten only when the counter moved.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s    (drs/open-record-store dir)
             blob (java.io.File. (str dir "/records/counters.nippy"))]
@@ -1374,7 +1361,7 @@
   ;; slot the truncation did not reach — and the read then answers nil.  Re-freezing that
   ;; nil put the handle back as a **live** record fetching to nothing: an id `sentex-ids`
   ;; names and `get-sentex` has no answer for, which every walk over the ids trips on.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)
             [a b c] (mapv (fn [n] (p/put-sentex s {:sentence (list 'p n) :context 'C
@@ -1411,7 +1398,7 @@
   ;; A provenance record sits at its sentex's handle, so a compaction that drops a lost
   ;; provenance frame drops that handle from the provenance kind alone.  The sentex, and
   ;; its premise mark, stay.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)
             z (p/put-sentex s {:sentence '(p 0) :context 'C})
@@ -1452,7 +1439,7 @@
   ;; five, and only once the keys are spread across enough 2^32 buckets that the ART trie
   ;; itself restructures, which is why a contiguous run never shows it and a store whose
   ;; handles interleave with two other kinds' would.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s      (drs/open-record-store dir)
             n      2000
@@ -1497,7 +1484,7 @@
   ;; The premise set is a `LiveHandleSet` under the sentexes kind lock, the same
   ;; representation as the live-handle set above.  Its two reads, an enumeration and a
   ;; first premise, must hold beside a writer that puts and marks, for the same reason.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s      (drs/open-record-store dir)
             n      2000
@@ -1544,7 +1531,7 @@
   ;; `HandleSet`, rather than a `PersistentHashSet<Long>` built from it.  A later write
   ;; does not reach a handle set already handed out, and the handle set compares equal to the
   ;; Clojure set with the same members from either side of `=`.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [s (drs/open-record-store dir)]
         (try

@@ -17,10 +17,7 @@
             [vaelii.core :as v]
             [vaelii.host.cli :as cli]
             [vaelii.impl.memory :as mem]
-            [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+            [vaelii.test-util :as tu]))
 
 ;;; ── two KBs, and temp directories ─────────────────────────────────────
 
@@ -35,13 +32,6 @@
   (let [a (side :a), b (side :b)]
     (try (v/clear! a) (v/clear! b) (f a b)
          (finally (v/clear! a) (v/clear! b)))))
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-diff-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- sentences [rows] (mapv :sentence rows))
 
@@ -132,9 +122,9 @@
 ;;; ── the round trip: identical knowledge, no shared handle ─────────────
 
 (deftest a-kb-and-its-own-text-export-diff-empty
-  (let [dir (temp-dir "roundtrip")]
+  (let [dir (tu/temp-dir "vaelii-diff-" "roundtrip" "-")]
     (try
-      (rm-rf! dir)
+      (tu/rm-rf! dir)
       (with-sides*
         (fn [a _b]
           (tu/with-terms [bird penguin flies Tweety Opus CxRt]
@@ -147,7 +137,7 @@
             (let [d (v/kb-diff a (.getPath dir))]
               (testing "a string side is read as a text KB, and the two hold the same knowledge"
                 (is (= {:added [] :removed [] :moved [] :belief-changed []} d)))))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (defn- ram-spaces
   "Every space the memory backend's registries hold."
@@ -155,9 +145,9 @@
   (set (concat (keys @@#'mem/record-spaces) (keys @@#'mem/index-spaces))))
 
 (deftest a-path-side-is-released-and-a-passed-kb-stays-open
-  (let [dir (temp-dir "release"), bad (temp-dir "release-bad")]
+  (let [dir (tu/temp-dir "vaelii-diff-" "release" "-"), bad (tu/temp-dir "vaelii-diff-" "release-bad" "-")]
     (try
-      (rm-rf! dir)
+      (tu/rm-rf! dir)
       (spit (str (.getPath bad) "/CxBad.txt") "(dog\n")
       (with-sides*
         (fn [a _b]
@@ -173,14 +163,14 @@
                   "a side read from a path, loaded or refused, leaves no space behind")
               (is (some? (v/handle-of a (list dog Muffet) CxRel))
                   "and the KB the caller passed is still open and readable")))))
-      (finally (run! rm-rf! [dir bad])))))
+      (finally (run! tu/rm-rf! [dir bad])))))
 
 ;;; ── the same comparison from a shell line ─────────────────────────────
 
 (deftest the-cli-diffs-two-text-exports
-  (let [da (temp-dir "cli-a"), db (temp-dir "cli-b")]
+  (let [da (tu/temp-dir "vaelii-diff-" "cli-a" "-"), db (tu/temp-dir "vaelii-diff-" "cli-b" "-")]
     (try
-      (run! rm-rf! [da db])
+      (run! tu/rm-rf! [da db])
       (with-sides*
         (fn [a b]
           (tu/with-terms [dog Muffet Spot Rex CxCli]
@@ -198,7 +188,7 @@
                                   "diff" [(.getPath da) (.getPath db)] {})]
               (is (= [(list dog Rex)] (sentences (:added d))))
               (is (= [(list dog Spot)] (sentences (:removed d))))))))
-      (finally (run! rm-rf! [da db])))))
+      (finally (run! tu/rm-rf! [da db])))))
 
 (deftest the-cli-knows-diff-and-describe-and-says-what-they-take
   (testing "both are commands the driver dispatches"

@@ -636,13 +636,6 @@
 
 ;; ---- an open argument-typed membership -----------------------------------
 
-(defn- permutations [coll]
-  (if (empty? coll)
-    [[]]
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 (def ^:private argument-typed-conjunctions
   "`[label facts goals want]` per row, each a fn of the row's temporaries.  Every fact is
   stated in `CxA`; `want` is the conjunction's answer set under either reading."
@@ -690,7 +683,7 @@
           (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
           (doseq [f facts] (v/assert kb f CxA))
           (doseq [planned? [true false]
-                  order    (permutations goals)]
+                  order    (tu/permutations goals)]
             (is (= want (set (binding [plan/*enabled* planned?] (v/query kb (vec order) CxA))))
                 (str reading ", " label ", planned " planned? ", " (vec order)))))))))
 

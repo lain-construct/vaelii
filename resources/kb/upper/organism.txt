@@ -57,6 +57,7 @@
 (vertebrate_class bird)
 
 (comment butterfly "A winged insect: the adult stage of a lepidopteran, which was a caterpillar first.")
+(unary_predicate butterfly)
 (genl butterfly lepidopteran)
 (adultFormOf butterfly lepidopteran)
 
@@ -65,6 +66,7 @@
 (set/monotonic (folk_species cat))
 
 (comment caterpillar "The larval stage of a lepidopteran: a soft, many-legged crawler that will become a butterfly or a moth. Not a species of its own, so not a folk_species, and diachronicallyDisjoint from butterfly rather than disjoint: the same organism is a caterpillar and later a butterfly.")
+(unary_predicate caterpillar)
 (genl caterpillar lepidopteran)
 (larvalFormOf caterpillar lepidopteran)
 (diachronicallyDisjoint caterpillar butterfly)

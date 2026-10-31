@@ -21,8 +21,8 @@
   - **declaration**: `(d a1 … an)` with `d` in `declaration-predicates`, every argument a
     constant symbol or an integer. A `transitiveInArgInverse` declaration is `(transitiveInArgInverse
     P k genl)`, `P` an ordinary predicate and `k` a positive integer.
-  - **denial**: `(not S)` with `S` a fact, a `genl` edge, or a write of the
-    forced-monotonic set.
+  - **denial**: `(not S)` with `S` a fact, a `genl` edge, a separation (`separations`),
+    or a write of the forced-monotonic set.
   - **rule**: the shapes `parse-rule` accepts.
 
   **The forced-monotonic set** (`forced?`, docs/reference.md, \"Invariants the reference
@@ -30,8 +30,9 @@
   (`predicate-genl?`). A `genlCx` write is read `:monotonic` (`force-monotonic`). A rule
   concluding a forced-monotonic literal or its denial is stored and inert, never refused
   (`inert-write?`), and `check-world` sets it aside under `:inert`. v1 admits `genlCx`,
-  the marks, `negates`, `disjoint`, `covering` and a predicate `genl`; the rest of the
-  forced-monotonic set is outside v1.
+  the marks, `negates` and a predicate `genl`; the rest of the forced-monotonic set is
+  outside v1. The separations `disjoint` and `covering` are defeasible, as a type `genl`
+  edge is.
 
   Refused besides (`check-computed-reads`): a rule that reads a predicate some write
   declares `transitiveInArgInverse`, or a positive literal on a predicate the written `genl`
@@ -61,15 +62,20 @@
   '#{disjoint covering functional functionalInArg irreflexive anti_symmetric asymmetric
      anti_transitive negates transitiveInArgInverse})
 
+(def separations
+  "The separations v1 admits: declarations a nogood family reads as grounds, each kept at
+  the strength it was written at and defeated like a type `genl` edge (docs/reference.md,
+  invariant 6)."
+  '#{disjoint covering})
+
 (def forced-monotonic
   "The functors whose every write is never a loser, whose denial loses its negation nogood
   at either strength, and which a v1 rule concludes only inertly (docs/reference.md,
-  invariants 1, 2 and 6 to 8).  `injection`, `surjection`, `bijection`, `partition`,
-  `sibling_disjoint`, the arity bindings, `except`, `rewriteOf`, `sameAs` and `equals`
-  are outside v1, and `write-kind` refuses a write of one."
+  invariants 1, 2 and 6 to 8).  `injection`, `surjection`, `bijection`, the arity
+  bindings, `except`, `rewriteOf`, `sameAs` and `equals` are outside v1, and
+  `write-kind` refuses a write of one."
   '#{genlCx irreflexive anti_symmetric asymmetric functional functionalInArg
-     anti_transitive negates injection surjection bijection disjoint covering
-     partition sibling_disjoint arity unary binary ternary unary_predicate
+     anti_transitive negates injection surjection bijection arity unary binary ternary unary_predicate
      binary_predicate ternary_predicate unary_function binary_function ternary_function
      variable_arity variable_arity_predicate variable_arity_function arityMin except
      rewriteOf sameAs equals})
@@ -301,7 +307,8 @@
       (unsupported "a declaration argument outside the v1 fragment" {:sentence s}))
     (denial? s)
     (let [b (second s)]
-      (if (or (literal? b false) (genl-edge? b) (forced? b))
+      (if (or (literal? b false) (genl-edge? b) (forced? b)
+              (and (seq? b) (contains? separations (first b))))
         (do (write-kind b) :denial)
         (unsupported "a denial outside the v1 fragment" {:sentence s})))
     (literal? s false) :fact

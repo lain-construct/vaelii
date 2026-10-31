@@ -67,7 +67,9 @@
   ;; reads as unresolved.  Exclude the namespace rather than list a name at a time.
   :unresolved-var {:exclude [taoensso.nippy/zstd-compressor
                              taoensso.nippy/lz4-compressor
-                             vaelii.browser.access]}}
+                             vaelii.browser.access
+                             ;; `vaelii.client` interns its generated wrappers by macro
+                             vaelii.client]}}
 
  ;; The disk backend guards each on-disk file family with a shared `Object` held on
  ;; its record/backend (created once at open, stored in a field).  clj-kondo's

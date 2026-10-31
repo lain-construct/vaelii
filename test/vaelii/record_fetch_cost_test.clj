@@ -230,6 +230,40 @@
           (str "the fetch count must be flat in the extent of the pattern's shape — a "
                "wildcard read is back (" (:fetches narrow) " -> " (:fetches wide) ")")))))
 
+(deftest a-delta-merge-fetches-records-bounded-by-the-delta-whatever-the-kb-size
+  (tu/with-shipped-config
+    (let [probe (fn [population]
+                  (let [open (fn [tag] (doto (v/open-kb (update fetch-space :space conj tag))
+                                         (tu/clear-kb!)))
+                        src  (open ::delta-src)
+                        dst  (open ::delta-dst)
+                        dir  (tu/temp-dir "vaelii-fetch-" "delta" "-")
+                        fact #(list 'rfBase (ind "RfD" %) 'RfVal)]
+                    (try
+                      (tu/rm-rf! dir)
+                      (doseq [kb [src dst]] (v/assert kb '(genlCx CxPerfB CxPerf) 'CxUniverse))
+                      (dotimes [i population]
+                        (v/assert src (fact i) 'CxPerf {})
+                        (v/assert dst (fact (- population 1 i)) 'CxPerf {}))
+                      (let [f (v/fork src)]
+                        (try
+                          (dotimes [i 10]
+                            (v/assert f (list 'except (v/sentex-handle (v/handle-of f (fact i) 'CxPerf)))
+                                      'CxPerfB))
+                          (v/export-text! f (.getPath dir) {:delta? true})
+                          (finally (v/close! f))))
+                      (prof/start)
+                      (let [r    (v/load-text! dst (.getPath dir) {:merge? true})
+                            snap (prof/stop)]
+                        {:fetches (reduce + 0 (vals (:fetches snap))) :refused (:refused r)})
+                      (finally (tu/clear-kb! src) (tu/clear-kb! dst) (tu/rm-rf! dir)))))
+          small (probe 20)
+          large (probe 200)]
+      (is (empty? (:refused small)) "every reference resolves")
+      (is (= (:fetches small) (:fetches large))
+          (str "the merge's fetch count must be flat in the KB's size — a read over every "
+               "stored sentex is back (" (:fetches small) " -> " (:fetches large) ")")))))
+
 (deftest a-declaration-pages-no-instance-it-does-not-believe
   ;; A dump imported `{:belief? :stored}` holds its records with the network empty until
   ;; a `recover`, and an install asserts its ontology into that state.  The clash pass
@@ -292,6 +326,26 @@
       (is (= (pruning 20) (pruning 200))
           (str "what pruning pages on a genl edge must be flat in the members below it that "
                "hold no mint (" (pruning 20) " -> " (pruning 200) ")")))))
+
+(deftest a-genl-edge-pages-the-readers-of-a-lazy-conclusion-once-per-functor
+  (tu/with-shipped-config
+    (let [k     4
+          probe (fn [readers]
+                  (let [kb (doto (fresh) (tu/load-core!))]
+                    (v/assert kb '(genlCx CxPerf CxUniverse) 'CxUniverse)
+                    (dotimes [i readers]
+                      (v/assert kb (list 'set/forwardRule
+                                         (list 'implies (list 'and '(arity ?r 2) (list (symbol (str "rf_tag" i)) '?r))
+                                               (list (symbol (str "rf_tagged" i)) '?r)))
+                                'CxPerf))
+                    (prof/start)
+                    (dotimes [i n]
+                      (v/assert kb (list 'genl (ind "rf_kind" i) 'binary_predicate) 'CxPerf {:strength :monotonic}))
+                    (long (get-in (prof/stop) [:fetches :sentex] 0))))]
+      (is (= (* n k) (- (probe k) (probe 0)))
+          (str "the upper ontology's five arity converses conclude `arity`, and an edge into "
+               "binary_predicate reaches the `binary` one reads: " k " more readers of `arity` "
+               "must add " k " sentex fetches per edge, not " (* 5 k))))))
 
 (deftest a-context-edge-pages-the-marked-facts-not-the-context
   ;; A `genlCx` edge equates what a functional predicate's facts force across the contexts

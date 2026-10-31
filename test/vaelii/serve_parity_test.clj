@@ -24,10 +24,10 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- post-op
-  "Call `handler` with `{:op :args}` and return the parsed EDN reply with `:status`.
-  The `content-type` is what `guard/edn-body?` requires of the write route."
-  [handler op args]
-  (let [body (pr-str {:op op :args (vec args)})
+  "Call `handler` with `{:op :args}`, merged with `extra`, and return the parsed EDN reply
+  with `:status`.  The `content-type` is what `guard/edn-body?` requires of the write route."
+  [handler op args & [extra]]
+  (let [body (pr-str (merge {:op op :args (vec args)} extra))
         resp (handler {:request-method :post :uri "/op"
                        :headers {"content-type" "application/edn"}
                        :body (ByteArrayInputStream. (.getBytes ^String body "UTF-8"))})]
@@ -51,8 +51,8 @@
   "The `:result` of `op`, asserting the call succeeded and that its answer crosses the
   wire.  Every test below goes through this, so the round-trip property is checked once
   per op rather than remembered per test."
-  [handler op args]
-  (let [r (post-op handler op args)]
+  [handler op args & [extra]]
+  (let [r (post-op handler op args extra)]
     (is (:ok r) (str op " refused: " (:error r)))
     (is (= 200 (:status r)) (str op))
     (is (wire-clean? (:result r)) (str op " answered something EDN cannot carry"))
@@ -375,6 +375,37 @@
              :let [al (:arglists (meta vr))]
              :when (and (seq al) (= 'kb (ffirst al)))]
          nm)))
+
+(deftest a-reply-names-a-sentex-another-seat-finds-by-its-content-and-digest
+  (let [base (doto (v/open-kb {:backend :memory :space [::seats 1] :recover? false})
+               (tu/clear-kb!))
+        a    (v/fork base)
+        b    (v/fork base)]
+    (try
+      (v/assert a '(dog Rex) 'CxSeat)
+      (v/assert b '(cat Tom) 'CxSeat)
+      (v/assert b '(dog Rex) 'CxSeat)
+      (let [app (open-app a)
+            ha  (v/handle-of a '(dog Rex) 'CxSeat)
+            m   (ok-result app :sentex [ha] {:digests? true})
+            tok (:token (ok-result app :watch []))
+            _   (v/assert a '(dog Bolt) 'CxSeat)
+            e   (->> (:events (ok-result app :poll [tok 0] {:digests? true}))
+                     (mapcat :believed-added)
+                     (filter #(= '(dog Bolt) (:sentence %)))
+                     first)]
+        (testing "a sentex in a reply resolves on the other seat by its content"
+          (is (= (v/digest a ha) (:digest m)))
+          (is (= (:digest m) (v/digest b (v/handle-of b (:sentence m) (:context m)))))
+          (is (not= (:sentence m) (some-> (v/sentex b (:id m)) :sentence))))
+        (testing "a feed entry carries the digest the other seat computes from its content"
+          (is (= (v/digest b '(dog Bolt) 'CxSeat) (:digest e)))
+          (is (some? (:digest e))))
+        (is (not (contains? (ok-result app :sentex [ha]) :digest)))
+        (is (= :bad-args (:type (post-op app :sentex [ha] {:digests? 1})))))
+      (finally
+        (doseq [k [a b]] (v/close! k))
+        (tu/drop-space! [::seats 1])))))
 
 (deftest every-kb-fn-is-an-op-or-a-named-absence
   ;; An absence with a reason is a decision, and one without is indistinguishable from an

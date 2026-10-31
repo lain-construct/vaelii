@@ -76,7 +76,9 @@
       (is (empty? (v/sentexes-matching kb (list ancestorOf2 Tom Bob) CxB)))
       (is (empty? (v/sentexes-matching kb (list ancestorOf2 Tom Bob)))))
     (testing "and the drop is reported, naming the subsumption rather than the facts"
-      (let [vs (filter #(= :no-placement (:violation %)) (v/violations kb))]
+      (let [vs (filter #(and (= :no-placement (:violation %))
+                             (= (list ancestorOf2 Tom Bob) (:sentence %)))
+                       (v/violations kb))]
         (is (seq vs))
         (is (= [fatherOf2] (get-in (first vs) [:detail :subsumed])))))))
 
@@ -148,25 +150,29 @@
   (tu/with-terms [fdog9 fanimal9 Muffet9 CxA CxE]
     (siblings! kb CxA CxE)
     (v/assert kb (list 'genl fdog9 fanimal9) CxE)         ; the edge lives where CxA cannot see it
-    (let [seen (atom [])]
-      (v/watch kb (list fanimal9 '?x) CxA (fn [e] (swap! seen conj e)))
-      (v/assert kb (list fdog9 Muffet9) CxA)
-      (is (not (v/ask? kb (list fanimal9 Muffet9) CxA))
-          "the fact is a dog CxA can see, but the edge that makes it an animal is not")
-      (is (empty? @seen)
-          "so the watch on (fanimal ?x) does not fire, agreeing with ask"))))
+    (let [seen (atom [])
+          t    (v/watch kb (list fanimal9 '?x) CxA (fn [e] (swap! seen conj e)))]
+      (try
+        (v/assert kb (list fdog9 Muffet9) CxA)
+        (is (not (v/ask? kb (list fanimal9 Muffet9) CxA))
+            "the fact is a dog CxA can see, but the edge that makes it an animal is not")
+        (is (empty? @seen)
+            "so the watch on (fanimal ?x) does not fire, agreeing with ask")
+        (finally (v/unwatch kb t))))))
 
 (tu/deftest-kb a-watch-fires-through-a-predicate-edge-it-can-see
   (tu/with-terms [gdog9 ganimal9 Rex9 CxA CxE]
     (siblings! kb CxA CxE)
     (v/assert kb (list 'genl gdog9 ganimal9) CxA)         ; the edge is visible to the watcher
-    (let [seen (atom [])]
-      (v/watch kb (list ganimal9 '?x) CxA (fn [e] (swap! seen conj e)))
-      (v/assert kb (list gdog9 Rex9) CxA)
-      (is (v/ask? kb (list ganimal9 Rex9) CxA) "CxA sees the edge, so Rex is an animal")
-      (is (= 1 (count @seen)) "and the watch fires on the subsumed match")
-      (is (= Rex9 (get-in (first @seen) [:believed-added 0 :bindings '?x]))
-          "binding the argument the subsumption unified"))))
+    (let [seen (atom [])
+          t    (v/watch kb (list ganimal9 '?x) CxA (fn [e] (swap! seen conj e)))]
+      (try
+        (v/assert kb (list gdog9 Rex9) CxA)
+        (is (v/ask? kb (list ganimal9 Rex9) CxA) "CxA sees the edge, so Rex is an animal")
+        (is (= 1 (count @seen)) "and the watch fires on the subsumed match")
+        (is (= Rex9 (get-in (first @seen) [:believed-added 0 :bindings '?x]))
+            "binding the argument the subsumption unified")
+        (finally (v/unwatch kb t))))))
 
 ;; ---- transitiveInArgInverse: a claim travels the edges the asker can see ---------
 
@@ -400,11 +406,6 @@
               :steps  {:fact [CxLow (dog_ Qb)] :same [CxA (sameAs Pa Qb)] :rw [CxB (rewriteOf Qb Pa)]
                        :edge [CxUniverse (genlCx CxLow CxA)]}}})
 
-(defn- permutations [coll]
-  (if (empty? coll)
-    [[]]
-    (for [x coll, p (permutations (remove #{x} coll))] (cons x p))))
-
 (defn- head-move-reads
   "Wire `shape` and assert its steps in `order` over fresh terms; answer the reader's
   matches of `(dog_ ?x)` as sentences, and the one sentence the reader's election gives."
@@ -439,7 +440,7 @@
 (tu/deftest-kb ^:slow a-reader-that-retires-the-kb-s-head-reads-the-fact-under-its-own-in-every-order
   (doseq [shape (keys head-move-shapes)]
     (let [orders (remove #(some #{[:except :rw]} (partition 2 1 (filter #{:rw :except} %)))
-                         (permutations (sort (keys (:steps (head-move-shapes shape))))))]
+                         (tu/orders (sort (keys (:steps (head-move-shapes shape))))))]
       (is (empty? (head-move-misreads kb shape orders)) (str shape " in " (count orders) " orders")))))
 
 (deftest a-reader-below-a-denial-of-the-rewrite-reads-the-fact-under-the-kb-s-head-in-a-bare-kb
@@ -521,8 +522,6 @@
 (tu/deftest-kb a-derived-declaration-installs-live-not-only-on-recover
   ;; `recover` replays every stored sentex of the functor, so a declaration that
   ;; reaches the cache only there makes a restart change the answer
-  ;; reachable only from a forced-monotonic antecedent, since `disjoint` is forced-monotonic
-  ;; (docs/nmtms.md)
   (tu/with-terms [q1_t q2_t sepOf14]
     (v/assert kb (list 'genl q1_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl q2_t 'thing) 'CxUniverse)

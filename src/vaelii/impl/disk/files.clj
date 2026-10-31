@@ -1,40 +1,29 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.files
-  "Low-level file primitives for the on-disk backend.
+  "Low-level file primitives for the on-disk backend (docs/storage.md).
 
-  - Append-only `.log` files hold length-prefixed nippy frames.
-    Frame layout: `[len: i32 big-endian][nippy-bytes]`.  The offset returned from
-    `append-record!` points at the len prefix.
-  - `.idx` files are fixed-width arrays of 24-byte slots, indexed by id.
-    Slot layout:
-      bytes  0..7  offset (i64, -1 = empty, -2 = tombstone)
-      bytes  8..15 length (i64)
-      bytes 16..19 flags  (u32; bit 0 = the premise bit is meaningful, bit 1 = premise,
-                           bits 2..3 = a premise's strength rank, 0 when unrecorded)
-      bytes 20..23 gen    (u32, reserved — written as 0)
-    Reads rely on the OS page cache; writes overwrite the slot in place.
-    A slot is read in **one positional channel read**, not a seek plus four primitive
-    `readLong`/`readInt` calls — a `RandomAccessFile` is unbuffered, so each of those is
-    its own syscall and moving 24 bytes cost six of them (measured: 52% of a warm
-    record fetch, `lein bench-records`).
-  - `.nippy` files hold whole-blob metadata (counters, the premise set).  Callers
-    rewrite them atomically via `write-nippy-atomic!`.
+  - Append-only `.log` files hold length-prefixed nippy frames, `[len: i32 big-endian]
+    [nippy-bytes]`. The offset `append-record!` returns points at the len prefix.
+  - `.idx` files are fixed-width arrays of 24-byte slots indexed by id:
+    bytes  0..7  offset (i64, -1 = empty, -2 = tombstone)
+    bytes  8..15 length (i64)
+    bytes 16..19 flags (u32; bit 0 = the premise bit is meaningful, bit 1 = premise, bits
+                 2..3 = a premise's strength rank, 0 when unrecorded)
+    bytes 20..23 gen (u32, reserved, written as 0)
+    A slot is read in one positional channel read; writes overwrite the slot in place.
+  - `.nippy` files hold whole-blob metadata (counters, the premise set), rewritten
+    atomically by `write-nippy-atomic!`.
 
-  **Shared-pointer invariant.**  A seek→read/write pair on a `RandomAccessFile` uses that
-  object's single shared file pointer, so any access to a store's live RAF must hold the
-  owning kind lock; the disk adapters take a per-kind lock around every such touch (write,
-  `force!`) for exactly this reason.  The *read* primitives here (`read-slot`,
-  `read-record`, `read-record-sized`) are positional `FileChannel` reads instead — they
-  name the file offset in the call and never touch the pointer, so they neither disturb a
-  concurrent seek nor need one of their own.
+  A seek then read or write on a `RandomAccessFile` uses its single shared file pointer, so
+  any access to a store's live RAF holds the owning kind lock. The read primitives
+  (`read-slot`, `read-record`, `read-record-sized`) are positional `FileChannel` reads, which
+  never touch the pointer.
 
-  Compression: frames freeze under the nippy compressor named by the
-  `vaelii.disk.compress` system property (`lz4` | `zstd` | `none`); default none.
-  nippy reads the compressor id from each frame header, so mixed frames thaw
-  correctly.  Durability: `vaelii.disk.fsync=dsync` opens logs `rwd` (O_DSYNC) so
-  every append is synchronous — off by default (the durability daemon fsyncs on a
-  tick instead)."
+  Frames freeze under the nippy compressor named by `vaelii.disk.compress` (`lz4` | `zstd` |
+  `none`, default none); nippy reads the compressor id from each frame header.
+  `vaelii.disk.fsync=dsync` opens logs `rwd` so every append is synchronous; the default
+  leaves fsync to the durability daemon."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [taoensso.nippy :as nippy]
@@ -69,32 +58,17 @@
 (def ^:private supported-format-versions #{1})
 
 (def manifest-bytes
-  "The most an EDN **manifest** may hold — a dump's `meta.edn` and `index.edn`, a store's
+  "The most an EDN manifest may hold (a dump's `meta.edn` and `index.edn`, a store's
   `format.edn`, an index directory's `layout.edn` and `records.edn`, a belief image's
-  `manifest.edn`, a corpus's `report.edn`, a machine's `catalog.edn`.
-
-  Every one of them is a handful of keys, and each is the *first* thing read about a
-  directory nobody has promised anything about — `vaelii.browser.catalog` probes every
-  entry of the KB search path this way — so an unbounded read is a whole file pulled into
-  a string on the strength of its name.  A megabyte is orders of magnitude above the
-  largest of them (a hand-written `catalog.edn` naming thousands of KBs) and still a
-  bound."
+  `manifest.edn`, a corpus's `report.edn`, a machine's `catalog.edn`). Each is the first
+  thing read about a directory nobody has promised anything about, so the read is bounded."
   (* 1024 1024))
 
 (defn read-edn-manifest
-  "The EDN manifest in `f`, read under `manifest-bytes` — or a refusal
-  (`:manifest-too-large`) naming the file and the bound.
-
-  **The bound is on the read, not on the file's stated length.**  `File.length` answers
-  0 for a FIFO and for most of `/proc`, and a symlink to one of those is a `slurp` that
-  never ends; reading a bounded number of bytes and refusing the one past the bound
-  needs the file to say nothing true about itself.  Bytes rather than characters, so the
-  figure the refusal states is the figure that was read.
-
-  Content the EDN reader cannot parse is refused by name too (`:malformed-manifest`), so
-  a manifest cut mid-form is a `:type` a caller can discriminate on rather than a bare
-  \"EOF while reading\".  Which of the two refusals means \"not a KB\" and which means
-  \"a broken one\" is the caller's to decide."
+  "The EDN manifest in `f`, read under `manifest-bytes`, or a refusal (`:manifest-too-large`)
+  naming the file and the bound. The bound is on the bytes read, not on `File.length`, which
+  answers 0 for a FIFO. Content the EDN reader cannot parse is refused as
+  `:malformed-manifest`; the caller decides which refusal means a broken KB."
   [f]
   (let [^File f (io/file f)
         limit (long manifest-bytes)
@@ -120,17 +94,88 @@
                                 " never one")
                            {:type :malformed-manifest :file (.getPath f)} e))))))
 
-(defn assert-format!
-  "Check the store directory `root` against its `format.edn` sentinel: a known version
-  is ok, an unknown one throws, and a missing sentinel is written with the current
-  version (a pre-sentinel directory is by definition today's layout).
+(defonce ^:private ^java.util.concurrent.atomic.AtomicBoolean dir-fsync-warned
+  (java.util.concurrent.atomic.AtomicBoolean. false))
 
-  **A damaged sentinel is refused, not rewritten.**  A directory whose sentinel was cut
-  mid-write is one whose *records* were being written at the same moment, and writing
-  over it would adopt whatever is beside it as today's layout — the one reading that is
-  certainly wrong.  `:unreadable-store` names the file rather than the version, since
-  there is no version to name.  A sentinel past `manifest-bytes` is refused as
-  `:manifest-too-large`, as the catalog refuses it."
+(defn fsync-dir!
+  "Best-effort fsync of the directory holding `path`, so a file's creation or deletion is
+  durable. Swallowed on filesystems that reject directory fsync, and warned once: a
+  commit marker's directory entry is the atomic commit point of a compaction."
+  [^String path]
+  (try
+    (when-let [dir (.getParentFile (File. path))]
+      (with-open [ch (FileChannel/open (.toPath dir)
+                                       (into-array OpenOption [StandardOpenOption/READ]))]
+        (.force ch true)))
+    (catch Throwable t
+      (when (.compareAndSet dir-fsync-warned false true)
+        (trove/log! {:level :warn :id ::dir-fsync-unsupported
+                     :msg (str "this filesystem rejects directory fsync (" (.getMessage t)
+                               ") — a file's creation or deletion is durable only when "
+                               "the filesystem makes it so, which weakens the compaction "
+                               "commit marker.  Reported once.")
+                     :data {:path path}}))
+      nil)))
+
+(defn fsync-file!
+  "fsync the file at `path`, then the directory holding it (`fsync-dir!`)."
+  [^String path]
+  (with-open [ch (FileChannel/open (.toPath (File. path))
+                                   (into-array OpenOption [StandardOpenOption/WRITE]))]
+    (.force ch true))
+  (fsync-dir! path))
+
+(defn- write-atomic!
+  "Write `path` by calling `write!` on a `FileOutputStream` over a unique temp file,
+  fsyncing the temp, atomic-renaming it over `path`, then fsyncing the parent dir —
+  durable, not merely atomic (a power loss can otherwise leave the rename visible while
+  the data blocks are still zeros).  The per-call unique temp suffix keeps a racing fsync
+  tick from consuming another writer's temp."
+  [^String path write!]
+  (let [tmp    (str path ".tmp." (java.util.UUID/randomUUID))
+        parent (.getParentFile (File. path))]
+    (when parent (.mkdirs parent))
+    (try
+      (with-open [fos (FileOutputStream. tmp)]
+        (write! fos)
+        (.sync (.getFD fos)))
+      ;; Unguarded by platform, unlike `index-snapshot/rename!`, and the difference is
+      ;; the target: every file written this way — the counters, the premise set, the
+      ;; clean marker, the image's meta and its fallback blob, the EDN manifests — is read
+      ;; whole, and only the image's CSR sections are ever mapped.  So no process holds a
+      ;; mapping this replace has to break.
+      (Files/move (Paths/get tmp (into-array String []))
+                  (Paths/get path (into-array String []))
+                  (into-array java.nio.file.CopyOption
+                              [StandardCopyOption/ATOMIC_MOVE
+                               StandardCopyOption/REPLACE_EXISTING]))
+      (fsync-dir! path)
+      (finally
+        (.delete (File. tmp))))))
+
+(defn write-nippy-atomic!
+  "Write `value` to `path` as a headerless nippy stream (`freeze-to-out!`), through
+  `write-atomic!`'s temp, fsync and rename."
+  [^String path value]
+  (write-atomic! path (fn [^FileOutputStream fos]
+                        (let [out (DataOutputStream. (BufferedOutputStream. fos))]
+                          (nippy/freeze-to-out! out value)
+                          (.flush out)))))
+
+(defn- spit-manifest!
+  "Write `m` to `path` as EDN through `write-atomic!`, so a crash mid-write leaves the
+  previous manifest or the new one, never a file `read-edn-manifest` refuses as
+  `:malformed-manifest`."
+  [^String path m]
+  (write-atomic! path (fn [^FileOutputStream fos]
+                        (.write fos (.getBytes ^String (pr-str m)
+                                               java.nio.charset.StandardCharsets/UTF_8)))))
+
+(defn assert-format!
+  "Check the store directory `root` against its `format.edn` sentinel: a known version is
+  ok, an unknown one throws, and a missing sentinel is written with the current version. A
+  damaged sentinel is refused (`:unreadable-store`), not rewritten, and one past
+  `manifest-bytes` is refused as `:manifest-too-large`."
   [root]
   (let [file (File. (str root) "format.edn")]
     (if (.exists file)
@@ -149,31 +194,17 @@
                                  " — this engine supports " (sort supported-format-versions) ".")
                             {:type :unsupported-format :found v
                              :supported supported-format-versions :root (str root)})))))
-      (spit file (pr-str {:format-version format-version})))))
+      (spit-manifest! (.getPath file) {:format-version format-version}))))
 
 (def ^:private index-layout-file "layout.edn")
 
 (defn index-layout-decision
   "Check an index directory `root`'s `layout.edn` sentinel against `current`
-  (`kv/index-layout-version`), as one of three answers: `:current` when the layout version
-  matches, `:stale` when it does not — an absent sentinel over a `populated?` log
-  included, which is what an index written before the sentinel existed looks like —
-  and `:unwritten` for a fresh, empty directory, which needs the sentinel but no
-  rebuild.  A stale log replays cleanly and then misses every read whose key shape
-  moved, so `:stale` is the caller's cue to clear the index, rebuild it from the
-  records, and then `write-index-layout!`.
-
-  **This reads and never writes.** A base mounted under `:base` opts is checked by
-  the same call and may not be written to, so the caller writes the sentinel
-  `:unwritten` calls for — `write-index-layout!` for a KB that owns the directory, nothing
-  at all for a read-only mount.
-
-  **A damaged sentinel is `:stale`**, not a refusal, and so is one past `manifest-bytes`.
-  The question this answers is \"can I prove these entries were keyed the way this build
-  keys them\", and a sentinel cut mid-write proves nothing — so the answer is the one an
-  unprovable sentinel already gets, and the index is rebuilt from the records, which are
-  the ground truth either way.  That is the opposite of `assert-format!`'s reading of
-  the same damage, because an index is a cache and records are not."
+  (`kv/index-layout-version`): `:current` when the version matches, `:stale` when it does
+  not (an absent sentinel over a `populated?` log, a damaged one, and one past
+  `manifest-bytes` included), and `:unwritten` for a fresh, empty directory. `:stale` is the
+  caller's cue to clear the index, rebuild it from the records and `write-index-layout!`.
+  This reads and never writes, since a base mounted under `:base` may not be written to."
   [root current populated?]
   (let [file (File. ^String (str root) ^String index-layout-file)]
     (if (.exists file)
@@ -193,14 +224,30 @@
   "Write `root`'s `layout.edn` as mid-rebuild, so an open that lands before
   `write-index-layout!` reads `:stale` and rebuilds again."
   [root]
-  (spit (str root "/" index-layout-file) (pr-str {:index-layout ::rebuilding}))
+  (spit-manifest! (str root "/" index-layout-file) {:index-layout ::rebuilding})
   nil)
 
 (defn write-index-layout!
   "Write `root`'s `layout.edn` naming `current` — the commit mark of a layout
   rebuild (`index-layout-decision`)."
   [root current]
-  (spit (str root "/" index-layout-file) (pr-str {:index-layout current}))
+  (spit-manifest! (str root "/" index-layout-file) {:index-layout current})
+  nil)
+
+(def ^:private reasoners-file "reasoners.edn")
+
+(defn recorded-reasoners
+  "The reasoner names recorded in the store directory `root` (`reasoners.edn`), as a set,
+  or nil when the directory records none.  Read through `read-edn-manifest`."
+  [root]
+  (let [file (File. ^String (str root) ^String reasoners-file)]
+    (when (.exists file)
+      (set (:reasoners (read-edn-manifest file))))))
+
+(defn write-reasoners!
+  "Record `names` as the reasoner set of the store directory `root`."
+  [root names]
+  (spit-manifest! (str root "/" reasoners-file) {:reasoners (vec (sort names))})
   nil)
 
 (def ^:private records-identity-file "records.edn")
@@ -227,7 +274,7 @@
   ;; the identity is written on the *first* open, which is before anything else has had cause
   ;; to make the directory
   (.mkdirs (File. ^String (str root)))
-  (spit (str root "/" records-identity-file) (pr-str {:records identity}))
+  (spit-manifest! (str root "/" records-identity-file) {:records identity})
   nil)
 
 (defn- dsync? [] (= :dsync (config/disk-fsync-mode)))
@@ -275,13 +322,11 @@
 
 ;; ---- a store that stops ---------------------------------------------------
 ;; A disk store's channels are shared by every call, so a channel that closes under one
-;; call — a thread interrupt closes a `FileChannel` it is blocked in, and a closed channel
-;; also closes the `RandomAccessFile` that owns it — is closed for every later call.  An
-;; I/O failure on a write leaves the file in a state the next open repairs rather than the
-;; running session.  Either way the store answers every later call with one typed refusal
-;; rather than whichever `IOException` the next channel it touches happens to throw.  The
-;; latch is an atom per store holding `{:reason :path :cause}`; the first fault wins, and
-;; a reopen is the only way out.
+;; call (a thread interrupt closes a `FileChannel` it is blocked in, and with it the
+;; owning `RandomAccessFile`) is closed for every later call. Either that or an I/O
+;; failure on a write makes the store answer every later call with one typed refusal.
+;; The latch is an atom per store holding `{:reason :path :cause}`; the first fault wins,
+;; and a reopen is the only way out (docs/storage.md, "A store that stops").
 
 (defn- fault-message [{:keys [reason path]}]
   (str "disk store " path
@@ -370,16 +415,10 @@
       (recur (+ p (long (.write ch bb p)))))))
 
 (defn- append-bytes!
-  "Append `buf` — one or more complete frames, already packed — at the log's end and
-  return the offset it landed at.  **All or nothing.**  A write that fails partway
-  (`ENOSPC`, an I/O error) would otherwise leave a frame whose length prefix claims more
-  bytes than follow it, with the session appending past it: the next dirty open's
-  length-chain walk (`log-tail-offset`) would then step from that prefix into the
-  middle of a later frame, read garbage as a length, stop, and truncate everything
-  after — records fsynced by later ticks included.  So the log is set back to its
-  pre-write length before the failure travels, and what it holds is frames the walk
-  can step over, or nothing new.  Two syscalls on the hot path: the length and the
-  one positional write.  Caller must hold the log's write lock."
+  "Append `buf` (one or more complete frames, already packed) at the log's end and return the
+  offset it landed at. All or nothing: a write that fails partway sets the log back to its
+  pre-write length before the failure travels, so the length-chain walk (`log-tail-offset`)
+  never steps into the middle of a later frame. Caller must hold the log's write lock."
   ^long [^RandomAccessFile log-raf ^bytes buf]
   (let [off (.length log-raf)]
     (try
@@ -431,15 +470,10 @@
     (append-bytes! log-raf buf)))
 
 (defn append-records-sized!
-  "Append every value in `values` to the log, each its own frame, **as one write** —
-  `append-record-sized!`'s batch form.  Returns a vector of `[offset payload-length]` in
-  input order, which is the pair an idx slot records, so the caller writes the slots
-  without a second read of any length prefix.
-
-  All-or-nothing for the whole batch (`append-bytes!`), which is stronger than a loop of
-  single appends and is the point: a record at a time is two syscalls apiece on an
-  unbuffered `RandomAccessFile`, and a bulk load pays that per record for nothing — the
-  frames are known before any of them is written.  Caller must hold the log's write lock."
+  "Append every value in `values` to the log, each its own frame, as one write
+  (`append-record-sized!`'s batch form). Returns a vector of `[offset payload-length]` in
+  input order, the pair an idx slot records. All or nothing for the batch
+  (`append-bytes!`). Caller must hold the log's write lock."
   [^RandomAccessFile log-raf values]
   (let [payloads (mapv freeze-bytes values)
         total    (reduce (fn [^long acc ^bytes b] (+ acc 4 (alength b))) 0 payloads)
@@ -510,27 +544,15 @@
            :tombstone? (= offset tombstone-offset)})))))
 
 ;; ---- slot flags ---------------------------------------------------------
-;; Two bits of the reserved `flags` word, because one would not be enough: a slot
-;; written before they existed reads as 0, and 0 must mean **unknown** rather than
-;; "not a premise".  So bit 0 says the slot speaks at all and bit 1 is what it says.
-;; A store therefore needs no version bump and no declaration anyone could set wrongly
-;; — a slot written by an older build is answered from its record, and any write
-;; upgrades it.
-;;
-;; Bits 2..3 carry a premise's **strength rank** — the same column trick, one field up.
-;; `premise-strength` is read once per premise on every `recover`, and off disk that
-;; meant paging the whole record for one keyword.  The rank rides the slot the open walk
-;; already reads, so the reader answers off 24 bytes instead of a frame + thaw.  0 means
-;; "unrecorded" — a non-premise, or a premise slot older than these bits — and sends the
-;; caller to the record, so an older build's slots (and an older build reading a newer
-;; one, which ignores bits it does not know) stay correct with no format bump.  1 is
-;; `:default` and 2 is `:monotonic`, matching `strength/rank-of`.  Like the premise bit,
-;; the rank is a cache over the durable record and shares its residual: the flags word is
-;; not crash-atomic (a 24-byte slot straddles a page ~0.6% of the time), so a torn flags
-;; page can leave a stale bit or rank across a crash.  `reconcile-slot-flags!` closes it —
-;; a **dirty** open walks the records and rewrites every slot whose flags disagree — and
-;; until that open the record stays the truth, with a re-mark or a compaction repairing it
-;; the same way.
+;; Bit 0 says the flags word speaks at all and bit 1 is what it says, because a slot
+;; written before the bits existed reads as 0, and 0 must mean unknown, not "not a
+;; premise". Bits 2..3 carry a premise's strength rank (1 `:default`, 2 `:monotonic`,
+;; matching `strength/rank-of`; 0 means unrecorded), so `premise-strength` on `recover`
+;; answers off the slot the open walk already reads. An older build's slots, and an older
+;; build reading a newer one, stay correct with no format bump. The flags word is a cache
+;; over the durable record and is not crash-atomic (a 24-byte slot straddles a page ~0.6%
+;; of the time), so `reconcile-slot-flags!` rewrites every slot whose flags disagree on a
+;; dirty open, and until then the record is the truth.
 
 (def ^:private flag-premise-known 0x1)
 (def ^:private flag-premise       0x2)
@@ -662,16 +684,11 @@
   (.seek raf 0))
 
 (defn scan-idx!
-  "Walk the idx from the start, invoking `(on-slot id offset length flags)` for every
-  live slot (not empty, tombstone, or zero-filled gap).  Reads in 96 KiB chunks (a
-  per-id `read-slot` on a large idx pays one seek each); re-seeks per chunk so an
-  `on-slot` that itself seeks `idx-raf` cannot derail the scan.
-
-  The flags ride along because this walk is the only one an open makes: whatever a slot
-  can answer without reading its record has to be answered here or not at all.
-
-  `r`, when non-nil, is a `vaelii.impl.progress` reporter ticked with the slots each
-  chunk covers, live or not."
+  "Walk the idx from the start, invoking `(on-slot id offset length flags)` for every live
+  slot (not empty, tombstone or zero-filled gap), in 96 KiB chunks. The flags ride along
+  because an open's walk is the only one that can answer what a slot knows without reading
+  its record. `r`, when non-nil, is a `vaelii.impl.progress` reporter ticked with the slots
+  each chunk covers."
   ([idx-raf on-slot] (scan-idx! idx-raf on-slot nil))
   ([^RandomAccessFile idx-raf on-slot r]
    (let [total       (.length idx-raf)
@@ -696,32 +713,21 @@
                                 (long (bit-and 0xffffffff (.getInt bb (int (+ off 16)))))))
                      (recur (inc i) (long (+ off slot-bytes)))))))
              (when r (progress/tick! r (quot n slot-bytes)))
-             ;; Advance by the WHOLE SLOTS consumed, never by `n`.  The inner loop
-             ;; refuses a partial trailing slot, so a read that is not a multiple of
-             ;; `slot-bytes` leaves a remainder — and stepping `pos` past it while
-             ;; stepping `base-id` by the slot count alone would start the next chunk
-             ;; mid-slot and misattribute every id from there on, silently.  `read` may
-             ;; return short at any point; today's chunk size only makes that rare.  A
-             ;; read too short to hold one slot ends the walk, which is what the inner
-             ;; loop already says about a partial slot at the end of the file.
+             ;; Advance by the whole slots consumed, never by `n`: a read that is not a
+             ;; multiple of `slot-bytes` leaves a remainder, and stepping `pos` past it
+             ;; while stepping `base-id` by the slot count would start the next chunk
+             ;; mid-slot and misattribute every later id. A read too short to hold one
+             ;; slot ends the walk.
              (let [used (* slot-bytes (quot n slot-bytes))]
                (when (pos? used)
                  (recur (long (+ base-id (quot n slot-bytes)))
                         (long (+ pos used))))))))))))
 
 (defn read-nippy-file
-  "Read a whole-file nippy value, returning `default` when the file is missing,
-  empty, or unreadable (a rare torn blob thaws to default + a warning rather than
-  throwing — these blobs hold reconstructible metadata).
-
-  **The file's bytes first, then the thaw over those.**  A torn blob is a prefix of one
-  `write-nippy-atomic!` wrote, so every count it holds is one the writer wrote, and the
-  thaw ends on the missing tail.  Bytes that are no prefix of a nippy stream can decode a
-  count of any size; the `OutOfMemoryError` its allocation raises is rethrown, as every
-  `VirtualMachineError` is, since a default read after a heap failure would hand a caller
-  `{:seq 1}` for its counters.  The thaw is `thaw-from-in!`, because
-  `write-nippy-atomic!` writes with `freeze-to-out!`: a headerless typed stream, not a
-  `freeze`d array."
+  "Read a whole-file nippy value, returning `default` when the file is missing, empty or
+  unreadable (a torn blob thaws to default and a warning). The file's bytes are read first and
+  thawed with `thaw-from-in!`, because `write-nippy-atomic!` writes a headerless typed stream.
+  A `VirtualMachineError` is rethrown as itself, so a heap failure never returns `default`."
   ([path] (read-nippy-file path nil))
   ([^String path default]
    (let [f (File. path)]
@@ -741,74 +747,6 @@
            default))
        default))))
 
-(defonce ^:private ^java.util.concurrent.atomic.AtomicBoolean dir-fsync-warned
-  (java.util.concurrent.atomic.AtomicBoolean. false))
-
-(defn fsync-dir!
-  "Best-effort fsync of the directory holding `path`, so a file's creation/deletion
-  is durable.  Swallowed on filesystems that reject directory fsync — `FileChannel/open`
-  on a directory is not portable.
-
-  **Warned once**, because the swallow is not free: a commit marker's *existence* is
-  the atomic commit point of a compaction, and `replay-temp-onto-raf!` truncates the
-  live log before copying the temp over it.  Where the marker's directory entry never
-  reaches the platter, a power loss mid-replay leaves no marker to replay from and no
-  original to fall back on.  Silence makes that exposure indistinguishable from a
-  filesystem where the fsync worked."
-  [^String path]
-  (try
-    (when-let [dir (.getParentFile (File. path))]
-      (with-open [ch (FileChannel/open (.toPath dir)
-                                       (into-array OpenOption [StandardOpenOption/READ]))]
-        (.force ch true)))
-    (catch Throwable t
-      (when (.compareAndSet dir-fsync-warned false true)
-        (trove/log! {:level :warn :id ::dir-fsync-unsupported
-                     :msg (str "this filesystem rejects directory fsync (" (.getMessage t)
-                               ") — a file's creation or deletion is durable only when "
-                               "the filesystem makes it so, which weakens the compaction "
-                               "commit marker.  Reported once.")
-                     :data {:path path}}))
-      nil)))
-
-(defn fsync-file!
-  "fsync the file at `path`, then the directory holding it (`fsync-dir!`)."
-  [^String path]
-  (with-open [ch (FileChannel/open (.toPath (File. path))
-                                   (into-array OpenOption [StandardOpenOption/WRITE]))]
-    (.force ch true))
-  (fsync-dir! path))
-
-(defn write-nippy-atomic!
-  "Write a value to `path` by writing a unique temp file, fsyncing it, atomic-renaming
-  over `path`, then fsyncing the parent dir — durable, not merely atomic (a power loss
-  can otherwise leave the rename visible while the data blocks are still zeros).  The
-  per-call unique temp suffix keeps a racing fsync tick from consuming another
-  writer's temp."
-  [^String path value]
-  (let [tmp    (str path ".tmp." (java.util.UUID/randomUUID))
-        parent (.getParentFile (File. path))]
-    (when parent (.mkdirs parent))
-    (try
-      (with-open [fos (FileOutputStream. tmp)]
-        (let [out (DataOutputStream. (BufferedOutputStream. fos))]
-          (nippy/freeze-to-out! out value)
-          (.flush out)
-          (.sync (.getFD fos))))
-      ;; Unguarded by platform, unlike `index-snapshot/rename!`, and the difference is
-      ;; the target: every file written this way — the counters, the premise set, the
-      ;; clean marker, the image's meta and its fallback blob — is read whole through
-      ;; `read-nippy-file`, and only the image's CSR sections are ever mapped.  So no
-      ;; process holds a mapping this replace has to break.
-      (Files/move (Paths/get tmp (into-array String []))
-                  (Paths/get path (into-array String []))
-                  (into-array java.nio.file.CopyOption
-                              [StandardCopyOption/ATOMIC_MOVE
-                               StandardCopyOption/REPLACE_EXISTING]))
-      (fsync-dir! path)
-      (finally
-        (.delete (File. tmp))))))
-
 (defn- frame-length-at
   "The payload length of the frame whose prefix starts at `pos`, or nil where
   `log-tail-offset`'s length chain ends: fewer than four bytes remain, the prefix is
@@ -822,38 +760,14 @@
         n))))
 
 (defn log-tail-offset
-  "The truncation point after a torn trailing write, computed from the frame **lengths**
-  alone — read a prefix, skip `n`, repeat — without thawing anything.
-
-  This is `scan-log`'s return value without decoding the log, and decoding is the whole
-  cost: finding one offset in a large log means thawing every frame ahead of it, whose
-  values are then discarded, and it makes the open path depend on whether this build can
-  decode what is in the log.  That dependency is not hypothetical — a record class rename
-  turned one unreadable store into an exception per record, thrown from a scan whose
-  only question was *how long is the log*.
-
-  **Nothing is thawed, deliberately, and the length chain is enough.**  A frame is
-  appended before the idx slot that points at it, so a torn tail frame is one nothing
-  references, and the idx is the authority on what is live.  Truncating the tail is
-  therefore tidiness rather than repair, and `validate-idx-tail!` — which still runs —
-  is what actually reconciles a slot against a log that lost its end.  A frame whose
-  payload is damaged but whose length is intact stays.  In a record log it fails (if
-  anything references it at all) at that one record.  In a log the open reads whole — the
-  token dictionary, the index's `kv.log`, the operation log — `scan-log` refuses it by
-  name (`:damaged-frame`) unless it is the chain's last frame.  The alternative is worse
-  in exactly the case that bit us: thawing to decide truncation means a build that cannot
-  decode *deletes the log it cannot read*.
-
-  A **non-positive** length terminates the walk rather than being stepped over.  A frame
-  payload is a nippy value and is never empty, so a zero can only be space that was never
-  written — and on a filesystem that zero-fills past a tear, stepping over zeros four
-  bytes at a time would walk to EOF and pronounce the whole torn tail intact.
-
-  The prefixes are read through a **read buffer** rather than one `seek`+`readInt` apiece: a
-  `RandomAccessFile` is unbuffered, so per-frame reads make this syscall-bound (measured
-  at 5.8M frames: 5.4s that way, 23ms this way). The buffer is filled by *positional*
-  channel reads, which name the offset and never touch the shared file pointer — so this
-  neither disturbs a concurrent append nor needs the kind lock."
+  "The truncation point after a torn trailing write, computed from the frame lengths alone
+  (read a prefix, skip `n`, repeat) without thawing anything: `scan-log`'s return value
+  without decoding the log. A frame is appended before the idx slot that points at it, so
+  truncating the tail is tidiness, and `validate-idx-tail!` reconciles a slot against a log
+  that lost its end. A non-positive length terminates the walk, since a payload is never
+  empty and a zero is space never written. The prefixes are read through a buffer by
+  positional channel reads, which never touch the shared file pointer, so this needs no kind
+  lock. See docs/storage.md, \"Durability + crash-safety\"."
   ^long [^RandomAccessFile log-raf]
   (let [ch  (.getChannel log-raf)
         len (.length log-raf)
@@ -877,30 +791,14 @@
             (recur (long frame-end) base limit)))))))
 
 (defn scan-log
-  "Scan an append-only log, calling `(f index value)` for each frame in order.  Returns
-  the byte offset of the first byte past the last frame read — the truncation point
-  after a torn trailing write.
-
-  The walk follows the same length chain `log-tail-offset` walks, and stops where that
-  chain ends.  A frame inside the chain whose payload does not thaw is one of two things,
-  told apart by what follows it:
-
-  - **The chain's last frame** is read as a torn tail: its length prefix landed and its
-    payload did not.  The walk stops at its offset, logs it, and the caller truncates it
-    exactly as it truncates a torn prefix.
-  - **Any earlier frame** is damage inside the log, and the walk throws `:damaged-frame`
-    naming `path`, the offset and the frame's index, with the thaw's exception as the
-    cause.  Stopping there instead would drop every frame after it as though the log had
-    ended, and a caller that rebuilds state from the log would lose all of them.
-
-  A `VirtualMachineError` (an `OutOfMemoryError` above all) is rethrown as itself: it
-  says the JVM could not finish the thaw, not that the frame is bad.
-
-  A caller that wants only the truncation offset wants `log-tail-offset`, which reads the
-  length prefixes and skips the decoding entirely.
-
-  `r`, when non-nil, is a `vaelii.impl.progress` reporter ticked with the bytes each
-  frame takes, its length prefix included."
+  "Scan an append-only log, calling `(f index value)` for each frame in order. Returns the
+  byte offset of the first byte past the last frame read, the truncation point after a torn
+  trailing write. The walk follows `log-tail-offset`'s length chain. A frame whose payload
+  does not thaw is a torn tail when it is the chain's last (the walk stops at its offset and
+  logs it), and damage otherwise: the walk throws `:damaged-frame` naming `path`, the offset
+  and the frame's index, with the thaw's exception as cause. A `VirtualMachineError` is
+  rethrown as itself. `r`, when non-nil, is a progress reporter ticked with the bytes each
+  frame takes."
   (^long [log-raf f] (scan-log log-raf nil f nil))
   (^long [log-raf path f] (scan-log log-raf path f nil))
   (^long [^RandomAccessFile log-raf path f r]
@@ -945,23 +843,12 @@
     (.seek log-raf new-len)))
 
 (defn validate-idx-tail!
-  "Tombstone every idx slot whose frame (offset + 4 + length) extends past the log's
-  current length — a torn trailing write where the idx page was persisted but the log
-  pages were not.  Returns the count repaired.
-
-  **This catches a slot that outruns the log, and only that.**  A slot is 24 bytes and a
-  page is 4096, which 24 does not divide, so about 0.6% of slots straddle a page boundary
-  — and a crash can persist one of those pages and not the other, leaving a slot spliced
-  from two different writes.  A splice whose offset and length still land inside the log
-  passes this check and surfaces later as a thaw failure on that one handle
-  (`:type :malformed-record`, `vaelii.impl.disk.codec`), which is a read that refuses
-  rather than a wrong record.  Detecting the splice itself would take a per-slot checksum,
-  which the 24-byte slot has no room for; the `gen` word is reserved and written as 0.
-
-  Rides `scan-idx!`'s chunked walk, which reads the whole idx — a per-id `read-slot`
-  would be a seek and a buffer allocation per slot where the chunked read pays one per
-  4096 — so every live slot is tested and *tail* names where the damage can be rather
-  than a range this bounds the walk to."
+  "Tombstone every idx slot whose frame (offset + 4 + length) extends past the log's current
+  length, a torn trailing write where the idx page persisted and the log pages did not.
+  Returns the count repaired. It catches a slot that outruns the log and only that: a slot
+  spliced from two pages that still lands inside the log surfaces later as a thaw failure
+  on that handle (`:type :malformed-record`), since the 24-byte slot has no room for a
+  checksum. Rides `scan-idx!`'s chunked walk, so every live slot is tested."
   ^long [^RandomAccessFile idx-raf ^RandomAccessFile log-raf]
   (let [log-len  (.length log-raf)
         repaired (volatile! 0)]
@@ -979,15 +866,10 @@
 ;; originals are still authoritative and the orphan temps are dropped.
 
 (defn compact-temp-paths
-  "Sibling temp + commit-marker paths for a crash-safe compaction of `targets` — the files
-  rewritten together and installed together.  A record kind hands in its (log, idx) pair;
-  the KV backend's write-ahead log is one file and hands in itself.  **One marker governs
-  the set**, keyed off the first target, which is what makes the install atomic across
-  however many files it covers.
-
-  Returns `{:temps [[target temp] …] :marker marker}`, the temps in the order they were
-  named — so a caller that installs them individually takes them apart, and the three
-  helpers below that treat them as a set do not have to know how many there are."
+  "Sibling temp and commit-marker paths for a crash-safe compaction of `targets`, the files
+  rewritten and installed together (a record kind's (log, idx) pair, or the KV backend's one
+  log). One marker governs the set, keyed off the first target. Returns `{:temps [[target
+  temp] …] :marker marker}` in the order named."
   [& targets]
   {:temps  (mapv (fn [^String t] [t (str t ".compact")]) targets)
    :marker (str ^String (first targets) ".compact-commit")})
@@ -1133,18 +1015,12 @@
   (fsync-dir! (dirty-marker-path root)))
 
 ;; ---- clean-shutdown log lengths -----------------------------------------
-;; A clean close records how long each log was when it fsynced.  On the next open a log
-;; whose length still matches needs no tail scan: nothing was appended after the fsync,
-;; so there is no torn tail to find.
-;;
-;; The check is **self-validating**, which is what makes it safe to trust.  A crash
-;; leaves the marker describing an earlier, shorter log, and the mismatch sends the open
-;; down the full scan; so does a marker that is absent, unreadable, or claims a log
-;; longer than exists.  `remove-clean-marker!` on open narrows it further, so the marker
-;; exists only while nothing holds the store — a stale one cannot outlive one session.
-;;
-;; The lengths are a **hint and the bytes are the truth**, the same discipline the
-;; counters blob follows: any disagreement resolves toward the file.
+;; A clean close records how long each log was when it fsynced. An open whose log length
+;; still matches needs no tail scan. The check validates itself: a crash leaves a marker
+;; describing a shorter log, and a marker that is absent, unreadable or claims a log longer
+;; than exists sends the open down the full scan. `remove-clean-marker!` on open keeps a
+;; stale marker from outliving one session. The lengths are a hint and the bytes are the
+;; truth.
 
 (defn clean-marker-path ^String [root] (str root "/clean.nippy"))
 

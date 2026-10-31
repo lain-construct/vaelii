@@ -26,10 +26,11 @@ The tools, all on the public API (`vaelii.core`):
 | `git grep` | the shipped files, the tests and the scripts |
 
 `kb-integrity` runs only the categories its `:categories` option names. With no
-`:categories` it runs every category except seven review-only ones (`:twin-genls`,
+`:categories` it runs every category except nine review-only ones (`:twin-genls`,
 `:derivable-stated-edge`, `:disjoint-could-be-partition`, `:missing-arg`,
-`:taxonomy-island`, `:rule-clash-review`, `:rule-macro-review`), so a full review runs the
-sweep twice: once with no `:categories`, and once naming those seven.
+`:open-sibling-pair`, `:undecided-relation-property`, `:taxonomy-island`,
+`:rule-clash-review`, `:rule-macro-review`), so a full review runs the sweep twice: once
+with no `:categories`, and once naming those nine.
 
 ## The order
 
@@ -99,7 +100,8 @@ that the step does not apply and why ([ch. 28](28-vocab-pr.md)).
 12. **no naked terms**: the term ships with its metatype, `genl`, every `arg`, its
     separations or overlaps with siblings, its comment, and its relation properties and
     cross-references where they apply. `kb-integrity` `:missing-arg`,
-    `:not-under-thing` and `:undeclared-arity`. → [ch. 6](06-definitional-block.md)
+    `:not-under-thing`, `:undeclared-arity`, `:open-sibling-pair` and
+    `:undecided-relation-property`. → [ch. 6](06-definitional-block.md)
 13. **meaning, not name**: the comment says what membership or the relation means, with
     examples, the hard ones included, and does not restate the name. Review.
     → [ch. 7](07-comments.md)
@@ -197,7 +199,7 @@ that the step does not apply and why ([ch. 28](28-vocab-pr.md)).
 changed terms, in the context the terms are stated in.
 
 **Example.** Two `kb-integrity` calls cover steps 4, 10, 12, 15, 21 to 23, 26, 27, 30, 31,
-34 and 35. The first runs the default categories, and the second runs the seven
+34 and 35. The first runs the default categories, and the second runs the nine
 review-only ones:
 
 ```clojure
@@ -205,6 +207,7 @@ review-only ones:
 (v/kb-integrity kb new-terms 'CxUniverse
                 {:categories #{:twin-genls :derivable-stated-edge
                                :disjoint-could-be-partition :missing-arg
+                               :open-sibling-pair :undecided-relation-property
                                :taxonomy-island :rule-clash-review
                                :rule-macro-review}})
 ```

@@ -1,120 +1,15 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.profile
-  "What a KB is **asked**, and what each answer costs the index — seven tallies behind
-  one switch.
-
-  The index has six families and several access paths into them (`docs/indexing.md`),
-  and which of them pays for itself is a question about a *workload*, not about the code:
-  a KB whose every pattern leads with a ground first argument pays for three secondary
-  root families it never reads, and a KB that asks `(?type Muffet)` a thousand times a
-  second lives or dies on the slot predicate set.  Nothing in the engine answers that
-  from the outside, so this is the instrument that does.
-
-  Seven tallies, one per question:
-
-  * **`:goals`** — every retrieval decision the matchers took, keyed by the literal's
-    *shape* and by the access path that shape chose.  This is the distribution an index
-    policy would have to serve.  Two matchers decide: `res/candidate-handles` (the trie
-    against the roots) and `res/matches-hierarchical` (the set-algebra path).  It counts
-    **retrievals rather than questions** — a matcher that fans over a predicate's spec
-    closure records one entry per sub-predicate — so a total here is index traffic, not
-    a count of what a caller asked.
-  * **`:reads`** — every `IndexStore` read, by family.  This is the one that answers
-    whether a family pays for itself: a KB that never reads the argument roots is a KB
-    paying three write taxes for an access path nothing takes.  The trie counts as two
-    families here, `:trie-lookup` and `:trie-counts`, because retrieval and the cost
-    model read the same structure for unrelated reasons and a run can be dominated by
-    either.
-  * **`:fan`** — every trie walk `KvIndexStore.lookup` performed, keyed by the path's
-    first token, with the node probes it cost.  A walk that narrows visits one node per
-    level; a walk that fans out visits the whole child set at the level it got stuck, and
-    this is where that shows up as a number rather than as an anecdote.
-  * **`:sift`** — the three widths of one set-algebra retrieval: how many candidates the
-    argument-root probe returned, how many reached `unify`, how many matched.  Keyed like
-    `:goals`, and the read-efficiency reading a layout change is judged on.
-  * **`:fetches`** — every `RecordStore` read, by kind: the three record fetches
-    (`:sentex`, `:justification`, `:provenance`), `:premise-strength`, and the three
-    whole-store enumerations (`:sentex-ids`, `:justification-ids`, `:premise-ids`), each
-    counted once per call whatever the enumeration's size.  **The other index**: a `:reads`
-    figure prices what the trie and the roots were asked, and says nothing at all about
-    the records those handles then name.  The two come apart exactly where it hurts — a
-    probe that narrows to one index read and then fetches a record per candidate handle
-    reads *well* by `:reads` and badly by this — and on the durable store a fetch is a
-    positional slot read, a positional frame read and a nippy thaw past the LRU, which is
-    orders above what any index read costs.  `record_fetch_cost_test` is the counted test
-    set from it.
-  * **`:writes`** — what one `index-sentex` wrote, per family, keyed by functor.  Every
-    family is a tax on every assert, so a policy that *adds* one is priced here.
-  * **`:retracts`** — the same for `unindex-sentex!`, and a separate tally rather than a
-    sign on the one above, because the two do not have the same shape.  An assert's cost
-    is a constant per family; a retraction's is not, since a trie node is deleted only
-    when the last sentex under it goes and how often that happens is a property of how
-    much prefix the corpus shares.  `:dead` is that number — trie nodes this retraction
-    emptied — and it is the one quantity here a corpus can move without changing what it
-    holds.  Merged into `:writes`, the per-assert constant a counted test is set from would stop
-    being readable.
-
-  ## The shape key
-
-  A goal's key is `[functor polarity adornment path]`, where the adornment is one character
-  per argument, in position order:
-
-      b  a ground atom the roots key      (a symbol: an individual, a type, a context)
-      B  a ground compound                (keyed whole by the argument roots)
-      n  a ground token the roots do NOT key   (a number, a string)
-      f  an open atom                     (a variable)
-      F  an open compound                 (a compound holding a variable)
-
-  So `(parentOf ?x Tom)` is `[parentOf :positive \"fb\" :arg-roots]` and
-  `(mass ?o (QuantityFn ?n Kilogram))` is `[mass :positive \"fF\" :structural]`.  `functor` is
-  `:open` when the functor is itself a variable, which is the structure that puts every
-  argument behind it.  Arity is the adornment's length, so the key carries it too.
-
-  The alphabet is what the *index* distinguishes rather than what a reader would: `b` and
-  `B` are one family's keys and `n` is no key at all, which is why a ground number after a
-  variable keeps the trie while a ground symbol there does not.
-
-  ## Off by default, and free when off
-
-  The switch and the store are one atom: nil when off, so every call site is a deref and a
-  `nil?` check, which is what the observer call sites cost the reference chainer
-  (`vaelii.impl.observe`).  Anything heavier on a retrieval path would show up in `lein
-  perf` as a constant, and a ratio cannot see a constant.
-
-  On, it is one `swap!` per event over a persistent map.  That is not free and is not
-  meant to be: a profiling run measures *shape*, and every quantity here is a count, so a
-  run under the instrument answers the same as a run without it, more slowly.
-
-  ## What it does not see
-
-  * **`:fan` is the one tally that is not index-independent.**  It is `KvIndexStore`'s,
-    which covers every backend the `KvBackend` adapters reach — the flat map, the dense
-    one, the on-disk WAL, an overlay.  `vaelii.impl.columnar` walks its own native trie
-    and counts no node probes, so a columnar run reports **no fan at all** rather than a
-    fabricated one, and `profile_test` asserts that silence.  The other six hold on both:
-    that store keeps `:reads`, `:writes` and `:retracts` itself, because it writes and
-    walks the index rather than going through `KvIndexStore` to do it, and the remaining
-    three are no index's to keep — `:goals` and `:sift` are the matchers'
-    (`vaelii.impl.resolution`) and `:fetches` is the record store's.
-  * A retrieval that reaches the index without going through either matcher has no
-    shape here: the level-0 raw read calls `p/lookup` directly, so it appears in `:fan`
-    and `:reads` and not in `:goals`, while `find-sentex-handle`'s exact `p/leaf-at`
-    probe appears in `:reads` alone — it does not walk, so it has no fan to record.
-  * **`:fetches` counts the protocol call, not the work behind it.**  A store's own
-    internal reads are its own business — the durable store re-reads a record inside
-    `mark-premise` where the RAM one reaches into its state map — so counting those would
-    make the tally a reading of which backend is running.  What is counted is each call
-    of a `RecordStore` read method, which is the number a caller controls: an overlay
-    fetch that consults the base and then the fork counts twice, which is what a fork
-    costs.  A fetch answering **nil** counts, because the
-    caller paid for it.
-
-  ## Reading it
-
-  `snapshot` is plain data and `stop` returns the last one.  Nothing here formats: what a
-  reading *means* is the caller's business, and `vaelii.bench.profile` is the caller that
-  has an opinion."
+  "What a KB is asked, and what each answer costs the index: seven tallies behind one
+  switch. `:goals` (retrieval decisions by shape and access path), `:reads` (`IndexStore`
+  reads by family), `:fan` (trie walks and node probes), `:sift` (candidates returned,
+  unified and matched), `:fetches` (`RecordStore` reads by kind), `:writes` and `:retracts`
+  (per-family index cost by functor). The switch and the store are one atom, nil when off, so
+  every call site is a deref and a `nil?` check. A goal's key is `[functor polarity
+  adornment path]`, one adornment character per argument: `b` ground atom, `B` ground
+  compound, `n` ground token the roots do not key, `f` open atom, `F` open compound. See
+  docs/profile.md."
   (:require [vaelii.impl.sentex :as sx]))
 
 ;; nil when off; otherwise `{:t0 <nanos> :goals {} :reads {} :fan {} :sift {} :fetches {}
@@ -167,21 +62,11 @@
 ;; ---- the call site every tally goes through ----------------------------------
 
 (defmacro ^:private tallying
-  "`(update-in tally path f args…)`, applied **only while the instrument is still
-  collecting** — the one shape every `record-*` below files its count in.
-
-  Two guards, and both are required.  The deref is the fast path: a call site off a
-  timing run pays that and a `nil?` check, which is what every `record-*` promises, and
-  nothing inside is built until it passes.  The `when` *inside* the swap is what makes
-  `stop` final.  A bare `swap!` on a tally `stop` has already cleared does not fail — it
-  **recreates** one, and a `swap!` retries against the fresh value, so an in-flight tally
-  whose compare-and-set `stop` beats is applied to nil on the retry.  What that leaves is
-  a fragment with no `:t0`: `profiling?` answers true for the life of the process, every
-  later read pays the CAS the switch promised it would not, and `snapshot` reads `(long
-  nil)` off the missing `:t0`.  `jobs/update-job!` guards the same shape against the same
-  recreation.
-
-  Answers nil, since every call site here is called for effect."
+  "`(update-in tally path f args…)`, applied only while the instrument is still collecting:
+  the one shape every `record-*` files its count in. The deref is the fast path, and the
+  `when` inside the swap makes `stop` final: a bare `swap!` after `stop` recreates a tally
+  with no `:t0`, which leaves `profiling?` true and makes `snapshot` read `(long nil)`.
+  Answers nil."
   [path f & args]
   `(do (when @tally
          (swap! tally (fn [t#] (when t# (update-in t# ~path ~f ~@args)))))
@@ -251,20 +136,11 @@
 ;; ---- the record-fetch tally ---------------------------------------------
 
 (defn record-fetch
-  "Tally one `RecordStore` read against its kind, one of the seven `:fetches` names in
-  the namespace docstring.  The record-store twin of `record-read`, and it
-  exists because the two quantities move independently: `find-sentex-handle` narrowed
-  from a wildcard `lookup` to the exact `leaf-at` moved **no** `:reads` figure and took
-  a fetch per candidate handle off the dedup path (2,779 µs against 13 µs per call at
-  800 candidates).  A read tally could not see that and nothing else counted it.
-
-  Keyed by kind rather than by handle or by functor: what a policy would change is
-  whether a *kind* is paged at all — the record for a candidate, the justification for
-  a support walk, the provenance nothing but the browser reads — and a per-handle key
-  would hold the whole workload.
-
-  A deref and a `nil?` check when the instrument is off, like every call site here.  With
-  `id`, the fetched record's handle also goes to `*handle-sink*`."
+  "Tally one `RecordStore` read against its kind, one of the seven `:fetches` names in the
+  namespace docstring. The record-store twin of `record-read`: a read tally cannot see a
+  fetch per candidate handle. Keyed by kind, not by handle or functor. A deref and a
+  `nil?` check when the instrument is off. With `id`, the fetched record's handle also goes
+  to `*handle-sink*`."
   ([kind]
    (tallying [:fetches kind] (fnil inc 0)))
   ([kind id]
@@ -281,25 +157,12 @@
       (update :unified  (fnil + 0) unified)))
 
 (defn record-sift
-  "Tally one hierarchical retrieval's three widths: how many candidate handles the
-  argument-root probe (`lead-candidates`) handed the matcher (`returned`), how many of
-  those reached `unify` after the cheap liveness/predicate/context filters (`unified` —
-  the **unify-attempt** count), and how many survived to become actual matches
-  (`matched`).  Keyed by the literal's shape and the retrieval path, like `:goals`.
-
-  `returned` is the read-efficiency number an index-layout change is judged on: a probe
-  that returns a wide superset the filter then discards is doing work a tighter key would
-  not.  `unified` is what **multi-column narrowing** moves directly — intersecting the
-  ground columns at the probe hands `unify` a smaller set, so a wide column the second
-  bound argument would have rejected never reaches it.
-
-  A deref and a `nil?` check when the instrument is off — and the call site realizes the
-  full candidate seq only while collecting, so a timing run (instrument off) keeps the
-  lazy short-circuit an existence check relies on.
-
-  Unhinted args: a fn taking primitive `long`s is capped at four, and this takes five —
-  the counts box, which adds no work off the timing path (this is only reached while
-  collecting)."
+  "Tally one hierarchical retrieval's three widths: candidate handles the argument-root probe
+  (`lead-candidates`) handed the matcher (`returned`), those that reached `unify` after the
+  liveness, predicate and context filters (`unified`), and those that matched (`matched`).
+  Keyed by the literal's shape and the retrieval path, like `:goals`. The call site realizes
+  the full candidate seq only while collecting. The args are unhinted because a fn taking
+  primitive `long`s is capped at four."
   [sentence path returned matched unified]
   (tallying [:sift (shape-of sentence :positive path)]
             bump-sift (long returned) (long matched) (long unified)))
@@ -365,14 +228,8 @@
       (update :dead     (fnil + 0) (long dead))))
 
 (defn record-index-retract
-  "Tally one `unindex-sentex!`, the same families as `record-index-write` plus `:dead`,
-  the trie nodes this retraction emptied and deleted.
-
-  `:dead` is why this is a tally of its own.  Every other quantity here is decided by
-  the sentex — its arity, its terms, its indexable arguments — so it reads the same
-  whenever the retraction happens.  How many nodes die is decided by what *else* is
-  still stored under the same prefix, so the same sentex retracted from a dense corpus
-  and from a sparse one costs differently, and a family's retraction cost cannot be
-  quoted as a constant the way its assert cost can."
+  "Tally one `unindex-sentex!`: the same families as `record-index-write` plus `:dead`, the
+  trie nodes this retraction emptied. `:dead` depends on what else is stored under the same
+  prefix, so it is a tally of its own."
   [sentex counts]
   (tallying [:retracts (write-key sentex)] bump-retract counts))

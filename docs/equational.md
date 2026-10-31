@@ -215,7 +215,7 @@ assertion order — the invariant [nmtms.md](nmtms.md) makes non-negotiable:
   even for a non-confluent rule set. The order is derived once per rule *set*, not per
   call: it is memoized in the taxonomy's `:rewrite-order` side atom, keyed by the
   identity of the `:rewrite-active` map, so every writer of that map retires it and no
-  writer has to remember to. Without it every read carrying a context would pay the sort
+  writer has to remember to, and a cleared taxonomy's fresh `{}` is a new object where a counter reset to 0 would read as the pre-clear one. Without it every read carrying a context would pay the sort
   — `kb/rewrite-goal` calls `rewrite-term`, which reads this.
 
 ## Recover

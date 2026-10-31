@@ -18,7 +18,7 @@
   count was 25, 49, 73, 121 — one extra derivation per candidate per bystander.  That
   growth is why a `genlCx` edge cost more as a KB gained contexts at all, and why
   `starter/load-into` went from 0.87 s to 2.50 s while the shipped files grew 1,668 ->
-  3,200+ sentexes.
+  4,900+ sentexes.
 
   **Linear, at one derivation per candidate, in readers it does reach.**  The same
   contexts wired under `sub` instead do gain visibility, and each one must be swept.  The

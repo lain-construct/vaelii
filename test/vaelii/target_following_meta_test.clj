@@ -185,3 +185,61 @@
         (is (some? twin) "the claim has a live twin")
         (is (some? (kb/find-sentex-handle kb (list 'endorses 'AgentBoreas (sx/sentex-handle twin)) c))
             "the late endorsement re-points onto the live twin claim")))))
+
+(defn- reference-predicate!
+  "Declare `pred`'s first position a reference position and its second a string."
+  [kb pred]
+  (mark-following! kb pred)
+  (v/assert kb (list 'arg pred 1 'sentence) 'CxUniverse)
+  (v/assert kb (list 'arg pred 2 'string) 'CxUniverse))
+
+(defn- refusal [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(tu/deftest-kb a-reference-stores-the-handle-of-the-sentex-either-spelling-names
+  (tu/with-terms [noteOn closeTo Ann Bob]
+    (let [c (ctx! kb)]
+      (reference-predicate! kb noteOn)
+      (v/assert kb (list 'symmetric closeTo) 'CxUniverse)
+      (let [t  (v/assert kb (list closeTo Bob Ann) c)
+            m  (v/assert kb (list noteOn (list closeTo Bob Ann) "near") c)
+            m' (v/assert kb (list noteOn (list closeTo Ann Bob) "near") c)
+            mx (v/assert kb (list noteOn (list 'ist c (list closeTo Ann Bob)) "near") 'CxUniverse)]
+        (is (= (list noteOn (sx/sentex-handle t) "near") (v/sentence-of (v/sentex kb m))))
+        (is (= m m') "the other spelling of the symmetric target is the same meta-sentex")
+        (is (= (sx/sentex-handle t) (second (v/sentence-of (v/sentex kb mx))))
+            "(ist Cx S) names S in Cx from a meta-sentex written elsewhere")
+        (is (= m (v/handle-of kb (list noteOn (list closeTo Ann Bob) "near") c)))
+        (v/assert kb (list 'except (sx/sentex-handle t)) c)
+        (is (some? (v/sentex kb m)) "an except of the target leaves the meta-sentex stored")
+        (v/retract! kb t)
+        (is (every? nil? [(v/sentex kb m) (v/sentex kb mx)])
+            "retracting the target retracts every meta-sentex naming it")))))
+
+(tu/deftest-kb a-reference-nothing-stores-is-refused-and-check-reports-it
+  (tu/with-terms [noteOn dog Fido]
+    (let [c (ctx! kb)
+          s (list noteOn (list dog Fido) "a dog")]
+      (reference-predicate! kb noteOn)
+      (v/assert kb (list dog Fido) 'CxUniverse)
+      (is (= {:type :unresolved-reference :reference (list dog Fido) :context c}
+             (select-keys (refusal #(v/assert kb s c)) [:type :reference :context]))
+          "a bare S names S in the writing context, and CxUniverse's copy is another sentex")
+      (is (= [:unresolved-reference] (mapv :type (v/check kb s c))))
+      (is (nil? (v/handle-of kb s c)))
+      (is (some? (v/assert kb (list noteOn (list 'ist 'CxUniverse (list dog Fido)) "a dog") c))))))
+
+(tu/deftest-kb a-reference-to-a-rule-stored-as-several-is-refused
+  (tu/with-terms [noteOn dog animal pet]
+    (let [c    (ctx! kb)
+          one  (list 'implies (list dog '?x) (list animal '?x))
+          both (list 'implies (list dog '?x) (list 'and (list animal '?x) (list pet '?x)))]
+      (reference-predicate! kb noteOn)
+      (let [r (v/assert kb one c)]
+        (v/assert kb both c)
+        (is (= (sx/sentex-handle r)
+               (->> (v/assert kb (list noteOn (list 'implies (list dog '?y) (list animal '?y)) "one") c)
+                    (v/sentex kb) v/sentence-of second))
+            "a rule stored as one is found under other variable names")
+        (is (= :unresolved-reference (:type (refusal #(v/assert kb (list noteOn both "two") c))))
+            "a conjunctive consequent is one stored rule per conjunct, and none is the rule")))))

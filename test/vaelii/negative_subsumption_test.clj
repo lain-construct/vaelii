@@ -24,7 +24,8 @@
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (defn- proj [triples] (into #{} (map #(vec (take 2 %))) triples))
 (defn- negate [s] (list 'not s))
@@ -171,16 +172,11 @@
 
 ;; ---- a :default edge does not contrapose ---------------------------------
 
-(defn- orders [xs]
-  (if (next xs)
-    (for [x xs, more (orders (remove #{x} xs))] (cons x more))
-    [xs]))
-
 (tu/deftest-kb a-denial-answers-a-negated-subtype-goal-through-a-monotonic-edge-only-in-every-order
   ;; the two KBs of #188: a stored `(not (pb Zz))`, and a backward rule concluding it
   (doseq [strength [:default :monotonic]
           derived? [false true]
-          order    (orders (if derived? [:edge :rule :fact] [:edge :deny]))]
+          order    (tu/orders (if derived? [:edge :rule :fact] [:edge :deny]))]
     (tu/with-terms [pa_t pb_t pc_t Zz]
       (let [x      (symbol "?x")
             mono?  (= :monotonic strength)

@@ -8,7 +8,8 @@
   `qcn_support_test` run it too."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.projection :as proj]
-            [vaelii.impl.qcn :as qcn]))
+            [vaelii.impl.qcn :as qcn]
+            [vaelii.test-util :as tu]))
 
 ;; ---- a toy point algebra ------------------------------------------------
 
@@ -42,13 +43,6 @@
             (assoc n [i j] rels [j i] (converse-set rels)))
           {}
           entries))
-
-(defn- permutations [coll]
-  (if (seq (rest coll))
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))
-    [coll]))
 
 ;; ---- constraint ---------------------------------------------------------
 
@@ -93,14 +87,14 @@
 
 (deftest the-result-does-not-depend-on-the-order-of-the-nodes
   (let [n       (net ['A 'B #{:lt}] ['B 'C #{:lt :eq}] ['C 'D #{:lt}])
-        results (set (for [order (permutations '[A B C D])]
+        results (set (for [order (tu/permutations '[A B C D])]
                        (qcn/path-consistent n order point-algebra)))]
     (is (= 1 (count results)) "all 24 orders agree, constraint for constraint")
     (is (= #{:lt} (qcn/constraint (first results) point-algebra 'A 'D))))
   (testing "and neither does the inconsistency verdict"
     (let [n (net ['A 'B #{:lt}] ['B 'C #{:lt}] ['C 'A #{:lt}])]
       (is (every? #(= :inconsistent (qcn/path-consistent n % point-algebra))
-                  (permutations '[A B C]))))))
+                  (tu/permutations '[A B C]))))))
 
 (deftest only-the-nodes-it-is-given-are-tightened-through
   (let [n (net ['A 'B #{:lt}] ['B 'C #{:lt}])]

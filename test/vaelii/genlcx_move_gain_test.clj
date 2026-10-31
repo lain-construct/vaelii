@@ -39,7 +39,8 @@
             [vaelii.impl.memory :as mem]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.special :as special]
-            [vaelii.impl.types.reasoning :as reasoning])
+            [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.test-util :as tu])
   (:import [java.util Random]))
 
 ;; ---- loading -----------------------------------------------------------
@@ -255,8 +256,6 @@
 
 ;; ---- a seeded random world ---------------------------------------------
 
-(defn- pick [^Random rng coll] (nth coll (.nextInt rng (count coll))))
-
 (defn- gen-world
   "`[base edit]` for `seed`: lower contexts under CxUniverse and two upper ones, each
   holding facts, marks and declarations of every shape, and an edit adding one to three
@@ -267,43 +266,43 @@
         news  '[CxN1 CxN2]
         inds  '[I0 I1 I2 I3]
         fact  (fn [ctx]
-                (let [a (pick rng inds) b (pick rng inds)]
+                (let [a (tu/pick rng inds) b (tu/pick rng inds)]
                   (case (int (.nextInt rng 9))
                     0 [(list 'aboveR a b) ctx M]
                     1 [(list 'fnR a b) ctx M]
                     2 [(list 'declR a b) ctx M]
                     3 [(list 'sub_kind_t a) ctx M]
                     4 [(list 'kind_t a) ctx M]
-                    5 [(list (pick rng '[dog_t cat_t]) a) ctx :default]
+                    5 [(list (tu/pick rng '[dog_t cat_t]) a) ctx :default]
                     6 [(list 'aboveQ a b) ctx M]
-                    7 [(pick rng '[(genl aboveQ aboveR) (anti_symmetric aboveQ) (arg aboveQ 2 kind_t)]) ctx M]
+                    7 [(tu/pick rng '[(genl aboveQ aboveR) (anti_symmetric aboveQ) (arg aboveQ 2 kind_t)]) ctx M]
                     8 [(list 'plainR a b) ctx nil])))
         dag   [['(disjoint kind_t cat_t) 'CxUniverse M]
                ['(genlCx CxL1 CxUniverse) 'CxUniverse M]
-               [(list 'genlCx 'CxL2 (pick rng '[CxUniverse CxL1])) 'CxUniverse M]
-               [(list 'genlCx 'CxL3 (pick rng '[CxUniverse CxL1 CxL2])) 'CxUniverse M]]
-        base  (-> upper (into dag) (into (repeatedly (+ 6 (.nextInt rng 8)) #(fact (pick rng olds)))))
-        n1    [(list 'genlCx 'CxN1 (pick rng '[CxUniverse CxL1])) 'CxUniverse M]
-        n2    [(list 'genlCx 'CxN2 (pick rng '[CxUniverse CxN1])) 'CxUniverse M]
+               [(list 'genlCx 'CxL2 (tu/pick rng '[CxUniverse CxL1])) 'CxUniverse M]
+               [(list 'genlCx 'CxL3 (tu/pick rng '[CxUniverse CxL1 CxL2])) 'CxUniverse M]]
+        base  (-> upper (into dag) (into (repeatedly (+ 6 (.nextInt rng 8)) #(fact (tu/pick rng olds)))))
+        n1    [(list 'genlCx 'CxN1 (tu/pick rng '[CxUniverse CxL1])) 'CxUniverse M]
+        n2    [(list 'genlCx 'CxN2 (tu/pick rng '[CxUniverse CxN1])) 'CxUniverse M]
         ;; diamonds: a second parent of CxN2, and lower contexts already under the fresh
         ;; ones, so a placement can sit below a context the edit wires above it
         extra (into (if (zero? (.nextInt rng 2)) [] [['(genlCx CxN2 CxL1) 'CxUniverse M]])
                     (repeatedly (.nextInt rng 3)
-                                #(vector (list 'genlCx (pick rng '[CxL2 CxL3]) (pick rng news))
+                                #(vector (list 'genlCx (tu/pick rng '[CxL2 CxL3]) (tu/pick rng news))
                                          'CxUniverse M)))
         under (into [] (distinct)
                     (repeatedly (inc (.nextInt rng 3))
-                                #(vector (list 'genlCx (pick rng '[CxL2 CxL3]) (pick rng (into news '[CxL1])))
+                                #(vector (list 'genlCx (tu/pick rng '[CxL2 CxL3]) (tu/pick rng (into news '[CxL1])))
                                          'CxUniverse M)))
         ;; the fresh contexts hold their content before the edit wires the lower ones
         ;; under them, so the move, not each fact's arrival, is what meets it
         base  (-> base (conj n1 n2) (into (distinct) extra)
-                  (into (repeatedly (+ 1 (.nextInt rng 4)) #(fact (pick rng news)))))
+                  (into (repeatedly (+ 1 (.nextInt rng 4)) #(fact (tu/pick rng news)))))
         edit  (-> []
                   (into (remove (fn [[[_ a b] :as e]] (or (= a b) (and (= a 'CxL2) (= b 'CxL3))
                                                           (some #{e} extra))))
                         under)
-                  (into (repeatedly (.nextInt rng 2) #(fact (pick rng news)))))]
+                  (into (repeatedly (.nextInt rng 2) #(fact (tu/pick rng news)))))]
     [base edit]))
 
 (deftest a-placement-a-wired-context-displaces-agrees

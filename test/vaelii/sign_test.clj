@@ -14,6 +14,8 @@
   (:import [vaelii.impl.sign SignProver]))
 
 ;; CxUniverse holds the sign vocabulary; the prover is opt-in, so each KB registers it.
+;; The KB is built per test because tests count entries in the violations ledger, which
+;; a KB shared across tests keeps from the tests before.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core!)

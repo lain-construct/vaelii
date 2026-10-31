@@ -37,12 +37,9 @@
             [vaelii.host.core-context :as core-context]
             [vaelii.test-util :as tu]))
 
+;; The KB is built per test because tests count entries in the violations ledger, which
+;; a KB shared across tests keeps from the tests before.
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
-
-(defn- ex-type
-  "The `:type` on the ex-info a thunk throws, or nil if it does not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (def ^:private U 'CxUniverse)
 
@@ -114,7 +111,7 @@
   (tu/with-terms [pSur pInj Fredopolis]
     (v/assert kb (list 'surjection pSur) U)
     (v/assert kb (list pSur 7 Fredopolis) U)
-    (is (nil? (ex-type #(v/assert kb (list pSur 8 Fredopolis) U)))
+    (is (nil? (tu/refusal-type #(v/assert kb (list pSur 8 Fredopolis) U)))
         "two first arguments for one second are what a surjection permits")
     (v/assert kb (list 'injection pInj) U)
     (v/assert kb (list pInj 7 Fredopolis) U)

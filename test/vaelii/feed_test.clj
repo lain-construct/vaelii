@@ -658,6 +658,40 @@
                                      (list dog '?x)))))))
       (is (empty? (v/watchers kb)) "and registered nothing"))))
 
+(tu/deftest-kb a-goal-a-registered-calculus-answers-is-refused
+  ;; The network entails tuples no fact stores and answers none naming a blocked node, so
+  ;; a match over the region's stored facts would miss the first and report the second.
+  (tu/with-terms [RegA]
+    (let [goals   [(list 'nonTangentialProperPart RegA '?y)
+                   (list 'not (list 'partOfRegion RegA '?y))]
+          refusal (fn [goal] (try (v/watch kb goal 'CxUniverse (fn [_] nil)) nil
+                                  (catch clojure.lang.ExceptionInfo e (ex-data e))))
+          before  @(:provers kb)]
+      (testing "with no prover registered the predicate's facts are ordinary facts"
+        (let [t (v/watch kb (first goals) 'CxUniverse (fn [_] nil))]
+          (is (some? t))
+          (v/unwatch kb t)))
+      (v/add-reasoner kb :rcc8)
+      (try
+        (doseq [g goals]
+          (is (= :not-watchable (:type (refusal g))) (pr-str g)))
+        (finally (reset! (:provers kb) before)))
+      (is (empty? (v/watchers kb))))))
+
+(tu/deftest-kb add-reasoner-refuses-a-calculus-answering-a-standing-watchs-goal
+  ;; the watch was accepted while the predicate's facts were ordinary facts, and the
+  ;; calculus would answer its goal off the network from then on
+  (tu/with-terms [RegA]
+    (let [before @(:provers kb)
+          t      (v/watch kb (list 'not (list 'partOfRegion RegA '?y)) 'CxUniverse (fn [_] nil))]
+      (try
+        (let [e (try (v/add-reasoner kb :allen :rcc8) nil
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :not-watchable (:type e)))
+          (is (= [{:token t :calculus :rcc8}] (mapv #(dissoc % :goal) (:watches e))))
+          (is (identical? before @(:provers kb)) "and registers neither name"))
+        (finally (v/unwatch kb t) (reset! (:provers kb) before))))))
+
 (tu/deftest-kb a-listener-that-is-not-a-function-is-refused
   ;; A keyword is `ifn?`, and so is a symbol — so the three-argument form written with
   ;; two would register its goal as the listener and fail at the first delivery, having
@@ -1027,3 +1061,32 @@
 (deftest ^:slow every-event-is-the-diff-of-own-context-belief-in-400-random-worlds
   (random-event-check (range 400)))
 
+;;; ── a defeat placed by the settle ──────────────────────────────────────
+
+(tu/deftest-kb an-observation-that-defeats-a-default-arrives-as-a-defeat-report
+  ;; docs/feed.md, "A defeat arrives as a report".  The clash is placed at CxSeat, where
+  ;; (cat Muffet) is no longer believed; CxUniverse, where it is stored, still believes it,
+  ;; so no `:believed-removed` entry names it.
+  (tu/with-terms [dog_t cat_t Muffet CxSeat]
+    (v/assert kb (list 'genlCx CxSeat 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list cat_t Muffet) 'CxUniverse)
+    (let [[seen f]     (recorder)
+          [below fb]   (recorder)
+          [above fa]   (recorder)
+          tokens       [(v/watch kb f) (v/watch kb (list cat_t '?x) CxSeat fb)
+                        (v/watch kb (list cat_t '?x) 'CxUniverse fa)]
+          content      (fn [events]
+                         (into [] (comp (mapcat :defeats)
+                                        (map (juxt (comp (juxt :sentence :context) :loser)
+                                                   #(mapv (juxt :sentence :context) (:winners %))
+                                                   :placed-in :verdict)))
+                               events))
+          expected     [[[(list cat_t Muffet) 'CxUniverse] [[(list dog_t Muffet) CxSeat]]
+                         [CxSeat] :defeat]]]
+      (v/assert kb (list dog_t Muffet) CxSeat {:strength :monotonic})
+      (is (= expected (content @seen)) "a plain listener reads the defeat")
+      (is (= [] (removed @seen)))
+      (is (= expected (content @below)) "a standing query below the placement reads it")
+      (is (empty? @above) "a standing query above the placement is not called")
+      (run! #(v/unwatch kb %) tokens))))

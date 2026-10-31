@@ -1,29 +1,19 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.observe
-  "The leaf extension point the engine's mutation choke points notify **without a require cycle**.
-  Two things ride on it, and they are independent: named observers of the stored fact
-  set, and one counter saying that *something* changed.
+  "The leaf extension point the engine's mutation choke points notify without a require
+  cycle. Two independent things ride on it: named observers of the stored fact set, and one
+  counter saying that something changed.
 
-  **Observers.**  The incremental rule-matcher (`vaelii.impl.rete`) keeps RAM alpha
-  memories that must mirror the stored fact set exactly.  The only structural mutations
-  to that set are `kb/create-sentex` (add) and `integrate/sentex-removed!` (remove), but
-  both of those namespaces sit *below* `rete` in the layering — `rete` needs `kb`,
-  `resolution`, and `plan` to match — so they cannot call it directly.  They call the atoms
-  here instead, and `rete` installs itself into them when it is engaged.
+  Observers: the incremental rule-matcher (`vaelii.impl.rete`) keeps RAM alpha memories that
+  mirror the stored fact set. `kb/create-sentex` (add) and `integrate/sentex-removed!` (remove)
+  sit below `rete`, so they call the atoms here and `rete` installs itself into them when
+  engaged. When nothing is engaged the atoms hold nil and `notify-*` is a deref and a `nil?`
+  check. The observer is global, not per-KB; the installed functions dispatch on `kb`.
 
-  When nothing is engaged the atoms hold `nil` and `notify-*` is a single deref plus
-  a `nil?` check, so the reference forward chainer pays essentially nothing.  The
-  observer is global rather than per-KB (single-writer, like the rest of the engine);
-  the installed functions dispatch on `kb` themselves, so several KBs can be live at
-  once and each keeps its own alpha memories.
-
-  **The change clock** is the cheapest possible version of the same idea, for a cache
-  that has to notice a change nobody registered to hear about.  See `note-change`.
-
-  **The resident caches** the clock exists for are here too (`cached`), and each declares
-  itself to `vaelii.impl.caches` at the bottom of this file so a reader can see what the
-  process is holding."
+  The change clock (`note-change`) is the coarse counter a cache keys on, and the resident
+  caches it serves (`cached`) declare themselves to `vaelii.impl.caches` at the bottom of
+  this file. See docs/inference.md."
   (:refer-clojure :exclude [])
   (:require [vaelii.impl.caches :as caches]
             [vaelii.impl.types.reasoning :as reasoning])
@@ -98,24 +88,12 @@
   (AtomicLong. 0))
 
 (defn note-change
-  "Something that a resident derived structure is a function of has just changed.  Three
-  places bump it, and together they are the *whole* of what such a structure can depend
-  on: the two store choke points (`kb/create-sentex`, `integrate/sentex-removed!`), every
-  mutating `jtms` entry point (before and after its mutation, `jtms/moving`), and a watch
-  on the taxonomy's atom — which sentexes exist, which of them are believed, and what the
-  closures say.  Two bulk operations bump by hand
-  because they move a store without passing either choke point: `core/clear!` and
-  `reindex/reindex`.
-
-  Global and deliberately coarse.  It says only *that* something moved — never what,
-  and not even which KB — so a reader keyed on it re-derives more often than it
-  strictly must, and never less.  That is the direction a correctness argument wants:
-  a cache is reused only across a stretch in which the engine performed no mutation at
-  all, which is exactly the stretch a settle pass, a query, or a prover loop spends
-  reading.  Making it finer would mean deciding, at each choke point, which caches a
-  change is relevant to — the judgement that gets a cache wrong.
-
-  Bare, not `!`: it destroys nothing (the `!` convention marks losing knowledge)."
+  "Something a resident derived structure is a function of has changed. Three places bump
+  it: the two store choke points (`kb/create-sentex`, `integrate/sentex-removed!`), every
+  mutating `jtms` entry point (before and after, `jtms/moving`), and a watch on the
+  taxonomy's atom. `core/clear!` and `reindex/reindex` bump by hand. Global and coarse: it
+  says only that something moved, so a reader keyed on it re-derives more often than it must
+  and never less. Bare, not `!`: it destroys nothing."
   []
   (.incrementAndGet clock))
 
@@ -169,15 +147,12 @@
 
 ;; ---- the published state: a settle's holds -----------------------------------
 ;;
-;; A settle is a sequence of network mutations, and between its first and its last the
-;; network holds states no settled KB holds: `settle*` lifts every standing defeat and
-;; re-decides it rounds later.  A settle therefore **holds** the belief it started from
-;; for every other thread, and publishes what it decided in one step when it ends
-;; (`vaelii.impl.settle/settle`).  The network records the labels the settle moves as they
-;; were when it began (`vaelii.impl.jtms/hold!`), the held sets keep the value they
-;; had (`held-atom`), and this registry says which holds are open and which thread owns
-;; each.  Closing a hold is one swap here, so a reader switches from the held belief to
-;; the published one in one step across the network, the held sets and the clock.
+;; A settle holds the belief it started from for every other thread and publishes what it
+;; decided in one step when it ends (`vaelii.impl.settle/settle`). The network records the
+;; labels the settle moves (`vaelii.impl.jtms/hold!`), the held sets keep their value
+;; (`held-atom`), and this registry says which holds are open and which thread owns each.
+;; Closing a hold is one swap here, so a reader switches from held to published belief in
+;; one step across the network, the held sets and the clock.
 
 (defonce ^{:private true
            :tag AtomicReference
@@ -204,6 +179,11 @@
     (and (not (zero? (count m)))
          (not (owns-a-hold? m (Thread/currentThread)))
          (not *live*))))
+
+(defn hold-owner?
+  "Does the current thread own an open hold?"
+  []
+  (owns-a-hold? (.get holds) (Thread/currentThread)))
 
 (defn registry
   "The open holds, as one value.  Every open and every close replaces it, so a reader
@@ -318,15 +298,10 @@
   nil)
 
 (defn change-clock
-  "The current value of the change clock.  A reader records what it derived under this
-  and re-derives when it has moved.
-
-  A thread that reads held belief (`held-reader?`) reads `-1 - clock` instead.  What it
-  derives describes the belief the hold keeps, and the writer's entries describe the
-  network it is deciding, so the two must never share an entry: every cache compares the
-  clock value it stored with this value, and a negative value equals no value the writer or a
-  reader outside a hold uses.  `open-hold!` moves the clock, so two holds' readers do not
-  share one either."
+  "The current value of the change clock. A reader records what it derived under this and
+  re-derives when it has moved. A thread that reads held belief (`held-reader?`) reads
+  `-1 - clock` instead, so what it derives under the hold never shares an entry with the
+  writer's. `open-hold!` moves the clock, so two holds' readers do not share one either."
   ^long []
   (let [c (.get clock)]
     (if (held-reader?) (- -1 c) c)))
@@ -334,38 +309,14 @@
 ;; ---- the stored-handle cache --------------------------------------------
 
 (def ^:dynamic *handle-cache*
-  "A mutable `{[sentence context] handle}` map, or nil — the default, and the cache is
-  off.
-
-  A **positive** lookup cache over `kb/find-sentex-handle`: which handle a sentence
-  already has in a context.  It exists for the one caller that asks that question about
-  the same sentence thousands of times — forward chaining, where a conclusion reached by
-  k witnesses is looked up once per witness, and every look after the first runs the
-  canonicalizer and walks the trie to arrive at a handle the run itself minted moments
-  earlier.
-
-  **Only hits are cached, never misses**, and that asymmetry is the whole correctness
-  argument.  A sentence absent now is one a firing is about to store, so a cached
-  absence would be wrong within microseconds; a cached presence stays true until the
-  sentex is removed, and removal is a choke point (`integrate/sentex-removed!`) that
-  clears the entry.  A miss and an unbound cache are therefore the same answer — fall
-  through and ask the index.
-
-  The key is the sentence **as the caller spelled it**, which is the second thing to
-  invalidate on and the reason every entry carries a cache key.  A raw sentence reaches
-  its handle by way of canonicalization, and canonicalization reads exactly one thing
-  off the KB: which predicates are `symmetric` (`resolution/kb-sentex`).  So a cached
-  answer is valid precisely while that set is — hand the set itself in as the key and
-  the whole map is dropped the moment it is replaced, whether by a declaration arriving,
-  one leaving, or one changing belief.  Nothing else in a sentex's key is a function of
-  the KB.
-
-  Bound per forward-chaining run (`chain/chain`), which is also what bounds its size:
-  an entry is only ever added beside a sentex the store already holds, so the cache
-  cannot outgrow the store it mirrors, and it is garbage the moment the run returns.
-  A `java.util.HashMap` rather than an atom because the engine is single-writer and
-  this sits on the placement path — a CAS per conclusion is part of the cost being
-  removed, not a synchronization the caller needs."
+  "A mutable `{[sentence context] handle}` map, or nil (the default: off). A positive
+  lookup cache over `kb/find-sentex-handle` for forward chaining, where a conclusion reached
+  by k witnesses is looked up once per witness. Only hits are cached: a cached absence would
+  be wrong once a firing stores the sentence, and `integrate/sentex-removed!` clears an entry.
+  The key is the sentence as the caller spelled it, and canonicalization reads only the
+  `symmetric` predicate set (`resolution/kb-sentex`), so every entry carries that set as its
+  cache key and the map drops when the set is replaced. Bound per run (`chain/chain`). A
+  `java.util.HashMap`, because the engine is single-writer. See docs/inference.md."
   nil)
 
 (def ^:private filled-under-key
@@ -413,15 +364,12 @@
   handle)
 
 (defn cache-generation
-  "Which filling of the handle cache is current under `cache-key` — a counter that steps
-  at every wholesale clear — or nil when no cache is bound, or when the cache was
-  filled under another key (its entries answer nothing under this one, and the next
-  `cache-handle!` empties it).  A cache nothing has filled yet is claimed for `cache-key`
-  here, at generation 1, so a reader can record the filling *before* the first store
-  lands in it.  For a reader whose claim rests on *every* store since some moment
-  being in the cache (`kb/find-sentex-handle`'s authority memo): a generation equal to
-  the one it recorded says no clear has happened since, and a different one — or nil
-  — says the entries it counted on are not there."
+  "Which filling of the handle cache is current under `cache-key`, a counter that steps at
+  every wholesale clear, or nil when no cache is bound or it was filled under another key.
+  A cache nothing has filled yet is claimed for `cache-key` here at generation 1, so a reader
+  can record the filling before the first store lands. For a reader whose claim rests on every
+  store since some moment being in the cache (`kb/find-sentex-handle`'s authority memo): an
+  equal generation says no clear has happened since."
   [cache-key]
   (when-let [^java.util.Map c *handle-cache*]
     (cond
@@ -452,52 +400,23 @@
   256)
 
 (def ^:dynamic *held-values*
-  "An atom, or nil.  While one is bound, whatever `cached` derives inside that scope is
-  **held fixed** for the rest of it — the clock is not consulted again.
-
-  The clock alone is not enough for a caller that *writes while it reads*, and forward
-  chaining is exactly that: a rule's join is a lazy seq, and each solution taken off it is
-  placed — a store and a justification — before the next is realized.  So a join over one
-  network with the clock as the only key would re-derive that network per solution, and
-  join half of its bindings against a state the other half never saw.
-
-  Holding it fixed is not an approximation of the fixpoint, it *is* the fixpoint: an
-  immediate-consequence step is by definition computed from one state, and what a step
-  enables is picked up by the next round rather than mid-step.  So `*held-values*` is bound where
-  a step runs — one agenda datum (`chain/process-datum`), one node expansion
-  (`inference/step!`) — and never wider than the thing whose answer must come from
-  one state.  Outside such a scope there is nothing to hold fixed and the clock answers
-  alone.
-
-  A **backward search** binds it too (`with-search-scope`, from `res/prove-from`), and
-  there the argument is the weaker one: a query mutates no belief, so nothing needs
-  holding still for correctness, and what the held values buy is that a consumer placing
-  conclusions off a lazy seq joins against one state rather than a moving one.  A
-  lazily-driven search therefore scopes it per segment rather than per query, which is
-  sound for exactly that reason — see `res/prove-seq`."
+  "An atom, or nil. While one is bound, whatever `cached` derives inside that scope is held
+  fixed for the rest of it and the clock is not consulted again. A caller that writes while
+  it reads (forward chaining places each solution of a lazy join before the next is realized)
+  would otherwise re-derive per solution and join against states the other half never saw.
+  Bound where a step runs (`chain/process-datum`, `inference/step!`) and never wider; a
+  backward search binds it too (`with-search-scope`, `res/prove-seq`). See
+  docs/inference.md."
   nil)
 
 (defn cached
-  "The value of `k` in the resident `cache` — an atom of `{k {:value v :clock n}}` — with
-  `build` run whenever the change clock has moved since `v` was derived.  `nil` for
-  `cache` runs `build` every time, which is what a caller holding no residency does.  A
-  bound `*held-values*` overrides both: within its scope the first answer is the answer.
-
-  `build` is called with the **stale value** it is replacing, or nil — what this cache
-  held before the clock moved.  A caller that can derive its new answer from its old one
-  more cheaply than from nothing takes it (`qcn-kb`'s warm-started path-consistency pass);
-  one that cannot ignores the argument.
-
-  The clock is read **before** `build`, and it is that earlier reading the entry is
-  recorded under.  Should anything mutate while a build is in flight, the entry is recorded
-  older than the clock and the next read rebuilds; reading the clock afterwards would claim
-  the value describes a state it was never computed from.  (The engine is single-writer, so
-  this is the argument rather than the scenario.)
-
-  Nothing here is content-keyed, and it does not need to be: the expensive *derivations*
-  over a resident value — a path-consistency pass, a shortest-path closure — stay keyed on
-  that value, so two KBs reaching the same network still share one pass.  This layer is
-  about not reading the KB again, and reading the KB again is a per-KB question."
+  "The value of `k` in the resident `cache`, an atom of `{k {:value v :clock n}}`, with
+  `build` run whenever the change clock has moved since `v` was derived. A nil `cache` runs
+  `build` every time. A bound `*held-values*` overrides both. `build` is called with the
+  stale value it replaces, or nil, for a caller that derives the new answer from the old
+  (`qcn-kb`'s warm-started pass). The clock is read before `build` and the entry recorded
+  under that reading. Nothing here is content-keyed: the derivations over a resident value
+  stay keyed on that value, so two KBs reaching one network share one pass."
   [cache k build]
   (let [held *held-values*
         pk   (when held [cache k])]              ; the atom's identity is the KB's identity
@@ -521,28 +440,34 @@
         v))))
 
 (defn newly-seen?
-  "Record `v` as the value now held under `k` in the resident `cache`, and answer whether
-  it is **new** there — true the first time a value is seen, false while it is still the
-  one held.  A nil cache is no memory at all, so everything is new.
-
-  For a report that must fire once per KB rather than once per computation.  The expensive
-  derivations over a network — a shortest-path closure, a path-consistency pass — are keyed
-  on the network *value* and shared across KBs, which is what lets two of them reaching the
-  same network share one pass.  A report hung off that pass therefore fires for whichever
-  KB ran it and for no other, and the second KB answers nothing with an empty ledger
-  explaining why.  Hung off this instead the question becomes \"has *this* KB said this
-  yet\", which is the one a ledger is answering — and the same for two contexts of one KB
-  that see the same constraints.
-
-  Errs toward reporting: the entry is dropped with the rest when the cache is cleared
-  wholesale, so a report can repeat, and cannot go missing."
+  "Record `v` as the value now held under `k` in the resident `cache`, and answer whether it
+  is new there: true the first time, false while it is still the one held. A nil cache is no
+  memory, so everything is new. For a report that fires once per KB rather than once per
+  computation, since the derivations over a network are shared across KBs. Errs toward
+  reporting: a wholesale clear drops the entry, so a report can repeat and cannot go
+  missing. The marker is held under `[::seen k]` (`restore-seen!`)."
   [cache k v]
   (if (nil? cache)
     true
-    (if (= v (get @cache k ::absent))
-      false
-      (do (swap! cache caches/assoc-bounded (caches/limit-of :resident resident-limit) k v)
-          true))))
+    (let [k [::seen k]]
+      (if (= v (get @cache k ::absent))
+        false
+        (do (swap! cache caches/assoc-bounded (caches/limit-of :resident resident-limit) k v)
+            true)))))
+
+(defn- seen-marker? [entry]
+  (let [k (key entry)] (and (vector? k) (= ::seen (nth k 0 nil)))))
+
+(defn restore-seen!
+  "Put the `newly-seen?` markers of the resident `cache` back to those `baseline`, a value
+  `cache` held earlier, holds, and keep every other entry as it stands. A rollback calls it
+  beside the ledger's restore, so a network whose entry the rollback dropped is reported
+  again."
+  [cache baseline]
+  (when cache
+    (swap! cache (fn [cur] (-> (into {} (remove seen-marker?) cur)
+                               (into (filter seen-marker?) baseline)))))
+  nil)
 
 (defonce ^{:private true
            :tag AtomicLong}
@@ -555,20 +480,10 @@
 
 (defn note-neighbours!
   "Record one neighbour-set read by the closure walk: `hit?` true where `*reach-memo*`
-  answered it, false where it was **computed** — which includes every read taken with no
-  memo bound at all, since a compute is a compute whatever scope it happens in.
-
-  Counted here rather than inferred from outside.  `misses` is the walk's real cost —
-  neighbour sets built, one store retrieval each — and the only alternative is to
-  intercept `res/matches-visible` and guess which of its calls are the walk's by the
-  `?rv` its patterns carry, a heuristic that cannot separate a walk's probe from a
-  `FactProver` lookup of the same predicate.
-  A counter on the memo answers the question the caches page asks anyway (`:hit-rate` on
-  the `:closure-neighbours` row) and the question a test asks, in the same number.
-
-  Process-wide `AtomicLong`s, `literal-cache`'s arrangement and for its reason: they
-  measure the mechanism, not a store, and a per-KB split would bill one KB for a walk
-  another ran."
+  answered it, false where it was computed (every read with no memo bound included).
+  `misses` is the walk's real cost, one store retrieval each, and feeds the
+  `:closure-neighbours` row's `:hit-rate`. Process-wide `AtomicLong`s, as `literal-cache`'s
+  are, since they measure the mechanism and not a store."
   [hit?]
   (if hit? (.incrementAndGet neighbour-hits) (.incrementAndGet neighbour-misses))
   nil)
@@ -588,20 +503,12 @@
     {:hits h :misses m}))
 
 (def ^:dynamic *reach-memo*
-  "A per-query cache for the transitive-predicate closure's per-node neighbour
-  lookups (`succs` / `preds-of`) — an atom of `{[dir pred node context] -> set}`, or
-  nil for no memoization.
-
-  A rule with two transitive antecedents — `(implies (and (before ?a ?b) (before ?b
-  ?c)) …)` over a transitive `before` — solves the *second* antecedent once per
-  binding of the join variable, and each solve walks the closure over nodes many of
-  those seeds share, re-hitting the store for the same `(pred node)` neighbour set.
-  A backward search establishes one memo per search step — one `res/prove-from` segment,
-  one `inference/step!` — so each neighbour lookup touches the store once instead of
-  once per binding of the join variable.  The step is the scope because that is where the
-  repetition is; a session-wide binding could not survive the node engine's laziness
-  anyway.  Created fresh per step and a query never mutates belief, so it cannot go
-  stale — no invalidation, and no cross-query leakage."
+  "A per-query cache for the transitive-predicate closure's per-node neighbour lookups
+  (`succs` / `preds-of`), an atom of `{[dir pred node context] -> set}`, or nil for none.
+  A rule with two transitive antecedents solves the second once per binding of the join
+  variable over nodes the bindings share. A backward search establishes one memo per search
+  step (`res/prove-from` segment, `inference/step!`), created fresh and never invalidated,
+  since a query mutates no belief. See docs/inference.md."
   nil)
 
 (defmacro with-held-values
@@ -612,24 +519,11 @@
   `(binding [*held-values* (or *held-values* (atom {}))] ~@body))
 
 (defmacro with-search-scope
-  "Run `body` as one step of a backward search: resident values held fixed (`with-held-values`)
-  and one transitive-closure memo (`*reach-memo*`) open for its length.
-
-  The two go together because a search step is where both problems appear at once — a
-  rule's join solves one antecedent per binding of the join variable, so the closure walk
-  repeats over nodes those bindings share, and a caller placing conclusions as it
-  consumes the join would otherwise re-derive a network per solution.  Both compose with
-  an outer scope rather than shadowing it, so a nested expansion shares what its parent
-  already paid for.
-
-  A *step*, not a query: `inference/step!` binds it per node and `res/prove-from`
-  per segment of its loop, so a lazily driven search opens one per pull.  That is the
-  finest scope at which the repetition above still collapses, and the widest at which a
-  lazy consumer can still be handed a seq — see `res/prove-seq`.
-
-  **`body` must be eager.**  A lazy seq escaping this scope realizes later with the
-  bindings gone, which for the memo is a silent slowdown and for the held values is
-  a join against a state that moved."
+  "Run `body` as one step of a backward search: resident values held fixed
+  (`with-held-values`) and one transitive-closure memo (`*reach-memo*`) open for its length.
+  Both compose with an outer scope, so a nested expansion shares what its parent paid for.
+  `inference/step!` binds it per node and `res/prove-from` per segment. `body` must be eager:
+  a lazy seq escaping the scope realizes later with the bindings gone."
   [& body]
   `(with-held-values (binding [*reach-memo* (or *reach-memo* (atom {}))] ~@body)))
 

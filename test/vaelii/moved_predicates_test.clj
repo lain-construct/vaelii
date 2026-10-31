@@ -21,11 +21,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- permutations [coll]
-  (if (empty? coll)
-    [[]]
-    (mapcat (fn [x] (map #(vec (cons x %)) (permutations (remove #{x} coll)))) coll)))
-
 (defn- terms
   "A fresh temporary for each symbol, keyed by the symbol."
   [syms]
@@ -88,7 +83,7 @@
 
 (defn- far-claim
   "A claim three edges above the conclusion's term, on `rel` or on a sub-predicate of it,
-  in one of `(permutations …)` of its arriving sentences after the declaration and rule."
+  in one of `(tu/orders …)` of its arriving sentences after the declaration and rule."
   [variant]
   (let [{:syms [low_t mid_t high_t top_t val_t rel subRel noted]}
         (terms '[low_t mid_t high_t top_t val_t rel subRel noted])
@@ -110,7 +105,7 @@
 
 (defn- holds-in-every-order [variant]
   (let [l (far-claim variant)]
-    (doseq [order (permutations (:rest l))]
+    (doseq [order (tu/orders (:rest l))]
       (is (= [true true true] (reading l order))
           (str variant " " (pr-str (mapv first order)))))))
 
@@ -268,7 +263,7 @@
      :goals [(list noted mid_t val_t) (list noted top_t val_t)]}))
 
 (defn- holds-in-every-order-of [label l]
-  (doseq [order (permutations (:rest l))]
+  (doseq [order (tu/orders (:rest l))]
     (is (every? true? (reading l order))
         (str label " " (pr-str (mapv first order))))))
 

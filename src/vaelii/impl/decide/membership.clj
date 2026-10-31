@@ -110,11 +110,7 @@
   [test]
   (let [memo (volatile! {})]
     (fn [a b]
-      (let [k [a b]
-            v (get @memo k ::none)]
-        (if (identical? v ::none)
-          (let [v (boolean (when-let [f (test a)] (f b)))] (vswap! memo assoc k v) v)
-          v)))))
+      (caches/get-or! memo [a b] #(boolean (when-let [f (test a)] (f b)))))))
 
 (defn- pair-of [a b] (if (neg? (compare a b)) [a b] [b a]))
 
@@ -666,8 +662,7 @@
   "The membership family's entry in `decide/registry`.  Recover keeps the entries of the
   terms `recovered-terms` names that `held?` holds, with no separation read: the first
   read after it tests every pair once (`sync-memberships`)."
-  {:grounds   {:forced-monotonic '#{disjoint covering partition sibling_disjoint siblingDisjointException}}
-   :note!     (fn [kb w sx stored?]
+  {:note!     (fn [kb w sx stored?]
                 (note-membership! kb w sx stored?)
                 (when-not stored? (note-placement-left! kb sx)))
    :recovered (fn [kb _]

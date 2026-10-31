@@ -20,8 +20,6 @@
             [vaelii.koinii.deref :as d]
             [vaelii.test-util :as tu])
   (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)
            (java.util Arrays)))
 
 ;;; ── seats and dumps ───────────────────────────────────────────────────
@@ -38,13 +36,6 @@
   an empty store (the pulled-commit case).  Close it with `backend/close-dir!`."
   [^File dir]
   (v/open-kb {:backend :disk-log :dir (.getPath dir) :recover? false}))
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "koinii-deref-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 ;; Atlas and Boreas each on their own seat's context, provenance fixed so the export is a
 ;; byte-stable function of state and every seat computes the same content.
@@ -267,9 +258,9 @@
 
 (deftest publishing-the-same-state-twice-yields-byte-identical-record-streams
   (let [a  (fresh-seat :bytes)
-        d1 (temp-dir "b1")
-        d2 (temp-dir "b2")]
-    (rm-rf! d1) (rm-rf! d2)                               ; export! makes its own dir
+        d1 (tu/temp-dir "koinii-deref-" "b1" "-")
+        d2 (tu/temp-dir "koinii-deref-" "b2" "-")]
+    (tu/rm-rf! d1) (tu/rm-rf! d2)                               ; export! makes its own dir
     (try
       (atlas-writes! a)
       (boreas-writes! a)
@@ -279,16 +270,16 @@
         (doseq [nm ["sentexes.nippy.stream" "provenance.nippy.stream"]]
           (is (Arrays/equals ^bytes (stream-bytes d1 nm) ^bytes (stream-bytes d2 nm))
               (str nm " differs between two exports of one state"))))
-      (finally (tu/clear-kb! a) (rm-rf! d1) (rm-rf! d2)))))
+      (finally (tu/clear-kb! a) (tu/rm-rf! d1) (tu/rm-rf! d2)))))
 
 ;;; ── two seats, one commit, the same sentence ─────────────────────────
 
 (deftest two-seats-pull-one-commit-and-resolve-the-same-sentence
   (let [source (fresh-seat :src)
         mem    (fresh-seat :seat-mem)
-        dir    (temp-dir "disk-seat")
-        dump   (temp-dir "commit")]
-    (rm-rf! dump)
+        dir    (tu/temp-dir "koinii-deref-" "disk-seat" "-")
+        dump   (tu/temp-dir "koinii-deref-" "commit" "-")]
+    (tu/rm-rf! dump)
     (let [disk (disk-seat dir)]
       (try
         (let [ha (atlas-writes! source)]
@@ -313,23 +304,211 @@
                     (is (= 'AgentAtlas (:creator (:provenance r)))))
                   (testing "the locator this seat computes is the marker's — resolved from the KB"
                     (is (= (:locator mk) (:locator r)))
-                    (is (= (:locator mk) (d/locator-of seat (:handle r))))))))
-            (testing "a bare locator resolves too — the payload was never required"
-              (let [r (d/resolve-by-locator disk (:locator mk))]
-                (is (:resolved? r))
-                (is (= atlas-fact (:sentence r)))
-                (is (= 'AgentAtlas (:seat r)))))))
+                    (is (= (:locator mk) (d/locator-of seat (:handle r))))))))))
         (finally
           (tu/clear-kb! source) (tu/clear-kb! mem)
-          (backend/close-dir! (.getPath dir)) (rm-rf! dir) (rm-rf! dump))))))
+          (backend/close-dir! (.getPath dir)) (tu/rm-rf! dir) (tu/rm-rf! dump))))))
+
+;;; ── a forked seat keeps its own writes across a newer pull ────────────
+
+(defn- forked-seat
+  "A seat whose store is a fork: the shared base in one store and the seat's own writes in
+  another, both `:memory` on spaces named after `tag`, or both `:disk-log` under `dir`."
+  [tag ^File dir]
+  (v/open-kb (if dir
+               {:backend :overlay
+                :base    {:backend :disk-log :dir (str (io/file dir "base"))}
+                :overlay {:backend :disk-log :dir (str (io/file dir "own"))}}
+               {:backend :overlay
+                :base    {:backend :memory :space [::base tag]}
+                :overlay {:backend :memory :space [::own tag]}})))
+
+(def ^:private shared-rule '(implies (usesDatabase ?c ?d) (dependsOn ?c ?d)))
+(def ^:private stale-fact  '(usesDatabase OldCluster MySQL5))
+
+(defn- believed-in?
+  [kb sentence context]
+  (boolean (some-> (v/handle-of kb sentence context) (#(v/believed? kb % context)))))
+
+(deftest two-forked-seats-keep-their-writes-when-they-pull-a-newer-commit
+  (let [src1 (fresh-seat :rebase-src1)
+        src2 (fresh-seat :rebase-src2)
+        c1   (tu/temp-dir "koinii-deref-" "rebase-c1" "-")
+        c2   (tu/temp-dir "koinii-deref-" "rebase-c2" "-")
+        dir  (tu/temp-dir "koinii-deref-" "rebase-disk" "-")]
+    (tu/rm-rf! c1) (tu/rm-rf! c2)
+    (let [a (forked-seat :rebase-a nil)
+          b (atom (forked-seat nil dir))]
+      (try
+        ;; commit 1: a forward rule and two facts in the shared context
+        (v/assert src1 shared-rule 'CxShared {:direction :forward})
+        (v/assert src1 atlas-fact 'CxShared)
+        (v/assert src1 stale-fact 'CxShared)
+        (d/publish! src1 c1)
+        ;; commit 2 holds the same rule and Atlas's fact, asserted in another order so every
+        ;; handle moves, drops the stale fact and adds Boreas's
+        (v/assert src2 boreas-fact 'CxShared)
+        (v/assert src2 atlas-fact 'CxShared)
+        (v/assert src2 shared-rule 'CxShared {:direction :forward})
+        (d/publish! src2 c2)
+        (d/pull! a c1)
+        (d/pull! @b c1)
+        ;; each seat observes in a context of its own that sees the shared one
+        (v/assert a '(genlCx CxSeatA CxShared))
+        (v/assert a '(usesDatabase EdgeNode SQLite3) 'CxSeatA {:creator 'AgentA})
+        (v/assert @b '(genlCx CxSeatB CxShared))
+        (v/assert @b '(usesDatabase EdgeNode DuckDb) 'CxSeatB {:creator 'AgentB})
+        ;; seat A retracts a shared fact; seat B hides one from its own context
+        (v/retract! a (v/handle-of a atlas-fact 'CxShared))
+        (v/assert @b (list 'except (list 'sentexHandle (v/handle-of @b atlas-fact 'CxShared)))
+                  'CxSeatB)
+        (let [summaries {:a (d/pull! a c2) :b (d/pull! @b c2)}]
+          (testing "each pull asserted the seat's writes again and refused none"
+            (doseq [[k s] summaries]
+              (is (empty? (:refused (:rebase s))) (str k))
+              (is (empty? (:unresolved (:rebase s))) (str k))))
+          (testing "seat A retracted the shared fact again"
+            (is (= 1 (:retracted (:rebase (:a summaries)))))))
+        (v/close! @b)
+        (reset! b (forked-seat nil dir))
+        (doseq [[label s cx own other agent]
+                [["memory seat" a 'CxSeatA 'SQLite3 'DuckDb 'AgentA]
+                 ["disk seat, reopened" @b 'CxSeatB 'DuckDb 'SQLite3 'AgentB]]]
+          (testing (str "the " label " keeps its observation, its creator and what follows")
+            (is (believed-in? s (list 'usesDatabase 'EdgeNode own) cx))
+            (is (= agent (:creator (v/provenance s (v/handle-of s (list 'usesDatabase 'EdgeNode own)
+                                                                cx)))))
+            (is (believed-in? s (list 'dependsOn 'EdgeNode own) cx)))
+          (testing (str "the " label " holds the newer commit's beliefs")
+            (is (believed-in? s boreas-fact 'CxShared))
+            (is (believed-in? s '(dependsOn StageCluster RedisCache) 'CxShared))
+            (is (not (believed-in? s stale-fact 'CxShared)))
+            (is (not (believed-in? s (list 'usesDatabase 'EdgeNode other) cx)))))
+        (testing "a shared fact a seat retracted stays retracted, and stays shared on the other seat"
+          (is (not (believed-in? a atlas-fact 'CxShared)))
+          (is (believed-in? @b atlas-fact 'CxShared)))
+        (testing "an except naming a shared fact names the fact's handle in the newer commit"
+          (is (not (believed-in? @b atlas-fact 'CxSeatB))))
+        (finally
+          (tu/clear-kb! src1) (tu/clear-kb! src2)
+          (v/close! a)
+          (doseq [sp [[::base :rebase-a] [::own :rebase-a]]] (tu/drop-space! sp))
+          (v/close! @b)
+          (backend/close-dir! (str (io/file dir "base")))
+          (tu/rm-rf! dir) (tu/rm-rf! c1) (tu/rm-rf! c2))))))
+
+(defn- defeats
+  "The `:defeat` reports `(conflicts kb {:defeats? true})` holds, by content:
+  `[loser winners placed-in]` over sentences and contexts."
+  [kb]
+  (into #{} (comp (filter #(= :defeat (:verdict %)))
+                  (map (fn [{:keys [loser winners placed-in]}]
+                         [[(:sentence loser) (:context loser)]
+                          (mapv (juxt :sentence :context) winners)
+                          placed-in])))
+        (v/conflicts kb {:defeats? true})))
+
+(def ^:private delta-base
+  "The shared base: a pet is a cat by default, and nothing is both a dog and a cat."
+  [['(disjoint delta_dog delta_cat) {:strength :monotonic}]
+   ['(set/forwardRule (implies (delta_pet ?x) (delta_cat ?x))) nil]
+   ['(delta_pet Muffet) nil]
+   ['(delta_pet Rex) nil]])
+
+(deftest a-seat-publishes-its-delta-and-a-seat-holding-the-base-at-other-handles-reads-the-same-defeat
+  (let [src (fresh-seat :delta-src)
+        b   (fresh-seat :delta-b)
+        c1  (tu/temp-dir "koinii-deref-" "delta-commit" "-")
+        out (tu/temp-dir "koinii-deref-" "delta-out" "-")]
+    (tu/rm-rf! c1) (tu/rm-rf! out)
+    (let [a (forked-seat :delta-a nil)]
+      (try
+        (doseq [[s o] delta-base] (v/assert src s 'CxShared o))
+        (d/publish! src c1)
+        (d/pull! a c1)
+        ;; seat B holds the same base at other handles: one throwaway handle, then the
+        ;; base in reverse
+        (v/retract! b (v/assert b '(delta_pet Omega) 'CxShared))
+        (doseq [[s o] (rseq delta-base)] (v/assert b s 'CxShared o))
+        ;; seat A observes a dog where the base expects a cat, and hides a shared fact
+        (v/assert a '(genlCx CxSeatA CxShared))
+        (v/assert a '(delta_dog Muffet) 'CxSeatA {:strength :monotonic})
+        (v/assert a (list 'except (v/sentex-handle (v/handle-of a '(delta_pet Rex) 'CxShared)))
+                  'CxSeatA)
+        (let [summary (v/export-text! a (.getPath out) {:delta? true})]
+          (testing "the delta holds the seat's three writes and nothing of the base"
+            (is (= [3 0 0] ((juxt :sentences :skipped :retractions) summary)))
+            (is (not (re-find #"delta_pet Muffet" (apply str (map slurp (rest (file-seq out)))))))))
+        (let [merged (v/load-text! b (.getPath out) {:merge? true})]
+          (is (empty? (:refused merged))))
+        (testing "seat B reads seat A's defeat"
+          (is (seq (defeats a)))
+          (is (= (defeats a) (defeats b))))
+        (testing "the except names seat B's handle for the shared fact"
+          (is (believed-in? b '(delta_pet Rex) 'CxShared))
+          (is (not (believed-in? b '(delta_pet Rex) 'CxSeatA))))
+        (finally
+          (tu/clear-kb! src) (tu/clear-kb! b)
+          (v/close! a)
+          (doseq [sp [[::base :delta-a] [::own :delta-a]]] (tu/drop-space! sp))
+          (tu/rm-rf! c1) (tu/rm-rf! out))))))
+
+(deftest a-delta-reference-the-reading-seat-canonicalizes-otherwise-is-refused-by-its-digest
+  (doseq [[row b-only refused]
+          [["a symmetric mark seat A lacks sorts the arguments B stores"
+            '(symmetric deltaNear) [:canonical-mismatch]]
+           ["a sameAs seat A lacks keeps the spelling B stores beside its restatement"
+            '(sameAs Dover Calais) []]]]
+    (testing row
+      (let [src (fresh-seat :mismatch-src)
+            b   (fresh-seat :mismatch-b)
+            c1  (tu/temp-dir "koinii-deref-" "mismatch-commit" "-")
+            out (tu/temp-dir "koinii-deref-" "mismatch-out" "-")
+            fact '(deltaNear Dover Calais)]
+        (tu/rm-rf! c1) (tu/rm-rf! out)
+        (let [a (forked-seat :mismatch-a nil)]
+          (try
+            (v/assert src fact 'CxShared)
+            (d/publish! src c1)
+            (d/pull! a c1)
+            (v/assert b b-only 'CxShared {:strength :monotonic})
+            (v/assert b fact 'CxShared)
+            (v/assert a '(genlCx CxSeatA CxShared))
+            (v/assert a (list 'except (v/sentex-handle (v/handle-of a fact 'CxShared))) 'CxSeatA)
+            (v/export-text! a (.getPath out) {:delta? true})
+            (let [merged (v/load-text! b (.getPath out) {:merge? true})]
+              (is (= refused (mapv :type (:refused merged)))))
+            (finally
+              (tu/clear-kb! src) (tu/clear-kb! b)
+              (v/close! a)
+              (doseq [sp [[::base :mismatch-a] [::own :mismatch-a]]] (tu/drop-space! sp))
+              (tu/rm-rf! c1) (tu/rm-rf! out))))))))
+
+(deftest a-pull-into-a-non-empty-seat-that-is-no-fork-is-refused
+  (let [src  (fresh-seat :refuse-src)
+        seat (fresh-seat :refuse-seat)
+        dump (tu/temp-dir "koinii-deref-" "refuse-commit" "-")]
+    (tu/rm-rf! dump)
+    (try
+      (atlas-writes! src)
+      (d/publish! src dump)
+      (boreas-writes! seat)
+      (let [e (try (d/pull! seat dump) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :not-empty (:type (ex-data e))))
+        (is (re-find #":rebase\? true" (ex-message e)) "the refusal names the fork layout"))
+      (let [f (v/fork seat)
+            e (try (d/pull! f dump) nil (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :frozen-base (:type (ex-data e))) "a fork of a live KB does not own its base")
+        (v/close! f))
+      (finally (tu/clear-kb! src) (tu/clear-kb! seat) (tu/rm-rf! dump)))))
 
 ;;; ── the marker is untrusted: tamper and non-receipt are caught ────────
 
 (deftest a-tampered-or-unreceived-marker-is-rejected-and-the-kb-is-the-authority
   (let [source (fresh-seat :tamper-src)
         seat   (fresh-seat :tamper-seat)
-        dump   (temp-dir "tamper-commit")]
-    (rm-rf! dump)
+        dump   (tu/temp-dir "koinii-deref-" "tamper-commit" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [ha (atlas-writes! source)]
         (boreas-writes! source)
@@ -355,12 +534,8 @@
           (testing "and a marker for Boreas's fact resolves — the seat DID pull that one"
             (let [rb (d/dereference seat (d/marker source (v/handle-of source boreas-fact 'CxBoreas)))]
               (is (:resolved? rb))
-              (is (= 'AgentBoreas (:seat rb)))))
-          (testing "a bare locator that names nothing in this store is likewise not-received"
-            (let [r (d/resolve-by-locator seat (str "sha256:" (apply str (repeat 64 "0"))))]
-              (is (not (:resolved? r)))
-              (is (= :not-received (:reason r)))))))
-      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+              (is (= 'AgentBoreas (:seat rb)))))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (tu/rm-rf! dump)))))
 
 ;;; ── a malformed marker is ANSWERED, never thrown out of the resolve path ──
 ;;; A marker arrives over an untrusted transport, so garbage — or a hostile peer's
@@ -371,8 +546,8 @@
 (deftest a-malformed-marker-is-refused-and-never-throws
   (let [source (fresh-seat :bad-src)
         seat   (fresh-seat :bad-seat)
-        dump   (temp-dir "bad-commit")]
-    (rm-rf! dump)
+        dump   (tu/temp-dir "koinii-deref-" "bad-commit" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [ha (atlas-writes! source)]
         (d/publish! source dump)
@@ -455,45 +630,15 @@
             (let [r (d/why-marker seat (assoc mk :sentence [1 2]))]
               (is (= :malformed (:reason r)))
               (is (nil? (:why r)))))))
-      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
-
-;;; ── resolve-by-locator takes peer input too, and answers the same way ─────
-
-(deftest resolve-by-locator-refuses-a-string-that-is-not-a-locator
-  (let [seat (fresh-seat :bad-loc)]
-    (try
-      (v/assert seat '(likes Alpha Beta) 'CxS)
-      (let [good (d/locate seat '(likes Alpha Beta) 'CxS)
-            idx  (d/locator-index seat)]
-        (testing "the genuine locator resolves, by both arities"
-          (is (:resolved? (d/resolve-by-locator seat good)))
-          (is (:resolved? (d/resolve-by-locator seat good idx))))
-        (testing "a string that is not a locator is :malformed, not :not-received"
-          (doseq [[label bad] [["not a string" 42]
-                               ["nil" nil]
-                               ["no algorithm tag" (apply str (repeat 64 "a"))]
-                               ["too short" "sha256:aa"]
-                               ["uppercase hex" (str "sha256:" (apply str (repeat 64 "A")))]]]
-            (doseq [[arity r] [["2-arity" (d/resolve-by-locator seat bad)]
-                               ["3-arity" (d/resolve-by-locator seat bad idx)]]]
-              (is (false? (:resolved? r)) (str label " / " arity))
-              (is (= :malformed (:reason r)) (str label " / " arity))
-              (is (= :locator (:problem r)) (str label " / " arity))
-              (is (= bad (:locator r)) (str label " / " arity)))))
-        (testing "while a well-formed locator this seat does not hold stays :not-received"
-          (let [r (d/resolve-by-locator seat (str "sha256:" (apply str (repeat 64 "0"))))]
-            (is (false? (:resolved? r)))
-            (is (= :not-received (:reason r)))
-            (is (nil? (:problem r))))))
-      (finally (tu/clear-kb! seat)))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (tu/rm-rf! dump)))))
 
 ;;; ── the why handoff: the proof comes from the seat's own KB ───────────
 
 (deftest why-marker-hands-off-to-the-seats-own-proof
   (let [source (fresh-seat :why-src)
         seat   (fresh-seat :why-seat)
-        dump   (temp-dir "why-commit")]
-    (rm-rf! dump)
+        dump   (tu/temp-dir "koinii-deref-" "why-commit" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [ha (atlas-writes! source)]
         (d/publish! source dump)
@@ -505,7 +650,7 @@
             (is (true? (:believed? (tu/why-root (:why r)))) "resolved and believed on this seat")
             (is (= atlas-fact (:sentence (tu/why-root (:why r)))))
             (is (true? (:premise? (tu/why-root (:why r)))) "an asserted fact rests on nothing below it"))))
-      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (tu/rm-rf! dump)))))
 
 ;;; ── a NEGATIVE fact round-trips (a `:false` sentex keeps its `not`) ────
 ;;; Regression: a stored `(not S)` keeps the `not` in its `:sentence`, which is the whole
@@ -516,8 +661,8 @@
 (deftest a-negative-fact-round-trips-and-dereferences
   (let [source (fresh-seat :neg-src)
         seat   (fresh-seat :neg-seat)
-        dump   (temp-dir "neg-commit")]
-    (rm-rf! dump)
+        dump   (tu/temp-dir "koinii-deref-" "neg-commit" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [nh (v/assert source '(not (happy Rex)) 'CxAtlas {:creator 'AgentAtlas})]
         (testing "the store keeps the `not` in :sentence"
@@ -533,7 +678,7 @@
               (is (= :negative (:polarity r)))
               (is (= '(not (happy Rex)) (:sentence r)))
               (is (= 'AgentAtlas (:seat r)))))))
-      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (rm-rf! dump)))))
+      (finally (tu/clear-kb! source) (tu/clear-kb! seat) (tu/rm-rf! dump)))))
 
 ;;; ── the encoder covers what a sentence can hold: chars, doubles ───────
 ;;; Regression: a `char` is legal sentence content (naming/form-rank), and commit-id folds
@@ -646,16 +791,11 @@
           (is (true? (d/verify-inclusion (d/locate a '(barks Rex) 'CxS)
                                          (d/inclusion-proof a (d/locate a '(barks Rex) 'CxS))
                                          (d/commit-id a)))))
-        (testing "and the two resolvers agree with the proof, because both read belief"
+        (testing "and dereference agrees with the proof, because it reads belief"
           ;; `handle-of` and `handles` are STORAGE reads; the commit family enumerates
           ;; belief.  Left unfiltered, a defeated record resolves here while answering no
           ;; inclusion proof — one seat, two answers about what it holds.
-          (let [loc (d/locator-of a defeated)
-                mk  (d/marker a defeated)]
-            (is (false? (:resolved? (d/resolve-by-locator a loc)))
-                "a defeated record's locator does not resolve")
-            (is (= :not-received (:reason (d/resolve-by-locator a loc)))
-                "a bare locator cannot tell the two absences apart, and says the weaker one")
+          (let [mk (d/marker a defeated)]
             (is (false? (:resolved? (d/dereference a mk))))
             (is (= :not-believed (:reason (d/dereference a mk)))
                 "handed the sentence, dereference names which absence it is")
@@ -666,17 +806,16 @@
           (is (true? (v/in? a defeated)) "the default is believed once its defeater is gone")
           (is (not= cid0 (d/commit-id a)))
           (is (some? (d/inclusion-proof a (d/locator-of a defeated))))
-          (is (true? (:resolved? (d/resolve-by-locator a (d/locator-of a defeated))))
-              "and it resolves again, with the leaf it now has")
-          (is (true? (:resolved? (d/dereference a (d/marker a defeated)))))))
+          (is (true? (:resolved? (d/dereference a (d/marker a defeated))))
+              "and it resolves again, with the leaf it now has")))
       (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
 
 ;;; ── publish! requires :compression :none ──────────────────────────────
 
 (deftest publish-refuses-a-compression-that-would-cost-byte-stability
   (let [a   (fresh-seat :fixed-compression)
-        dir (temp-dir "fixed-compression")]
-    (rm-rf! dir)
+        dir (tu/temp-dir "koinii-deref-" "fixed-compression" "-")]
+    (tu/rm-rf! dir)
     (try
       (atlas-writes! a)
       (testing "the byte-stability claim is not a default a caller can override"
@@ -688,7 +827,7 @@
       (testing "asking for what it already is is allowed, and other opts pass through"
         (is (some? (d/publish! a dir {:compression :none})))
         (is (.exists ^File (io/file dir "sentexes.nippy.stream"))))
-      (finally (tu/clear-kb! a) (rm-rf! dir)))))
+      (finally (tu/clear-kb! a) (tu/rm-rf! dir)))))
 
 ;;; ── verify-inclusion fails closed on a malformed (untrusted) proof ────
 

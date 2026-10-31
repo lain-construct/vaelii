@@ -262,7 +262,7 @@ therefore carries the **triggering sentences** beside each rule handle, and
   the negative sentex it reads. The shape test drops polarity, so the union covers both.
   A negated conjunct is also reached by a tuple of a predicate a `negates` declaration
   says negates its own (`recheck/negates-reaches?`).
-- Both closures cross `genlInverse` edges (`special/signed-all`).
+- Both closures cross `genlInverse` edges (`rules/signed-reach`).
 - Arguments are compared as a **multiset**, so a symmetric predicate's mirrored fact
   matches, as level 6 probes both orders, and so does a fact a `genlInverse` edge swaps.
 - Both sides are read under the **equality-class representative** when the KB has merged
@@ -418,7 +418,7 @@ withdraws the defeat when the blocker goes OUT.
 | a closed-extent negative antecedent blocks | yes | re-askable from the bindings alone |
 | a `disjoint` antecedent the placement context does not read separated | yes | likewise, and the same evaluator |
 | a post-join literal had no answer | no | an aggregate is a *value* that moved, and a queued aggregate rule is re-joined whatever the blocked set did (`settle/rejoin-on-arrival-rules`) |
-| the settle blocks a placed firing, and the sweep deletes it | yes, by `chain/record-swept-firing!` | the conclusion is gone from the store, so the record is what a trigger lifting the block re-derives it from, as for a firing refused at its placement |
+| the settle blocks a placed firing, and the sweep deletes it | yes, by `chain/record-swept-firing!`, for a forward rule | the conclusion is gone from the store, so the record is what a trigger lifting the block re-derives it from, as for a firing refused at its placement. A release re-derives no firing of a rule that does not forward-chain (`chain/refusal-state`), so that firing has no entry |
 | a visibility `except` hides an antecedent | no | an `except` arriving or leaving, or a `genlCx` edge moving which contexts see it, re-joins from its target's consequence closure and the antecedents of the justifications resting on it (`special/drain-except-moves!`), and the refusal is re-derived there. An entry would be one nothing reads |
 
 A firing whose conclusion an argument conviction convicts is not a refusal and has no
@@ -631,7 +631,12 @@ another.
   too, since a denial reached along it answers them.
   `special/declaration-subjects` names which declarations post here, and
   `predicates/check-facets` refuses at load a declaration that answers goals and posts
-  by no route.
+  by no route. `declaration-subjects` omits three groups: declarations that answer no
+  goal (`functional`, `arity`, the decontextualization marks, which carry no `:answers`
+  facet); declarations that post from their own arms (`arg`, `closed_extent_predicate`,
+  the `:retriggers` facet); and `genlArg`, `quotedArg` and `interArg`, whose licensed
+  inferences are stored sentexes that reach an exception through an ordinary fact trigger
+  (each records that in `:stops-short`).
 - **An equality, which moves no extent and answers no goal.** A merge is not a fact
   arriving or leaving, and it reaches an exception twice over. It **retires a
   spelling** rather than removing a fact — the superseded sentex is still stored and
@@ -657,8 +662,8 @@ another.
   which normalizes terms rather than merging symbols, so there is no class to test
   against. And the whole **removal** side, where the narrowing is not imprecise but
   blind: what a released condition owes a re-derivation to includes the firings the
-  block already swept, and the refusal record holds those only where no except hid an
-  antecedent (`chain/record-swept-firing!`).
+  block already swept, and the refusal record holds those only for a forward rule, and only
+  where no except hid an antecedent (`chain/record-swept-firing!`).
 
   A rule whose only re-checked condition is a `different` guard takes less than that
   (`special/different-only-rule?`: no `unknown`, no aggregate, no closed-extent negative,

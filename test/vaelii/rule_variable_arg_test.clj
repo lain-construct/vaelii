@@ -11,21 +11,17 @@
   instead: `assert` stores a rule it convicts and holds it inert as `:arg-variable`, in
   every arrival order of the rule and its declarations, and `try-assert` refuses it.
 
-  Two arms, and the second is the one that needs saying: a position is type-level when a
-  `genlArg` names it **or** when its predicate is a `type_relation_predicate`, which says
-  it of every position at once.  That second half is what constrains `genl`'s second
-  argument, the one position in CxUniverse's schema carrying no declaration of its own."
+  Two arms, and the second is the one that needs saying: a position a `genlArg` names asks
+  for a `unary_predicate`, and every position of a `type_relation_predicate` asks for what
+  its `args` declaration names, `predicate` from core.txt.  That second half is what
+  constrains `genl`'s arguments, the positions in CxUniverse's schema carrying no
+  position declaration of their own."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
-
-(defn- refusal
-  "The `ex-data` of the ex-info a thunk throws, or nil when it does not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (defn- conviction
   "The conviction `assert` holds the rule `form` inert under in CxUniverse
@@ -41,14 +37,6 @@
     (doseq [t [a b c]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
     (v/assert kb (list 'disjoint a b) 'CxUniverse)
     [a b c]))
-
-(defn- permutations
-  [coll]
-  (if (< (count coll) 2)
-    (list coll)
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
 
 ;; ---- two instance constraints on one variable ---------------------------
 
@@ -79,14 +67,14 @@
         (is (= :arg-variable (:type (:conviction (v/why-not kb h))))))
       (v/retract! kb h))
     (testing "try-assert refuses it"
-      (let [d (refusal #(v/try-assert kb form 'CxUniverse))]
+      (let [d (tu/refusal-data #(v/try-assert kb form 'CxUniverse))]
         (is (= [:definitional-clash :arg-variable] [(:type d) (:violation d)]))
         (is (nil? (v/handle-of kb form 'CxUniverse)))))))
 
 (tu/deftest-kb a-rule-a-separation-convicts-is-held-in-every-arrival-order
   ;; all 24 orders of {arg p, arg q, disjoint, rule}: the stored set, the rule's belief
   ;; and the report are the same in every one
-  (let [outcomes (vec (for [order (permutations [:arg-p :arg-q :disjoint :rule])]
+  (let [outcomes (vec (for [order (tu/permutations [:arg-p :arg-q :disjoint :rule])]
                         (tu/with-terms [p q a_ b_]
                           (v/assert kb (list 'genl a_ 'thing) 'CxUniverse)
                           (v/assert kb (list 'genl b_ 'thing) 'CxUniverse)
@@ -150,7 +138,7 @@
                  (list 'arg p 1 a_) (list 'arg q 1 b_)]]
         (v/assert kb s 'CxUniverse))
       (let [form (list 'implies (list p '?x) (list q '?x))]
-        (is (= :arg-variable (:violation (refusal #(v/try-assert kb form 'CxUniverse)))))
+        (is (= :arg-variable (:violation (tu/refusal-data #(v/try-assert kb form 'CxUniverse)))))
         (is (nil? (v/handle-of kb form 'CxUniverse))))))
   (testing "the rule first: the declaration that convicts it is refused, naming the rule"
     (tu/with-terms [p q a_ b_]
@@ -159,13 +147,39 @@
         (v/assert kb s 'CxUniverse))
       (let [form (list 'implies (list p '?x) (list q '?x))
             h    (v/assert kb form 'CxUniverse)
-            d    (refusal #(v/try-assert kb (list 'arg q 1 b_) 'CxUniverse))]
+            d    (tu/refusal-data #(v/try-assert kb (list 'arg q 1 b_) 'CxUniverse))]
         (is (v/in? kb h))
         (is (= [:definitional-clash :arg-variable] [(:type d) (:violation d)]))
         (is (= [h] (mapv :handle (:clashes-with d))))
         (is (nil? (v/handle-of kb (list 'arg q 1 b_) 'CxUniverse)))
         (is (v/in? kb h) "nothing was stored, so the rule stays believed")
         (v/retract! kb h)))))
+
+(tu/deftest-kb try-assert-refuses-a-covering-declaration-that-convicts-a-stored-rule
+  (doseq [decl [(fn [q b_] (list 'argAndRest q 1 b_)) (fn [q b_] (list 'args q b_))]]
+    (tu/with-terms [p q a_ b_]
+      (doseq [s [(list 'genl a_ 'thing) (list 'genl b_ 'thing) (list 'disjoint a_ b_)
+                 (list 'arg p 1 a_)]]
+        (v/assert kb s 'CxUniverse))
+      (let [h (v/assert kb (list 'implies (list p '?x) (list q '?x)) 'CxUniverse)
+            d (decl q b_)
+            r (tu/refusal-data #(v/try-assert kb d 'CxUniverse))]
+        (is (= [:definitional-clash :arg-variable [h]]
+               [(:type r) (:violation r) (mapv :handle (:clashes-with r))])
+            (pr-str d))
+        (is (nil? (v/handle-of kb d 'CxUniverse)))
+        (is (v/in? kb h))
+        (v/retract! kb h)))))
+
+(tu/deftest-kb args-and-arg-at-position-1-judge-a-rule-alike
+  (let [verdict (fn [decl]
+                  (tu/with-terms [p q a_ b_]
+                    (doseq [s [(list 'genl a_ 'thing) (list 'genl b_ 'thing) (list 'disjoint a_ b_)
+                               (list 'arg p 1 a_) (decl q b_)]]
+                      (v/assert kb s 'CxUniverse))
+                    (:type (conviction kb (list 'implies (list p '?x) (list q '?x))))))]
+    (is (= [:arg-variable :arg-variable]
+           [(verdict #(list 'arg %1 1 %2)) (verdict #(list 'args %1 %2))]))))
 
 (tu/deftest-kb a-believed-rule-goes-out-with-its-conclusions-when-a-declaration-convicts-it
   (tu/with-terms [p q a_ b_ Foo]
@@ -244,7 +258,7 @@
   (let [text (tu/tmp-type)
         p (tu/tmp-pred) rel (tu/tmp-pred) t (tu/tmp-type)]
     (v/assert kb (list 'genl text 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint text 'unary_predicate) 'CxUniverse)
+    (v/assert kb (list 'disjoint text 'predicate) 'CxUniverse)
     (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (v/assert kb (list 'arg p 1 text) 'CxUniverse)
     (v/assert kb (list 'genlArg rel 1 'thing) 'CxUniverse)   ; position 1 only
@@ -257,6 +271,40 @@
         (is (re-find #"type_relation_predicate" (:message (:conviction (v/why-not kb h))))))
       (v/retract! kb h))))
 
+(tu/deftest-kb a-genl-rule-over-a-binary-predicate-class-is-believed-in-either-order-and-after-recover
+  ;; #244: a type_relation_predicate's positions ask for what its `args` declaration
+  ;; names, `predicate` from core.txt's forward rule, so a class of binary predicates
+  ;; fills genl's first argument; the rule written before its declarations and after
+  (let [outcomes (vec (for [rule-first? [true false]]
+                        (tu/with-terms [pair_type pair_kind steady_kind targetRel]
+                          (let [form  (list 'implies (list 'and (list pair_kind '?r) (list 'genl '?r targetRel))
+                                            (list steady_kind '?r))
+                                decls [(list 'genl pair_type 'predicate) (list 'disjoint pair_type 'unary_predicate)
+                                       (list 'genl pair_kind 'thing) (list 'genl steady_kind 'thing)
+                                       (list 'arg pair_kind 1 pair_type)]
+                                _     (run! #(v/assert kb % 'CxUniverse)
+                                            (if rule-first? (cons form decls) (concat decls [form])))
+                                h     (v/handle-of kb form 'CxUniverse)
+                                inert #(some (fn [v] (and (= :inert-rule (:violation v))
+                                                          (= h (v/handle-of kb (:sentence v) (:context v)))))
+                                             (v/violations kb))
+                                live  [(some? h) (v/in? kb h) (boolean (inert))]]
+                            (v/recover kb)
+                            (let [r [live [(v/in? kb h) (boolean (inert))]]]
+                              (v/retract! kb h)
+                              r)))))]
+    (is (= [[[true true false] [true false]]] (distinct outcomes)))))
+
+(tu/deftest-kb a-rule-over-genl-fires-on-the-shipped-edge-between-binary-predicates
+  ;; abstract.txt's (genl performedBy doneBy) places one binary predicate under another
+  (tu/with-terms [doerMark Tag]
+    (v/assert kb (list 'arg doerMark 1 'binary_predicate) 'CxUniverse)
+    (let [rule (list 'set/forwardRule (list 'implies (list 'genl '?r 'doneBy) (list doerMark '?r Tag)))
+          h    (v/assert kb rule 'CxUniverse)
+          c    (v/handle-of kb (list doerMark 'performedBy Tag) 'CxUniverse)]
+      (is (= [true true] [(v/in? kb h) (boolean (and c (v/in? kb c)))]))
+      (v/retract! kb h))))
+
 ;; ---- the two forms the issue named --------------------------------------
 
 (tu/deftest-kb the-shipped-schema-holds-a-string-fed-into-a-type-slot
@@ -266,7 +314,7 @@
     (let [c (conviction kb '(implies (comment ?x ?string) (genl ?x ?string)))]
       (is (= :arg-variable (:type c)))
       (is (= '?string (:variable c)))
-      (is (= '[string unary_predicate] (:expected c))))))
+      (is (= '[string predicate] (:expected c))))))
 
 (tu/deftest-kb the-shipped-schema-holds-a-function-fed-into-a-type-slot
   ;; The second half of CxUniverse's "A function is a relation, and is not a predicate", as a
@@ -282,7 +330,7 @@
             c    (conviction kb form)]
         (is (= :arg-variable (:type c)))
         (is (= '?f (:variable c)))
-        (is (= '[function unary_predicate] (:expected c))))))
+        (is (= '[function predicate] (:expected c))))))
   (testing "and the type-valued position of the same literal is unaffected"
     (is (nil? (conviction kb '(implies (result ?f ?t) (genl ?t ?t)))))))
 
@@ -293,7 +341,7 @@
     (let [c (conviction kb '(implies (arity ?p ?n) (genl ?p ?n)))]
       (is (= :arg-variable (:type c)))
       (is (= '?n (:variable c)))
-      (is (= '[non_negative_integer unary_predicate] (:expected c)))))
+      (is (= '[non_negative_integer predicate] (:expected c)))))
   (testing "a symbol fed into a type slot is held, mention and use being disjoint"
     ;; symbol reaches expression through atomic_term and atomic_expression, and
     ;; expression is disjoint from relation, so a variable asked for a symbol at one end
@@ -303,7 +351,7 @@
       (let [c (conviction kb (list 'implies (list p '?x) (list 'genl '?x 'thing)))]
         (is (= :arg-variable (:type c)))
         (is (= '?x (:variable c)))
-        (is (= '[symbol unary_predicate] (:expected c)))))))
+        (is (= '[symbol predicate] (:expected c)))))))
 
 ;; ---- the other entry point: a rule nobody typed ---------------------------------
 ;; A mint reads `check-rule!` as a **value** (`checks/rule-violation`) and drops what it
@@ -375,7 +423,7 @@
   (let [qs (tu/tmp-pred)]
     (v/assert kb (list 'unary_predicate qs) 'CxUniverse)
     (v/assert kb (list 'quotedArg qs 1 'string) 'CxUniverse)
-    (is (= '[string unary_predicate]
+    (is (= '[string predicate]
            (:expected (conviction kb (list 'implies (list qs '?x) (list 'genl '?x 'thing))))))))
 
 (tu/deftest-kb a-quoted-symbol-demand-is-not-judged-by-the-rule-arm

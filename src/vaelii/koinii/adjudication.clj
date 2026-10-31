@@ -77,14 +77,11 @@
 
 (defn notify-disputes
   "The default policy's core move: announce every not-yet-announced dispute `channel`
-  observes and record it `notified`.  For each `:open` dispute (from the dispute module's
-  `pending-disputes`), record a `notified` mark (`open -> notified`) and push the entry to
-  `*notify-sink*`.  Changes NO belief — both sides stay `in?` at `:default` and `argue`
-  still reports `:contradiction`; only the lifecycle record moves.
-
-  **Fires once per dispute.**  The stored mark is the idempotency key: a notified dispute
-  is no longer `:open`, so a redelivery or a catch-up re-run does not re-push
-  it.  Returns the disputes newly notified."
+  observes and record it `notified`.  For each `:open` dispute (`pending-disputes`), record
+  a `notified` mark (`open -> notified`) and push the entry to `*notify-sink*`.  Changes NO
+  belief: both sides stay `in?` at `:default`.  **Fires once per dispute**: the stored mark
+  is the idempotency key, so a redelivery or a catch-up re-run does not re-push it.  Returns
+  the disputes newly notified."
   [kb channel]
   (koinii-types/needs-kb! `notify-disputes kb)
   (let [pending (d/pending-disputes kb channel)]
@@ -102,37 +99,28 @@
   (disj (set (keys (:nodes (v/why kb handle)))) handle))
 
 (defn- opened-at
-  "When dispute `id` arose: the latest `:created` time among its clashing sides and
-  everything they rest on (the clash exists once the last of them is asserted — two sides
-  for a rebuttal, three for an `anti_transitive` chain).  A side that was **derived**
-  carries no provenance of its own, so its creation times are its premises': an emergent
-  clash — two rules concluding `S` and `¬S` from facts nobody stated as a stance — arose
-  when the last of those premises landed, and reading the sides alone would find no
-  `:created` time and sweep it at its first tick.  0 if nothing in the closure carries a
-  `:created` time — such a dispute is treated as old, so the sweep surfaces it rather than
-  hiding it."
-  [kb id]
+  "When the dispute over the sides at `handles` arose: the latest `:created` time among
+  them and everything they rest on.  A **derived** side carries no provenance of its own, so its
+  creation times are its premises': an emergent clash (two rules concluding `S` and `¬S`)
+  arose when the last of those premises landed.  0 if nothing in the closure carries a
+  `:created` time, so the sweep surfaces such a dispute instead of hiding it."
+  [kb handles]
   (reduce max 0 (keep #(:created (v/provenance kb %))
-                      (into (set id) (mapcat #(support-handles kb %)) id))))
+                      (into (set handles) (mapcat #(support-handles kb %)) handles))))
 
 (defn sweep-stale
   "Sweep every dispute `channel` observes that has stayed live past `*timeout-ms*` with no
-  ruling to `:stale`, pushing each to `*stale-sink*`.  A stale dispute is STILL live — both
-  sides coexist, `argue` still reports `:contradiction` — `:stale` only flags that it aged
-  out unaddressed, so open disputes do not accumulate unbounded and none is silently
-  dropped.  Idempotent: an already-`:stale` dispute is skipped.  Returns the disputes swept.
-
-  **One whole-KB scan for the sweep, not one per dispute.**  The skip reads the stored
-  `:stale` mark (`dispute/stale?`) rather than the whole lifecycle state: every entry
-  `disputes-in` hands back is live by construction, and `dispute-state` establishes
-  liveness with a fresh `contradictions` + `conflicts` scan — so asking it per entry would
-  re-derive what the enumeration just settled, at a whole-KB scan apiece."
+  ruling to `:stale`, pushing each to `*stale-sink*`.  A stale dispute is STILL live (both
+  sides coexist, `argue` still reports `:contradiction`); `:stale` flags that it aged out
+  unaddressed.  Idempotent.  Returns the disputes swept.  **One whole-KB scan for the
+  sweep**: the skip reads the stored `:stale` mark (`dispute/stale?`), since every entry
+  `disputes-in` hands back is live and `dispute-state` would re-scan per entry."
   [kb channel]
   (koinii-types/needs-kb! `sweep-stale kb)
   (let [cutoff (- (now) *timeout-ms*)
         swept  (filterv (fn [e]
                           (and (not (d/stale? kb (:dispute-id e)))
-                               (< (opened-at kb (:dispute-id e)) cutoff)))
+                               (< (opened-at kb (:handles e)) cutoff)))
                         (d/disputes-in kb channel))]
     (doseq [e swept]
       (d/mark-stale kb (:dispute-id e) (now) 'TimedOut)
@@ -152,16 +140,11 @@
 
 (defn who-ruled
   "Read a ruling off its handle: `{:arbiter :dispute-ids :at}` from the provenance `rule`
-  recorded, or nil if `ruling-handle` is not an adjudication assertion.  'Which disputes
-  this sentex is the standing ruling of, who ruled them, and when' as a provenance read.
-
-  `:dispute-ids` is a **set**, and it has to be.  Canonical dedup gives one sentex per
-  (sentence, context), so an arbiter who rules two disputes the same way — the same
-  claim upheld against two different opponents — records an adjudication on one handle
-  twice, and a single-valued tag would keep only the later id.  The earlier dispute would
-  then read no standing ruling at all, skip the one-ruling-per-arbiter guard, and land a
-  second monotonic ruling beside the first: two known-true claims on one clash, a
-  `:conflict` no ruling can settle."
+  recorded, or nil if `ruling-handle` is not an adjudication assertion.  `:dispute-ids` is a
+  **set**: canonical dedup gives one sentex per (sentence, context), so an arbiter who rules
+  two disputes the same way records an adjudication on one handle twice, and a single-valued
+  tag would leave the earlier dispute with no standing ruling and let a second monotonic
+  ruling land beside the first (a `:conflict` no ruling can settle)."
   [kb ruling-handle]
   (koinii-types/needs-kb! `who-ruled kb)
   (let [p (v/provenance kb ruling-handle)]
@@ -170,27 +153,14 @@
 
 (defn standing-rulings
   "The rulings `arbiter` currently holds on dispute `id`: the handles in the arbiter's own
-  context whose provenance `rule` tagged with `id`.  One provenance read per sentex in
-  that context — an arbiter's context holds its rulings and whatever else the agent
-  asserts, and the tag is what tells them apart.
-
-  **Believed rulings only** (`{:believed? true}`).  A ruling this arbiter no longer believes
-  is not one they hold, and `rule`'s caller retracts what this returns: read unfiltered, a
-  ruling already defeated or unsupported would be withdrawn a second time as though it were
-  the arbiter's standing word on the dispute.
-
-  Ranked by the ruling's own **sentence**, so the answer is content-ordered rather than
-  an artifact of the extent's seq order — and rather than of the handles, which are
-  allocated in assertion order, so ranking on one would make `resolve-by-majority`'s
-  `:withdrawn` list a fact about how the KB was loaded.  One context holds them and
-  canonical dedup gives one sentex per (sentence, context), so the sentence alone is a
-  total order.
-
-  The order is the engine's own content order (`v/sort-by-content`), which is the whole
-  reason to use it here rather than a printed key:
-  it walks the two forms instead of printing them, so no ambient `*print-*` var can elide
-  two rulings to one key and drop the tie back onto the enumeration order this exists to
-  keep out — and it reads numbers numerically, so a ruling of 9 precedes one of 10."
+  context whose provenance `rule` tagged with `id`.  **Believed rulings only**
+  (`{:believed? true}`), since `rule`'s caller retracts what this returns and a defeated
+  ruling must not be withdrawn twice.  Ranked by the ruling's **sentence** with
+  `v/sort-by-content`, not by handle (assertion order would make `resolve-by-majority`'s
+  `:withdrawn` list a fact about how the KB was loaded) and not by a printed key (an ambient
+  `*print-*` var could elide two rulings to one key; a ruling of 9 precedes one of 10).
+  Canonical dedup gives one sentex per (sentence, context), so the sentence is a total
+  order."
   [kb arbiter id]
   (koinii-types/needs-kb! `standing-rulings kb)
   (let [k (d/dispute-key id)]
@@ -201,55 +171,62 @@
                              (v/sentexes-in-context kb (id/context-for arbiter)
                                                     {:believed? true})))))
 
+(defn- sides
+  "The stored sentexes dispute `k` names, believed or not: each record of a sentence in
+  `both`, a canonical sentence and its negation, whose digest is in `k`, and the sides of
+  the live clash `k` names when that finds fewer than `k` holds (a definitional clash)."
+  [kb k both]
+  (let [ds    (set (if (sequential? k) k [k]))
+        names (into [] (comp (filter symbol?) (remove #{'not}) (distinct)) (tree-seq sequential? seq (seq both)))
+        cands (filterv #(both (v/sentence-of %)) (v/find-sentexes-all kb names))
+        found (into #{} (keep-indexed #(when (ds %2) (cands %1)))
+                    (v/digests kb (mapv :id cands)))]
+    (if (<= (count ds) (count found))
+      found
+      (into found (comp (filter #(= k (d/dispute-id kb %))) (mapcat :handles)
+                        (keep #(v/sentex kb %)))
+            (concat (v/contradictions kb nil {:grounds? false})
+                    (v/conflicts kb {:grounds? false}))))))
+
 (defn rule
-  "Arbiter escalation: `arbiter` (an agent id, e.g. `AgentArbiter`) rules dispute `id`
-  within `channel` in favour of `upheld` — which MUST be one of the dispute's two clashing
-  sentences.
+  "Arbiter escalation: `arbiter` (an agent id, e.g. `AgentArbiter`) rules dispute `id` within
+  `channel` for `upheld`, a side or its negation; any other is refused `:koinii/not-a-side`.
 
-  The ruling is an ordinary assertion: `upheld` at `:monotonic` strength in the arbiter's
-  OWN context (`id/context-for`), lifted under `channel` so the channel sees it, recorded
-  with creator `arbiter` and tagged `:adjudication id` in provenance.  Monotonic strength
-  defeats the losing `:default` side, so the coexisting clash clears — the dispute reads
-  `:resolved` and `argue` collapses to `:true`/`:false`.  `why` on `upheld` shows the
-  adjudication and who ruled.
+  The ruling is an ordinary assertion: `upheld` at `:monotonic` strength in the arbiter's OWN
+  context (`id/context-for`), lifted under `channel`, with creator `arbiter` and tagged
+  `:adjudication id` in provenance.  Monotonic strength defeats the losing `:default` side,
+  so the dispute reads `:resolved` and `argue` collapses to `:true`/`:false`.
 
-  **One ruling per arbiter per dispute.**  A ruling this arbiter already holds on `id`
-  for the *other* side is retracted first — two monotonic rulings on one clash are a
-  `:conflict` no ruling can settle, and the later word is the arbiter's current one.
-  Ruling the same side again is a belief no-op that returns the standing handle.
+  **One ruling per arbiter per dispute**: a ruling for the *other* side is retracted first;
+  ruling the same side again is a belief no-op that returns the standing handle.
+  **Reversible**: retracting the returned handle reopens the dispute through the JTMS.  The
+  open/notified/stale marks are cleared once the ruling has LANDED, so a reopen re-notifies;
+  a REFUSED ruling clears nothing.  Returns the ruling handle.  It resolves a `:default`
+  coexisting dilemma only: a `:monotonic` `:conflict` needs a human to retract a premise.
 
-  **Reversible.**  Retract the returned handle and the losing side is no longer defeated —
-  the dispute reopens, cascading through the JTMS.  A ruling koinii could not undo would be
-  a worse store than one that leaves the dispute open.  The dispute's open/notified/stale
-  marks are cleared once the ruling has LANDED and the episode is over, so a reopen starts
-  fresh at `:open` (and re-notifies) — and a REFUSED ruling clears nothing, leaving the
-  episode exactly as it found it.  Returns the ruling handle.
-
-  Resolves a `:default` coexisting dilemma only.  A `:monotonic` `:conflict` (two things
-  asserted known-true) cannot be settled by a monotonic ruling — it needs a human to
-  retract a premise — so it is not this path's job.
-
-  **An arbiter who is a party to the dispute is refused** (`:arbiter-is-party`).  A ruling
-  is an assertion in the arbiter's own context, so for a party that context already holds
-  one of the two clashing sentences: ruling their own way would silently re-record their
-  claim as its own adjudication, and ruling the other way would *retract* it — the
-  disputed claim deleted rather than the dispute settled, which `dispute-state` then reads
-  as `:resolved` because there is no longer a clash to see.  Whether an arbiter may judge
-  their own case is not a question this can answer by guessing, so it does not."
+  **An arbiter who is a party to the dispute is refused** (`:arbiter-is-party`): the
+  arbiter's context already holds one of the two sentences, so ruling their own way would
+  re-record their claim and ruling the other way would *retract* it, deleting the claim
+  instead of settling the dispute."
   [kb arbiter id upheld channel]
   (koinii-types/needs-kb! `rule kb)
   (let [actx (id/context-for arbiter)
         k    (d/dispute-key id)
-        held (set (keep #(v/sentex kb %) (if (sequential? k) k [k])))
-        ;; the arbiter's own *claims*, which is what makes them a party — a sentex their
-        ;; context holds and BELIEVES that is not one of their own rulings.  A standing
-        ;; ruling is exactly what this call is entitled to supersede, so it is not evidence
-        ;; of anything, and re-ruling must not read it as taking a side.  Belief-filtered
-        ;; (`{:believed? true}`) because a claim the arbiter's context stores but no longer
-        ;; believes is not a side they hold: a defeated claim would convict them of being a
-        ;; party to a dispute they have already stepped out of.
+        s    (v/sentence-of (v/canonical-sentex kb upheld actx))
+        both #{s (if (= 'not (first s)) (second s) (list 'not s))}
+        held (sides kb k both)
+        ;; the arbiter's own *claims*, which make them a party: the sentexes their context
+        ;; BELIEVES, less their own rulings, which this call may supersede.  A defeated
+        ;; claim is not a side they hold (docs/koinii.md, "Disputes and adjudication").
         mine (into #{} (comp (remove #(who-ruled kb (:id %))) (map v/sentence-of))
                    (v/sentexes-in-context kb actx {:believed? true}))]
+    ;; a sentence `assert` refuses is left to `edit!` below, which throws assert's `:type`
+    (when (and (not-any? #(both (v/sentence-of %)) held) (empty? (v/check kb upheld actx)))
+      (throw (ex-info (str "koinii: neither " (pr-str s) " nor its negation is a side of dispute "
+                           (pr-str k) " — no stored sentex of either has a digest in the id, and"
+                           " no live clash carries the id.  A side respelled since the id was"
+                           " read has a new digest; read the id again from `disputes-in`")
+                      {:type :koinii/not-a-side :upheld upheld :dispute-id k})))
     (when (some #(contains? mine (v/sentence-of %)) held)
       (throw (ex-info (str "koinii: " arbiter " is a party to dispute " (pr-str k)
                            " — an arbiter's ruling lands in the arbiter's own context, so"
@@ -351,36 +328,25 @@
     {:for (count (remove no yes)) :against (count (remove yes no))}))
 
 (defn resolve-by-majority
-  "Resolve dispute `id` over the claim at `claim-handle` by MAJORITY VOTE, within
-  `channel`.  Count the ballots (`tally`); if one side has strictly more, uphold it as a
-  reversible ruling (`rule`, arbiter `majority-arbiter`) — the claim for a `:for` majority,
-  its negation for an `:against` majority — so the clash clears and retracting the ruling
-  reopens it.  **A tie upholds nothing**: an evenly-split house (or one nobody has voted in)
-  stays disputed, the leave-open default holding rather than a winner picked by
-  fiat — which is the whole reason to count instead of decree.
+  "Resolve dispute `id` over the claim at `claim-handle` by MAJORITY VOTE, within `channel`.
+  Count the ballots (`tally`); if one side has strictly more, uphold it as a reversible
+  ruling (`rule`, arbiter `majority-arbiter`): the claim for a `:for` majority, its negation
+  for `:against`.  **A tie upholds nothing**: the dispute stays open.
 
-  **The count is the authority, every time.**  The house can change its mind — ballots
-  are retracted and re-cast — and a ruling that no longer matches the count is withdrawn
-  before the new one lands: a majority that swings retracts the standing ruling and
-  rules the other side (`rule`'s one-ruling-per-arbiter contract), and a majority that
-  dissolves into a tie retracts it and leaves the dispute open.  Left standing, the old
-  ruling and the new would be two monotonic claims on one clash — a `:conflict`
-  reported as `:contradiction`, under a return value claiming the swing carried.
+  **The count is the authority, every time**: a ruling that no longer matches the count is
+  withdrawn before the new one lands, so a swing retracts the standing ruling and rules the
+  other side, and a majority that dissolves into a tie retracts it and leaves the dispute
+  open.  Returns `{:for n :against n :outcome :for/:against/:tie :ruling handle-or-nil
+  :withdrawn [handle …]}`.  Idempotent: re-running on an unchanged count withdraws nothing,
+  so a driver may poll it.
 
-  Returns `{:for n :against n :outcome :for/:against/:tie :ruling handle-or-nil
-  :withdrawn [handle …]}`, `:withdrawn` naming the rulings this count retired.
-  Idempotent: re-running on an unchanged count re-rules the same side (a belief no-op
-  returning the standing handle) and withdraws nothing, so a driver may poll it.
-
-  **Requires the `:proof-tier` identity policy, and a proven voter on every ballot.**
-  A majority ruling defeats the losing side, and a count by claimed voter name is
-  spoofable, so this refuses (`:koinii/identity-unverified`) under any other policy, and
-  refuses when any ballot on the claim — spoiled ones included — proves no voter
-  (`proven-voter?`), naming those ballots in `:unattested`.  `cast-ballot` under a
-  minted `:proof-tier` principal attests one, and a daemon holding a token table records
-  the `:principal` of a wire ballot; a ballot from `channel/vote` in process, or over a
-  daemon with no table, proves none (docs/koinii.md, *Identity and the write boundary*).
-  `tally` is unrestricted."
+  **Requires the `:proof-tier` identity policy, and a proven voter on every ballot.**  A
+  count by claimed voter name is spoofable, so this refuses (`:koinii/identity-unverified`)
+  under any other policy, and when any ballot on the claim, spoiled ones included, proves no
+  voter (`proven-voter?`), naming them in `:unattested`.  `cast-ballot` under a minted
+  `:proof-tier` principal attests one, and a daemon with a token table records the
+  `:principal` of a wire ballot (docs/koinii.md, *Identity and the write boundary*).  `tally`
+  is unrestricted."
   [kb id claim-handle channel]
   (koinii-types/needs-kb! `resolve-by-majority kb)
   (when-not (= :proof-tier id/*policy*)
@@ -422,51 +388,26 @@
 (defn contested-premises
   "The disputed premises the conclusion `S` rests on in `ctx`: the handles in S's support
   closure that are a side of an open dispute `ctx` observes.  Empty if S rests on nothing
-  contested.
+  contested.  A pure read that changes no belief (unlike `quarantine`): an open dispute does
+  not block dependent reasoning, so a conclusion resting on a contested premise should be
+  *visible as such*.
 
-  This marks what the paraconsistent default leaves unmarked.  An open dispute does NOT
-  block dependent reasoning — the KB keeps deriving and both sides stay believed at
-  `:default` — but a conclusion resting on a contested premise should be *visible as such*
-  so a reader is never silently misled.  A pure read: it changes no belief, unlike
-  `quarantine`.  Returns the contested premise handles.
-
-  **Scoped to the ANCESTOR SET, on both sides.**  `S` is resolved the way `ctx` actually sees it —
-  every believed sentex of `S` in a context `ctx` sees (`v/sees?`) — which is the scoping
-  `disputes-in` already reads a dispute at, and the scoping `ask?` answers a goal at.  An
-  exact-context lookup would disagree with both, and disagree in the one direction a safety
-  read must not: forward chaining places a conclusion in the most specific context that sees
-  its premises, which for a channel reading its agents' work is an AGENT's context and not
-  the channel's, so `ctx` proves `S` while storing no `S` of its own.  Keyed on `ctx`'s own
-  store, this would then answer 'nothing contested' for a conclusion built on a disputed
-  claim — the false reassurance the whole read exists to prevent.
-
-  **Every visible derivation, not a chosen one.**  Where more than one context in the ancestor set
-  holds `S`, their support closures are UNIONED rather than one being picked.  A reader
-  trusting `S` at `ctx` is trusting whichever derivation answered, so a premise any of them
-  rests on is a premise the answer rests on.  The union is also what leaves no tie-break to
-  get wrong: a first-one-wins would be decided by the extent's seq order, or by the handles,
-  which are allocated in assertion order — either of which would make the flag a fact about
-  how the KB was loaded rather than about what it holds.
-
-  **Belief-filtered**, the position `standing-rulings` and `rule`'s party test take.  A
-  stored sentex of `S` the JTMS has defeated holds up no answer anybody can read — `ask?`
-  does not return it — so its premises are not premises this conclusion rests on, and
-  counting them would raise the flag over a derivation the KB has already discarded.
-
-  **Content-ordered.**  `support-handles` walks a graph into a set, whose seq order is a
-  hash artifact, and the handles themselves are allocated in assertion order — so ranking
-  on either would make this list a fact about how the KB was loaded.  The order is the
-  premise's own `[sentence context]` (`v/sort-by-content`), which two KBs holding the
-  same knowledge agree on whatever order they were built in.  The context in that key is
-  required rather than decoration: a union over the ancestor set can hold one sentence asserted
-  in two agents' contexts, and the sentence alone would not separate them."
+  **Scoped to the ANCESTOR SET.**  `S` is every believed sentex of `S` in a context `ctx`
+  sees (`v/sees?`), the scoping `disputes-in` and `ask?` use: forward chaining places a
+  conclusion in the most specific context that sees its premises, an AGENT's context
+  rather than the channel's, so an exact-context lookup would answer 'nothing contested' for
+  a conclusion built on a disputed claim.  **Every visible derivation**: where more than one
+  context holds `S`, their support closures are UNIONED, so no tie-break depends on seq
+  order or handles.  **Belief-filtered**: a defeated stored sentex holds up no answer.
+  **Content-ordered** by the premise's `[sentence context]` (`v/sort-by-content`); the
+  context is required since the union can hold one sentence in two agents' contexts."
   [kb S ctx]
   (koinii-types/needs-kb! `contested-premises kb)
   ;; the ancestor set filter runs before `disputes-in`, which computes whole-KB contradictions:
   ;; a conclusion `ctx` cannot see costs one index probe rather than that.
   (let [visible (filterv #(v/sees? kb ctx (:context %)) (v/sentexes-matching kb S '?ctx))]
     (if (seq visible)
-      (let [contested (into #{} (mapcat :dispute-id) (d/disputes-in kb ctx))
+      (let [contested (into #{} (mapcat :handles) (d/disputes-in kb ctx))
             support   (into #{} (mapcat #(support-handles kb (:id %))) visible)]
         (v/sort-by-content #(let [sx (v/sentex kb %)] [(v/sentence-of sx) (:context sx)])
                            (filterv contested support)))
@@ -485,20 +426,14 @@
 ;; ---- quarantine: the OPTION, off by default ------------------------------
 
 (defn quarantine
-  "OPTIONAL, off by default: hide the contested sentex `target-handle` from `channel`'s
-  reads and derivations, reversibly, via an index-layer `except` asserted in `channel`.  For
-  a high-stakes channel that must never let a conclusion rest silently on a contested
-  premise.  Scoped to `channel`: the claim stays believed in its OWN context (its author
-  still holds it); only `channel`, and what `channel` feeds, stops seeing it.
-
-  **The trade-off, and why it is off by default.**  Quarantine never lets a conclusion rest
-  silently on a contested premise — but it OVER-SUPPRESSES: with the claim masked, `channel`
-  can no longer see the dispute at all (`argue` there reads the lone surviving side, not
-  `:contradiction`), and `except` is an index-layer mask that interacts with the TMS and
-  contexts.  Prefer `contested-premises` / `rests-on-contested?` (pure reads that surface
-  the risk without hiding anything) unless a channel genuinely must exclude contested claims
-  from derivation.  Returns the mask's handle; `unquarantine!` retracts it and restores the
-  claim (cascading its derivations back)."
+  "OPTIONAL, off by default: hide the contested sentex `target-handle` from `channel`'s reads
+  and derivations, reversibly, via an index-layer `except` asserted in `channel`, for a
+  high-stakes channel that must never let a conclusion rest silently on a contested premise.
+  Scoped to `channel`: the claim stays believed in its OWN context.  It OVER-SUPPRESSES:
+  `channel` can no longer see the dispute (`argue` there reads the lone surviving side), and
+  `except` interacts with the TMS and contexts.  Prefer `contested-premises` /
+  `rests-on-contested?` unless a channel must exclude contested claims from derivation.
+  Returns the mask's handle; `unquarantine!` retracts it (cascading derivations back)."
   [kb channel target-handle]
   (koinii-types/needs-kb! `quarantine kb)
   (v/assert kb (list 'except (v/sentex-handle target-handle)) channel {:strength :monotonic}))

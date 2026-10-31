@@ -26,28 +26,19 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]
             [vaelii.world :as world])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+  (:import (java.io File)))
 
 ;;; ── temp directories ──────────────────────────────────────────────────
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-text-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- with-dirs*
   "Run `(f dir…)` on `n` temp directory *paths*, deleting them afterwards.  Each is
   removed before the body runs, since an export destination is normally one that does
   not exist yet and that is the case exercising `mkdirs`."
   [n nm f]
-  (let [dirs (mapv #(temp-dir (str nm "-" %)) (range n))]
-    (try (run! rm-rf! dirs)
+  (let [dirs (mapv #(tu/temp-dir "vaelii-text-" nm "-" % "-") (range n))]
+    (try (run! tu/rm-rf! dirs)
          (apply f dirs)
-         (finally (run! rm-rf! dirs)))))
+         (finally (run! tu/rm-rf! dirs)))))
 
 ;;; ── comparing two KBs by content ──────────────────────────────────────
 
@@ -244,6 +235,24 @@
              (mapv first (drop 2 @seen)))
           "and the rest keep their own order — the partition is stable, not a sort")))
 
+  (testing "the reference declarations go next: a note asserted before them stores its
+            sentence as written, which no retry round sees"
+    (let [seen    (atom [])
+          entries '[[(noteOn (dog Rex) "a") CxA]
+                    [(arg noteOn 1 sentence) CxA]
+                    [(genlCx CxA CxUniverse) CxA]
+                    [(replyTo Ann (dog Rex)) CxA]
+                    [(quotedArg replyTo 2 sentex_handle_term) CxA]
+                    [(set/monotonic (target_following_predicate noteOn)) CxA]
+                    [(quotedArgAndRest saysOf 2 sentex_handle_term) CxA]
+                    [(arg noteOn 2 string) CxA]]]
+      (text/load-entries! (fn [sen _ _] (swap! seen conj sen)) nil entries)
+      (is (= '[(genlCx CxA CxUniverse) (arg noteOn 1 sentence)
+               (quotedArg replyTo 2 sentex_handle_term) (target_following_predicate noteOn)
+               (quotedArgAndRest saysOf 2 sentex_handle_term)
+               (noteOn (dog Rex) "a") (replyTo Ann (dog Rex)) (arg noteOn 2 string)]
+             @seen))))
+
   (testing "an entry refused because what it needs has not arrived yet is retried"
     ;; the docstring's own case: `(transitiveInArgInverse largerThan 1 tangiblePartOf)` files under
     ;; `largerThan` and `(transitive tangiblePartOf)` under `tangiblePartOf`, and `l` sorts before `t`
@@ -301,23 +310,120 @@
               (is (thrown? clojure.lang.ExceptionInfo
                            (v/export-text! kb (.getPath ^File one) {:contexts [CxLower]}))))))))))
 
-(deftest a-premise-naming-a-handle-has-no-text-form-and-is-counted
-  ;; An `(except H)` is a premise whose sentence holds this store's own number.  There is
-  ;; no spelling for it — the number means something else, or nothing, in the KB that
-  ;; reads the file back — so it is skipped and said out loud rather than written.
-  (tu/with-terms [dog Muffet CxText]
-    (with-dirs* 1 "skipped"
+(deftest a-premise-naming-a-handle-is-written-as-its-reference-and-reloads-at-the-new-handle
+  ;; The reloading KB stores the excepted fact after another one, so it holds the fact at
+  ;; another handle than the exporting KB: the reload resolves the reference, not the number.
+  (tu/with-terms [dog Muffet Rex CxText]
+    (with-dirs* 1 "reference"
+      (fn [dir]
+        (let [edge (list 'genlCx CxText 'CxUniverse)
+              fact (list dog Muffet)
+              r    (tu/with-cleared-kb [kb tu/fresh]
+                     (v/assert kb edge 'CxUniverse)
+                     (let [h (v/assert kb fact 'CxUniverse)]
+                       (v/assert kb (list 'except (v/sentex-handle h)) CxText)
+                       (assoc (v/export-text! kb (.getPath ^File dir)) :digest (v/digest kb h))))]
+          (is (zero? (:skipped r)))
+          (is (str/includes? (slurp (io/file dir (str CxText ".txt")))
+                             (pr-str (list 'except (list 'ist 'CxUniverse fact)))))
+          (is (not (.exists (io/file dir text/manifest-file))) "a text KB that is no delta carries no digests")
+          (tu/with-cleared-kb [kb tu/fresh]
+            (v/assert kb (list dog Rex) 'CxUniverse)
+            (v/load-text! kb (.getPath ^File dir))
+            (let [h (v/handle-of kb fact 'CxUniverse)]
+              (is (= (:digest r) (v/digest kb h)))
+              (is (some? (v/handle-of kb (list 'except (v/sentex-handle h)) CxText)))
+              (is (v/believed? kb h 'CxUniverse))
+              (is (not (v/believed? kb h CxText)) "the except hides the fact at its new handle"))))))))
+
+(deftest a-handle-inside-a-function-term-is-written-as-its-reference-and-reloads-at-the-new-handle
+  (tu/with-terms [dog Muffet Rex noteOn MarkFn CxText]
+    (with-dirs* 1 "term-reference"
+      (fn [dir]
+        (let [fact (list dog Muffet)
+              decl (list 'quotedArg MarkFn 1 'sentex_handle_term)]
+          (tu/with-cleared-kb [kb tu/fresh]
+            (v/assert kb (list 'genlCx CxText 'CxUniverse) 'CxUniverse)
+            (v/assert kb (list 'unreifiable_function MarkFn) 'CxUniverse)
+            (v/assert kb decl 'CxUniverse)
+            (let [h (v/assert kb fact 'CxUniverse)]
+              (v/assert kb (list noteOn Rex (list MarkFn (v/sentex-handle h))) CxText)
+              (is (zero? (:skipped (v/export-text! kb (.getPath ^File dir)))))))
+          (is (str/includes? (slurp (io/file dir (str CxText ".txt")))
+                             (pr-str (list noteOn Rex (list MarkFn (list 'ist 'CxUniverse fact))))))
+          (tu/with-cleared-kb [kb tu/fresh]
+            (v/assert kb (list dog Rex) 'CxUniverse)
+            (v/load-text! kb (.getPath ^File dir))
+            (let [h (v/handle-of kb fact 'CxUniverse)]
+              (is (some? (v/handle-of kb (list noteOn Rex (list MarkFn (v/sentex-handle h)))
+                                      CxText))))))))))
+
+(deftest a-note-on-a-stated-sentence-reloads-at-the-handle-the-reloading-kb-stores-it-at
+  (tu/with-terms [orth device machine sentenceNote Pad CxText]
+    (with-dirs* 2 "reference"
+      (fn [src out]
+        (let [fact (list orth device machine)
+              note (list sentenceNote (list orth machine device) "A desktop is both.")
+              file (str CxText ".txt")
+              [h stored]
+              (do (.mkdirs ^File src)
+                  (spit (io/file src file)
+                        (str/join "\n" (map pr-str [note (list 'set/monotonic fact)
+                                                    (list 'symmetric orth)
+                                                    (list 'target_following_predicate sentenceNote)
+                                                    (list 'arg sentenceNote 1 'sentence)
+                                                    (list 'arg sentenceNote 2 'string)])))
+                  (tu/with-cleared-kb [kb tu/fresh]
+                    (v/load-text! kb (.getPath ^File src))
+                    (let [h (v/handle-of kb fact CxText)]
+                      (is (= (list sentenceNote (v/sentex-handle h) "A desktop is both.")
+                             (v/sentence-of (v/sentex kb (v/handle-of kb note CxText))))
+                          "#185's note, above its sentence and in the other spelling, loads")
+                      (v/export-text! kb (.getPath ^File out))
+                      [h (v/sentence-of (v/sentex kb h))])))]
+          (is (str/includes? (slurp (io/file out file))
+                             (pr-str (list sentenceNote (list 'ist CxText stored) "A desktop is both."))))
+          (tu/with-cleared-kb [kb tu/fresh]
+            (v/assert kb (list device Pad) CxText)
+            (v/load-text! kb (.getPath ^File out))
+            (let [h' (v/handle-of kb fact CxText)
+                  m  (v/handle-of kb note CxText)]
+              (is (not= h h') "the reloading KB stored other content first")
+              (is (= (v/sentex-handle h') (second (v/sentence-of (v/sentex kb m)))))
+              (v/retract! kb h')
+              (is (nil? (v/sentex kb m)) "retracting the reloaded sentence retracts the note"))))))))
+
+(deftest a-premise-naming-a-handle-no-record-holds-is-skipped-and-counted
+  ;; `notedBy` is no target-following predicate, so retracting the fact leaves the note
+  ;; standing over a handle no record holds, and the writer has no sentence to write for it.
+  (tu/with-terms [dog Muffet notedBy Ann CxText]
+    (with-dirs* 1 "dangling"
       (fn [dir]
         (tu/with-cleared-kb [kb tu/fresh]
           (v/assert kb (list 'genlCx CxText 'CxUniverse) 'CxUniverse)
           (let [h (v/assert kb (list dog Muffet) CxText)]
-            (v/assert kb (list 'except h) CxText)
+            (v/assert kb (list notedBy (v/sentex-handle h) Ann) CxText)
+            (v/retract! kb h)
             (let [r (v/export-text! kb (.getPath ^File dir))]
-              (is (= 1 (:skipped r)) "the except is counted, not written")
-              (is (not (re-find #"except" (slurp (io/file dir (str CxText ".txt"))))))
-              (testing "and what is written still reloads"
-                (is (re-find (re-pattern (str "\\(" dog " " Muffet "\\)"))
-                             (slurp (io/file dir (str CxText ".txt")))))))))))))
+              (is (= 1 (:skipped r)) "the note is counted, not written")
+              (is (not-any? #(str/includes? (slurp %) (str notedBy))
+                            (filter #(.isFile ^File %) (file-seq dir)))))))))))
+
+(deftest a-reference-no-stored-sentex-answers-is-refused-at-load-naming-it
+  (tu/with-terms [dog Muffet CxText]
+    (with-dirs* 1 "unresolved"
+      (fn [dir]
+        (let [r (list 'ist 'CxUniverse (list dog Muffet))
+              f (io/file dir (str CxText ".txt"))]
+          (.mkdirs ^File dir)
+          (spit f (pr-str (list 'except r)))
+          (tu/with-cleared-kb [kb tu/fresh]
+            (let [e (try (v/load-text! kb (.getPath f)) nil
+                         (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+              (is (= {:type :unresolved-reference :reference r} (select-keys e [:type :reference]))))
+            (testing "and a merge reports it"
+              (is (= [{:form (list 'except r) :context CxText :type :unresolved-reference}]
+                     (:refused (v/load-text! kb (.getPath f) {:merge? true})))))))))))
 
 (deftest a-text-export-refuses-a-destination-that-is-not-empty
   (tu/with-neutral-kb [kb tu/fresh]
@@ -375,9 +481,6 @@
                    (map v/sentence-of)
                    (filter #(some #{term} (tree-seq sequential? seq %))))
           (sort (p/sentex-ids recs)))))
-
-(defn- refusal-type [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (deftest a-set-inert-form-loads-its-sentence-stored-and-never-believed
   (tu/with-terms [bird flies Tweety CxText]
@@ -450,6 +553,30 @@
             (v/export-text! kb (.getPath b)))
           (is (= text (slurp (io/file b file))) "a second export is byte-identical"))))))
 
+(deftest an-inert-sentex-naming-a-handle-reloads-naming-the-handle-the-reloading-kb-stores
+  (tu/with-terms [dog Muffet Rex Ghost CxText]
+    (with-dirs* 1 "inert-reference"
+      (fn [^File dir]
+        (let [fact (list dog Muffet)]
+          (tu/with-cleared-kb [kb tu/fresh]
+            (v/assert kb (list 'genlCx CxText 'CxUniverse) 'CxUniverse)
+            (let [h (v/assert kb fact 'CxUniverse)]
+              (v/assert-inert kb (list 'except (v/sentex-handle h)) CxText)
+              (is (zero? (:skipped (v/export-text! kb (.getPath dir)))))))
+          (is (str/includes? (slurp (io/file dir (str CxText ".txt")))
+                             (pr-str (list 'set/inert (list 'except (list 'ist 'CxUniverse fact))))))
+          (tu/with-cleared-kb [kb tu/fresh]
+            (v/assert kb (list dog Rex) 'CxUniverse)
+            (v/load-text! kb (.getPath dir))
+            (let [m (v/handle-of kb (list 'except (v/sentex-handle (v/handle-of kb fact 'CxUniverse)))
+                                 CxText)]
+              (is (some? m))
+              (is (false? (v/in? kb m))))
+            (is (= :unresolved-reference
+                   (:type (ex-data (try (v/assert-inert kb (list 'except (list dog Ghost)) CxText) nil
+                                        (catch clojure.lang.ExceptionInfo e e)))))
+                "assert-inert refuses a reference no stored sentex answers")))))))
+
 (deftest a-set-inert-rule-is-refused-not-indexable-and-a-nested-or-malformed-wrapper-shape
   ;; an inert sentex has no strength, so the two wrappers never nest
   (tu/with-terms [bird flies Tweety CxText]
@@ -463,7 +590,7 @@
         (with-dirs* 1 "inert-refused"
           (fn [^File dir]
             (write-text-kb! dir CxText [form])
-            (is (= want (refusal-type #(v/load-text! kb (.getPath dir)))) (pr-str form))))))))
+            (is (= want (tu/refusal-type #(v/load-text! kb (.getPath dir)))) (pr-str form))))))))
 
 (deftest an-export-over-unbuilt-belief-refuses-when-a-sentex-is-neither-premise-nor-node
   ;; a derived sentex and an inert one both lack a premise mark, and only the TMS node
@@ -474,7 +601,7 @@
         (tu/with-cleared-kb [kb tu/fresh]
           (v/assert-inert kb (list bird Tweety) CxText)
           (kb/note-hazards! kb {:no-belief true})
-          (is (= :unrecovered-kb (refusal-type #(v/export-text! kb (.getPath dir))))))))))
+          (is (= :unrecovered-kb (tu/refusal-type #(v/export-text! kb (.getPath dir))))))))))
 
 ;;; ── the shipped schema and the test-world ─────────────────────────────
 

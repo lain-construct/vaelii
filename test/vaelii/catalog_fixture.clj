@@ -32,9 +32,9 @@
   [tag (second (:space tu/plain-memory-space))])
 
 (defn wait-for
-  "Block until no load is running (or `ms`, 120 s by default, passes) — the tests drive an
-  API that is deliberately asynchronous."
-  ([] (wait-for 120000))
+  "Block until no load is running (or `ms`, `tu/load-budget-ms` by default, passes) — the
+  tests drive an API that is deliberately asynchronous."
+  ([] (wait-for (tu/load-budget-ms)))
   ([ms]
    (let [deadline (+ (System/currentTimeMillis) ms)]
      (while (and (cat/loading?) (< (System/currentTimeMillis) deadline))

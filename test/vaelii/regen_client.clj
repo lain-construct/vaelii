@@ -1,8 +1,8 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.regen-client
-  "`lein regen-client` — rewrite the client's wrapper sections from the daemon's op
-  table.
+  "`lein regen-client` — rewrite `vaelii.host.client`'s wrapper section from the daemon's
+  op table.
 
   **The op table is the single source, and the client cannot read it.**
   `vaelii.host.serve/ops` names a `vaelii.core` fn per op; `vaelii.host.client` runs no
@@ -10,13 +10,13 @@
   means — so the two cannot be joined at load time by a macro without dragging the
   engine, jetty and reitit onto the classpath of a namespace whose point is not needing
   them. They are joined here instead, at build time: this reads the table, resolves each
-  op in `vaelii.core`, and writes one wrapper per op between two markers in each file.
+  op in `vaelii.core`, and writes one `^:daemon-op` wrapper per op between two markers.
+  `vaelii.client` interns each of those vars it does not define by hand, with its
+  metadata, so the shim holds no second copy.
 
   Everything outside the markers is hand-written and is kept: the connection, `call`,
   `health`, the change feed (which is `serve/feed-ops`, not a `vaelii.core` fn) and the
-  deprecated spellings. In `vaelii.client` a hand-written wrapper also **wins** — an op
-  whose name is already defined above the marker is skipped, so prose written for one
-  survives a regeneration.
+  deprecated spellings.
 
   **A red `client_surface_test` is the point, not the cost.** The test compares each
   file against what this would write now, so an op added to `serve/ops` fails the suite
@@ -118,7 +118,7 @@
         ;; characters a string literal cannot hold bare are escaped here — a core
         ;; docstring quoting a question (`describe`'s) is otherwise an unreadable file
         doc-lines (wrap-doc (str/escape doc {\\ "\\\\" \" "\\\""}))
-        head      (str "(defn " nm "\n  \"" (str/join "\n" doc-lines) "\"\n")]
+        head      (str "(defn ^:daemon-op " nm "\n  \"" (str/join "\n" doc-lines) "\"\n")]
     (if (= 1 (count sigs))
       (let [sig (first sigs)]
         (str head "  " (pr-str sig) "\n  " (body-of sig) ")\n"))
@@ -132,15 +132,10 @@
   [op]
   (fn [sig] (str "(call conn " op " [" (str/join " " (rest sig)) "])")))
 
-(defn- delegate-body
-  "`vaelii.client`'s body: the same call, one delegation deep, so the shim stays a shim."
-  [nm]
-  (fn [sig] (str "(c/" nm " " (str/join " " sig) ")")))
-
 (defn- section
-  "The generated section's text for one target — every op it is to cover, sorted by the
-  name the wrapper carries so the file is stable under a re-run."
-  [ops body]
+  "The generated section's text — every op, sorted by the name the wrapper carries so
+  the file is stable under a re-run."
+  [ops]
   (->> ops
        (sort-by (comp str wrapper-name))
        (map (fn [op]
@@ -148,32 +143,19 @@
                 (defn-form nm
                   (first-sentence (:doc (meta (core-var op))))
                   (signatures op)
-                  (case body
-                    :direct   (direct-body op)
-                    :delegate (delegate-body nm))))))
+                  (direct-body op)))))
        (str/join "\n")))
 
 ;; ---- the two files -------------------------------------------------------
 
-(def targets
-  "`[path body skip-hand-written?]` per generated file, in the order they are written.
-
-  `vaelii.client` skips an op whose wrapper is already hand-written above the marker:
-  the shim is where a reader looks first, so prose written for `why` or `belief-status`
-  is worth more than a generated line, and the coverage claim is the same either way —
-  `client_surface_test` asks whether a wrapper exists, not who wrote it."
-  [{:path "src/vaelii/host/client.clj" :body :direct   :skip-hand-written? false}
-   {:path "src/vaelii/client.clj"      :body :delegate :skip-hand-written? true}])
-
-(defn- defined-names
-  "The names `text` defines with a top-level `defn`."
-  [text]
-  (set (map second (re-seq #"(?m)^\(defn (\S+)" text))))
+(def target
+  "The one generated file."
+  {:path "src/vaelii/host/client.clj"})
 
 (defn rendered
-  "The whole text of `target`'s file as this generator would write it now — the
+  "The whole text of the target's file as this generator would write it now — the
   hand-written halves as they stand, with the section between the markers rebuilt."
-  [{:keys [path body skip-hand-written?]}]
+  [{:keys [path]}]
   (let [text   (slurp (io/file path))
         b-at   (str/index-of text begin-marker)
         e-at   (str/index-of text end-marker)
@@ -182,26 +164,22 @@
                                       " marker lines are what this rewrites between")
                                  {:path path})))
         before (subs text 0 (+ b-at (count begin-marker)))
-        after  (subs text e-at)
-        held   (if skip-hand-written? (defined-names before) #{})
-        ops    (remove #(contains? held (str (wrapper-name %))) (keys serve/ops))]
-    (str before "\n\n" (section ops body) "\n" after)))
+        after  (subs text e-at)]
+    (str before "\n\n" (section (keys serve/ops)) "\n" after)))
 
 (defn write!
-  "Rewrite every target in place.  Returns the paths whose bytes changed."
+  "Rewrite the target in place.  Returns the paths whose bytes changed."
   []
-  (into []
-        (keep (fn [{:keys [path] :as target}]
-                (let [next-text (rendered target)]
-                  (when (not= next-text (slurp (io/file path)))
-                    (spit (io/file path) next-text)
-                    path))))
-        targets))
+  (let [next-text (rendered target)
+        path      (:path target)]
+    (if (not= next-text (slurp (io/file path)))
+      (do (spit (io/file path) next-text) [path])
+      [])))
 
 (defn -main [& _]
-  (let [changed (set (write!))]
-    (doseq [{:keys [path]} targets]
-      (println (str "  " (if (changed path) "✓ rewritten" "· unchanged") "  " path)))
+  (let [changed (set (write!))
+        path    (:path target)]
+    (println (str "  " (if (changed path) "✓ rewritten" "· unchanged") "  " path))
     (println (str (count (keys serve/ops)) " ops, one wrapper each. Review the diff, and"
                   " commit it in the SAME commit as the change that moved it."))
     (shutdown-agents)

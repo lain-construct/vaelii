@@ -14,8 +14,8 @@
 # one (docs/operations.md). PORT defaults to 4200. KB-DIR defaults to
 # checkouts/kb beside this checkout; the daemon opens it under the backend its
 # files were written by, and recovers belief, installing the store's reasoning image when
-# the image matches this build. The heap is VAELII_HEAP, default 40g
-# (scripts/lib/start.sh).
+# the image matches this build. The heap is VAELII_HEAP, else half of physical memory
+# up to 31g (scripts/lib/start.sh).
 #
 # SLF4J prints one "no providers" warning at startup: the no-op provider ships in the
 # :dev and :uberjar profiles, and this run drops :dev.
@@ -50,7 +50,8 @@ if [ -z "${VAELII_API_TOKEN:-}" ]; then
   export VAELII_API_TOKEN
 fi
 
-JVM_OPTS="${JVM_OPTS:-} $(start_jvm_opts)"
+JVM_HEAP_OPTS="$(start_jvm_opts)" || exit 1
+JVM_OPTS="${JVM_OPTS:-} $JVM_HEAP_OPTS"
 export JVM_OPTS
 
 echo "vaelii daemon: port $port, opening $KB" >&2

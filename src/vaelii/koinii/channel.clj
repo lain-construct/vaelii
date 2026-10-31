@@ -56,20 +56,13 @@
 (def ^{:doc
        "**Documentation of the consistency model, not a runtime value** (koinii design D7).
 
-  The daemon serializes every write through one monitor (docs/operations.md) — it is the
-  single writer.  So the change-feed cursor delivers a TOTAL ORDER: every agent reads the
-  same events in the same sequence, and an agent can only reply to a claim it has already
-  seen (its reply is a later write than the claim, in the one order).  The happy path is
-  therefore causally sound BY CONSTRUCTION — a reply never precedes its target in the
-  order any agent observes.
-
-  **Logical clocks (Lamport / vector) are redundant here, and that is deliberate.**  They
-  exist to reconstruct a causal order across CONCURRENT writers; with one writer the store
-  order already IS the causal order, so a timestamp would add a field nothing reads.  A
-  future reader reaching for one should first ask whether koinii has gone multi-writer —
-  if it has not, the total order is already the guarantee the clock would rebuild.  If it
-  ever does (multiple daemons over sharded KBs), THAT is when causal metadata becomes load
-  bearing; until then it is ceremony."}
+  The daemon serializes every write through one monitor (docs/operations.md), so the
+  change-feed cursor delivers a TOTAL ORDER: every agent reads the same events in the same
+  sequence, and an agent can only reply to a claim it has already seen.  The happy path is
+  causally sound BY CONSTRUCTION.  **Logical clocks (Lamport / vector) are redundant
+  here**: they reconstruct a causal order across CONCURRENT writers, and with one writer the
+  store order is the causal order.  Causal metadata becomes necessary only if koinii goes
+  multi-writer (multiple daemons over sharded KBs)."}
   writer-order
   :single-writer-total-order)
 
@@ -78,26 +71,18 @@
 ;; ---- wire: the cross-process shape, the poll loop off the agent's thread --
 
 (defn- wire-subscribe
-  "Open a wire subscription and drive its `poll` loop on a fresh DAEMON thread — never
-  the writer's.  Long-polls with `:wait-ms` (default 20s), hands each event to
-  `callback`, and reads `:lagged` on every reply (the one field a feed reader must not
-  ignore, docs/feed.md): non-zero, the ring dropped events and `:on-lagged` is told the
-  count so the agent can resync from the KB.  A `callback` that throws loses its own event
-  and nothing else (`:on-error`, then carry on), mirroring the engine's own listener
-  contract.  When the subscription is dropped (`stop`, or an idle reap) the parked poll
-  wakes refused, and the loop exits quietly.
+  "Open a wire subscription and drive its `poll` loop on a fresh DAEMON thread, never the
+  writer's.  Long-polls with `:wait-ms` (default 20s), hands each event to `callback`, and
+  reads `:lagged` on every reply (docs/feed.md): non-zero, the ring dropped events and
+  `:on-lagged` is told the count so the agent can resync from the KB.  A `callback` that
+  throws loses its own event only (`:on-error`, then carry on).  When the subscription is
+  dropped (`stop`, or an idle reap) the parked poll wakes refused and the loop exits.
 
-  **Neither extension point is silent when it is left unset.**  Dropped events and a subscription
-  killed by a transport failure are the two things a reader most needs to be told, and a
-  nil handler must not be how either of them disappears — so `:on-lagged` defaults to a
-  `:warn` line naming the drop count and `:on-error` to an `:error` line naming the
-  failure.  A supplied handler replaces the line rather than adding to it: the extension point is
-  the caller's, the default is only what happens when nobody takes it.
-
-  **`:running` is what the subscription's liveness is read from.**  Every exit from the
-  poll loop — `stop`, an idle reap, a bad cursor, a transport failure — resets it false,
-  so a caller can tell a live subscription from one that will never deliver again.  The
-  loop reads it too, which is how `stop` cuts a batch short mid-delivery."
+  **Neither extension point is silent when unset**: `:on-lagged` defaults to a `:warn` line
+  naming the drop count and `:on-error` to an `:error` line naming the failure; a supplied
+  handler replaces the line.  **`:running` is the subscription's liveness.**  The poll loop
+  resets `:running` false at each exit.  A failed poll's exit resets `:running` before the
+  loop unwatches the daemon's subscription.  `stop` resets `:running` to cut a batch short."
   [conn goal context callback opts]
   (let [{:keys [token cursor]} (if goal (c/watch conn goal context) (c/watch conn))
         wait-ms (:wait-ms opts 20000)
@@ -119,8 +104,9 @@
                        ;; Either way the loop is over, so `running` is made to agree with
                        ;; it: a dead reader that still reads live is the one failure a
                        ;; subscriber cannot detect and so cannot resubscribe from.
-                       (let [ty (:type (ex-data e))]
-                         (when (and @running (not (#{:unknown-subscription :bad-cursor} ty)))
+                       (let [ty    (:type (ex-data e))
+                             live? (compare-and-set! running true false)]
+                         (when (and live? (not (#{:unknown-subscription :bad-cursor} ty)))
                            (if on-err
                              (on-err e)
                              (trove/log!
@@ -128,7 +114,8 @@
                                :msg   (str "koinii: subscription " token " stopped — the"
                                            " feed poll failed: " (ex-message e))
                                :data  {:token token :goal goal :context context}})))
-                         (reset! running false))
+                         (when (and live? (not= :unknown-subscription ty))
+                           (try (c/unwatch conn token) (catch Throwable _ nil))))
                        (let [{:keys [events lagged cursor]} (:ok step)]
                          (when (pos? (long (or lagged 0)))
                            (if on-lag
@@ -231,42 +218,31 @@
 ;; ---- join: an agent bound to its identity, context, and the channel ------
 
 (defn- agent-context-owners
-  "The agents `ctx` is the own context of, in content order — read off the MARK every
-  koinii placement writes into a context it places (`id/agent-context-mark`), and empty
-  for a context nobody has placed.
-
-  One read, because the mark is a positive stored fact: it does not change with what else
-  has landed in the lattice, with the vocabulary a placement rooted at, or with which
-  route placed it.  Deterministic too — the match is a SET, so the owners are ordered by
-  content rather than by the order the index enumerated them.  Two ids mapping to one
-  context (`Atlas` and `AgentAtlas` both give `CxAtlas`) is the only way to have more
-  than one, and it is a collision worth naming rather than halving."
+  "The agents `ctx` is the own context of, in content order, read off the MARK every koinii
+  placement writes into a context it places (`id/agent-context-mark`); empty for a context
+  nobody has placed.  The mark is a positive stored fact, so the read is deterministic
+  (the match is a SET, ordered by content).  Two ids mapping to one context (`Atlas` and
+  `AgentAtlas` both give `CxAtlas`) is the only way to have more than one."
   [medium ctx]
   (into (sorted-set)
         (map (comp last :sentence))
         (-matching medium (id/agent-context-mark ctx '?agent) ctx)))
 
 (defn- check-channel-parent
-  "Throw unless `parent` is a coordination channel — the standard `assert` holds for the
-  context a write lands IN, held here for the context a join grafts UNDER.  `join` widens
-  what `parent` sees: every ancestor set read of `parent` returns the joining agent's claims from
-  then on, and with `belief/believe-own` in force they become what `parent`'s own agent
-  is proved to believe.  So a parent is refused (`:koinii/not-a-channel`) when it is
+  "Throw unless `parent` is a coordination channel.  `join` widens what `parent` sees: every
+  ancestor set read of `parent` returns the joining agent's claims, and with
+  `belief/believe-own` they become what `parent`'s own agent is proved to believe.  So a
+  parent is refused (`:koinii/not-a-channel`) when it is
 
-  - the admin registry, which governs the agents rather than hosting them: a registry
-    that saw an agent's claims would read them as its own ground truth about who is who;
-  - the joining agent's own context, which a join LIFTS and so cannot also lift under;
-  - a context already placed as an agent's own, which the placement mark says outright
-    (`agent-context-owners`).
+  - the admin registry, which governs the agents rather than hosting them;
+  - the joining agent's own context, which a join LIFTS and cannot also lift under;
+  - a context already placed as an agent's own (`agent-context-owners`).
 
-  **An unmarked context is admissible, and that is the deliberate direction.**  A channel
-  carries no mark — there is nothing for a channel to record and nobody to record it —
-  so refusing what is unmarked would refuse every deployment there is.  The cost is that
-  a context placed by a build that wrote no mark reads as unmarked: the entry point refuses what
-  it is told, not what it infers, and a placement is idempotent, so the mark lands the
-  next time that agent joins.  Recognition therefore reaches exactly as far as the
-  placements a KB records — the same cooperative limit `authenticate` states, rather than
-  a shape read off the lattice that would answer differently as the lattice grew."
+  **An unmarked context is admissible**: a channel carries no mark, so refusing what is
+  unmarked would refuse every deployment.  A context placed by a build that wrote no mark
+  reads as unmarked, and a placement is idempotent, so the mark lands the next time that
+  agent joins.  Recognition reaches as far as the placements a KB records, the cooperative
+  limit `authenticate` states."
   [medium parent agent-id]
   (let [owners (agent-context-owners medium parent)
         why    (cond
@@ -285,23 +261,17 @@
                        :owners owners})))))
 
 (defn join
-  "Bind `agent-id` to `medium` and the coordination `channel` (koinii design D8).  The
-  agent's own context (`id/context-for` — `AgentAtlas` -> `CxAtlas`) is lifted under the
-  channel so the channel sees its moves (`(genlCx channel CxAtlas)`) and rooted so it
-  speaks the reply vocabulary (`(genlCx CxAtlas CxSpeechActs)`, override with
-  `:speaks`), and marked as the agent's own (`id/agent-context-mark`) so a later join can
-  tell it from a channel.  All three are monotonic and idempotent, so re-joining is a no-op.
-  Returns the agent handle — `{:medium :agent :context :channel}` — threaded first into
-  every call below, the network mirror of core's explicit-`kb` API.
+  "Bind `agent-id` to `medium` and the coordination `channel` (koinii design D8).  The agent's
+  own context (`id/context-for`, `AgentAtlas` -> `CxAtlas`) is lifted under the channel
+  (`(genlCx channel CxAtlas)`), rooted so it speaks the reply vocabulary
+  (`(genlCx CxAtlas CxSpeechActs)`, override with `:speaks`), and marked as the agent's own
+  (`id/agent-context-mark`).  All three are monotonic and idempotent.  Returns the agent
+  handle `{:medium :agent :context :channel}`, threaded first into every call below.
 
   **The channel must be a channel** (`:koinii/not-a-channel`): grafting onto the admin
-  registry, onto the agent's own context, or onto a context already placed as an agent's
-  own is refused, because the lift widens what the PARENT sees rather than where the agent
-  writes.  A context is another agent's because a placement said so, never because of how
-  it is spelled or wired — `check-channel-parent`, and `id/agent-context-mark`.
-
-  Requires the `channel` and `CxSpeechActs` already loaded — the deployment's
-  job — so the `target_following_predicate` marks that make a reply cascade are in force."
+  registry, the agent's own context, or a context placed as another agent's own is refused
+  (`check-channel-parent`).  Requires the `channel` and `CxSpeechActs` already loaded, so the
+  `target_following_predicate` marks that make a reply cascade are in force."
   ([medium channel agent-id] (join medium channel agent-id nil))
   ([medium channel agent-id opts]
    ;; the write boundary, enforced at the entry point rather than trusted to the destination:
@@ -326,30 +296,21 @@
   '#{queries answers endorses justifies disputes votesFor votesAgainst notUnderstood refuse})
 
 (defn- check-write-entry-points
-  "Throw unless `handle`'s agent may write `sentence` under `opts` — the ONE place an
-  agent write's boundary is stated, so the entry points that write (`assert` and `reply-many`)
-  cannot drift into two boundaries that disagree.  Three refusals, each a way a write
-  would otherwise claim an identity it does not hold:
+  "Throw unless `handle`'s agent may write `sentence` under `opts`: the ONE place an agent
+  write's boundary is stated, held by `assert` and `reply-many`.  Three refusals:
 
   - **the admin registry is not writable through an agent entry point**
-    (`:koinii/registry-forbidden`), whatever context the handle carries: the governed may
-    not write the authority that governs them (D4).  The narrower of identity's two
-    boundaries — own-context-only is a proof-tier rule these cooperative entry points do not
-    impose, and a cross-context write between agents stays a cooperative move.
-  - **a `:creator` that disagrees with the handle's agent** is refused
-    (`:koinii/creator-mismatch`).  Ownership is required — `belief/disregard` will only
-    withdraw a statement whose creator is the withdrawing agent — so neither silent outcome
-    is acceptable: honouring it lets an agent sign another's name, dropping it leaves a
-    creator that looks like it took.
-  - **a speech act naming someone else as its speaker** is refused
-    (`:koinii/speaker-mismatch`).  `speaker-of` reads the speaker off the sentence's first
-    argument while the entry point records the creator off the handle, so an act naming
-    another agent would say one agent spoke while the provenance says another.
+    (`:koinii/registry-forbidden`), whatever context the handle carries (D4).  Own-context-only
+    is a proof-tier rule these cooperative entry points do not impose.
+  - **a `:creator` that disagrees with the handle's agent** (`:koinii/creator-mismatch`):
+    `belief/disregard` withdraws only a statement whose creator is the withdrawing agent,
+    so honouring it lets an agent sign another's name and dropping it leaves a creator that
+    looks like it took.
+  - **a speech act naming someone else as its speaker** (`:koinii/speaker-mismatch`):
+    `speaker-of` reads the first argument while the creator comes off the handle.
 
-  `opts` is the map that will be WRITTEN, not the one a caller typed, so `reply-many` —
-  which builds its own `{:creator agent}` — hands over a map the creator arm cannot
-  refuse.  It goes through the arm all the same: an entry point with an arm switched off for one
-  caller is two entry points again, which is what this helper exists to prevent."
+  `opts` is the map that will be WRITTEN, so `reply-many`'s own `{:creator agent}` passes
+  through the creator arm like any caller's."
   [handle sentence opts]
   (let [agent (:agent handle)]
     (id/check-registry-write! agent (:context handle))
@@ -368,22 +329,13 @@
                        :agent agent :named (second sentence) :act (first sentence)})))))
 
 (defn assert
-  "Originate a claim: assert `sentence` into the agent's OWN context, recording `:creator`
-  as the agent, through the medium — for a `wire` handle that is through the daemon, the
-  single writer.  The agent CANNOT write another agent's context from here: the
-  destination is fixed by identity, and a speech act it asserts names that agent as its
-  speaker (`:koinii/speaker-mismatch` otherwise).  Returns the handle.
-
-  **The creator is the agent's, and a conflicting one is refused**
-  (`:koinii/creator-mismatch`).  Ownership is required — `belief/disregard` refuses to
-  withdraw a statement whose creator is not the agent (`:koinii/not-own-statement`), and the
-  whole write boundary is 'an agent writes as itself' (D8) — so a caller passing someone
-  else's `:creator` is asking for something this entry point does not grant.  Dropping it silently would look like a creator that took, and honouring
-  it would let an agent sign another's name; the refusal says which it is.  Passing the
-  agent's own id is redundant and allowed.  Every other `opts` key passes through.
-
-  The three refusals are stated once, in `check-write-entry-points`, and held identically by
-  `reply-many` — one boundary, two entry points."
+  "Originate a claim: assert `sentence` into the agent's OWN context, recording `:creator` as
+  the agent, through the medium (for a `wire` handle, through the daemon).  The destination
+  is fixed by identity, and a speech act it asserts names that agent as its speaker
+  (`:koinii/speaker-mismatch` otherwise).  Returns the handle.  **A conflicting `:creator` is
+  refused** (`:koinii/creator-mismatch`); the agent's own id is redundant and allowed.
+  Every other `opts` key passes through.  The refusals are stated once in
+  `check-write-entry-points` and held identically by `reply-many`."
   ([handle sentence] (assert handle sentence nil))
   ([handle sentence opts]
    (check-write-entry-points handle sentence opts)
@@ -435,18 +387,13 @@
   (assert handle (list 'justifies (:agent handle) ground (v/sentex-handle target-handle))))
 
 (defn dispute
-  "`disputes`: challenge the claim at `target-handle`.  Two writes in the agent's own
-  context, both with the creator recorded: the REBUTTING claim — the negation of the
-  target's sentence, so the pair surfaces in `(contradictions kb)` for the dispute reads
-  to scope — and a `disputes` meta-sentex naming the target.  Represents the challenge
-  only; adjudication is a separate policy layer.  Returns the dispute edge's handle (write
-  2).
-
-  **A handle that names no record is refused** (`:koinii/no-such-handle`), as `deref`'s
-  `marker` refuses one.  The rebuttal is built from the target's own sentence, so a
-  missing target would assert the literal `(not nil)` in the agent's context and a
-  `disputes` edge on nothing — a challenge to a claim that does not exist, stored as
-  though it were one."
+  "`disputes`: challenge the claim at `target-handle`.  Two writes in the agent's own context,
+  creator recorded: the REBUTTING claim (the negation of the target's sentence, so the pair
+  surfaces in `(contradictions kb)`) and a `disputes` meta-sentex naming the target.
+  Represents the challenge only; adjudication is a separate policy layer.  Returns the
+  dispute edge's handle.  **A handle that names no record is refused**
+  (`:koinii/no-such-handle`), as `deref`'s `marker` refuses one, since the rebuttal would
+  assert `(not nil)`."
   [handle target-handle]
   (let [sx (-sentex (:medium handle) target-handle)]
     (when (nil? sx)
@@ -459,23 +406,16 @@
 (defn vote
   "Cast a ballot on the claim at `target-handle`: `stance` `:for` -> `(votesFor agent
   (sentexHandle T))`, `:against` -> `(votesAgainst agent (sentexHandle T))`.  A meta-sentex
-  in the agent's own context, creator recorded — a coordination move like `endorse`, but
-  one a resolution policy COUNTS rather than merely records:
-  `adjudication/tally` counts these ballots.  This entry point authenticates nobody, so
-  its ballot carries no attestation, and `adjudication/resolve-by-majority` refuses a
-  count that includes one unless a daemon holding a token table recorded the ballot's
-  `:principal` as its voter; `adjudication/cast-ballot` casts the attested ballot in
-  process.  A ballot is
-  a response act like the rest — `target_following_predicate` in `CxSpeechActs` — so
-  retracting the disputed claim withdraws the votes cast on it.  Idempotent by sentence
-  identity — one
-  ballot per agent per stance; to change a vote, retract the old ballot first.  Returns the
-  ballot's handle.
-
-  **A stance that is neither is refused by name** (`:koinii/no-such-stance`, carrying the
-  two that exist): the ballot predicate is chosen from the stance, so an unrecognized one
-  has no ballot to cast, and the refusal says which stances there are rather than leaving
-  a bare `IllegalArgumentException` to be read as an engine fault."
+  in the agent's own context, creator recorded, which a resolution policy COUNTS
+  (`adjudication/tally`).  This entry point authenticates nobody, so its ballot carries no
+  attestation, and `adjudication/resolve-by-majority` refuses a count that includes one
+  unless a daemon holding a token table recorded the ballot's `:principal`;
+  `adjudication/cast-ballot` casts the attested ballot in process.  A ballot is a response
+  act (`target_following_predicate` in `CxSpeechActs`), so retracting the disputed claim
+  withdraws its votes.  Idempotent by sentence identity: one ballot per agent per stance; to
+  change a vote, retract the old ballot first.  Returns the ballot's handle.  **A stance
+  that is neither is refused by name** (`:koinii/no-such-stance`, carrying the two that
+  exist)."
   [handle stance target-handle]
   (let [pred (case stance
                :for     'votesFor
@@ -489,22 +429,15 @@
 ;; ---- reply-many: a multi-claim reply that validates before it commits ----
 
 (defn reply-many
-  "Assert MORE THAN ONE linked claim as one reply — VALIDATE the whole batch with
-  `check-edit` first, then commit it with `edit!` in one settle.  `edit!` is not atomic
-  on a throw (docs/feed.md), so a mid-batch failure would leave a HALF-reply in the shared
-  truth; the dry run refuses an inadmissible batch before anything lands.  Each of
-  `sentences` is asserted into the agent's own context, creator recorded.
-
-  **Every entry point `assert` holds, this entry point holds too, and for the whole batch before the
-  first write** — the registry is not writable through it (`:koinii/registry-forbidden`)
-  and no sentence may name another agent as its speaker (`:koinii/speaker-mismatch`,
-  `check-write-entry-points`).  A batch is a promise that nothing lands until all of it is
-  admissible, so an identity refused mid-commit would already have written the sentences
-  ahead of it — which is the same half-reply the dry run exists to prevent.  A batch is
-  therefore weighed as a whole twice: who may write it, then whether it is admissible.
-
-  Throws `:koinii/reply-inadmissible` (carrying the `check-edit` `:problems`) if the batch
-  is not admissible.  Returns `edit!`'s result on success."
+  "Assert MORE THAN ONE linked claim as one reply: VALIDATE the whole batch with `check-edit`
+  first, then commit it with `edit!` in one settle, since `edit!` is not atomic on a throw
+  (docs/feed.md) and a mid-batch failure would leave a HALF-reply.  Each of `sentences` is
+  asserted into the agent's own context, creator recorded.  **Every entry point `assert`
+  holds, this holds for the whole batch before the first write**: the registry is not
+  writable (`:koinii/registry-forbidden`) and no sentence may name another agent as its
+  speaker (`:koinii/speaker-mismatch`, `check-write-entry-points`).  Throws
+  `:koinii/reply-inadmissible` (carrying the `check-edit` `:problems`) if the batch is not
+  admissible.  Returns `edit!`'s result."
   [handle sentences]
   (let [ctx  (:context handle)
         opts {:creator (:agent handle)}]
@@ -525,26 +458,19 @@
 ;; ---- subscribe: the async reply trigger ----------------------------------
 
 (defn subscribe
-  "Call `callback` when a claim matching `goal` appears or changes in `context` — the
-  async reply trigger.  `goal` nil watches every change; a `goal` refused by `core/watch`
-  (an aggregate, `unknown`, an evaluable, …) is refused identically here, since it is the
-  same check.  Watch the CHANNEL context to see every agent's moves (the feed is scoped up
-  the `genlCx` ancestor set, so a channel watch delivers a write made in an agent's own context).
+  "Call `callback` when a claim matching `goal` appears or changes in `context`: the async
+  reply trigger.  `goal` nil watches every change; a `goal` refused by `core/watch` is
+  refused identically here.  Watch the CHANNEL context to see every agent's moves (the feed
+  is scoped up the `genlCx` ancestor set).  For a `wire` handle the poll loop runs OFF the
+  agent's own thread, since an in-process callback runs on the single writer's thread and
+  one slow agent would stall every writer.  `opts`: `:wait-ms` (long-poll, wire only),
+  `:on-lagged` (fn of the dropped count: resync from the KB), `:on-error` (fn of a
+  throwable); unset, the wire shape LOGS each.
 
-  For a `wire` handle the poll loop runs OFF the agent's own thread — the whole reason the
-  design uses the wire feed rather than in-process `watch`, since an in-process callback
-  runs on the single writer's thread and one slow agent would otherwise stall every
-  writer.  `opts`: `:wait-ms` (long-poll, wire only), `:on-lagged` (fn of the dropped
-  count — resync from the KB), `:on-error` (fn of a throwable).  Unset, the wire shape
-  LOGS each of those rather than dropping it — a `:warn` naming the lag, an `:error`
-  naming the failure that ended the subscription.
-
-  Returns a subscription `{:token … :stop (fn []) …}`; call `:stop` to drop it (wire: it
-  also wakes the parked poll, and its `:running` atom reads false from then on, however
-  the loop ended).  Decoupled in time: a subscription is FORWARD-ONLY — it
-  never retroactively receives a write made before it registered.  History that predates
-  it is recovered by READING the KB (`answers-to` / `sentexes-matching`), the durable half
-  of the channel; the feed is the live half."
+  Returns a subscription `{:token … :stop (fn []) …}`; `:stop` drops it (wire: it also wakes
+  the parked poll, and `:running` reads false from then on).  A subscription is
+  FORWARD-ONLY: history that predates it is recovered by READING the KB (`answers-to` /
+  `sentexes-matching`), the durable half of the channel; the feed is the live half."
   ([handle goal context callback] (subscribe handle goal context callback nil))
   ([handle goal context callback opts]
    (-subscribe (:medium handle) goal context callback opts)))

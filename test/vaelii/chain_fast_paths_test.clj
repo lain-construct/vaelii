@@ -24,13 +24,9 @@
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
-
-(defn- fwd [antes conseq]
-  (list 'set/forwardRule (vr/rule-sentence antes conseq)))
 
 (defn- fixpoint-content
   "The KB's whole derived state, handle-free and sorted: every stored sentex as
@@ -64,11 +60,11 @@
                   ;; firing takes the single-context fast exit
                   (v/assert kb (list 'genlCx CxSubStory CxTopStory)
                             'CxUniverse {:strength :monotonic})
-                  (v/assert kb (fwd [(list pa '?x '?z) (list qa '?z '?y)]
-                                    (list ra '?x '?y))
+                  (v/assert kb (tu/fwd [(list pa '?x '?z) (list qa '?z '?y)]
+                                       (list ra '?x '?y))
                             CxTopStory {:chain? false})
-                  (v/assert kb (fwd [(list ra '?x '?y) (list qa '?y '?w)]
-                                    (list sa '?x '?w))
+                  (v/assert kb (tu/fwd [(list ra '?x '?y) (list qa '?y '?w)]
+                                       (list sa '?x '?w))
                             CxTopStory {:chain? false})
                   ;; ra(X,Y) through three witnesses — pa in the top context, qa in
                   ;; the sub, so each of these firings spans the two contexts
@@ -112,8 +108,8 @@
                       (p/lookup (:index kb) (sx/path (res/kb-sentex kb sentence CxLinks))))]
       (tu/with-cleared-kb [kb tu/fresh]
         (v/assert kb (list 'genlCx CxLinks 'CxUniverse) 'CxUniverse {:strength :monotonic})
-        (v/assert kb (fwd [(list linkOf '?x '?y)] (list edgeOf '?x '?y)) CxLinks {:chain? false})
-        (v/assert kb (fwd [(list markOf '?p)] (list 'symmetric '?p)) CxLinks {:chain? false})
+        (v/assert kb (tu/fwd [(list linkOf '?x '?y)] (list edgeOf '?x '?y)) CxLinks {:chain? false})
+        (v/assert kb (tu/fwd [(list markOf '?p)] (list 'symmetric '?p)) CxLinks {:chain? false})
         (v/assert kb (list markOf pairOf) CxLinks {:chain? false})
         (doseq [i (range n)]
           (let [[a b] (pair i)]

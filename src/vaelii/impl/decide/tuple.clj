@@ -218,10 +218,7 @@
   "`(f)`, held in `*functor-marks*` under `k` while it is bound."
   [k f]
   (if-some [m *functor-marks*]
-    (let [v (get @m k ::absent)]
-      (if (identical? ::absent v)
-        (let [v (f)] (vswap! m assoc k v) v)
-        v))
+    (caches/get-or! m k f)
     (f)))
 
 (defn- prop-marks
@@ -708,9 +705,11 @@
   its functors (`negates-routes`).  A determinant pair reads the determinant's
   own `functional` and `functionalInArg` marks; two symbol fillers both `:monotonic` merge
   (`special/derive-functional-equalities`) and give no route.  Two symbol fillers one class
-  at a reader form no nogood there, which the read reads (`exempt-at?`).  `w` is
+  at a reader form no nogood there, which the read reads (`exempt-at?`).  A determinant
+  pair's routes carry `:excluded-at`, the contexts at which `agree?`, `(fn [v1 v2
+  context])`, reads its two fillers as one value (`chain/route-placements`).  `w` is
   `decide/unscoped-closures`'s."
-  [kb w c {:keys [members specs]}]
+  [kb w c {:keys [members specs]} agree?]
   (let [tax   (:tax w)
         tms   (reasoning/tms kb)
         recs  (:records kb)
@@ -736,7 +735,8 @@
                               sym?    (symbol-pair? v1 v2)]
                           (when-not (and sym? (every? #(monotonic-member? tms %) members))
                             (for [mk (cond-> [[:functional-in-arg q n]] (= 2 k n) (conj [:prop :functional q]))]
-                              {:keys #{mk} :links (links q)}))))))
+                              (cond-> {:keys #{mk} :links (links q)}
+                                (not sym?) (assoc :excluded-at #(agree? v1 v2 %)))))))))
             (sort-by nm/print-key specs)))))
 
 (defn kind-of

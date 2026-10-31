@@ -16,15 +16,11 @@
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.config :as config]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.types.solve :as solve-types]
             [vaelii.test-util :as tu]))
 
 (def ^:private asp? (solver/available?))
-
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- decide
   "Run `edge-solver` over a program built from `contested` / `nogoods` / `content`."
@@ -174,8 +170,8 @@
       (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
             nixon (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
-        (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+        (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+        (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
         (v/assert kb (list quaker nixon)     'CxUniverse)
         (v/assert kb (list republican nixon) 'CxUniverse)
         (testing "both sides of the dilemma survive, at :default"
@@ -193,13 +189,6 @@
 
 ;; ---- 3. the order-independence invariant, with the ASP solver installed -
 
-(defn- permutations [coll]
-  (if (<= (count coll) 1)
-    (list (seq coll))
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 (defn- isolated-kb
   "A cleared KB on the suite's isolated space: this test rebuilds a KB per ordering, and
   `tu/fresh` would clear the scratch space another namespace's `:once` fixture holds."
@@ -216,14 +205,14 @@
                  (v/set-solver kb edge/edge-solver)
                  (doseq [op order] (op kb))
                  (observe kb))))
-        (permutations ops)))
+        (tu/permutations ops)))
 
 (deftest the-outcome-is-order-independent-with-the-asp-solver-installed
   ;; `order_independence_test`'s claim with a backend installed: one ordering that reached
   ;; the solver shows as a second distinct whole reading
   (tu/with-requirement asp? "no ASP solver on this box"
-    (let [ops [#(v/assert % (default-rule '[(quaker ?x)]     '(pacifist ?x))       'CxUniverse)
-               #(v/assert % (default-rule '[(republican ?x)] '(not (pacifist ?x))) 'CxUniverse)
+    (let [ops [#(v/assert % (tu/default-rule '[(quaker ?x)]     '(pacifist ?x))       'CxUniverse)
+               #(v/assert % (tu/default-rule '[(republican ?x)] '(not (pacifist ?x))) 'CxUniverse)
                #(v/assert % '(quaker Nixon)     'CxUniverse)
                #(v/assert % '(republican Nixon) 'CxUniverse)]
           observe (fn [kb]
@@ -436,8 +425,8 @@
             (tu/with-neutral-kb [kb tu/fresh]
               (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
                     nixon (tu/tmp-ind)]
-                (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
-                (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+                (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+                (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
                 (v/assert kb (list quaker nixon)     'CxUniverse)
                 (v/assert kb (list republican nixon) 'CxUniverse)
                 (backend-solves

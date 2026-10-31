@@ -6,6 +6,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is]]
             [taoensso.trove :as trove]
+            [vaelii.impl.logging :as logging]
             [vaelii.impl.progress :as progress]))
 
 (defn- run-loop
@@ -73,6 +74,90 @@
         (reset! now 20000000000)
         (#'progress/on-timer! r (fn []))))
     (is (= ["the step: 15 s in" "the step: done in 20 s"] @out))))
+
+(deftest the-timer-logs-to-the-log-fn-bound-where-the-reporter-started
+  ;; the task runs on a thread of its own, outside the binding, as the timer runs it
+  (let [now (atom 0)
+        out (atom [])]
+    (with-open [r (progress/start ::step "the step" nil {:clock #(deref now) :timer? false})]
+      (let [task (binding [trove/*log-fn* (fn [_ns _coords _level _id payload]
+                                            (swap! out conj (:msg (force payload))))]
+                   (#'progress/timer-task r))]
+        (reset! now 15000000000)
+        (doto (Thread. ^Runnable task) (.start) (.join))))
+    (is (= ["the step: 15 s in"] @out))))
+
+(def ^:dynamic *tag* nil)
+
+(deftest the-timer-conveys-every-binding-to-a-log-fn-vaelii-did-not-install
+  (let [now (atom 0)
+        out (atom [])]
+    (with-open [r (progress/start ::step "the step" nil {:clock #(deref now) :timer? false})]
+      (let [task (binding [*tag*          :caller
+                           trove/*log-fn* (fn [_ns _coords _level _id payload]
+                                            (swap! out conj [*tag* (:msg (force payload))]))]
+                   (#'progress/timer-task r))]
+        (reset! now 15000000000)
+        (doto (Thread. ^Runnable task) (.start) (.join))))
+    (is (= [[:caller "the step: 15 s in"]] @out))))
+
+(deftest a-reporter-started-while-the-log-drops-info-logs-on-the-timer-once-the-level-is-raised
+  ;; the dial and the root `*log-fn*` are process-wide, so both are put back
+  (let [root  (.getRawRoot #'trove/*log-fn*)
+        level (logging/current-level)
+        now   (atom 0)
+        runs  (atom [])]
+    (try
+      (logging/set-level :warn)
+      (with-open [r (progress/start ::step "the step" nil)]
+        (is (instance? java.util.concurrent.Future
+                       (.get ^java.util.concurrent.atomic.AtomicReference (:timer r)))))
+      (let [printed (with-out-str
+                      (with-open [r (progress/start ::step "the step" nil
+                                                    {:clock #(deref now) :timer? false})]
+                        (let [task (#'progress/timer-task r)
+                              slot ^java.util.concurrent.atomic.AtomicReference (:timer r)
+                              fire #(do (some-> ^java.util.concurrent.Future (.get slot)
+                                                (.cancel false))
+                                        (doto (Thread. ^Runnable task) (.start) (.join))
+                                        (swap! runs conj (.get slot)))]
+                          (reset! now 15000000000)
+                          (fire)
+                          (logging/set-level :info)
+                          (reset! now 30000000000)
+                          (fire))))]
+        (is (= ["the step: 30 s in" "the step: done in 30 s"]
+               (map second (re-seq #"\d\d:\d\d:\d\d (.*)" printed))))
+        (is (every? #(.isCancelled ^java.util.concurrent.Future %) @runs)
+            "each fire cancels the run the fire before it scheduled, and the close cancels the last"))
+      (finally
+        (reset! @#'logging/dial level)
+        (alter-var-root #'trove/*log-fn* (constantly root))))))
+
+(deftest a-loop-over-no-items-schedules-no-timer
+  (let [timer? (fn [total]
+                 (with-open [r (progress/start ::loop "the loop" total)]
+                   (let [^java.util.concurrent.atomic.AtomicReference t (:timer r)]
+                     (instance? java.util.concurrent.Future (.get t)))))]
+    (is (= [false true true] (map timer? [0 1 nil])))))
+
+(deftest a-closed-loops-timer-task-leaves-the-timer-queue
+  (let [^java.util.concurrent.ScheduledThreadPoolExecutor timer @#'progress/timer
+        f (with-open [r (progress/start ::loop "the loop" 1)]
+            (let [^java.util.concurrent.atomic.AtomicReference t (:timer r)]
+              (.get t)))]
+    (is (instance? java.util.concurrent.Future f))
+    (is (not (.contains (.getQueue timer) f)))))
+
+(deftest a-reload-that-keeps-an-earlier-loads-executor-still-schedules
+  ;; `defonce` keeps the executor an earlier load of the namespace built, whatever its class
+  (let [earlier (java.util.concurrent.Executors/newSingleThreadScheduledExecutor)]
+    (try
+      (with-redefs [progress/timer earlier]
+        (with-open [r (progress/start ::loop "the loop" 1)]
+          (let [^java.util.concurrent.atomic.AtomicReference t (:timer r)]
+            (is (instance? java.util.concurrent.Future (.get t))))))
+      (finally (.shutdownNow earlier)))))
 
 (deftest ticks-from-several-threads-are-each-counted
   (with-open [r (progress/start ::loop "the loop" nil)]

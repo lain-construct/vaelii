@@ -15,8 +15,7 @@
             [vaelii.impl.special :as special]
             [vaelii.test-util :as tu])
   (:import [java.io File]
-           [java.nio.file CopyOption Files StandardCopyOption]
-           [java.nio.file.attribute FileAttribute]))
+           [java.nio.file CopyOption Files StandardCopyOption]))
 
 (defmacro ^:private entailing
   "Run the body with the entailment on and subsumed mints withheld."
@@ -226,12 +225,6 @@
 
 ;; ---- a store with a directory ----------------------------------------------------
 
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-argpass-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
-
 (defn- copy-dir!
   "Copy `from` into `to` as the files stand, the store on `from` still open: what a
   process killed at this point leaves on disk."
@@ -268,13 +261,13 @@
 
 (deftest the-records-path-settles-without-the-pass-and-owes-it-across-a-reopen
   (let [t (terms)
-        via-settle (let [dir (tmpdir)]
+        via-settle (let [dir (tu/tmpdir "vaelii-argpass-")]
                      (try (let [[kb seeds] (removed-batch dir t)]
                             (try (entailing (v/settle-record-edits! kb {:seeds seeds})
                                             (believed kb))
                                  (finally (v/close! kb))))
-                          (finally (rm-rf! dir))))
-        dir (tmpdir)]
+                          (finally (tu/rm-rf! dir))))
+        dir (tu/tmpdir "vaelii-argpass-")]
     (is (contains? via-settle [(list (:q_w t) (:Z1 t)) (:CxW t)])
         "the removal released the mint it withheld")
     (try
@@ -307,14 +300,14 @@
              (is (not (.exists (io/file dir "arg-types-owed.edn"))))
              (is (= via-settle (believed kb))))
             (finally (v/close! kb)))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-killed-pass-redraws-from-its-last-commit
   ;; The process dies after a commit, with the mints of the facts after it on disk and
   ;; belief gone: the reopened store is recovered from the records and the pass resumes
   ;; at the record each commit wrote.
   (let [t       (terms)
-        dir     (tmpdir)
+        dir     (tu/tmpdir "vaelii-argpass-")
         records (volatile! [])
         write   @#'argpass/write-owed!]
     (try
@@ -335,15 +328,15 @@
                    (is (:complete? (v/record-arg-types! kb {:budget-ms nil})))
                    (is (= one (reading kb)))
                    (finally (v/close! kb)))))))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-pass-killed-at-a-commit-resumes-from-the-directory-the-commit-left
   ;; The directory is copied after a commit with the store still open, so the copy holds
   ;; what the commit forced to disk and nothing a close writes.  The resumed pass reads
   ;; the copy's record as written against the records it holds.
   (let [t    (terms)
-        dir  (tmpdir)
-        dir2 (tmpdir)]
+        dir  (tu/tmpdir "vaelii-argpass-")
+        dir2 (tu/tmpdir "vaelii-argpass-")]
     (try
       (entailing
        (let [one (let [kb (v/open-kb {:backend :disk-log :dir dir})]
@@ -361,7 +354,7 @@
            (is (:complete? (v/record-arg-types! kb {:budget-ms nil})))
            (is (= one (reading kb)))
            (finally (v/close! kb)))))
-      (finally (rm-rf! dir) (rm-rf! dir2)))))
+      (finally (tu/rm-rf! dir) (tu/rm-rf! dir2)))))
 
 (deftest an-owed-record-ahead-of-the-records-is-refused
   (tu/with-cleared-kb [kb tu/isolated-fresh]
@@ -385,7 +378,7 @@
 (deftest an-owed-record-of-another-shape-is-refused
   ;; A record this engine cannot read is refused rather than taken for "nothing owed":
   ;; a pass that skipped it would leave every fact it names undrawn.
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-argpass-")]
     (try
       (let [kb (v/open-kb {:backend :disk-log :dir dir})]
         (try
@@ -393,7 +386,7 @@
           (is (= :unknown-owed-record
                  (:type (ex-data (try (v/arg-types-owed kb) (catch Exception e e))))))
           (finally (v/close! kb))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;; ---- a mint the fact would leave as it is ------------------------------------------
 

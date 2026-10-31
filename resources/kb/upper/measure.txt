@@ -19,6 +19,11 @@
 ;; fragmentation this KB exists to prevent, and it is the difference between a grammar
 ;; nobody can compute with and one that answers.
 ;;
+;; Every dimensionOf and conversionFactor row here is set/monotonic, because a factor is
+;; a definition. A firing that compares measures names the rows it converted through
+;; among its antecedents, so a conclusion drawn through a shipped row keeps the strength
+;; of the facts and the rule it rests on, and no default defeats a row.
+;;
 ;; The **sign** vocabulary is here too, and it is measurement said as coarsely as it can
 ;; be said: signOf and trendOf give a quantity one of three values, the three
 ;; qualitative* relations do arithmetic over them, derivativeOf joins a rate to the
@@ -29,8 +34,9 @@
 ;; docs/sign.md.
 
 (comment Centimeter "A hundredth of a metre.")
-(dimensionOf Centimeter Length)
-(conversionFactor Centimeter Meter 0.01)
+(unit_of_measure Centimeter)
+(set/monotonic (dimensionOf Centimeter Length))
+(set/monotonic (conversionFactor Centimeter Meter 0.01))
 
 (comment conversionFactor
          "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one.")
@@ -41,8 +47,9 @@
 (arg conversionFactor 3 number)
 
 (comment Day "Twenty-four hours.")
-(dimensionOf Day Duration)
-(conversionFactor Day Second 86400)
+(unit_of_measure Day)
+(set/monotonic (dimensionOf Day Duration))
+(set/monotonic (conversionFactor Day Second 86400))
 
 (comment derivativeOf
          "(derivativeOf ?rate ?quantity) means that ?rate is the rate at which ?quantity changes. So (derivativeOf NetInflow WaterLevel) says the net inflow is how fast the water level rises. What joins a sign to a trend: the trend of a quantity IS the sign of its rate, so the two are one value read at either end of this edge; a rate whose sign is known gives the trend, and a stated trend fixes the sign of the rate, which can then be an addend of something else. A rate is a quantity like any other, so the rate of a sum is stated as a sum of the rates rather than read off the sum.")
@@ -59,12 +66,14 @@
 (arg dimensionOf 2 physical_dimension)
 
 (comment Duration "The dimension of extent in time. Its base unit is Second, and an interval's length is measured in it.")
+(physical_dimension Duration)
 ;; time_interval is the kind of thing a Duration measures.
 (termsRelated time_interval Duration)
 
 (comment Gram "A thousandth of a kilogram.")
-(dimensionOf Gram Mass)
-(conversionFactor Gram Kilogram 0.001)
+(unit_of_measure Gram)
+(set/monotonic (dimensionOf Gram Mass))
+(set/monotonic (conversionFactor Gram Kilogram 0.001))
 
 (comment greaterInMagnitudeThan
          "(greaterInMagnitudeThan ?quantity1 ?quantity2) means that ?quantity1 is further from zero than ?quantity2, whichever side of zero each falls on. Between two QUANTITIES, which is what separates it from quantityGreaterThan: that one compares two ground measure terms and is computed from the unit table, where this is a stated claim about quantities nobody has put a figure on. It exists for the one ambiguous entry in the sign addition table: a positive and a negative sum to the sign of whichever is larger, and this is what says which. Transitive and asymmetric, a strict order, so a cycle of magnitude claims is a contradiction the KB reports rather than a chain it walks.")
@@ -84,42 +93,51 @@
 (set/monotonic (asymmetric heavierThan))
 
 (comment heightOf
-         "(heightOf ?object ?measure) means that ?object stands ?measure tall. A measure of Length, exact as (QuantityFn 2 Meter) or bounded as (QuantityIntervalFn 1 2 Meter). Functional, like weightOf and for the same reason: with no time argument to say when, a second height is a contradiction rather than a second fact.")
+         "(heightOf ?object ?measure) means that ?object stands ?measure tall. A measure of Length, exact as (QuantityFn 2 Meter) or bounded as (QuantityIntervalFn 1 2 Meter). Functional, like weightOf and for the same reason: with no time argument to say when, a second height of another magnitude is a contradiction rather than a second fact.")
 (set/monotonic (instance_relation_predicate heightOf))
 (arg heightOf 1 tangible)
 (arg heightOf 2 measure)
 (set/monotonic (functional heightOf))
 
 (comment Hour "Sixty minutes.")
-(dimensionOf Hour Duration)
-(conversionFactor Hour Second 3600)
+(unit_of_measure Hour)
+(set/monotonic (dimensionOf Hour Duration))
+(set/monotonic (conversionFactor Hour Second 3600))
 
 (comment Kilogram "The base unit of mass.")
-(dimensionOf Kilogram Mass)
-(conversionFactor Kilogram Kilogram 1)
+(unit_of_measure Kilogram)
+(set/monotonic (dimensionOf Kilogram Mass))
+(set/monotonic (conversionFactor Kilogram Kilogram 1))
 
 (comment Kilometer "A thousand metres.")
-(dimensionOf Kilometer Length)
-(conversionFactor Kilometer Meter 1000)
+(unit_of_measure Kilometer)
+(set/monotonic (dimensionOf Kilometer Length))
+(set/monotonic (conversionFactor Kilometer Meter 1000))
 
 (comment Length "The dimension of spatial extent. Its base unit is Meter.")
+(physical_dimension Length)
 
 (comment Mass "The dimension of how much matter a thing has. Its base unit is Kilogram.")
+(physical_dimension Mass)
 
 (comment Meter "The base unit of length.")
-(dimensionOf Meter Length)
-(conversionFactor Meter Meter 1)
+(unit_of_measure Meter)
+(set/monotonic (dimensionOf Meter Length))
+(set/monotonic (conversionFactor Meter Meter 1))
 
 (comment Millimeter "A thousandth of a metre.")
-(dimensionOf Millimeter Length)
-(conversionFactor Millimeter Meter 0.001)
+(unit_of_measure Millimeter)
+(set/monotonic (dimensionOf Millimeter Length))
+(set/monotonic (conversionFactor Millimeter Meter 0.001))
 
 (comment Minute "Sixty seconds.")
-(dimensionOf Minute Duration)
-(conversionFactor Minute Second 60)
+(unit_of_measure Minute)
+(set/monotonic (dimensionOf Minute Duration))
+(set/monotonic (conversionFactor Minute Second 60))
 
 (comment physical_dimension
          "A kind of extent a unit measures: Length, Mass, Duration. Two measures compare only when their units share one physical_dimension, and dimensionOf states which one a unit has.")
+(unary_predicate physical_dimension)
 (genl physical_dimension quantitative)
 
 (comment qualitativeDifference
@@ -147,6 +165,7 @@
 
 (comment quantity
          "A magnitude that has a sign and can change. The sign vocabulary relates quantities: signOf and trendOf give one a value, derivativeOf joins a rate to its quantity, and the three qualitative relations and greaterInMagnitudeThan relate two or three of them. A quantity is not a measure: a measure is a figure in a unit, and a quantity is what a measure would measure.")
+(unary_predicate quantity)
 (positiveExampleComment quantity "a water level")
 (positiveExampleComment quantity "the rate a tap runs at")
 (genl quantity aspatial)
@@ -232,8 +251,9 @@
 (arg sameQuantity 2 measure)
 
 (comment Second "The base unit of duration.")
-(dimensionOf Second Duration)
-(conversionFactor Second Second 1)
+(unit_of_measure Second)
+(set/monotonic (dimensionOf Second Duration))
+(set/monotonic (conversionFactor Second Second 1))
 
 (comment sign_value
          "One of the three values a quantity's sign takes: SignNegative, SignZero, SignPositive. Jointly exhaustive and pairwise disjoint over the reals — exactly one holds of any quantity — which is what makes a set of them a real constraint rather than an absence of knowledge.")
@@ -266,8 +286,9 @@
 (set/monotonic (asymmetric tallerThan))
 
 (comment Tonne "A thousand kilograms.")
-(dimensionOf Tonne Mass)
-(conversionFactor Tonne Kilogram 1000)
+(unit_of_measure Tonne)
+(set/monotonic (dimensionOf Tonne Mass))
+(set/monotonic (conversionFactor Tonne Kilogram 1000))
 
 (comment trendOf
          "(trendOf ?quantity ?sign) means that ?quantity is falling, steady or rising — the sign of its rate of change. Not a second theory beside signOf: it is signOf read at the other end of a derivativeOf edge, so a rate known positive makes the quantity it is the rate of rising, and a quantity stated rising makes that rate positive. Stated directly where the rate has no name worth giving it.")
@@ -277,15 +298,17 @@
 
 (comment unit_of_measure
          "A standard amount of one physical_dimension that a magnitude is counted in: Meter, Kilogram, Second. A unit fills the first argument of dimensionOf and the first two of conversionFactor, so a unit table entry types its unit, and it is the last argument of a QuantityFn or QuantityIntervalFn application.")
+(unary_predicate unit_of_measure)
 (genl unit_of_measure quantitative)
 
 (comment Week "Seven days.")
-(dimensionOf Week Duration)
-(conversionFactor Week Second 604800)
+(unit_of_measure Week)
+(set/monotonic (dimensionOf Week Duration))
+(set/monotonic (conversionFactor Week Second 604800))
 
 (comment weightOf
-         "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time, so two different measures of one object contradict each other.")
-(implementationNote weightOf "Two measures are compounds rather than symbols, so a second, different measure of one object is never merged with the first the way two names for one thing are. assert stores it, and the two form a :functional contradiction; try-assert refuses it.")
+         "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time, so two measures of one object that cannot denote one magnitude contradict each other.")
+(implementationNote weightOf "Two measures are compounds rather than symbols, so a second measure of one object is never merged with the first the way two names for one thing are. The functional check compares magnitudes: (QuantityFn 20000 Gram) beside (QuantityFn 20 Kilogram), or an interval holding the point, is no clash. A second measure that cannot denote the same magnitude is stored by assert as a :functional contradiction, and try-assert refuses it.")
 (set/monotonic (instance_relation_predicate weightOf))
 (arg weightOf 1 tangible)
 (arg weightOf 2 measure)

@@ -1,82 +1,26 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.text
-  "The **text KB format** — one file per context, one s-expression per sentence — read
-  and written.
-
-  It is the format the shipped ontology is authored in (`resources/kb/`,
-  `vaelii.host.seed`), and this is where the writer for it lives, so a KB an author
-  edited as text can be got back out of a store as text.  The three formats a KB moves
-  in are different questions and stay separate entry points:
-
-  | | what it holds | who reads it |
-  |---|---|---|
-  | **text** (here) | premises and inert sentexes, in the author's own spelling, no handles | `assert`, `assert-inert` |
-  | **export dump** (`io.export` / `io.import`) | every record and justification at its own handle | `import!` |
-  | the **store** itself | the live KB | the engine |
-
-  A dump is a KB's *state*; text is a KB's *content*.  Only the second survives a
-  re-derivation, a rename or an engine that concludes something new — which is what an
-  author editing an ontology wants, and what a dump deliberately is not.
-
-  ## The format
-
-  Every form is one sentence, read with `clojure.edn`, so a KB file is data and can
-  never run code.  `;;` comments and blank lines are free — the reader is the EDN
-  reader, so it skips them without a line-oriented pass.  **The file name is the
-  context**: `CxKinship.txt` asserts into `CxKinship`, and a sentence for another
-  context says so with `(ist Cx S)` as it would anywhere else.  A rule carries its
-  `set/*Rule` / `set/defaultRule` wrappers and its `exceptWhen` exactly as an author
-  writes them, because that is what `assert` reads.
-
-  **Two wrappers are not part of the sentence**, because each states how the sentence is
-  written rather than what it says: `(set/monotonic S)` asserts `S` known-true, and
-  `(set/inert S)` stores `S` through `assert-inert`.  `peel-form` takes either off a whole
-  form, and neither reaches the store as a functor.  `:default` is the entry point's own
-  fallback and is written as nothing.
-
-  **An `exceptWhen` states a strength per half**, because it asserts two things: the rule,
-  and the exception qualifying it.  The outer wrapper is the assertion's own option and
-  `assert` gives it to *both*, so it can only state a class the two share; a wrapper on
-  the **query** states the exception's own, and `assert` reads that one itself
-  (`sentex/peel-exception-strength`), so a hand-written KB spells it the same way.  Four
-  pairings, four spellings:
-
-  | rule | exception | written as |
-  |---|---|---|
-  | default | default | `(exceptWhen Q R)` |
-  | default | known-true | `(exceptWhen (set/monotonic Q) R)` |
-  | known-true | default | `(exceptWhen Q R)`, and `(set/monotonic R)` on a line of its own |
-  | known-true | known-true | `(set/monotonic (exceptWhen Q R))` |
-
-  The third takes two lines because there is no wrapper for *weakening* a half: the rule
-  gets a line of its own at the stronger class, and `mark-premise` resolves a premise
-  asserted twice to the stronger of the two.
-
-  ## What a text export holds, and what it does not
-
-  **Premises and inert sentexes only.**  A derived sentex is what the engine concluded
-  from the premises, so writing it out would store as a premise what the KB believes as a
-  conclusion — a reload would hold it against retraction of everything it followed from.
-  Chaining puts it back at load, which is the whole point.
-
-  **No handles.**  A text KB is re-asserted rather than restored, so it lands at
-  whatever handles the loading KB mints.  A caller who needs handle identity across the
-  round trip wants `export!`, not this.
-
-  **Deterministic.**  Files are named for their contexts and their forms are ordered by
-  content (`nm/by-print-key`), never by handle — so two KBs holding the same knowledge
-  export byte-identical files whatever order they were built in
-  (docs/defenses.md, \"Tie-breaks and orderings key on content\")."
+  "The text KB format, read and written: one file per context, one s-expression per
+  sentence, the format the shipped ontology is authored in (`resources/kb/`,
+  `vaelii.host.seed`). Every form is read with `clojure.edn`; the file name is the context.
+  `peel-form` takes the `(set/monotonic S)` and `(set/inert S)` wrappers off a whole form.
+  Text holds premises and inert sentexes in the author's spelling, with a handle as the
+  `(ist Cx S)` reference it resolves from; the export dump (`io.export`, `io.import`) holds
+  every record at its own handle.  See docs/kbs.md, \"Text you exported yourself\"."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [vaelii.impl.assert-entry :as entry]
+            [vaelii.impl.io.digest :as digest]
+            [vaelii.impl.io.export :as export]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.opts :as opts]
             [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
@@ -175,100 +119,131 @@
   [^File dir]
   (into [] (sort-by #(.getName ^File %) (filter kb-file? (.listFiles dir)))))
 
+(def manifest-file
+  "The file a delta export writes beside its context files: `{file {form-index [digest …]}}`,
+  the digest of each reference a form holds, in the order `entry/references` reads them."
+  "digests.edn")
+
 (defn entries
   "Every `[form context]` a text KB holds, with the files they came from:
-  `{:files [\"CxUniverse.txt\" …] :entries [[form context] …] :path \"…\"}`.
+  `{:files [\"CxUniverse.txt\" …] :entries [[form context] …] :path \"…\"}`.  In a
+  directory holding a `manifest-file`, each entry is `[form context digests]`.
 
   `source` is a **directory** of `Cx….txt` files — an `export-text!` destination, or an
-  ontology tree an author keeps — or a single such file.  Either way the context of a
-  form is its file's name, so a directory is read whole and handed to `load-entries!` in
-  one pass rather than a file at a time: the names sort alphabetically, which is not a
-  dependency order, and one context's content can rest on another's."
+  ontology tree an author keeps — or a single such file, the context of a form its file's
+  name.  A directory is read whole for one `load-entries!` pass, since one context's
+  content can rest on another's."
   [source]
   (let [^File f (io/file source)]
     (when-not (.exists f)
       (throw (ex-info (str "no text KB at " (.getPath f) " — a text KB is a directory of"
                            " Cx….txt context files, or one such file")
                       {:type :missing-resource :path (.getPath f)})))
-    (let [files (if (.isDirectory f) (kb-files f) [f])]
+    (let [files    (if (.isDirectory f) (kb-files f) [f])
+          ^File mf (io/file f manifest-file)
+          manifest (when (and (.isDirectory f) (.isFile mf)) (edn/read-string (slurp mf)))]
       (when (empty? files)
         (throw (ex-info (str (.getPath f) " holds no Cx….txt context files")
                         {:type :missing-resource :path (.getPath f)})))
       {:path    (.getPath f)
        :files   (mapv #(.getName ^File %) files)
        :entries (into [] (mapcat (fn [^File cf]
-                                   (let [context (context-of cf)]
-                                     (map #(vector % context) (read-forms cf)))))
+                                   (let [context (context-of cf)
+                                         ds      (when manifest (get manifest (.getName cf) {}))]
+                                     (map-indexed (fn [i form]
+                                                    (cond-> [form context] ds (conj (get ds i []))))
+                                                  (read-forms cf)))))
                       files)})))
 
 (defn- topology-first
-  "`entries` with every `(genlCx …)` moved to the front, stable otherwise — the one
-  ordering the retry loop below cannot supply for itself.
-
-  A completed firing needs a **placement context**: one that sees the rule and every
-  antecedent fact.  Where there is none the conclusion is *dropped* — a `:no-placement`
-  violation, recorded rather than raised — so an edge arriving after the fact it would
-  have placed leaves a conclusion nothing re-derives, and the retry loop never sees it,
-  because it retries what **threw**.  The layer order is what `vaelii.host.starter` keeps
-  in code for the same reason (the upper ontology, then the middle layer), and a
-  directory of files carries no such order.  So the topology goes in first, and
-  everything else is retried against the whole of it.
-
-  Deterministic: a stable partition on the sentence's functor, never on arrival."
+  "`entries` with every `(genlCx …)` moved to the front, then every declaration of a
+  reference position (`(target_following_predicate P)`, `(arg P n sentence)`, a `quotedArg`
+  or `quotedArgAndRest` typing `sentex_handle_term`), stable otherwise. A firing with no
+  placement context is dropped as a `:no-placement` violation, and a sentence at a position
+  not yet declared a reference is stored as written; the retry loop sees neither, because
+  it retries what threw. A stable partition on the sentence's functor, never on arrival.
+  See docs/kbs.md, \"Text you exported yourself\"."
   [entries]
-  (let [topology? (fn [[form _]] (and (sequential? form) (= 'genlCx (first form))))]
-    (into (filterv topology? entries) (remove topology? entries))))
+  (let [head       (fn [[form _]] (let [s (first (sx/form-peel form))] (when (sequential? s) s)))
+        topology?  #(= 'genlCx (first (head %)))
+        reference? #(let [[f & args] (head %)]
+                      (or (= 'target_following_predicate f)
+                          (and (= 'arg f) (= 'sentence (nth args 2 nil)))
+                          (and (contains? sx/arg-projections f) (= 'sentence (second args)))
+                          (and (#{'quotedArg 'quotedArgAndRest} f)
+                               (= 'sentex_handle_term (nth args 2 nil)))))
+        rest?      #(not (or (topology? %) (reference? %)))]
+    (-> []
+        (into (filter topology?) entries)
+        (into (filter #(and (reference? %) (not (topology? %)))) entries)
+        (into (filter rest?) entries))))
 
 (defn load-entries!
-  "Assert every `[form context]` of `entries` through `assert!` —
-  `(assert! sentence context opts)`, or `(assert-inert! sentence context)` for a form
-  `peel-form` reads as inert — **order-insensitively**: an entry refused because
-  content further down the list has not arrived yet is retried rather than fatal.
-  Returns how many entries were read.
+  "Assert every `[form context]` of `entries` through `assert!` (`(assert! sentence context
+  opts)`, or `(assert-inert! sentence context)` for a form `peel-form` reads as inert),
+  order-insensitively: an entry refused because content further down the list has not
+  arrived is retried. Returns how many entries were read. Both writers are passed in
+  because this sits under `vaelii.core`. The context topology and the reference declarations
+  go first (`topology-first`). Retry rounds run while each makes progress; the survivors of
+  a round that changed nothing are re-asserted without a catch, so an ill-formed entry
+  throws, or with `refused!` call `(refused! entry ex-info)` per refusal.  With `check!`,
+  an entry carrying digests is passed to `(check! sentence context digests)` first."
+  ([assert! assert-inert! entries] (load-entries! assert! assert-inert! entries nil nil))
+  ([assert! assert-inert! entries refused! check!]
+   (let [entries (topology-first entries)
+         apply!  (fn [[form context digests]]
+                   (let [[sentence o] (peel-form form)]
+                     (when (and check! digests) (check! sentence context digests))
+                     (if (:inert o)
+                       (assert-inert! sentence context)
+                       (assert! sentence context o))))
+         attempt (fn [round es]
+                   (with-open [r (progress/start ::load-entries
+                                                 (str "load: assert the entries (round " round ")")
+                                                 (count es))]
+                     (reduce (fn [acc e]
+                               (let [acc (try (apply! e) acc
+                                              (catch clojure.lang.ExceptionInfo _ (conj acc e)))]
+                                 (progress/tick! r)
+                                 acc))
+                             [] es)))]
+     (loop [round 1, pending (attempt 1 entries)]
+       (when (seq pending)
+         (let [remaining (attempt (inc round) pending)]
+           (cond
+             (< (count remaining) (count pending)) (recur (inc round) remaining)
+             refused! (doseq [e remaining]
+                        (try (apply! e)
+                             (catch clojure.lang.ExceptionInfo x (refused! e x))))
+             :else    (run! apply! remaining))))))
+   (count entries)))
 
-  Both writers are passed in rather than required: this sits under `vaelii.core`, and the
-  two callers above it are `vaelii.core/load-text!` and `vaelii.host.seed`.
+(defn- mismatch-message
+  [sentence why]
+  (str "the delta's digests and this KB's reading of " (pr-str sentence) " differ: " why
+       " — the two KBs canonicalize the sentence differently"))
 
-  A KB file's order is its *terms'*, not its dependencies' — blocks run in natural sort
-  order, which is the whole point of grouping term-centrically — so a file cannot also
-  be dependency-ordered.  `(transitiveInArgInverse largerThan 1 tangiblePartOf)` sits under `largerThan`
-  and `(transitive tangiblePartOf)` under `tangiblePartOf`, and `l` sorts before `t`.  Several checks
-  read the store (a preservation's transitivity, an `arg` clash, a disjointness), so
-  without this a term-centric file is refused for where its author filed a sentence.
-  **A whole directory is one pass**, for the same reason one level up: the file names
-  sort alphabetically and a context's content can rest on another's.  The **context
-  topology goes first** whatever order it arrived in (`topology-first`), which is the one
-  thing retrying cannot fix.
-
-  Retry rounds run while each one makes progress; the entries that survive a round that
-  changed nothing are re-asserted **without a catch**, so a genuinely ill-formed one
-  still throws — carrying the error it has once everything that could have helped it is
-  stored, which is the error worth reporting.  A list that loads clean pays one `try`
-  per entry and no second round."
-  [assert! assert-inert! entries]
-  (let [entries (topology-first entries)
-        apply!  (fn [[form context]]
-                  (let [[sentence o] (peel-form form)]
-                    (if (:inert o)
-                      (assert-inert! sentence context)
-                      (assert! sentence context o))))
-        attempt (fn [round es]
-                  (with-open [r (progress/start ::load-entries
-                                                (str "load: assert the entries (round " round ")")
-                                                (count es))]
-                    (reduce (fn [acc e]
-                              (let [acc (try (apply! e) acc
-                                             (catch clojure.lang.ExceptionInfo _ (conj acc e)))]
-                                (progress/tick! r)
-                                acc))
-                            [] es)))]
-    (loop [round 1, pending (attempt 1 entries)]
-      (when (seq pending)
-        (let [remaining (attempt (inc round) pending)]
-          (if (< (count remaining) (count pending))
-            (recur (inc round) remaining)
-            (run! apply! remaining))))))
-  (count entries))
+(defn digest-check
+  "A `check!` for `load-entries!` over `kb`: throws `:canonical-mismatch` when the references
+  `entry/references` reads in `sentence` are not as many as `digests`, or when one resolves
+  to a sentex whose digest is not the one its writer recorded, naming the reference under
+  `:reference`.  An `(ist Cx S)` form is `S` read in `Cx`."
+  [kb]
+  (fn [sentence context digests]
+    (let [[context s] (or (entry/ist-parts sentence) [context sentence])
+          refs        (entry/references kb (rules/inner-rule s) context)
+          actual      (digest/digests kb (mapv :handle refs) false)]
+      (when (not= (count refs) (count digests))
+        (throw (ex-info (mismatch-message s (str "the writer recorded " (count digests)
+                                                 " references and this KB reads " (count refs)))
+                        {:type :canonical-mismatch :sentence s
+                         :expected (count digests) :actual (count refs)})))
+      (doseq [[r e a] (map vector refs digests actual) :when (not= e a)]
+        (throw (ex-info (mismatch-message s (str "the reference " (pr-str (:reference r))
+                                                 " resolves to a sentex whose digest is " a
+                                                 ", and the writer's is " e))
+                        {:type :canonical-mismatch :sentence s :reference (:reference r)
+                         :context (:context r) :expected e :actual a}))))))
 
 ;; ---- writing -------------------------------------------------------------
 
@@ -282,20 +257,12 @@
     (if (some? (:antecedent sx)) (rules/rewrap-sentex s sx) s)))
 
 (defn- exception-form
-  "The `(exceptWhen <query> <rule>)` wrapper an exceptWhen meta-sentex was written as,
-  under whichever strength wrappers reproduce the pair.
-
-  The stored meta is `(exceptWhen <query> (sentexHandle H))` and its query is in the
-  **rule's** canonical variables, so the rule's varmap is what restores it — the meta
-  has none of its own.
-
-  **Two halves, two classes, and the outer wrapper can only state one.**  `assert` gives
-  one `opts` to both, so an outer `(set/monotonic …)` says *both* are known-true and is
-  written only when they are; a known-true exception on a default rule carries its
-  wrapper on the **query** instead, which is the position `assert` reads it in
-  (`sentex/peel-exception-strength`).  The remaining pairing — a known-true rule under a
-  default exception — needs no wrapper here at all: `context-forms` writes the rule again
-  on a line of its own, and `mark-premise` resolves to the stronger."
+  "The `(exceptWhen <query> <rule>)` wrapper an exceptWhen meta-sentex was written as, under
+  whichever strength wrappers reproduce the pair. The stored meta's query is in the rule's
+  canonical variables, so the rule's varmap restores it. An outer `(set/monotonic …)` is
+  written only when both halves are known-true; a known-true exception on a default rule
+  carries its wrapper on the query (`sentex/peel-exception-strength`). A known-true rule
+  under a default exception is written again on a line of its own (`context-forms`)."
   [meta-sx rule-sx]
   (let [q      (nth (:sentence meta-sx) 1)
         q      (if-let [vm (:varmap rule-sx)] (sx/originalize q vm) q)
@@ -314,9 +281,8 @@
   (cond-> form (= :monotonic strength) (->> (list sx/strength-wrapper))))
 
 (defn- names-a-handle?
-  "Does `sentence` name a stored sentex by handle?  Such a sentence has no text form: a
-  handle is this KB's own and means something else, or nothing, in the KB that reads the
-  file back.
+  "Does `sentence` name a stored sentex by handle?  Such a sentence is written through
+  `reference-writer`.
 
   Two spellings, and the second is why this is not one `tree-seq`.  A `(sentexHandle N)`
   term anywhere inside — what an exceptWhen meta and a target-following meta carry — is a
@@ -326,6 +292,43 @@
   [sentence]
   (boolean (or (and (sequential? sentence) (= sx/except-functor (first sentence)))
                (some sx/sentex-handle? (tree-seq sequential? seq sentence)))))
+
+(defn- reference-writer
+  "A fn from a sentence of `kb` to `[sentence digests]`: the sentence a text KB writes, each
+  handle at a reference position (`res/reference-positions`) spelled `(ist Cx S)`, `S` the
+  named record's sentence as `authored` writes it with its own handles spelled the same
+  way, and the digest of each reference in the order `entry/references` reads them.  A
+  function term (`res/reference-term?`) is written the same way at its function's
+  positions.  nil when a handle names no stored record, or stands at no reference position."
+  [kb]
+  (let [dg   (digest/digester kb)
+        recs (:records kb)
+        ps   (memoize #(res/reference-positions kb %))]
+    (fn write [sentence]
+      (if-not (sequential? sentence)
+        [sentence []]
+        (let [refs (ps (first sentence))
+              out  (volatile! [])
+              bare (= sx/except-functor (first sentence))
+              arg  (fn [i a]
+                     (cond
+                       (and refs (refs i) (or (sx/sentex-handle? a) (and bare (integer? a))))
+                       (let [h (if (integer? a) a (sx/handle-id a))
+                             t (p/get-sentex recs h)
+                             [s ds] (when t (write (authored t)))
+                             d (when s (dg h))]
+                         (if d
+                           (do (vswap! out into ds) (vswap! out conj d)
+                               (list sx/ist-functor (:context t) s))
+                           ::unwritten))
+                       (not (some sx/sentex-handle? (tree-seq sequential? seq a))) a
+                       (res/reference-term? a) (if-let [[t ds] (write a)]
+                                                 (do (vswap! out into ds) t)
+                                                 ::unwritten)
+                       :else ::unwritten))
+              args (into [] (map-indexed arg) sentence)]
+          (when-not (some #{::unwritten} args)
+            [(apply list args) @out]))))))
 
 (defn- premise-records
   "Every live premise of `kb`, as records.  A premise **is** a sentex whose `:strength`
@@ -367,34 +370,23 @@
       (into [] (keep (fn [h] (progress/tick! r) (p/get-sentex recs h))) ids))))
 
 (defn premise-entries
-  "`[entries skipped]` for `records` of `kb`, premises and inert sentexes: each as the form
-  a KB file writes it, `{:context c :form f :handles [h …]}`, and the records there is no
-  text for.  `:handles` are the records the form stands for — one, or an exceptWhen meta
-  and the rule it qualifies — so a caller that finds a form it does not want knows what to
-  retract.
-
-  Three kinds of record, and the second is the one that needs assembling:
-
-  * an ordinary fact or rule is `authored` under its strength wrapper, and an inert
-    sentex, which has no strength, under `(set/inert …)`;
-  * an **exceptWhen meta-sentex** is not written as stored — `(exceptWhen <query>
-    (sentexHandle H))` names a handle the reading KB does not have — but as the
-    `(exceptWhen <query> <rule>)` wrapper it was asserted as, under whichever strength
-    wrappers reproduce the two halves' classes (`exception-form`).  Its target rule is
-    then not written again on its own, exactly as a shipped file writes the wrapper and
-    not the bare rule; a rule known-true under a `:default` exception gets its own line
-    as well, since the wrapper would state the weaker class and `mark-premise` resolves
-    to the stronger of the two.
-  * anything else naming a handle — an `(except H)`, a `target_following_predicate` meta,
-    an exceptWhen meta on a rule the KB *derived* — is **skipped and counted**
-    (`names-a-handle?` for the two ways a sentence spells one).  There
-    is no spelling for it: the handle is a fact about this store, and a wrapper around a
-    derived rule would assert as a premise something the KB never held as one."
+  "`[entries skipped]` for `records` of `kb`, premises and inert sentexes: each as the form a KB
+  file writes it, `{:context c :form f :handles [h …] :digests [d …]}`, and the records
+  there is no text for. `:handles` are the records the form stands for, so a caller knows
+  what to retract; `:digests` are `reference-writer`'s, on a form holding references.
+  An ordinary fact or rule is `authored` under its strength wrapper, an inert sentex under
+  `(set/inert …)`. An exceptWhen meta-sentex is written as the `(exceptWhen <query> <rule>)`
+  wrapper (`exception-form`), and its target rule is not written again unless it is
+  known-true under a default exception. Anything else naming a handle is written through
+  `reference-writer` (`names-a-handle?`), and skipped and counted when it has no text."
   [kb records]
-  (let [recs     (:records kb)
+  (let [ids      (into #{} (map :id) records)
         meta?    #(sx/exceptWhen-meta? (:sentence %))
+        write    (reference-writer kb)
         by-rule  (into {} (comp (filter meta?)
-                                (keep #(p/get-sentex recs (sx/exceptWhen-rule-handle (:sentence %))))
+                                (map #(sx/exceptWhen-rule-handle (:sentence %)))
+                                (filter ids)
+                                (keep #(p/get-sentex (:records kb) %))
                                 (filter #(some? (:strength %)))
                                 (map (juxt :id identity)))
                        records)]
@@ -403,16 +395,23 @@
       (reduce
        (fn [[written skipped] sx]
          (progress/tick! r)
-         (let [keep! (fn [form hs] [(conj written {:context (:context sx) :form form :handles hs})
-                                    skipped])
+         (let [keep! (fn [form hs & [ds]]
+                       [(conj written (cond-> {:context (:context sx) :form form :handles hs}
+                                        (seq ds) (assoc :digests ds)))
+                        skipped])
                drop! (fn [] [written (conj skipped sx)])]
            (cond
-             (meta? sx)
-             (if-let [rule (by-rule (sx/exceptWhen-rule-handle (:sentence sx)))]
-               (keep! (exception-form sx rule) [(:id sx) (:id rule)])
-               (drop!))
+             (and (meta? sx) (by-rule (sx/exceptWhen-rule-handle (:sentence sx))))
+             (let [rule (by-rule (sx/exceptWhen-rule-handle (:sentence sx)))]
+               (keep! (exception-form sx rule) [(:id sx) (:id rule)]))
 
-             (names-a-handle? (:sentence sx)) (drop!)
+             (names-a-handle? (:sentence sx))
+             (if-let [[s ds] (write (authored sx))]
+               (keep! (if (nil? (:strength sx))
+                        (list sx/inert-wrapper s)
+                        (with-strength s (:strength sx)))
+                      [(:id sx)] ds)
+               (drop!))
 
              ;; an excepted rule rides its own wrapper, unless the wrapper would state a
              ;; weaker class than the rule stands at
@@ -425,36 +424,22 @@
        records))))
 
 (defn- context-forms
-  "`[{context [form …]} skipped]` for `kb` — the text of every premise and inert sentex,
-  grouped by the context it holds in, and the records there is no text for
-  (`premise-entries`)."
-  [kb]
-  (let [[entries skipped] (premise-entries kb (into (premise-records kb) (inert-records kb)))]
-    [(reduce (fn [m {:keys [context form]}] (update m context (fnil conj []) form)) {} entries)
+  "`[{context [entry …]} skipped]` for `records` of `kb` — the `premise-entries` of each,
+  grouped by the context it holds in, in content order, and the records there is no text
+  for."
+  [kb records]
+  (let [[entries skipped] (premise-entries kb records)
+        by-context (group-by :context entries)]
+    [(into {} (map (fn [[c es]]
+                     (let [ds (into {} (map (juxt :form :digests)) es)]
+                       [c (mapv (fn [f] {:form f :digests (ds f)}) (nm/by-print-key (map :form es)))])))
+           by-context)
      skipped]))
 
 (def ^:private opt-keys
-  "Every key the text writer reads."
-  #{:context :ancestor-set})
-
-(defn- ensure-empty-dir!
-  "`dir` as an empty directory, created when it does not exist.  A directory that
-  already holds anything is **refused**: a second export over a first would leave the
-  files the first wrote for contexts the second has nothing to say about, and a text KB
-  is read as a whole directory."
-  ^File [dir]
-  (let [^File d (io/file dir)]
-    (when (.isFile d)
-      (throw (ex-info (str "text export destination " (.getPath d)
-                           " is a file, not a directory")
-                      {:type :not-a-directory :dir (.getPath d)})))
-    (when-let [kids (seq (.listFiles d))]
-      (throw (ex-info (str "text export destination " (.getPath d) " is not empty ("
-                           (count kids) " entries) — a text KB is a directory of its own")
-                      {:type :not-empty :dir (.getPath d)
-                       :entries (mapv #(.getName ^File %) (take 8 kids))})))
-    (.mkdirs d)
-    d))
+  "Every key the text writer reads, and `:delta?`, which `vaelii.core/export-text!` reads
+  to choose the records."
+  #{:context :ancestor-set :delta?})
 
 (defn- selected-contexts
   "The contexts an export covers: every one with something to write, or the one
@@ -469,48 +454,54 @@
     :else   (vec (keys written))))
 
 (defn- file-text
-  "One context file's whole text: a two-line header naming the context, then its forms
-  in **content** order, one per line.  Nothing here is a fact about this run — no
-  timestamp, no writer — so two exports of the same knowledge are byte-identical."
+  "One context file's whole text: a two-line header naming the context, then `forms`, in
+  **content** order, one per line.  Nothing here is a fact about this run — no timestamp,
+  no writer — so two exports of the same knowledge are byte-identical."
   [context forms]
   (binding [*print-length* nil *print-level* nil *print-meta* false]
     (str ";; " context " — a vaelii text KB: one sentence per form, and the file name\n"
          ";; is the context.  Read by `lein cli load` and vaelii.core/load-text!.\n\n"
-         (str/join "\n" (map pr-str (nm/by-print-key forms)))
+         (str/join "\n" (map pr-str forms))
          "\n")))
 
 (defn write-kb!
-  "Write `kb`'s premises and inert sentexes into `dir` as a text KB — one
-  `<Context>.txt` per context — and return a summary:
-
-      {:contexts n :sentences n :skipped n :files [\"CxUniverse.txt\" …]
-       :bytes n :elapsed-ms n :dir \"…\"}
-
-  `opts` narrows what is written: `{:context C}` for that one context's file, `{:ancestor-set C}`
-  for `C` and every context it sees.  Neither, and every context with a premise or an inert
-  sentex in it is written.  A key this fn does not read is refused (`:unknown-option`) — a misspelt
-  narrowing writes the whole KB under a summary that looks right.
-
-  `dir` must be absent or empty.  See the namespace docstring for what a text KB holds
-  and what it deliberately does not."
+  "Write `kb`'s premises and inert sentexes into `dir` as a text KB, one `<Context>.txt` per
+  context, and return `{:contexts n :sentences n :skipped n :files [\"CxUniverse.txt\" …]
+  :bytes n :elapsed-ms n :dir \"…\"}`. `opts`: `{:context C}` for one context's file,
+  `{:ancestor-set C}` for `C` and every context it sees; neither writes every context with
+  a premise or an inert sentex. A key this fn does not read is refused (`:unknown-option`).
+  `records` replaces the premises and inert sentexes. `dir` must be absent or empty. With
+  `:delta?`, the `manifest-file` holds the digests of each form's references."
   ([kb dir] (write-kb! kb dir {}))
-  ([kb dir o]
+  ([kb dir o] (write-kb! kb dir o nil))
+  ([kb dir o records]
    (opts/check! o opt-keys "export-text!"
                 (str "A narrowing nothing reads writes the whole KB, and the summary"
                      " looks the same either way."))
    (let [t0            (System/nanoTime)
-         ^File d       (ensure-empty-dir! dir)
-         [written skipped] (context-forms kb)
+         ^File d       (export/ensure-empty-dir! dir "text export destination" "a text KB")
+         [written skipped] (context-forms kb (or records
+                                                 (into (premise-records kb) (inert-records kb))))
          contexts      (sort (selected-contexts kb written o))
          files         (with-open [r (progress/start ::write-kb "text export: write the context files"
                                                      (count contexts))]
                          (mapv (fn [context]
                                  (let [f (io/file d (str context ".txt"))]
                                    (with-open [w (io/writer f)]
-                                     (.write w ^String (file-text context (written context))))
+                                     (.write w ^String (file-text context (map :form (written context)))))
                                    (progress/tick! r)
                                    (.getName f)))
                                contexts))]
+     (when (:delta? o)
+       (binding [*print-length* nil *print-level* nil *print-meta* false]
+         (spit (io/file d manifest-file)
+               (pr-str (into (sorted-map)
+                             (map (fn [c]
+                                    [(str c ".txt")
+                                     (into (sorted-map)
+                                           (keep-indexed (fn [i e] (when (:digests e) [i (:digests e)])))
+                                           (written c))]))
+                             contexts)))))
      {:contexts   (count files)
       :sentences  (transduce (map #(count (written %))) + 0 contexts)
       :skipped    (count skipped)

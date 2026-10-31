@@ -4,8 +4,10 @@
   `Tallying`, `BulkLoading` and `BulkAnnotating` capabilities, what the three enumerations promise and what a
   handle set costs per handle, the sink an `import!` writes its records through, the eight legal record×index backend pairings and the optional `:sqlite` and
   `:pg` records adapters, nippy serialization, what one fact of a bulk load costs phase by
-  phase, what an open reports of a record nothing supports, what a shutdown waits for,
-  and the single-writer contract.
+  phase, the two routes from a load to the chained closure and what each costs, loading a
+  snapshot that changes over a fixed base, what an open reports of a record nothing
+  supports, what a shutdown waits for, the reasoner set a store records, the content
+  digest that checks a sentex across stores, and the single-writer contract.
 - **Not here:** the six index families' key layout and retrieval →
   [indexing.md](indexing.md); the dense/columnar backends that replace the default
   map-based structures → [density.md](density.md).
@@ -155,9 +157,10 @@ index over records it shares.
 a symbol or a vector names a private space no number can name, and a test takes a
 `gensym`. An ephemeral `fork` and a `kb-diff` side read from a path open on an **engine
 space** (`mem/engine-space`), which no entry point hands to a caller, so `close!` of that
-KB drops the space from every RAM registry. Every other RAM space stays in the registry
-for the life of the JVM, because a second KB over the same space is how a store is
-reopened; `clear!` empties it.
+KB drops the space from every RAM registry. An open over an engine space that throws
+drops the space before it rethrows. Every other RAM space stays in the registry for the
+life of the JVM, because a second KB over the same space is how a store is reopened;
+`clear!` empties it.
 The refused values are the ones that name a store the caller did not spell. A string keys a
 RAM store of its own but derives the directory of the number or symbol it prints as
 (`"3"` and `3` are both `space-3`); a present `nil` is what `(:space cfg)` answers for a
@@ -175,7 +178,10 @@ So the second such open logs a `:warn` naming both fixes — give the KB its own
 (`{:space 2}`), or name `{:space 0}` explicitly to say the sharing is meant and silence
 it. A warning rather than a refusal: sharing the space is how `recover` sees the same
 records, how the fixtures rebuild over one store, and how a base is mounted. In-RAM
-records only — a `:disk` KB is keyed by directory and takes a lock.
+records only — a `:disk` KB is keyed by directory and takes a lock. A space also records
+its reasoner set. Once a KB over the space registers a reasoner, an `(open-kb {})` names
+another set and is refused (`:reasoner-mismatch`, [The reasoner set](#the-reasoner-set)),
+so a process that opens KBs in turn under reasoners gives each KB its own space.
 
 **An option `open-kb` does not read is refused, not ignored** (`:type
 :unknown-option`), and the space number is why. Every other opt fails loudly when it
@@ -633,7 +639,9 @@ live index has drifted far enough from the one on disk: `vaelii.index.snapshot-d
 (default 0.5), measured in **indexed roots** — the count now against the count the image
 holds — and floored by `vaelii.disk.compact-min-interval-ms`, the same floor the record
 store's compaction takes. A directory with no image drifts from zero, so its *first* image
-is written mid-life rather than at a close it may never reach.
+is written mid-life rather than at a close it may never reach. A refresh attempt restarts the floor's clock whether the save lands, throws or
+declines, so a broken directory retries once per floor and not once per assert; an open
+over a directory whose image is current keeps its drift baseline.
 
 **Only `assert` reaches the cadence.** The cadence check runs at the write entry point, so a store filled
 by `reindex` or by the importer's inline bulk load — both of which post through
@@ -655,7 +663,7 @@ and leaves the image to the close and the shutdown hook: a refresh *is* an oppor
 compaction of a derived structure — `save!` compacts the live trie to write it — so it
 answers to the knob that already governs those rather than to one of its own. Note that
 `vaelii.index.snapshot-drift` cannot say this: `0` is a *threshold*, so it means "any drift
-at all" and is the most eager setting in the range rather than the off one.
+at all" and is the most eager setting in the range rather than the off one. Under `0` with a floor of `0`, 400 asserts wrote 401 images.
 
 **It runs on the writer's thread, and that is forced rather than chosen.** The record
 store and the KV hand their compaction to `disk/durability.clj`'s daemon, which runs it on
@@ -677,6 +685,27 @@ behind a flag — and any doubt at all (format, `kv/index-layout-version`, byte 
 records that moved, a short section, a missing commit marker) discards it and runs the
 same `reindex` above. That is what makes the backend safe to name: the index is
 recomputable from the records, so a discarded image costs time and never an answer.
+
+**A failed save costs the new image and never the one already there.** Every section is
+written to a `.tmp` beside its target, and the meta, the commit mark, is dropped only once
+all of them are complete. A throw before that leaves the previous image whole and deletes
+the temps, which are index-sized and which nothing else reads or deletes. The fingerprint
+is taken first, before a byte moves, because it comes from another component that can
+already be closed on the shutdown path, and taking it late would trade a working image for
+none. An empty index saves nothing and drops a surviving meta, since a stale meta describing
+a wiped KB is worse than none. The image is one file per structure and not one per section:
+a structure is mapped or discarded as a unit, and per-section files would multiply by six the number of
+files a crash can leave half-written. `decision` runs the record fingerprint ahead of the three truncation tests,
+so a truncated image pays the slot scan before rejection; every rejection falls through to a
+rebuild that reads the records anyway, and the order yields a diagnosis that names the store.
+A `VirtualMachineError` in a failed map's cause chain is rethrown and not answered
+`:unreadable`, because a rebuild from the records needs more heap than the map.
+
+Measured on a corpus whose vocabulary is fixed, the image takes the index's resident heap
+down 1.72 to 1.84 times and opens 1.5 times faster than the rebuild it replaces, which is
+O(records). Resident heap still grows with the facts, because the token dictionary is
+fact-scaled and the CSR skeleton is path-scaled; the acceptance property the image was
+built for does not hold, which is why it is off by default.
 
 The slot fingerprint reads each slot's handle, offset and length, and no record content.
 `clear!` truncates the logs, so a record written after it lands at an offset a removed
@@ -739,9 +768,10 @@ and the next open installs it in place of the recover (`vaelii.impl.reasoning-im
 
 **The manifest** holds the two layout numbers, the records'
 `record-store/reasoning-fingerprint`, the **source identity** of the engine code that
-derived the belief ([glossary.md](glossary.md)), and the two policies that move belief:
-`VAELII_ASSERTIVE_ARG_TYPES`, and the forced-monotonic declarations the store holds
-(`reasoning-image/declared-forced`, [nmtms.md](nmtms.md#the-forced-monotonic-set)). The
+derived the belief ([glossary.md](glossary.md)), and the three policies that move belief:
+`VAELII_ASSERTIVE_ARG_TYPES`, the forced-monotonic declarations the store holds
+(`reasoning-image/declared-forced`, [nmtms.md](nmtms.md#the-forced-monotonic-set)), and
+the reasoner set the store records ([The reasoner set](#the-reasoner-set)). The
 records fingerprint reads the justifications kind's slots beside the sentexes kind's,
 where the index image's `slot-fingerprint` reads the sentexes alone: a justification
 stored over sentexes that did not change moves belief and not the index. A premise mark
@@ -749,10 +779,16 @@ re-stores its sentex, so the sentex slots cover it. Both fingerprints carry the 
 epoch described above, so an image of records a `clear!` removed is declined.
 
 **An open installs the image** only when every part of the manifest equals the KB's own, the
-KB's provers and solver are the defaults — a registered prover or evaluatable runs code the
-source identity does not cover — and both sections read in full into a scratch network
-before anything moves into the KB's own. Any mismatch, a registered prover, or a torn
-section leaves the KB to the full recover, which then writes a fresh image. The install
+KB's provers are the defaults and the shipped reasoners its store records, its solver is the
+default — a registered prover or evaluatable runs code the source identity does not cover —
+and both sections read in full into a scratch network before anything moves into the KB's
+own. Any mismatch, a registered prover, or a torn
+section leaves the KB to the full recover, which then writes a fresh image. Every KB opens
+on the default solver and `set-solver` runs after `open-kb`, so the solver condition
+declines no install an open makes. The condition declines a dump's image in an `import!`
+into a KB that has called `set-solver`, and that import recovers from the records. A KB
+holding another solver writes no image at close, so after a session that wrote a record
+the next open declines the image on disk (`:records-differ`) and recovers. The install
 thaws `state.nippy` and the network's object frames under `io.thaw/sharing`: each symbol is
 the symbol pool's and each handle one `Long` per value in a section, so the installed KB
 holds one object where the KB that wrote the image held one. A declined image
@@ -905,6 +941,69 @@ recover rebuilds from the records instead of reading. Why an image is installed 
 discarded whole, and never reconciled against the records:
 [defenses.md](defenses.md#a-reasoning-image-is-installed-whole-or-not-at-all).
 
+##### The source identity
+
+The source identity (`vaelii.impl.source-identity`) is a digest of the engine definitions
+that derive belief. A reasoning image is written with it, and an open installs the image
+only when its own source identity is equal.
+
+**Which namespaces.** The walk collects the transitive closure of `namespace-roots`
+(`vaelii.core`, `vaelii.impl.recovery`) over edges read from the source files: the `ns`
+form's `:require`, `:use` and `:import` clauses (an imported class names the namespace that
+defines it), and every fully-qualified symbol under a `quote`, which covers the
+`requiring-resolve` targets and symbol tables no `ns` form states (the calculi and solvers,
+the reasoners of `vaelii.impl.provers`, `imperative`'s `do/` handlers, `wiring`'s five
+targets). It follows `vaelii.core` and `vaelii.impl.*` only. Code from outside those
+prefixes (a registered prover or evaluatable, a foreign plugin) is not in the digest, and
+`vaelii.impl.reasoning-image` refuses to write or install an image for a KB that runs any.
+
+**Which definitions.** The digest covers the top-level forms reachable from `roots` inside
+that set. A form reaches every form defining a var one of its symbols resolves to through
+its namespace's `ns` form (alias, `:refer`, `:refer :all`, `:use`, own definitions,
+`:import`); a `clojure.core` var reaches nothing. The walk reads no scope, so a shadowing
+local binding still reaches the var: the reached set is a superset of the forms `recover`
+can run. The roots are `vaelii.core/open-kb` (which installs the callbacks the taxonomy
+calls through a map), `vaelii.impl.recovery/recover` and `recover-with-image`, the three
+targets of `vaelii.impl.wiring`, and the write entry points that derive belief in a session
+(`roots`). The image writer is reached from `recover`, so an edit to it discards the
+images it wrote. `vaelii.core`'s `write-ops` and `read-ops` name their entry points by
+keyword, because a var in either would put every write, or every read, into the digest.
+
+Some forms run without a symbol naming them, each included by its own rule: a `defmethod`
+of a reached `defmulti` and every `defmethod` of a multimethod outside the set; a
+`deftype`, `extend-type`, `extend-protocol` or `extend` that names a reached protocol, and
+every extension of a protocol outside the set; every `defrecord` (nippy and the EDN reader
+construct one from its class name alone); every top-level form that defines no var, in
+every namespace of the set (a registration, `alter-var-root` or `set!` runs at load); and
+an `s/fdef` of a reached var. A reached macro contributes its whole form, and a reached
+`def` or `defonce` its value and metadata. `observe`, `profile`, `settle-phases` and
+`caches` are on the settle path, so their reached definitions are in the digest. None of the
+four is marked belief-neutral: `caches/limit-of` returns the bound a cache applies, and that
+value flows into the code that calls it, so none of the four is called in statement position only.
+
+**What is hashed.** Each form is hashed without comments, `(comment …)` blocks, docstrings
+and reader position metadata, so a prose edit leaves the digest unchanged, and an edit to
+code or compiler-read metadata (`^:dynamic`, `^:const`, a type hint) changes it when the
+form is reached. The digest takes each form under its namespace and var, so moving a
+definition changes it. Syntax-quote auto-gensyms and anonymous-fn arguments are renumbered
+in order of first appearance within a form, and aliases, classes and vars are read through
+a `*reader-resolver*` that resolves each to itself.
+
+**A namespace with no source** (compiled classes only) contributes the digest of the code
+it loads from, whole: the jar its `__init` class sits in, or every class file of the
+namespace in a class directory. This changes with any rebuild, so an image is discarded
+more often and never installed under different code. **Libraries** contribute the file name
+of the jar they load from (`nippy-3.5.0.jar`, which carries the version), or the namespace
+or class name when loaded from a directory; JDK classes contribute nothing.
+
+**The parse memo.** A file's parse (forms, each classified and hashed, and its edges) is
+memoized per file in the `:source-parses` cache. Every call takes each file's stat. A file
+whose stat is unchanged is not read again, and any other file is read, hashed, and parsed
+only when the SHA-256 of its bytes changed. A file modified within `stat-window-ms` before
+its read is read again at the next call, because an edit that leaves the modification time
+and length unchanged lands within the timestamp resolution. The walk over definitions
+reruns only when the SHA-256 of some file in the set differs from the previous call's.
+
 #### The operation log
 
 `open-kb` with `:oplog?` attaches an **operation log** to a `:disk-snapshot` or
@@ -971,8 +1070,8 @@ mark is fsynced when it is appended, under `:tick` as under `:each`, so a write 
 runs only once the mark is on disk. A `VirtualMachineError` while a frame is
 frozen, an `OutOfMemoryError` or a `StackOverflowError` on a deeply nested sentence, marks
 nothing: it propagates as itself, no frame is written, and the write does not run. A KB
-with a registered prover or solver cannot be sealed, so its log stays unusable and the
-next open rebuilds.
+with a registered prover or solver other than a shipped reasoner cannot be sealed, so its
+log stays unusable and the next open rebuilds.
 
 **A log that cannot take a frame stops.** A failed append, fsync or truncation latches the
 log's fault, as a record store's does ("A store that stops"): the operation is refused
@@ -1567,7 +1666,10 @@ lock exists to prevent.  An unclean close
 still releases: every component gets its close attempt, the lock release and the
 registry removal run even when one throws, and the first component failure is rethrown
 *after* that cleanup — so a throw from `close!` means the directory is handed back but
-the close was not clean.  Within one process, stores are shared per canonical
+the close was not clean.  After the directory's close, `close!` runs the operation log's
+close, the record store's close and the memo drop.  Each of the three runs when a step
+before it throws, and `close!` rethrows the first failure after the last step.  Within one
+process, stores are shared per canonical
 directory (`disk.backend`, a registry mirroring the memory backend's db registry), so
 two KBs over one directory share the durable store — the restart contract the recovery
 tests rely on — and the lock, file handles, and durability registration are taken once;
@@ -1622,6 +1724,31 @@ coverage check reads the index, which is the repair.  A read that fails with an
 `IOException` on an open channel leaves nothing on disk changed and does not stop the
 store.  `:compaction-failed`, a compaction that failed past its commit marker, is a
 separate latch with its own refusal.
+
+That refusal (`usable!`) covers every access to the files (`store!`, `fetch` even on a cache
+hit, `kill!`, `premise-strength`'s slot read) and every read that decides something from them:
+`slot-fingerprint`, which a derived image is then validated against, and `kind-dead-ratio` and
+`compact-kind!`, whose rewrite from a half-copied idx would lose every record the copy had not
+reached. The durability daemon scores a throwing dead-ratio read 0.0 and does not compact. Three
+paths do not consult it, each fail-safe for its own reason. `sentex-ids`, `justification-ids`
+and `premise-ids` answer from the in-memory live-id sets, which file state cannot corrupt, and a
+fetch of one of those handles is refused there. `fsync` forces bytes already written, and
+`close!` runs it, so refusing would leave file handles open on the directory
+`backend/close-dir!` releases. `clear-records!` proceeds because the kind failed: the wipe
+supersedes the pending install, drops the marker and temps under the same lock and clears
+`failed`, and consulting the flag would leave a store no call could repair.
+
+`abort-compaction!` writes its flag whether or not a rewrite is running, because the
+compaction executor checks the durability registry and only then calls in, so a close can take
+the kind lock between that check and the compaction's snapshot, find nothing to mark, and
+leave a rewrite that starts a moment later believing nobody objected. The snapshot carries an
+existing flag across and never clears it. A wipe can ignore that case, since it has already
+truncated the files the rewrite reads, and it sets the flag only on a running rewrite, because
+a flag left set on a store that keeps living would make `:compacting` non-nil for good and
+every later `store!` would fold an id into a `:touched` set nothing reads. A rewrite past its
+commit marker is not abortable: a wipe supersedes such an install because the wipe destroys
+what it would install, while a close lets it finish so the next opener does not receive a
+half-installed directory.
 
 `close!` of a store that has already stopped releases every handle, logs at `:warn` and
 does not throw.  It writes no clean marker, so the next open treats the directory as an
@@ -1755,10 +1882,11 @@ is its one representation — the form the chainers, the indexers and the checks
 - `:consequent` — the consequent pattern.
 - `:varmap` — `{?var0 ?x, …}` mapping each **canonical variable** back to the name the
   author wrote, so `sentex/originalize` can restore the original form for display.
-- `:engines` — which engines run the rule, a subset of `#{:forward :backward :solve}`,
-  set by the rule's `set/*Rule` wrapper: `#{:backward}` for a bare `implies`,
+- `:engines` — which engines run the rule, a subset of `#{:forward :backward :lazy
+  :solve}`, set by the rule's `set/*Rule` wrapper: `#{:backward}` for a bare `implies`,
   `#{:forward :backward}` for `set/forwardRule` (and a bare generator), `#{:forward}` for
-  `set/forwardOnlyRule`, `#{}` for `set/inertRule`, and `#{:solve}` for a choice or
+  `set/forwardOnlyRule`, `#{:backward :lazy}` for `set/lazyForwardRule`, `#{}` for
+  `set/inertRule`, and `#{:solve}` for a choice or
   constraint rule. The wrapper canonicalizes into the record exactly like the connectives
   do, so a rule carries its own engines rather than them living in a side index. Not part
   of the rule's identity: a re-assert joins two spellings by union
@@ -1820,6 +1948,47 @@ fields on later; `provenance` reads the map. It is torn down with the record —
 alongside the record, so it never leaks past the thing it annotates. The store methods
 are keyed by any handle, so the protocol admits justification-level provenance (derivation
 who/when); only asserted sentexes carry it.
+
+## Content digests
+
+A handle is the number one store minted, so two KBs holding one sentex hold it at two
+handles. `digest` is a checksum of the sentex's content: `"sha256:"` and the 64 lowercase
+hex characters of a SHA-256 over the sentex's context, its sign and its canonical sentence
+(`vaelii.impl.io.digest`). The canonical sentence is the stored one, so two KBs that share
+the taxonomy a symmetric argument order is sorted against compute one digest for one
+sentex at whatever handles they hold it. A digest locates nothing: no index is keyed by
+it, and a text KB names a sentex by its content, `(ist Cx S)`.
+
+- **The encoding is a closed byte format**, one type-tag byte and a self-delimiting payload
+  per value (`encode!`'s table). It reads no print variable. A symbol and the string with
+  its spelling encode apart, and so do `(a b)` and `(a (b))`. A value outside the table (a
+  map, a `java.util.Date`) is refused `:not-encodable`, since a fallback encoding could
+  differ between two builds.
+- **A handle inside the sentence digests as the record it names.** Each `(sentexHandle n)`
+  encodes the SHA-256 of record `n`'s own identity, so an `except` or a reply has one
+  digest in every store that holds its target. A record naming itself, or an ancestor
+  in its chain of targets, encodes the distance back to it; a handle naming no record
+  encodes the number.
+- **A text KB writes a handle as the reference it resolves from.** `export-text!` writes a
+  `(sentexHandle n)` at a reference position
+  ([canonicalization.md](canonicalization.md#a-reference-to-a-stored-sentex)) as `(ist Cx
+  S)`, `S` record `n`'s sentence, and `load-text!` resolves it as `assert` does, through
+  the dedup lookup. A record naming a handle at any other position, or inside a term, has
+  no text and is counted in `:skipped`.
+- **A delta carries the digest of each reference.** `export-text!` under `:delta?` writes
+  `digests.edn` beside the context files, `{file {form-index [digest …]}}`, one digest per
+  reference in the order the references resolve, inner ones first. `load-text!` reads the
+  file when it is present, and before it asserts a form it compares the digests of the
+  sentexes the form's references resolve to with the recorded ones. A difference is
+  refused `:canonical-mismatch`, naming the `:reference` and its `:context`, or the
+  `:expected` and `:actual` counts when the loading KB reads a different number of
+  references. The comparison reads one record per reference and the records its handles
+  name, so a delta load reads a number of records bounded by the delta
+  (`record_fetch_cost_test`). A plain text KB carries no digests file, and its load
+  compares nothing.
+
+`vaelii.koinii.deref` builds its commit identities from `digests`
+([koinii.md](koinii.md#the-other-deployment-shape-independent-seats)).
 
 ## Serialization
 
@@ -1890,6 +2059,10 @@ Both are read under the manifest byte bound (`dfiles/read-edn-manifest`), as are
 index directory's `records.edn` and a belief image's `manifest.edn`. A `format.edn` past
 the bound is `:manifest-too-large` at `open-kb`, as it is at the catalog; a `layout.edn`
 past it reads as `:stale`, the answer a torn one gets.
+
+The engine writes each of these EDN manifests, and `reasoners.edn`, to a temp file,
+fsyncs it, renames it over the target and fsyncs the directory (`dfiles/write-atomic!`).
+A crash mid-write leaves the previous manifest or the new one, never a torn file.
 
 ## The canon gotcha
 
@@ -2031,6 +2204,40 @@ checks) runs *before* any write, so a rejected assert leaves no trace (tested).
 Cross-store atomicity is bounded by the two-store design: each side commits as a
 single unit, and `reindex` rebuilds the index from the records to repair a torn
 write.
+
+### The reasoner set
+
+A store records the names of the shipped reasoners its KB registers (`add-reasoner`, or
+`open-kb`'s `:reasoners`). Two KBs over the same records derive different beliefs when
+one registers `:allen` and the other does not: the second stores `(before A B)` and
+`(before B C)` and finds `(before A C)` underivable. So the set is part of the store:
+
+| store | where the set is recorded |
+|---|---|
+| a directory (`:disk`, a `:disk-log` or `:snapshot` index, a durable fork's own half) | `reasoners.edn` at the directory's root |
+| records in RAM, a RAM fork's own half | the memory registry, keyed by the space, for the life of the JVM |
+| records on a server with no `:dir` | nowhere: nothing is recorded or checked |
+
+`open-kb` compares the set `:reasoners` names (none when the option is absent) with the
+recorded one, and refuses a difference before recovery runs (`:reasoner-mismatch`, with
+`:stored` and `:requested`). `:reasoners :stored` takes the recorded set instead. A fork
+mounted by `:base` opts with nothing recorded in its own half is held to the set its base
+records, and `fork` registers the reasoners of the KB it forks. A store that records no
+set accepts any, and records the set the open names. Either way the provers are
+registered once recovery has run, which is where a caller's own `add-reasoner` after
+`open-kb` lands, and `add-reasoner` adds its names to the record. `clear!` and `close!`
+keep the record, as they keep `format.edn`. No entry point removes a name from it; deleting
+`reasoners.edn` forgets it.
+
+`export!` writes the set into `meta.edn` as `:reasoners`, and `import!` refuses a
+destination registering another set before the first write. `{:reasoners :stored}`
+registers the dump's set once the import has recovered, when the destination registers
+no name outside it; `koinii.deref/pull!` passes its opts through. A dump with no
+`:reasoners` key, from an earlier build or another dialect, is not checked.
+
+The record holds names only. A prover `add-prover` registers is code no record can carry,
+so neither the store nor a dump names one. The CLI, the daemon and the browser's attach
+open an existing directory with `:reasoners :stored`.
 
 ### Editing the records of a KB without belief
 
@@ -2231,6 +2438,235 @@ source has changed, and then pays the full recover
 ([The reasoning image](#the-reasoning-image)). `scripts/upgrade-kb.sh` pays the recover
 once, ahead of the next open.
 
+## Exporting and importing a dump
+
+A dump is a directory holding the record store's streams in a format that survives a backend
+change, an index-representation change and a record class rename. The `:disk` store
+directory holds frozen records, so renaming a record class makes every frame thaw to a
+`{:nippy/unthawable …}` placeholder, which is a perfectly good map and so fails silently.
+**A frame never carries a class name.** `vaelii.impl.io.export` writes each record as its
+field map, `(into {} record)`, and `vaelii.impl.io.import`'s `field-map` accepts one.
+
+```
+<dump>/
+  meta.edn                     the marker, the schema, the counts, the reasoner set
+  sentexes.nippy.stream        one frame per sentex
+  justifications.nippy.stream  one frame per justification
+  provenance.nippy.stream      [handle provenance-map] per frame (omitted when none)
+  index/entries.nippy.stream   [key value] per frame, only in :records+index
+  index/index.edn              the layout version and the records fingerprint
+  reasoning/                   the reasoning image, with `:belief? true`
+```
+
+A dump holds what the record store holds: sentexes, justifications and per-handle
+provenance. A premise is a sentex whose `:strength` is non-nil, so it needs no stream. The
+index is a cache (`reindex`) and the taxonomy and the TMS labels are recomputed
+(`recover`). **`meta.edn` is written last** and doubles as the completion marker:
+`vaelii.browser.catalog/classify` keys on it, so a half-written or cancelled export is not
+offered as loadable. A rule frame adds `:sentence`, the `implies` form `sentex/sentence-of`
+builds, so the format a reader parses is the same whichever build wrote it. A handle whose
+record has gone is skipped, so `meta.edn`'s count is the stream's. Provenance frames cover
+justification handles as well as sentex ones, since provenance is keyed by handle.
+
+**Framing** is the chunked layout of `vaelii.impl.io.frames`: a run of `[int32
+length][compressed chunk]`, each chunk an independent compressed stream over nippy frames,
+so both sides use constant memory. `meta.edn` states the framing, because the engine's
+dumps number their own format. `:compression` is `:gzip` (the default), `:xz` or `:none`.
+Measured on a 47k-sentex generated corpus, `:none` is 5.2 MB in 0.3 s, `:gzip` 463 kB in
+1.0 s and `:xz` 331 kB in 2.4 s. The encoder is per chunk, and `frames` sizes the xz
+dictionary to a chunk (`xz-dict-bytes`), 24 MB where the default is 93. The reader also
+reads `:zstd` from a dump another tool wrote, and the writer does not emit it.
+
+**`:variant :records+index`** also writes the index in the `[structured-key value]`
+projection every backend shares (`p/index-entries`), so an index written by one backend
+loads into another. It measures 6.2 entries per record and 3.8x the records' bytes, for a
+load twice as fast, so it is opt-in. **`:provenance? false`** omits the provenance stream
+even when handles carry it: provenance is an open per-handle map with no size bound, and
+on one large imported KB it was 57% of the dump. The dump is a complete KB without it, so
+the option suits a download and not a backup. **`:belief? true`** (the default) writes
+`reasoning/`, the reasoning image with content fingerprints of the sentexes and
+justifications the export streams. It is written only for a KB on the dense network with the
+default provers and solver whose network covers its records, and is declined as
+`:not-writable` when the change clock moved during the export. `export!` refuses a
+destination that is not empty (`:not-empty`). A throwing `:on-progress` callback cancels
+the export and leaves a directory with no `meta.edn`.
+
+### Importing a dump
+
+`import-dump` reads `meta.edn` first and dispatches on it: the version is checked against
+its own dialect's numbering (`export-format`, `supported-export-versions`), the destination
+must be empty, and only the `:records` and `:records+index` variants are read.
+`:pg-memory` and an unknown variant throw. A frame carrying `:sentence`, or a rule's fields
+(an `:antecedent` beside a `:varmap`), is of our dialect and is decoded in process. Any other
+frame goes to a foreign reader (`vaelii.impl.foreign`), resolved once and possibly absent
+(`:no-foreign-reader`). The discrimination is on the frame, never on `meta.edn`'s
+`:dialect`, so a mixed dump stays readable. An `:antecedent` alone does not make a frame
+ours, because the engine dialect's field map carries one on every frame. A dump's own
+framing is stated; a foreign dump's is inferred from its version line (v6+ chunked, v4 and
+v5 single-stream), and a `:framing` this build does not know is refused.
+
+**Every sentence is re-canonicalized** through `res/kb-sentex`. Variable numbering,
+symmetric argument order and comparison folding belong to the reading build, so a stored
+canonical form is never trusted. A rule's `set/*Rule` wrappers canonicalize into `:engines`,
+`:defeasible` and `:effect` (or `:direction`, `:assumption` and `:constraint`, read through
+`sx/fielded-rule-slots`) and its variables into `?var0…` with the author's names in
+`:varmap`, so the importer puts both back (`rules/rewrap-sentex`, `sentex/originalize`).
+
+**Handles are preserved for a dump of ours.** Each record is stored at the handle the dump
+gave it, which is safe because the destination is empty and the store's counter clears any
+handle written that way (`p/next-id`). A frame with no `:id`, and a frame whose canonical
+form is one already stored (it **collapses** onto that handle), still break the numbering.
+Either makes the import `:remapped`, and one `old->new` map then carries the dump's ids
+across: justification references, and the `(sentexHandle H)` a meta-sentex embeds inside
+stored content, which `rewrite-embedded-handles!` rewrites. A meta-sentex whose handle
+cannot be resolved is dropped, and the drop reaches the id map as well as the store
+(`forget-deleted`), or references to it would resolve to a handle nothing is stored at. The
+rewrite can make two records one, since `(exceptWhen q (sentexHandle 7))` and `(… 9)` are
+two keys until both ids name one rule, so a rewritten record whose canonical form an earlier
+one holds is deleted and merged onto it (`follow-merged`). A **preserved** import needs no
+rewrite, because the embedded number already names the record it named in the source.
+
+**The dumped index is replayed only when it is proved to fit** (`index-decision`): the
+entries are keyed in this build's layout (`kv/index-layout-version`), the fingerprint
+accumulated while storing equals the one written beside the entries
+(`vaelii.impl.io.fingerprint`; accumulated, since a second pass would cost more than the
+cache saves), and the handles were preserved, since a posting is a set of handles and a
+remap makes every one name a ghost. The layout and records checks are
+`snapshot/index-mismatch`, shared with the mapped image. Anything else rebuilds at `:info`
+with the reason, because an index that does not match its records answers confidently and
+short. `replay-index!` installs in bounded batches through `snapshot/install-entries!` and
+checks at the end, since an index dump is several entries per record; a failed replay falls
+through to `reindex`, which clears first.
+
+**`:belief?`** has three values. `true` populates the record store, rebuilds the index
+(`reindex`) and recovers belief (`recover`); a dump with a reasoning image is installed in
+place of the recover when the import kept every handle and the records, the source identity
+and the belief policies equal the image's manifest. `false` stores and indexes every sentex
+in one pass and skips justifications, premise marks and `recover`, which is the path for a
+corpus past what `recover`'s per-node relabel scales to: stored-side reads work and every
+believed one is empty. `:stored` does everything `true` does except the `recover`, leaving
+the network empty for a later one. For a foreign dialect `false` marks no premise, because
+`preserve?` is `(ours? meta)` and a foreign `:strength` is that dialect's own account of
+what rests on what, so a later `recover` believes nothing; `:stored` is the only way a
+foreign corpus loads now and is believed later. An unknown `:belief?` value is refused by
+name, because a misspelt `:store` would otherwise run the recover (`check-import-opts!`).
+
+**Justifications.** A justification frame with a non-empty `:out` is refused
+(`:naf-justification`): NAF is re-evaluated and not stored, and dropping the frame would
+take belief with it silently. The check is a pre-pass over `justifications.nippy.stream`
+(`assert-no-naf-justifications!`), because an import is not a transaction and a refusal in
+the middle of the write leaves the sentexes stored and blocks the retry. Every handle a
+justification names is remapped, one that cannot be resolved drops the justification, and
+antecedents land as a vector, the form the engine's write path stores. With `preserve?` a
+justification keeps its dump handle, since sentexes and justifications share one counter.
+`:dropped-justifications-orphaned` counts the justifications whose every unresolved
+reference is an id `forget-deleted` took out, apart from `:dropped-justifications`, so the
+summary separates what the dump lacks from what this load cost. A premise is a sentex with
+a non-nil `:strength` (`mark-premises-by-strength` keeps the strongest per handle).
+`import-provenance-frames!` remaps provenance handles over the sentex and justification
+map, and `:drop-principal? true` drops each `:principal`.
+
+**A torn stream** is indistinguishable from a clean EOF, so `meta.edn`'s stated count is
+the only witness (`check-frame-count!`, `:truncated-dump`), compared against what the
+stream yielded and not what was stored.
+
+**A dump refused for its own content leaves the store as it found it.** The refusals that
+`meta.edn`, the reader map and the pre-pass decide land before the first write. The ones a
+frame decides in the middle of the sentex stream (`content-refusals`: `:duplicate-handle`,
+`:no-foreign-reader`, `:bad-foreign-manifest`, `:disallowed-class`) empty the record store
+and index before rethrowing (`clearing-on-refusal`), which removes only what this import
+wrote. A pre-pass would thaw the sentex stream a second time on every import. Any other
+failure leaves what landed.
+
+**The summary** reports the `:dialect`, the `:handle-policy` (`:preserved`, or `:remapped`
+with `:collapsed`) and `:index` (`{:index :replayed :entries n}` or `{:index :rebuilt
+:reason r}`, with `:absent`, `:layout-changed`, `:handles-remapped`, `:records-differ` or
+`:entries-truncated`). `:naming` counts what the import stored that `assert` would have
+refused, and logs a warning when it is not zero. `:refused` counts the frames whose sentence
+the constructor will not build or `assert` refuses as answering wrongly, and skips them; a
+skipped rule takes every justification, provenance entry and meta-sentex naming it with it.
+`:expanded` counts a rule frame `assert` would expand to one record per form. `:sentexes`
+and `:frames` differ by the refusals, `:collapsed` and the further forms `:expanded` counts.
+`:on-progress` is called every `report-every` frames with `{:phase :done :total}`, over the
+phases `:sentexes`, `:justifications` (or a foreign reader's), then `:index-entries` or
+`:reindex`; a callback that throws cancels the import where it stands.
+
+**The `{:belief? false}` inline pass** (`bulk-load-records-only!`) indexes each record as it
+is stored instead of storing everything and re-reading it through `reindex`, which re-pages
+every record on `:disk`. Records go through `capabilities/sentex-sink` and
+`with-bulk-writes`, so a `:memory` index build is one `persistent!`. Frames map 1:1 to
+handles, so it keeps no dedup map and preserves handles with no id map. When a replay is
+possible (the layout and whether handles will be preserved are known before the first
+record), the inline index is skipped and the entries are installed afterwards; a fingerprint
+mismatch there falls back to a full rebuild.
+
+## Loading a changing snapshot over a fixed base
+
+A process that reasons over live data loads a snapshot of ground facts, reads an answer,
+and loads the next snapshot. The KB beside the snapshot (vocabulary, rules, the facts
+every snapshot shares) does not change between reads. Each read's cost depends on which
+write route loads the snapshot.
+
+### Two routes to the chained closure
+
+A **chained write** (`assert`, `assert-many`, `edit!`) chains each fact from a seed list
+it builds for that fact (`vaelii.impl.assert-entry`):
+
+- the fact's own handle;
+- the argument-type memberships the fact entails ([argtypes.md](argtypes.md));
+- the stored facts below a `genl` edge the fact adds (`special/subsumption-seeds`);
+- the rule triggers behind a link the fact adds to a declared-transitive predicate
+  (`special/transitive-seeds`);
+- the facts a `genlCx` edge the fact adds brings into a context's view, which the write's
+  settle seeds.
+
+A chained write's cost therefore grows with what the new facts reach.
+
+**`bulk-assert-facts!` builds none of that list.** It stores, indexes and believes the
+facts, and leaves three passes to the caller:
+
+1. `record-arg-types` records the argument-type memberships. It draws every fact of
+   every declared functor, including facts stored before the load. It runs no forward
+   chaining from what it records.
+2. `release-withheld!`, when `owed-releases` is non-zero.
+3. `forward-chain` fires the stored rules over the loaded facts and the recorded
+   memberships. It seeds every believed datum, including the rest of the KB.
+
+After the three passes the KB holds what a chained per-fact load holds. Both
+`record-arg-types` and `forward-chain` read the whole KB, so the bulk route's cost grows
+with the KB and not with the load. The bulk route fits a store whose whole content is
+new: a corpus import, or building the fixed base once. A snapshot loaded over a larger
+KB takes a chained write.
+
+No public entry point chains from a given set of handles. A run seeded with the loaded
+handles alone omits every seed in the list above except the first. A snapshot holding a
+`genl` edge, a `genlCx` edge, a transitive link or an argument-type entailment then
+derives fewer conclusions than the chained write derives.
+
+### Writing the difference between two snapshots
+
+- **Close the base once.** Load the content every read shares, rules included, and
+  bring it to its chained closure before the first snapshot.
+- **Keep one KB across reads.** Hold the snapshot's facts in a context of their own.
+  Write each new snapshot as one `edit!`: `:add` holds the facts that arrived, and
+  `:remove` holds the handles (`handle-of`) of the facts that left. The adds land before
+  the removes and one settle closes the batch, so a conclusion both snapshots support
+  stays IN throughout ([api.md](api.md)). Every add is a chained write, so no pass
+  follows the `edit!`. The batch's cost follows the size of the difference.
+- **An aggregate rule can stay in the base.** One `edit!` against a stored aggregate
+  rule costs 5.1 ms at 10 nodes, against 4.4 ms for the rule asserted after the facts
+  and 21.3 ms for one assert per fact (`lein bench-aggchain`,
+  [aggregate.md](aggregate.md#what-it-costs)).
+- **A fork per read pays a recover per read.** `fork` rebuilds the fork's belief with
+  one `recover` over the base's contents ([overlay.md](overlay.md)), and every read in
+  a fork merges the overlay half with the base. A fork that several hypotheses need is
+  kept open across reads. A process that owns its KB does not need a fork.
+
+`chain-report` gives each forward rule's placed and refused firings, and `chain-stats`
+gives the last run's `:derived`. Forward chaining keeps no beta network
+([inference.md](inference.md)), so each firing re-joins the rule's other antecedents.
+The two reads name the rules a snapshot's chaining time goes to.
+
 ## The single-writer contract
 
 **One process, one writer.** The engine pairs a durable store with in-memory state
@@ -2339,3 +2775,90 @@ overwrite](defenses.md#a-bulk-load-installs-by-compare-and-set-not-by-overwrite)
 The contract is a property of the engine rather than of any backend: a shared record
 store is not a shared KB, because belief lives in the writing process's RAM. So it holds
 whatever the store underneath is, and no choice of backend relaxes it.
+
+## Opening a KB
+
+`open-kb`'s option table is its docstring. The legal backends and why the eighth is refused
+are in the backend sections above. What `:recover? :background` installs, and what it
+refuses until its rebuild finishes: "Rebuilding behind an image". What `:trust` keeps
+instead: "Trusting an image". What `:oplog?` attaches and what an open with it restores:
+"The operation log". A store records the reasoner set that `:reasoners` and `add-reasoner`
+name, and an open naming another set is refused (`:reasoner-mismatch`): "The reasoner set".
+`fork` is the ergonomic spelling of `:overlay` and takes its base from a live KB; the raw
+form takes `:base` opts, which mounts a base this process has no KB open over.
+
+**An option the function does not read is refused**, because a misspelt `:space` is a key
+nothing looks at: the KB would open on the default space, and two KBs meant for separate
+stores would share one, each one's flush emptying the other.
+`vaelii.impl.kb/opt-keys` is the key set.
+
+**The space number names the store, and it defaults.** `(open-kb {})` twice in one process
+is one set of records behind two KB values: the second recovers the first's facts, and a
+write through either is invisible to the other, since belief is per KB and only the
+writer's is relabelled. The second default open logs a warning naming the fix. Naming the
+number at all, 0 included, says the sharing is meant. The records and the index answer to
+it together: each backend keys its own registry, so a KB cannot be handed a private index
+over shared records, nor a shared index over records it does not share. An index is a
+function of the records, so the two are shared or separate as one thing.
+
+**A non-empty store needs `recover`, and gets it.** A fresh KB over stores that already
+hold sentexes has an empty TMS and taxonomy, so `sentexes-matching` answers nothing, `isa?`
+answers false, and the definitional checks pass vacuously. The default `:recover? :trust`
+repairs that on construction (`reindex` first when the index is derived and therefore
+opened empty): it installs a `:disk-snapshot` store's reasoning image when the image
+describes the records, and otherwise recovers from the records in one pass. It recovers by
+default because the failure it prevents is a wrong answer rather than an error: `false` and
+`[]` are legitimate results, so no caller can tell them apart, and a warning is a log line
+a configured level can drop.
+
+**An image an earlier build wrote is kept by default.** `:trust` installs an image written
+under other engine source, and settles move belief under this build only where they reach.
+`:auto` declines that image and recovers under this build, which at millions of sentexes is
+an hour or more; it is the setting for a caller that needs belief this build derived in
+full, as `lein cli upgrade` does. `:warn` only logs; `false` is silent, for a caller that
+manages recovery itself. `true` is an alias for `:auto`, since a caller takes a
+`?`-suffixed option for a boolean. Any other value is refused (`:unknown-option`), because
+the dispatch cannot tell an unrecognized setting from `:warn` and would hand back the empty
+TMS the caller asked to avoid.
+
+**Such a KB does not accept writes.** What `:warn` and `false` leave is a state a read can
+survive, since an empty answer can be asked again, and a write cannot: the definitional
+checks all pass vacuously over an empty network and nothing re-runs them, so the store
+keeps content it would have refused. The write entry points refuse by name
+(`:unrecovered-kb`), and `*write-unrecovered?*` accepts one anyway. `false` stays silent
+about the read side and says the write side once, at `:info`.
+
+### Why a write into an unrecovered KB is refused
+
+The refusal differs from the naming check's store-it-and-warn because the two failures do
+not cost the same. A write into an unrecovered KB is wrong in ways nothing later catches.
+
+- **Every definitional check passes vacuously.** All ten arms of the constraint check read
+  `kb/memberships` and `checks/declaration-reader`, both of which filter on `jtms/in?`.
+  With no nodes there are no types and no declarations, so arity, arg, genlArg, interArg,
+  declaration-consistency, disjointness, functionality and asymmetry match nothing and the
+  assert lands. Nothing re-runs them: `recover` does not, and its closing settle binds
+  `settle/*rebuilding?*`, which turns the settle's reports off. A store can accumulate
+  content its own constraints forbid.
+- **Two writes land under the wrong key.** `res/kb-sentex` sorts a symmetric predicate's
+  arguments only when the taxonomy says the predicate is symmetric, and a commutative one's
+  only when it says which positions commute, so `(siblingOf Bob Ann)` is stored where a
+  recovered KB writes `(siblingOf Ann Bob)`. A `:forced-decontextualized` predicate lands
+  in the caller's context instead of `CxUniverse`.
+- **On a derived index, dedup misses everything.** `assert` dedups through
+  `kb/find-sentex-handle`, so every assert mints a fresh handle for a sentence already
+  stored, and `reindex` cannot merge the two records.
+
+Both hazards are declared where the KB comes to hold what it holds (`open-kb` over a populated
+store, `note-hazards!` in a loader), and not probed for. A probe ("the store holds records and
+the TMS holds no node") reads true of a healthy KB holding only inert sentexes, which mint a record
+and no node, and one assert into a KB with no belief erases the evidence. The cost: a KB opened
+over an empty store that another KB then fills has no declaration, so the pairing is guarded or
+unguarded by which end opened first.
+
+A naming violation is recoverable by renaming; an un-canonicalized duplicate is not.
+`*bulk-load?*` is not this opt, since it skips the very dedup walk that is already missing,
+which would turn the duplicate risk into a certainty. A KB whose belief is being rebuilt
+behind an installed image refuses a write too (`:stale-belief`, `:recover? :background`),
+because the write is checked against the earlier build's belief and the rebuilt belief may
+not include it.

@@ -232,7 +232,7 @@
         (doseq [s [(list 'genlCx CxLow 'CxUniverse)
                    (list 'functional parentOf)
                    (list 'genl fatherOf kinOf)
-                   (list 'disjoint dog_kind cat_kind)
+                   (list 'orthogonal dog_kind cat_kind)
                    (list 'sameAs Ann Bob)]]
           (let [why   (str (pr-str s) ", denial first " denial-first? ", " strength)
                 deny! #(v/assert kb (list 'not s) 'CxUniverse {:strength strength})
@@ -268,7 +268,7 @@
 
 (tu/deftest-kb why-not-of-a-denial-a-forced-monotonic-literal-defeats-names-the-literal
   (tu/with-terms [dog_kind cat_kind likes Cal Dan]
-    (doseq [[s decl] [[(list 'disjoint dog_kind cat_kind) nil]
+    (doseq [[s decl] [[(list 'orthogonal dog_kind cat_kind) nil]
                       [(list likes Cal Dan) (list 'forced_monotonic_predicate likes)]]]
       (when decl (v/assert kb decl 'CxUniverse))
       (let [h (v/assert kb s 'CxUniverse)
@@ -337,14 +337,14 @@
 (tu/deftest-kb the-forced-conclusion-report-names-the-antecedents-not-forced-monotonic
   (tu/with-terms [trigger_kind other_kind made_kind rival_kind species_kind]
     (v/assert kb (definitional-rule trigger_kind made_kind (list other_kind '?s)
-                   (list 'disjoint '?s rival_kind))
+                   (list 'orthogonal '?s rival_kind))
               'CxUniverse)
     (doseq [s [(list trigger_kind species_kind) (list other_kind species_kind)
-               (list 'disjoint species_kind rival_kind)]]
+               (list 'orthogonal species_kind rival_kind)]]
       (v/assert kb s 'CxUniverse))
     (let [vs (forced-entries kb (list 'orthogonal species_kind made_kind) 'CxUniverse)]
       (is (= [#{trigger_kind other_kind}] (mapv (comp set :not-forced-monotonic :detail) vs))
-          "disjoint is forced-monotonic and is not named")
+          "orthogonal is forced-monotonic and is not named")
       (is (every? #(and (str/includes? % (str trigger_kind)) (str/includes? % (str other_kind)))
                   (map (comp :message :detail) vs))))))
 
@@ -399,11 +399,6 @@
 
 ;; ---- a declaration forces its predicate where it is seen ----------------------------
 
-(defn- orders
-  "Every ordering of `xs`."
-  [xs]
-  (if (empty? xs) [()] (for [x xs, more (orders (remove #{x} xs))] (cons x more))))
-
 (defn- sampled
   "The first and the last of `orders`, each write's reverse of the other: the sample a
   sweep's twin at `:default` runs."
@@ -433,7 +428,7 @@
   pair is a dilemma and the firing is void.  Retracting the declaration leaves the
   reading of a KB that never held it at all three."
   [kb pick]
-  (doseq [order   (pick (orders [:decl :trigger :rival :rule]))
+  (doseq [order   (pick (tu/orders [:decl :trigger :rival :rule]))
           retract [nil :decl]]
     (tu/with-terms [CxU CxA CxB trigger_kind rival_kind made_kind species_kind]
       (let [world {:fixed  (concat (scoped-contexts CxU CxA CxB)
@@ -461,7 +456,7 @@
   ;; [trigger denial] in every arrival order: CxA sees the declaration, so the denial
   ;; loses to the trigger at :monotonic; at CxB and CxU the :monotonic denial defeats the
   ;; :default trigger.  Retracting the declaration leaves that reading at CxA too.
-  (doseq [order   (orders [:decl :denial :trigger])
+  (doseq [order   (tu/orders [:decl :denial :trigger])
           retract [nil :decl]]
     (tu/with-terms [CxU CxA CxB trigger_kind species_kind]
       (let [t     (list trigger_kind species_kind)
@@ -482,7 +477,7 @@
   ;; an antecedent that is not forced-monotonic.  CxA sees the declaration, so the firing is void there;
   ;; CxB and CxU do not, so the conclusion is an ordinary belief.  Retracting the
   ;; declaration leaves it believed at all three.
-  (doseq [order   (orders [:decl :rule :fact])
+  (doseq [order   (tu/orders [:decl :rule :fact])
           retract [nil :decl]]
     (tu/with-terms [CxU CxA CxB trigger_kind seed_kind species_kind]
       (let [world {:fixed  (scoped-contexts CxU CxA CxB)
@@ -516,7 +511,7 @@
 (tu/deftest-kb a-late-declaration-defeats-the-rival-of-a-standing-dilemma
   ;; [trigger rival] at one context: the declaration turns the dilemma into a defeat of
   ;; the rival whether it arrives before or after the pair
-  (doseq [order (orders [:decl :trigger :rival])]
+  (doseq [order (tu/orders [:decl :trigger :rival])]
     (tu/with-terms [CxU trigger_kind rival_kind species_kind]
       (is (= {:u [true false]}
              (forced-reading kb {:u CxU}
@@ -540,7 +535,7 @@
            [:at       :monotonic nil   [true true]]
            [:core     :monotonic nil   [true true]]
            [:core     :monotonic :decl [false true]]]
-          order (orders [:decl :trigger :rival])]
+          order (tu/orders [:decl :trigger :rival])]
     (tu/with-terms [CxU trigger_kind rival_kind species_kind]
       (is (= {:u expected}
              (forced-reading kb {:u CxU}
@@ -558,7 +553,7 @@
 (tu/deftest-kb a-cxuniverse-declaration-retracted-beside-another-moves-nothing-it-did-not-force
   ;; CxA states the declaration too: retracting CxUniverse's leaves CxA forcing the trigger
   ;; and CxB reading the dilemma, in every order of the four writes
-  (doseq [order (orders [:core :decl-a :trigger :rival])]
+  (doseq [order (tu/orders [:core :decl-a :trigger :rival])]
     (tu/with-terms [CxU CxA CxB trigger_kind rival_kind species_kind]
       (let [decl (list 'forced_monotonic_predicate trigger_kind)]
         (is (= {:a [true false] :b [true true]}
@@ -582,7 +577,7 @@
   [kb pick]
   (doseq [[deny-cx expected] [[:den  {:a [true false] :b [true false] :d [true true]}]
                               [:core {:a [true true]  :b [true true]  :d [true true]}]]
-          order (pick (orders [:core :deny :decl-a :trigger :rival]))]
+          order (pick (tu/orders [:core :deny :decl-a :trigger :rival]))]
     (tu/with-terms [CxU CxA CxB CxDen trigger_kind rival_kind species_kind]
       (let [decl (list 'forced_monotonic_predicate trigger_kind)]
         (is (= expected
@@ -733,7 +728,7 @@
   ;; a network-void firing (orthogonal, in the baseline forced-monotonic set) and a reader-only void
   ;; firing (kind_t, declared at CxFoo); a second trigger arrives and is retracted last
   (let [shapes (doall
-                (for [order (orders [:decl :rule :fact :gone])]
+                (for [order (tu/orders [:decl :rule :fact :gone])]
                   (tu/with-terms [CxU CxFoo kind_s kind_t made_kind spa_kind spb_kind]
                     (foo-under-u kb CxU CxFoo)
                     (v/assert kb (definitional-rule kind_s made_kind) CxU)
@@ -826,7 +821,7 @@
   loses to the fact."
   [kb pick]
   (doseq [decl-cx [:at :core]
-          order   (pick (orders [:decl :deny-decl :deny-fact :fact]))]
+          order   (pick (tu/orders [:decl :deny-decl :deny-fact :fact]))]
     (tu/with-terms [CxU CxDen CxB kind_t Sp]
       (let [decl (list 'forced_monotonic_predicate kind_t)
             t    (list kind_t Sp)]
@@ -851,7 +846,7 @@
   ;; CxR under CxU.  A :monotonic denial of the declaration at CxU places a defeat D on it,
   ;; so CxU reads the dilemma.  CxR excepts D, believes the declaration and forces the
   ;; trigger: the rival loses there, whichever order the four writes arrive in.
-  (doseq [order (orders [:decl :deny :trigger :rival])]
+  (doseq [order (tu/orders [:decl :deny :trigger :rival])]
     (tu/with-terms [CxU CxR trigger_kind rival_kind species_kind]
       (let [decl   (list 'forced_monotonic_predicate trigger_kind)
             writes {:decl    [decl CxU]
@@ -1182,7 +1177,7 @@
              ((juxt :type :predicate :missing) e)))
       (is (v/in? kb h))))
   (testing "a declaration whose predicate has no unforced semantics stays"
-    (doseq [[s missing] [['(forced_monotonic_predicate disjoint) :unforced-definitional-declaration]
+    (doseq [[s missing] [['(forced_monotonic_predicate orthogonal) :unforced-definitional-declaration]
                          ['(forced_monotonic_predicate sameAs) :unforced-equality]
                          ['(forced_monotonic_predicate except) :unforced-except]
                          ['(forced_monotonic_between_predicates genl) :unforced-predicate-genl]]]

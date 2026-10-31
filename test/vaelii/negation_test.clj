@@ -7,7 +7,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.reads :as reads]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.settle :as settle]
             [vaelii.order-independence-test :as oi]
             [vaelii.test-util :as tu]))
@@ -29,16 +28,13 @@
       (is (seq    (v/sentexes-matching kb (list dog rex) 'CxUniverse)))
       (is (empty? (v/sentexes-matching kb (list 'not (list dog rex)) 'CxUniverse))))))
 
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
-
 (tu/deftest-kb penguins-dont-fly
   (let [penguin (tu/tmp-type) bird (tu/tmp-type) animal (tu/tmp-type)
         flies (tu/tmp-pred) robin (tu/tmp-ind) tweety (tu/tmp-ind)]
     (v/assert kb (list 'genl penguin bird) 'CxUniverse)
     (v/assert kb (list 'genl bird animal)  'CxUniverse)
     (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) 'CxUniverse {:direction :forward})  ; bare rule
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)       ; defeasible
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)       ; defeasible
     (v/assert kb (list bird robin) 'CxUniverse)
     ;; Known-true grounds are what let the exception out-rank the default.  A bare rule
     ;; confers :monotonic and is capped by its weakest antecedent, so over a :monotonic
@@ -56,7 +52,7 @@
 (tu/deftest-kb default-applies-when-not-defeated
   (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) eagle (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'CxUniverse)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert kb (list bird eagle) 'CxUniverse)
     (testing "with no contrary evidence the default conclusion holds"
       (is (v/in? kb (v/handle-of kb (list flies eagle) 'CxUniverse))))))

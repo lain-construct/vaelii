@@ -5,28 +5,17 @@
   primitives, torn-tail recovery, and the crash-safe compaction recovery branches the
   full suite never reaches because it never crashes mid-operation."
   (:require [clojure.test :refer [deftest is testing]]
-            [vaelii.impl.disk.files :as f])
+            [vaelii.impl.disk.files :as f]
+            [vaelii.test-util :as tu])
   (:import [java.io File]
-           [java.nio.channels FileChannel]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-files-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (File. dir)))] (.delete ^File f)))
-
-(defn- with-tmp [f]
-  (let [dir (tmpdir)]
-    (try (f dir) (finally (rm-rf! dir)))))
+           [java.nio.channels FileChannel]))
 
 (defn- exists? [^String path] (.exists (File. path)))
 
 ;; ---- frames -------------------------------------------------------------
 
 (deftest frames-round-trip-every-token-type
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [log (f/open-log (str dir "/t.log"))
             vals [{:a 1 :sym 'foo :kw :bar}
@@ -63,7 +52,7 @@
 ;; ---- slots --------------------------------------------------------------
 
 (deftest slots-read-write-tombstone-and-gaps
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [idx (f/open-idx (str dir "/t.idx"))]
         (f/write-slot! idx 0 100 20 0 0)
@@ -83,7 +72,7 @@
         (f/close! idx)))))
 
 (deftest scan-idx-yields-only-live-slots
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [idx (f/open-idx (str dir "/t.idx"))]
         (f/write-slot! idx 0 10 5 0 0)
@@ -105,7 +94,7 @@
     (is (= false (f/slot-premise (f/premise-flags false))))
     (is (nil? (f/slot-premise 0))
         "0 — what every slot written before the bit existed holds — is unknown, not false"))
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [idx (f/open-idx (str dir "/t.idx"))]
         (f/write-slot! idx 1 10 5 (f/premise-flags true) 0)
@@ -128,7 +117,7 @@
         "a slot older than the strength bits reads rank 0 — which sends the caller to the record")
     (is (= 0 (f/slot-strength (f/premise-flags true)))
         "and so does a premise slot written with the 1-arg form"))
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [idx (f/open-idx (str dir "/t.idx"))]
         (f/write-slot! idx 1 10 5 (f/premise-flags true 1) 0)   ; :default
@@ -143,7 +132,7 @@
 (deftest reconcile-slot-flags-repairs-only-what-disagrees
   ;; The dirty-open repair: rewrite a slot whose flags would answer differently from its
   ;; record (a torn flags page), and leave alone one that agrees or falls back.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [idx (f/open-idx (str dir "/t.idx"))]
         (try
@@ -177,7 +166,7 @@
 ;; ---- log recovery -------------------------------------------------------
 
 (deftest scan-log-finds-the-torn-tail
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [path (str dir "/t.log")
             log  (f/open-log path)
@@ -211,7 +200,7 @@
        (throw t)))))
 
 (deftest a-torn-append-leaves-the-log-as-it-was
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [log  (f/open-log (str dir "/t.log"))
             _    (f/append-record! log {:v 1})
@@ -237,7 +226,7 @@
         (f/close! log)))))
 
 (deftest a-batch-appends-every-frame-in-order
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [log (f/open-log (str dir "/t.log"))
             ops [[:put :a 1] [:add-to-set :s 7] [:increment :c] [:delete :a]]
@@ -265,7 +254,7 @@
 (deftest the-length-walk-agrees-with-the-decoding-scan
   ;; The claim the substitution rests on.  Not "it works" — the same answer, case by
   ;; case, including the shapes the open path actually meets.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (doseq [[label build!]
               [["an empty log" (fn [_] nil)]
@@ -283,7 +272,7 @@
             (f/close! log)))))))
 
 (deftest the-length-walk-finds-the-same-torn-tail
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (doseq [[label tear!]
               [["a prefix promising bytes never written"
@@ -311,7 +300,7 @@
   ;; and the open path — whose only question was how long the log is — raised one
   ;; exception per frame and then truncated the whole log at the first.  The walk never
   ;; thaws, so an undecodable log has an undecodable *record* and an intact length chain.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [path (str dir "/opaque.log")
             log  (f/open-log path)]
@@ -339,7 +328,7 @@
   (.write log (byte-array 2)))
 
 (deftest a-frame-that-does-not-thaw-mid-log-is-refused-by-name
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [path (str dir "/t.log")
             log  (f/open-log path)
@@ -358,7 +347,7 @@
         (f/close! log)))))
 
 (deftest a-last-frame-that-does-not-thaw-is-a-torn-tail
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [path (str dir "/t.log")
             log  (f/open-log path)
@@ -376,7 +365,7 @@
   ;; An `OutOfMemoryError` inside one thaw said nothing about the frame; read as a torn
   ;; tail, it cut the token dictionary short and the open tombstoned every record citing
   ;; a later token.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [log  (f/open-log (str dir "/t.log"))
             _    (dotimes [i 10] (f/append-record! log {:v i}))
@@ -393,7 +382,7 @@
 ;; ---- the clean-shutdown marker ------------------------------------------
 
 (deftest the-clean-marker-is-believed-only-when-the-length-still-agrees
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [path (str dir "/c.log")
             log  (f/open-log path)
@@ -413,7 +402,7 @@
           (is (= [len true] (f/log-tail-offset-from log (+ len 999999)))
               "a marker longer than the log must not be believed"))
         (f/close! log))))
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (testing "write / read / remove round-trips, and a missing marker reads nil"
         (is (nil? (f/read-clean-marker dir)))
@@ -423,7 +412,7 @@
         (is (nil? (f/read-clean-marker dir)))))))
 
 (deftest validate-idx-tail-tombstones-slots-past-eof
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [log (f/open-log (str dir "/t.log"))
             idx (f/open-idx (str dir "/t.idx"))
@@ -452,7 +441,7 @@
     v))
 
 (deftest recover-compaction-replays-a-committed-crash
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [lp (str dir "/x.log") ip (str dir "/x.idx")
             {:keys [temps marker]} (f/compact-temp-paths lp ip)
@@ -467,7 +456,7 @@
           (is (not (exists? log-tmp))))))))
 
 (deftest recover-compaction-keeps-originals-when-not-committed
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (testing "temps present but NO marker (crashed before commit) ⇒ drop temps, keep original"
         (let [lp (str dir "/a.log") ip (str dir "/a.idx")
@@ -496,7 +485,7 @@
 ;; kind's (log, idx) pair take the same three branches through the same code.
 
 (deftest recover-compaction-branches-over-a-single-target
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (testing "committed (marker + temp) ⇒ replay the temp onto the log"
         (let [lp (str dir "/w.log")
@@ -544,7 +533,7 @@
   ;; The stalling channel is a `proxy` rather than a staged disk: a real `transferFrom`
   ;; returning 0 is a kernel condition no test can arrange, and the destination is the one
   ;; boundary where a stand-in answers exactly the two calls the copy makes.
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [src     (str dir "/src.bin")
             _       (spit src "the bytes the install owes the original")
@@ -563,7 +552,7 @@
 ;; ---- whole-blob metadata + markers --------------------------------------
 
 (deftest nippy-blob-round-trip-and-fallbacks
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (let [p (str dir "/meta.nippy")]
         (f/write-nippy-atomic! p {:seq 42 :prem #{1 2 3}})
@@ -583,7 +572,7 @@
                             (range 1 (count bs)))))))))))
 
 (deftest dirty-marker-lifecycle
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (is (not (f/dirty-marker-present? dir)))
       (f/create-dirty-marker! dir)
@@ -592,7 +581,7 @@
       (is (not (f/dirty-marker-present? dir)) "gone after a clean close"))))
 
 (deftest assert-format-adopts-then-guards
-  (with-tmp
+  (tu/with-tmp
     (fn [dir]
       (f/ensure-dir! dir)
       (f/assert-format! dir)                              ; writes format.edn
@@ -602,3 +591,23 @@
         (spit (File. ^String dir "format.edn") (pr-str {:format-version 999}))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported"
                               (f/assert-format! dir)))))))
+
+(deftest a-manifest-write-cut-mid-write-leaves-a-readable-manifest
+  ;; the cut is a `spit` that writes half its content and throws, the torn file a plain
+  ;; write leaves at a crash; each manifest then holds the old content or the new one
+  (tu/with-tmp
+    (fn [dir]
+      (f/write-reasoners! dir #{"a"})
+      (f/write-records-identity! dir {:kind :one})
+      (f/write-index-layout! dir 1)
+      (with-redefs [spit (fn [p ^String s & _]
+                           (with-open [o (java.io.FileOutputStream. (str p))]
+                             (.write o (.getBytes (subs s 0 (quot (count s) 2)))))
+                           (throw (java.io.IOException. "cut")))]
+        (doseq [w [#(f/write-reasoners! dir #{"a" "b"})
+                   #(f/write-records-identity! dir {:kind :two})
+                   #(f/write-index-layout! dir 2)]]
+          (try (w) (catch java.io.IOException _ nil))))
+      (is (contains? #{#{"a"} #{"a" "b"}} (f/recorded-reasoners dir)))
+      (is (contains? #{{:kind :one} {:kind :two}} (f/records-identity dir)))
+      (is (= :current (f/index-layout-decision dir 2 true))))))

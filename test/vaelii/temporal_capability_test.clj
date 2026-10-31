@@ -30,17 +30,16 @@
 ;; A fresh KB per test, with the upper layer, the CxChange event calculus and CxRealWorld
 ;; loaded and no prover registered.  Each test registers what it uses, so the opt-in tests can ask the
 ;; same question before and after.
+;; The KB is built per test because a test registers reasoners, which a KB shared
+;; across tests would keep.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]]))))
 
 (def ^:private U 'CxUniverse)
 
-(defn- refusal-type
-  "The ex-info `:type` `f` throws, or `:answered` when it returns."
-  [f]
-  (try (f) :answered
-       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+(def ^:private refusal-type
+  (fn [f] (tu/refusal-type f :answered)))
 
 (defn- slice
   "The time-sliced context `(CxTimeFn monad time)`."
@@ -299,12 +298,10 @@
           (is (not (v/ask? kb (list 'not (list p)) other))))))))
 
 (tu/deftest-kb ^:red a-fact-stated-unsliced-holds-in-every-year-slice
-  ;; The KB has no "eternal" or "atemporal" context: `atemporal`
-  ;; is a type of thing (core.txt), not a way of stating a fact.  The nearest is a fact
-  ;; stated unsliced, in CxUniverse — the root every wired context sees.  Today a cx/
-  ;; slice is wired by nothing but the computed edges between slices and sees nothing
-  ;; above it (docs/contexts.md, "A context outside the topology"), and the year was
-  ;; reached only by a hand-asserted genlCx on its cx/ constant.
+  ;; The KB has no "eternal" context: `atemporal` is a type (core.txt). The nearest is a fact
+  ;; stated unsliced in CxUniverse, which every wired context sees. A cx/ slice is wired by
+  ;; nothing but the computed edges between slices (docs/contexts.md, "A context outside the
+  ;; topology"), so the year was reached by a hand-asserted genlCx on its cx/ constant.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r]
     (let [y2000 (slice '(DatetimeFn "2000"))
@@ -459,13 +456,12 @@
        :second-sees-first?  (boolean (v/ask? kb (list p) second))})))
 
 (tu/deftest-kb ^:red two-spellings-of-one-month-see-each-others-facts
-  ;; docs/context-nat.md: (MonthFn 2000 1) and (DatetimeFn "2000-01") name the same
-  ;; interval, and the comparator reads both to one field vector.  Today, as context slots,
-  ;; they are two expressions and reify to two cx/ constants; each is a subinterval of the
-  ;; other, the second edge would close a genlCx cycle and is refused, and the one edge
-  ;; that survives is the same in either arrival order: the MonthFn slice sees the
-  ;; DatetimeFn slice and not the reverse.  One month ought to see its own facts whichever
-  ;; way it is spelled.  Whether the two are one context is
+  ;; docs/context-nat.md: (MonthFn 2000 1) and (DatetimeFn "2000-01") name the same interval,
+  ;; but as context slots they are two expressions and reify to two cx/ constants. Each is a
+  ;; subinterval of the other, so the second edge would close a genlCx cycle and is refused,
+  ;; and the surviving edge is the same in either arrival order: the MonthFn slice sees the
+  ;; DatetimeFn slice and not the reverse. One month ought to see its own facts whichever way
+  ;; it is spelled. Whether the two are one context is
   ;; two-spellings-of-one-month-name-one-context.
   (declare-cxtimefn! kb)
   (testing "MonthFn written first: each spelling sees the other's fact"
@@ -538,13 +534,11 @@
                      :distinct?))))))
 
 (tu/deftest-kb ^:red a-slice-sees-its-monad-and-the-monad-does-not-see-the-slice
-  ;; `CxStory` in `(CxTimeFn CxStory T)` is the dimension: "the year 2000, along the
-  ;; CxStory dimension" (docs/context-nat.md).  A monad context's own time is unbounded
-  ;; (issue #181), so it contains every slice's time, and a slice ought to sit under its
-  ;; monad.  Today the producer orders one slice under another, by subintervalOf on the
-  ;; time or genlMonad on the monad, and a monad context is not a slice, so nothing places
-  ;; a slice under it.  The reverse stays closed: what holds in 2000 need not hold
-  ;; in the story at large.
+  ;; `CxStory` in `(CxTimeFn CxStory T)` is the dimension (docs/context-nat.md). A monad
+  ;; context's time is unbounded (issue #181), so it contains every slice's time and a slice
+  ;; ought to sit under its monad. The producer orders one slice under another by
+  ;; subintervalOf or genlMonad, and a monad context is not a slice, so nothing places a slice
+  ;; under it. The reverse stays closed: what holds in 2000 need not hold in the story at large.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q CxStory]
     (let [y2000 (slice CxStory '(DatetimeFn "2000"))]
@@ -652,13 +646,11 @@
         (is (not (v/ask? kb (list p) (slice SouthPart))))))))
 
 (tu/deftest-kb ^:red partially-overlapping-slices-and-their-intersection
-  ;; The overlap and the intersection are given as Allen relations between named
-  ;; intervals.  The Allen network entails (subintervalOf AprJun JanJun)
-  ;; and (subintervalOf AprJun AprSep) from the two facts below, and the intersection
-  ;; slice ought to sit under both on that entailment.  Today the stored-fact oracle the
-  ;; producer reads takes only stated subintervalOf facts, never a prover answer.  The
-  ;; same question with each interval given by its bounds, and no Allen relation stated,
-  ;; is two-partially-overlapping-ranges-and-their-intersection.
+  ;; The overlap and the intersection are given as Allen relations between named intervals.
+  ;; The Allen network entails (subintervalOf AprJun JanJun) and (subintervalOf AprJun AprSep),
+  ;; and the intersection slice ought to sit under both. The stored-fact oracle the producer
+  ;; reads takes only stated subintervalOf facts, never a prover answer. The same question
+  ;; with bounds is two-partially-overlapping-ranges-and-their-intersection.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :allen)
   (tu/with-terms [p q r JanJun AprSep AprJun]
@@ -755,16 +747,13 @@
 ;; =========================================================================
 ;; The monad dimension — issue #181, and the isomorphism with time
 ;; =========================================================================
-;; A context has two parts: its monad (which world, story or theory) and its time.
-;; `genlMonad` orders monads alone, the way `subintervalOf` orders times alone, and
-;; `genlCx` between two contexts is the product: one sees another exactly when its monad
-;; is genlMonad-below the other's and its time is inside the other's.  `CxMonadOfFn` and
-;; `CxTimeOfFn` take a context apart.  A `CxTimeFn` application is a
-;; `time_slice_context`, its first argument is any context, and a `monad_context` is a
-;; context that is not a slice.  Each test below is the monad-side twin
-;; of a time-side test above, named in its comment.  A monad-dimension twin of any other
-;; time-side test sits beside that test, and a time-dimension twin of a test here sits
-;; beside it.
+;; A context has a monad (which world, story or theory) and a time. `genlMonad` orders
+;; monads the way `subintervalOf` orders times, and `genlCx` between two contexts is the
+;; product: one sees another when its monad is genlMonad-below the other's and its time is
+;; inside the other's. `CxMonadOfFn` and `CxTimeOfFn` take a context apart. Each test below
+;; is the monad-side twin of a time-side test, named in its comment.  A `CxTimeFn` application
+;; is a `time_slice_context` whose first argument is any context, and a `monad_context` is a
+;; context that is not a slice.
 
 (tu/deftest-kb the-monad-vocabulary-is-declared-in-the-shipped-kb
   ;; Twin of cxtimefn-is-declared-in-the-shipped-kb.  Issue #181 asks for each of these.
@@ -812,7 +801,7 @@
       (testing "and not the reverse"
         (is (not (v/ask? kb (list q) sup)))))))
 
-(tu/deftest-kb ^:red a-slice-along-a-sub-monad-placed-by-genlcx-sees-the-same-time-along-its-super-monad
+(tu/deftest-kb a-slice-along-a-sub-monad-placed-by-genlcx-sees-the-same-time-along-its-super-monad
   ;; The genlCx twin of a-slice-along-a-sub-monad-sees-the-same-time-along-its-super-monad:
   ;; the two monads are ordered by a stated genlCx, which between two monad contexts is a
   ;; genlMonad (genlmonad-between-two-monad-contexts-is-their-genlcx).
@@ -866,17 +855,10 @@
         (is (not (v/sees? kb k-a k-b)))
         (is (not (v/sees? kb k-b k-a)))))))
 
-(tu/deftest-kb ^:red a-slice-narrower-in-both-monad-and-time-is-a-spec-when-the-middle-slice-is-unwritten
-  ;; What is missing: the producer orders two contexts only when they differ at the one
-  ;; position a declaration names (`context-nat/sibling-key` masks one argument), so
-  ;; (CxTimeFn CxA January 2000) and (CxTimeFn CxB 2000), which differ at both, are no
-  ;; sibling pair under either declaration.  The edge between them could only come from
-  ;; genlCx transitivity through (CxTimeFn CxB January 2000) or (CxTimeFn CxA 2000), and
-  ;; a slice nobody wrote into has no cx/ constant to be a node in that chain
-  ;; (a-slice-nobody-wrote-into-still-inherits).  The product rule — monad at or below
-  ;; and time at or below — is not computed directly from the two arguments.  This test
-  ;; names neither middle slice; writing into one would make it pass only because
-  ;; somebody reified the middle.
+(tu/deftest-kb a-slice-narrower-in-both-monad-and-time-is-a-spec-when-the-middle-slice-is-unwritten
+  ;; (CxTimeFn CxA January 2000) and (CxTimeFn CxB 2000) differ at both declared positions,
+  ;; and the producer orders them by the product.  This test names neither middle slice,
+  ;; since writing into one would order the pair through it.
   (tu/with-terms [p q CxA CxB]
     (monads! kb CxA CxB)
     (v/assert kb (list 'genlMonad CxA CxB) U)
@@ -904,7 +886,7 @@
         (is (true? (v/ask? kb (list 'genlMonad CxLow CxTop) U)))
         (is (true? (v/ask? kb (list p) (slice CxLow '(YearFn 2000)))))))))
 
-(tu/deftest-kb ^:red a-slice-sees-a-monad-two-genlcx-steps-up
+(tu/deftest-kb a-slice-sees-a-monad-two-genlcx-steps-up
   ;; The genlCx twin of a-slice-sees-a-monad-two-genlmonad-steps-up.  genlCx is
   ;; transitive today, so the control is that the low monad sees the top one.
   (declare-cxtimefn! kb)
@@ -984,7 +966,7 @@
       (testing (str x " sees " y "'s fact exactly when it is below it in both dimensions")
         (is (= below? sees?))))))
 
-(tu/deftest-kb ^:red genlcx-between-slices-is-the-monads-genlcx-times-time-containment
+(tu/deftest-kb genlcx-between-slices-is-the-monads-genlcx-times-time-containment
   ;; The genlCx twin of genlcx-between-slices-is-genlmonad-times-time-containment: the two
   ;; monads are ordered by a stated genlCx.
   (declare-cxtimefn! kb)
@@ -1016,7 +998,7 @@
         (is (not (v/ask? kb (list p) south)))
         (is (not (v/ask? kb (list q) north)))))))
 
-(tu/deftest-kb ^:red sibling-monads-placed-by-genlcx-each-see-their-super-monad-and-not-each-other
+(tu/deftest-kb sibling-monads-placed-by-genlcx-each-see-their-super-monad-and-not-each-other
   ;; The genlCx twin of sibling-sub-monads-each-see-their-super-monad-and-not-each-other.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxSuper CxNorth CxSouth]
@@ -1059,7 +1041,7 @@
         (is (not (v/ask? kb (list r) left)))
         (is (not (v/ask? kb (list r) right)))))))
 
-(tu/deftest-kb ^:red a-monad-genlcx-below-two-monads-sees-both-at-the-same-time
+(tu/deftest-kb a-monad-genlcx-below-two-monads-sees-both-at-the-same-time
   ;; The genlCx twin of a-monad-below-two-monads-sees-both-at-the-same-time.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxLeft CxRight CxBoth]
@@ -1263,14 +1245,13 @@
       (testing "and that slice sees S's fact"
         (is (true? (v/ask? kb (list p) ss)))))))
 
-;; A slice of a slice is defined through its two parts: `cxMonadOf` of a slice is the
-;; monad of the context it slices, and `cxTimeOf` the `TimeIntersectionFn` of that
-;; context's time and its own.  The rules read the slice's spelling, the `natFormula` of
-;; its `cx/` constant, so the tests below write the inner slice as that constant; the
-;; spelling with `CxTimeFn` twice names a different constant until the engine equates
-;; the two (a-slice-of-a-slice-spelled-with-cxtimefn-twice-is-the-slice-at-the-intersection).
-;; `monad_context` is stated: deriving it for a context that is not a slice is negation
-;; as failure (a-monad-context-is-its-own-monad-and-its-time-is-unbounded).
+;; A slice of a slice is defined through its two parts: `cxMonadOf` of a slice is the monad
+;; of the context it slices, and `cxTimeOf` the `TimeIntersectionFn` of that context's time
+;; and its own. The rules read the slice's `natFormula` spelling, so the tests below write the
+;; inner slice as its `cx/` constant; the spelling with `CxTimeFn` twice names a different
+;; constant until the engine equates the two
+;; (a-slice-of-a-slice-spelled-with-cxtimefn-twice-is-the-slice-at-the-intersection). They state
+;; `(monad_context CxStory)`, which time.txt derives only where `(context CxStory)` is entailed.
 
 (def ^:private slice-query
   "The depth the slice rules need: one step per slice, and the intersection rule."
@@ -1314,12 +1295,11 @@
         (is (= [{'?t both}] (v/query kb (list 'cxTimeOf ss '?t) U slice-query)))))))
 
 (tu/deftest-kb ^:red a-slice-at-an-intersection-sees-the-slice-at-each-of-the-two-times
-  ;; contextArgSubrelation CxTimeFn 2 subintervalOf orders the slice at the intersection
-  ;; under the slice at each argument, through the rules that put the intersection
-  ;; inside each (the-intersection-of-two-intervals-is-inside-each).  Red because the
-  ;; producer of genlCx edges between slices reads a structural comparator or a stored
-  ;; subintervalOf fact, never a rule (context_nat.clj, the bounded oracle), so the
-  ;; subintervalOf those rules answer reaches a query and not the ordering.
+  ;; contextArgSubrelation CxTimeFn 2 subintervalOf orders the intersection's slice under the
+  ;; slice at each argument (the-intersection-of-two-intervals-is-inside-each). Red because the
+  ;; genlCx producer reads a structural comparator or a stored subintervalOf fact, never a
+  ;; rule (context_nat.clj, the bounded oracle), so the subintervalOf those rules answer
+  ;; reaches a query and not the ordering.
   (declare-cxtimefn! kb)
   (tu/with-terms [p q r CxStory JanJun AprSep]
     (monads! kb CxStory)
@@ -1409,18 +1389,15 @@
 ;; The real world's present, and temporal projection
 ;; =========================================================================
 ;; The present is a time slice along the real world, `(CxTimeFn CxRealWorld
-;; (IntervalAfterFn W))`: every moment at or after the instant W, which `W` below names.
-;; A fact stated there is true from W on, in the true-when shape of
-;; pr_status_true_when_test.clj.  W is reached through LOWER BOUNDS: a clock reading
-;; states `(instantNotBefore W T)`, which stays true for ever after, and what is derived
-;; from readings is derived as a bound.  With no upper bound nothing fixes W exactly, so
-;; an exact reading ("it is 3:41") and a dated present-tense fact ("today is Saturday")
-;; are not stated in the present slice at all.
+;; (IntervalAfterFn W))`: every moment at or after the instant W. A fact stated there is
+;; true from W on, in the true-when shape of pr_status_true_when_test.clj. W is reached
+;; through lower bounds: a clock reading states `(instantNotBefore W T)`, and with no upper
+;; bound an exact reading ("it is 3:41") and a dated present-tense fact are not stated in
+;; the present slice at all.
 ;;
-;; Projection is CxChange's inertia carried across contexts: a fluent started at a
-;; moment in one slice still holds at a later moment, until something ends it.  "Later"
-;; than a past moment is reached from a reading.  A plain fact of a past slice is not
-;; projected: it was true in 2000 and is unknown in 2001.
+;; Projection is CxChange's inertia carried across contexts: a fluent started in one slice
+;; still holds at a later moment until something ends it. A plain fact of a past slice is
+;; not projected.
 
 (def ^:private W
   "The instant the real world's present starts from."
@@ -1479,10 +1456,10 @@
       (is (not (v/ask? kb (list p) 'CxWell)))
       (is (not (v/ask? kb (list p) 'CxRealWorld))))))
 
-(tu/deftest-kb ^:red the-present-slice-is-the-real-world-from-w-on
+(tu/deftest-kb the-present-slice-is-the-real-world-from-w-on
   ;; The slice read back through #181's two functions: its monad is CxRealWorld and its
-  ;; time is the interval after W.  Red with nothing stating (monad_context CxRealWorld),
-  ;; which the rules over cxMonadOf and cxTimeOf read.
+  ;; time is the interval after W.  The rules over cxMonadOf and cxTimeOf read
+  ;; (monad_context CxRealWorld), which time.txt derives and nothing states.
   (tu/with-terms [p]
     (let [k (cx-of kb (v/assert kb (list p) (present! kb)))]
       (testing "the present slice's monad is CxRealWorld"
@@ -1604,12 +1581,10 @@
                                            CxPresentSpec))))))))
 
 (tu/deftest-kb ^:red age-is-derived-as-a-lower-bound-and-never-as-an-exact-value
-  ;; Born in 1977, W read at no earlier than 17 October 2026: at
-  ;; least 48 (a December 1977 birthday is still to come), and not known to be 49 or any
-  ;; exact age, because nothing bounds W from above.  A later reading on
-  ;; 1 January 2027 makes it at least 49.  `ageAtLeast` (an organism, an integer number
-  ;; of whole years) is a placeholder name: the KB has no age relation, and birthYearOf
-  ;; (life.txt) is the only birth fact it has.
+  ;; Born in 1977, W read at no earlier than 17 October 2026: at least 48 (a December 1977 birthday is still to come), and not known to be
+  ;; 49 or any exact age, because nothing bounds W from above. A reading on 1 January 2027
+  ;; makes it at least 49. `ageAtLeast` is a placeholder name: the KB has no age relation, and
+  ;; birthYearOf (life.txt) is the only birth fact.
   (v/add-reasoner kb :point :calendar)
   (tu/with-terms [Ann]
     (present! kb)
@@ -1626,16 +1601,12 @@
       (is (true? (v/query? kb (list 'ageAtLeast Ann 49) present {:max-depth 3}))))))
 
 (tu/deftest-kb ^:red a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded
-  ;; Precision shows up in temporalDistance's answer, in its width, with
-  ;; no organism, no reading of a calendar convention and no rounding involved.  The
-  ;; two dates are made up.  A minute's StartFn is one sharp point, so the distance
-  ;; between the start of 14:32 on 17 May 1990 and the start of 09:15 on 21 October 2026
-  ;; is exact: 1149619380 seconds.  An instant only known to fall somewhere inside a
-  ;; minute (includesInstant) is a different term, not that minute's start, so the
-  ;; distance between two such instants is bounded rather than exact even though the two
-  ;; minutes are the same precision: each minute's own length counts against the bound,
-  ;; for a 120-second width.  The coarser-precision cases this generalises to are
-  ;; a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals.
+  ;; Precision shows up in temporalDistance's answer, in its width. A minute's StartFn is one
+  ;; sharp point, so the distance between the start of 14:32 on 17 May 1990 and the start of
+  ;; 09:15 on 21 October 2026 is exact: 1149619380 seconds. An instant only known to fall
+  ;; inside a minute (includesInstant) is a different term, so the distance between two such
+  ;; instants is bounded, for a 120-second width. The dates are made up. The
+  ;; coarser-precision cases are a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals.
   (v/add-reasoner kb :point :calendar :metric-time)
   (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
     (v/assert kb s U))
@@ -1651,13 +1622,11 @@
              (v/ask kb (list 'temporalDistance X Y '?d) U))))))
 
 (tu/deftest-kb ^:red a-distance-from-a-minute-start-to-a-lower-bound-on-w-is-a-lower-bound
-  ;; W reached only through lower-bound readings does not give an exact distance:
-  ;; nothing bounds it from above.  The minute is the one from the
-  ;; control above, made up; the reading floor is 09:00 on 17 October 2026, also made
-  ;; up.  The distance down to the reading's own named moment is exact and stands for
-  ;; the lower bound on the distance to W, since W is no earlier than that moment; the
-  ;; distance to W itself has no finite upper bound, so temporalDistance returns nothing
-  ;; exact and nothing bounded for it.
+  ;; W reached only through lower-bound readings does not give an exact distance. The minute
+  ;; is the control's, and the reading floor is 09:00 on 17 October 2026 (both made up). The
+  ;; distance to the reading's own moment is exact and is a lower bound on the distance to W;
+  ;; the distance to W has no finite upper bound, so temporalDistance returns nothing exact
+  ;; and nothing bounded.
   (v/add-reasoner kb :point :calendar :metric-time)
   (present! kb)
   (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
@@ -1672,20 +1641,14 @@
                        present)))))
 
 (tu/deftest-kb ^:red a-distance-between-two-unknown-instants-is-exactly-as-bounded-as-the-coarser-of-the-two-containing-intervals
-  ;; Varies the precision of each side's containing interval on its own, the other held
-  ;; at the minute, the shape this replaces kept.  Each side is an unknown instant
-  ;; stated only to fall inside a calendar interval (includesInstant), never a sharp
-  ;; point, so even the matching-precision minute/minute row is bounded and not exact —
-  ;; a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded
-  ;; already shows why.  includesInstant's half-open convention (at or after the
-  ;; interval's StartFn, before its EndFn) makes an interval's end exclusive, so the
-  ;; tightest bound for two such instants is [start(later) − end(earlier),
-  ;; end(later) − start(earlier)]: the earliest the gap can be is the later interval's
-  ;; own first moment minus the earlier interval's own end, and the widest is the later
-  ;; interval's own end minus the earlier interval's own first moment.  The dates are
-  ;; made up, and the width grows as either side is cut coarser: 120 seconds for two
-  ;; minutes, 86460 for a minute against a day, 172800 for two days, and 2678460 for a
-  ;; minute against a month.
+  ;; Varies the precision of each side's containing interval on its own, the other held at
+  ;; the minute. Each side is an unknown instant stated only to fall inside a calendar
+  ;; interval (includesInstant), so even the minute/minute row is bounded and not exact
+  ;; (a-distance-between-two-minute-starts-is-exact-and-between-two-unknown-instants-inside-them-is-bounded).
+  ;; The interval's end is exclusive, so the tightest bound is [start(later) − end(earlier),
+  ;; end(later) − start(earlier)]. The dates are made up, and the width grows as either side
+  ;; is cut coarser: 120 seconds for two minutes, 86460 for a minute against a day, 172800
+  ;; for two days, and 2678460 for a minute against a month.
   (v/add-reasoner kb :point :calendar :metric-time)
   (doseq [s ['(dimensionOf Second Duration) '(conversionFactor Second Second 1)]]
     (v/assert kb s U))
@@ -1911,13 +1874,11 @@
         (is (not (v/query? kb (list 'holdsAt ended W) present {:max-depth 3})))))))
 
 (tu/deftest-kb projection-from-the-present-into-a-dated-future-slice-is-unknown-with-only-lower-bounds
-  ;; Projection forward, with the present held only by lower bounds.  W has no upper bound, so no dated
-  ;; slice is known to lie after it: with a reading of 17 October 2026, W may already be
-  ;; past the start of 2027, and a state observed at W is neither held nor refuted there.  Correct by
-  ;; design, and passing today because no slice sees anything.  Projection forward from
-  ;; the present to a dated future needs an upper bound on W, and an upper bound goes
-  ;; stale, so the verdict stays unknown:
-  ;; a question about a dated future is asked from a dated fact, not from the present.
+  ;; Projection forward with the present held only by lower bounds. W has no upper bound, so
+  ;; no dated slice is known to lie after it, and a state observed at W is neither held nor
+  ;; refuted there. This passes today because no slice sees anything. A dated future is asked
+  ;; from a dated fact, not from the present: projecting forward needs an upper bound on W,
+  ;; and an upper bound goes stale, so the verdict stays unknown.
   (declare-cxtimefn! kb)
   (v/add-reasoner kb :calendar :point)
   (reading! kb [2026 10 17 9 0 0])
@@ -2196,16 +2157,12 @@
 ;; =========================================================================
 ;; Ranges — a slice keyed by a time_interval given by its bounds
 ;; =========================================================================
-;; YearFn, MonthFn, DayFn and DatetimeFn each name one calendar unit, and calendar units
-;; nest or are disjoint and never partially overlap (docs/time.md).  A range such as
-;; 2000-01..2000-06 is written two ways here.  Each original is a named time_interval
-;; whose startOf and endOf are stated as InstantFn moments, the bounds the calendar clock
-;; computes for a calendar term; the end of one unit and the start of the next are the
-;; same InstantFn, so the bounds are the clock's own.  Its DatetimeRangeFn twin, beside
-;; it, writes the same range as (DatetimeRangeFn "2000-01" "2000-06") and states nothing:
-;; time.txt's two rules give the term its bounds.  Each test asks the slices to be
-;; ordered from the bounds alone: no subintervalOf and no Allen relation is stated
-;; between two ranges or between a range and a calendar term.
+;; A range such as 2000-01..2000-06 is written two ways. Each original is a named
+;; time_interval whose startOf and endOf are stated as InstantFn moments, the bounds the
+;; calendar clock computes for a calendar term. Its DatetimeRangeFn twin writes the same
+;; range as (DatetimeRangeFn "2000-01" "2000-06") and states nothing: time.txt's two rules
+;; give the term its bounds. Each test asks the slices to be ordered from the bounds alone,
+;; with no subintervalOf and no Allen relation stated.
 
 (defn- range!
   "Make `name` the time_interval from `start` to `end`, two InstantFn field vectors."
@@ -3009,18 +2966,13 @@
 ;; =========================================================================
 ;; Time zones
 ;; =========================================================================
-;; Nothing in the time vocabulary names a zone or an offset.  `InstantFn` is six fields
-;; read as a java.time LocalDateTime: a wall-clock moment in no zone.  `DatetimeFn`'s
-;; reader (vaelii.impl.datetime) admits a date and up to three time fields, each one or
-;; two digits, so an ISO string with an offset ("13:00-07:00") or a `Z` is not a time term
-;; at all: it has no bounds, orders against nothing and keys a slice the producer cannot
-;; read.  time.txt has no zone type and no zoned constructor, so a named zone and its
-;; daylight-saving rules cannot be said.  The tests below ask for the classic cases:
-;; one moment in two offsets, the offset form against `Z`, a day boundary that moves
+;; Nothing in the time vocabulary names a zone or an offset: `InstantFn` is a wall-clock
+;; moment in no zone, and `DatetimeFn`'s reader (vaelii.impl.datetime) admits no offset or
+;; `Z`, so an ISO string with one is not a time term. The tests below ask for the classic
+;; cases: one moment in two offsets, the offset form against `Z`, a day boundary that moves
 ;; with the offset, ordering across offsets, and a named zone's daylight-saving gap and
-;; repeated hour.  `ZonedDatetimeFn` (a local ISO string and an IANA zone name) and
-;; `timezone` (the zone type) are the names this vocabulary takes; time.txt does not
-;; ship it.
+;; repeated hour. `ZonedDatetimeFn` and `timezone` are the names this vocabulary takes;
+;; time.txt does not ship them.
 
 (tu/deftest-kb ^:red one-moment-written-in-two-offsets-is-one-moment
   ;; 13:00 at UTC-07:00 and 01:30 the next day at UTC+05:30 are both 20:00 UTC.  The same
@@ -3124,13 +3076,11 @@
 ;; =========================================================================
 ;; Resolution — the shortest time a term can name
 ;; =========================================================================
-;; The finest calendar term is one second: DatetimeFn admits at most three time fields,
-;; each one or two digits, and InstantFn is six integer fields ending in the second.  So
-;; the shortest interval a calendar term names is (DatetimeFn "…Thh:mm:ss"), one second
-;; long, and two moments a calendar term can tell apart are at least a second apart.  A
-;; named interval with stated bounds can be shorter only by bounds the metric layer
-;; states, which no calendar term reads.  The first test below asserts that one second is
-;; the finest unit, and the red tests after it ask for the millisecond and the microsecond.
+;; The finest calendar term is one second: DatetimeFn admits at most three time fields and
+;; InstantFn ends in the second, so two moments a calendar term can tell apart are at least
+;; a second apart. A named interval with stated bounds can be shorter only by bounds the
+;; metric layer states, which no calendar term reads. The first test asserts that one second
+;; is the finest unit, and the red tests after it ask for the millisecond and the microsecond.
 
 (tu/deftest-kb the-shortest-calendar-interval-is-one-second
   ;; One second is the finest resolution today; the red tests after this one ask for finer.

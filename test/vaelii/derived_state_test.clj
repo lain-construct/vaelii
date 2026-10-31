@@ -134,8 +134,15 @@
     (is (= (range 1 (inc (count events))) (map :n events)))))
 
 (deftest the-image-carries-the-fields-the-register-images
-  (is (= (set ri/state-atoms) (caches/image-fields :state)))
+  (is (= (set (ri/state-atoms)) (caches/image-fields :state)))
   (is (empty? (caches/image-fields :cache))))
+
+(deftest the-image-reads-the-register-at-the-call-and-not-at-load
+  ;; a row registers when its namespace loads, so a read at load misses a later namespace:
+  ;; `reasoning-image` required alone holds 2 of the 7 fields.
+  (with-redefs [caches/image-fields (constantly #{:a-field-registered-later})]
+    (is (= [:a-field-registered-later] (ri/state-atoms)))
+    (is (not (contains? (ri/unimaged-atoms) :a-field-registered-later)))))
 
 (deftest a-row-moves-only-under-an-event-it-declares
   (let [{:keys [fired seen] :as st} (let [kb (scenario-kb)] (instrumented kb #(scenario! kb)))

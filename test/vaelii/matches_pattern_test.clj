@@ -11,7 +11,8 @@
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private ipv4-pattern
   "A dotted-quad shape, loose on the digit count — enough to separate an address-shaped

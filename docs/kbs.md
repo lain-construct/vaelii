@@ -17,7 +17,7 @@ OpenCyc reader is in this repo. This page is the **sequence**, and what each ste
 
 | KB | comes from | to first load | once loaded |
 |---|---|---|---|
-| Starter ontology | the classpath | seconds | 1,600+ asserted / 3,200+ stored |
+| Starter ontology | the classpath | tens of seconds | 3,700+ asserted / 4,900+ stored |
 | Upper vocabulary | the classpath | seconds | 3,000+ sentexes |
 | cyc-tiny | a test fixture in the plugin | one dependency, then seconds | 7,571 sentexes |
 | OpenCyc 4.0 | a distribution you supply | a conversion, then ~10 minutes | ~1.2M sentexes |
@@ -162,8 +162,9 @@ Heap is the other thing this corpus is sensitive to, and the numbers sit close t
 6 GB is not enough for the checked `:ontology` load, and the JVM default on a large
 machine is. Neither `lein browser` nor `lein run -m vaelii.web` sets `-Xmx`, so both
 get that default; a profile that sets a smaller heap wants the `:dir` instead. The
-three `scripts/start-vaelii*.sh` set `-Xmx` from `VAELII_HEAP`, default `40g`, sized for
-a full recover of a store of millions of sentexes, whose TMS and taxonomy grow with it.
+three `scripts/start-vaelii*.sh` set `-Xmx` from `VAELII_HEAP`, else half of physical
+memory up to `31g`. A full recover of a store of millions of sentexes, whose TMS and
+taxonomy grow with it, sets how much a KB needs.
 The recover's heap peak is about twice the import's
 ([storage.md](storage.md#what-a-recover-spends-its-time-and-heap-on)).
 
@@ -208,6 +209,42 @@ A rule under `(set/inert …)` is refused `:not-indexable`, as `assert-inert` re
 direction ([inference.md](inference.md)). `assert`, `check` and `assert-inert` refuse
 `set/inert` anywhere on the wrapper chain or inside the sentence, an `exceptWhen` query
 included (`:shape`): the call is `assert-inert` itself.
+
+**An `exceptWhen`'s two halves are written in four pairings.** `assert` gives one `opts` to
+both halves, so an outer `(set/monotonic …)` states a class only when the two share it:
+
+| rule | exception | written as |
+|---|---|---|
+| default | default | `(exceptWhen Q R)` |
+| default | known-true | `(exceptWhen (set/monotonic Q) R)` |
+| known-true | default | `(exceptWhen Q R)`, and `(set/monotonic R)` on a line of its own |
+| known-true | known-true | `(set/monotonic (exceptWhen Q R))` |
+
+The third takes two lines because no wrapper weakens a half, and `mark-premise` resolves a
+premise asserted twice to the stronger class. The stored meta is `(exceptWhen Q
+(sentexHandle H))` with `Q` in the rule's canonical variables, so the export restores `Q`
+through the rule's varmap.
+
+**An export holds premises and inert sentexes, never handles, in content order.** A
+derived sentex is written nowhere, because a reload would hold it against retraction of
+everything it followed from. A handle at a reference position is written `(ist Cx S)`, the
+named sentex's context and sentence, which the load resolves as `assert` resolves a reference
+([canonicalization.md](canonicalization.md#a-reference-to-a-stored-sentex)). A record
+naming a handle at any other position, or one no stored record holds, is skipped and counted. Files are named for contexts and forms are ordered by content
+(`nm/by-print-key`), so two KBs holding the same knowledge export byte-identical files
+([defenses.md](defenses.md)). A dump (`export!` and `import!`) restores every record at its
+own handle instead.
+
+**A load is one order-insensitive pass.** A file's blocks run in natural sort order of their
+terms, so a sentence can rest on content further down a file or in another file (a
+`transitive` mark under `tangiblePartOf`, read by a rule under `largerThan`). The loader
+asserts every `(genlCx …)` first, because a firing with no placement context is dropped as
+a `:no-placement` violation and nothing retries it. Every `(target_following_predicate P)`,
+`(arg P n sentence)` and `quotedArg` or `quotedArgAndRest` typing `sentex_handle_term` goes
+next, because a sentence at a position not yet declared a reference is stored as written.
+It then retries each entry a check refused while a round makes progress, and asserts the
+survivors without a catch so a genuinely ill-formed entry throws the error it has once
+everything that could help is stored.
 
 **A form the EDN reader refuses is refused by file and line.** An unbalanced form, an
 unknown `#tag` and a `#=` read-eval form are `:unreadable`, with `:file` and the `:line`

@@ -350,23 +350,31 @@ the narrower time is a subcontext of the one at the wider time with the same mon
 `(contextArgSubrelation CxTimeFn 1 genlMonad)` orders the other way round: with
 `(genlMonad CxSubStory CxStory)` stated, the application along `CxSubStory` is a
 subcontext of the one along `CxStory` at the same time. Two applications that differ in
-both arguments are ordered only through a third that differs from each in one argument,
-and only once that third context exists (a fact has been written into it).
+both arguments are ordered by the product: `(CxTimeFn CxSubStory (MonthFn 2000 1))` is a
+subcontext of `(CxTimeFn CxStory (YearFn 2000))`, and no slice between them need exist.
 
-Every application is a `time_slice_context`: `(result CxTimeFn time_slice_context)`
-classifies each slice, and `(genl time_slice_context context)`. `CxTimeFn`'s first argument
-is any `context`, so a slice can be sliced, and its second is a `time`. A `monad_context`
-is a context that is not a slice, such as `CxStory` taken over all of its time. No
-declaration types `CxTimeFn`'s first argument by it, and `(not (arg CxTimeFn 1
+`time.txt` states `(result CxTimeFn time_slice_context)` and `(genl time_slice_context
+context)`. A `cx/` mint writes no result type
+([context-nat.md](context-nat.md#the-cx-namespace-carries-the-context-role)), so neither
+`query` nor `ask` answers `(time_slice_context k)` of a slice `k` the engine minted.
+`CxTimeFn`'s first argument is any `context`, so a slice can be sliced, and its second is a
+`time`. A `monad_context` is a context that is not a slice, such as `CxStory` taken over
+all of its time. No declaration types `CxTimeFn`'s first argument by it, and `(not (arg CxTimeFn 1
 monad_context))` says so: a declared argument type entails membership, so that
 declaration would make every context written in the first argument a `monad_context`.
-Nothing derives `monad_context`, since "not a slice" is negation as failure, so a KB
-states it of its monads. `CxMonadOfFn` and `CxTimeOfFn` take a context apart, with
+`monad_context` is derived and never stated. A backward rule concludes it of a believed
+`context` that no `CxTimeFn` `natFormula` names and that is not a believed
+`time_slice_context`, both read by `unknown` ([naf.md](naf.md)). The `natFormula` conjunct
+covers the slices the engine mints. A query answers `(monad_context CxRealWorld)`, since `core.txt` states `(context CxRealWorld)`.
+`ask` expands no rule and does not answer it.
+`CxMonadOfFn` and `CxTimeOfFn` take a context apart, with
 `cxMonadOf` and `cxTimeOf` as their corresponding predicates: the monad of `(CxTimeFn
 CxStory (YearFn 2000))` is `CxStory` and its time is `(YearFn 2000)`. `genlMonad` orders
-two contexts by their monads alone, as `subintervalOf` orders times alone. A stated
-`genlMonad` orders `CxTimeFn` applications, as above, and not the two contexts
-themselves.
+two contexts by their monads alone, as `subintervalOf` orders times alone. A monad's
+time is `Forever`, so the producer orders the slices along two monads by a `genlCx` path
+between them as by a stated `genlMonad`
+([context-nat.md](context-nat.md#the-bounded-r-oracle--no-proof-inside-the-relabel-loop)).
+A stated `genlMonad` orders `CxTimeFn` applications, and not the two contexts themselves.
 
 `Forever` is the time interval that contains every time, and the time of every
 `monad_context`. Backward rules answer `(subintervalOf ?interval Forever)` for each

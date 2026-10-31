@@ -25,18 +25,10 @@
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.io.export :as export]
             [vaelii.impl.io.import :as imp]
-            [vaelii.impl.protocols :as p])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+            [vaelii.impl.protocols :as p]
+            [vaelii.test-util :as tu]))
 
 ;;; ── scaffolding ───────────────────────────────────────────────────────
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-bulk-" nm "-") (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 ;;; ── a store that bulk-loads ───────────────────────────────────────────
 
@@ -160,13 +152,13 @@
 (defn- with-dump
   "Build a KB, export it, and call `(f dump)`."
   [f]
-  (let [dir (temp-dir "dump")]
-    (rm-rf! dir)                                    ; export! makes its own directory
+  (let [dir (tu/temp-dir "vaelii-bulk-" "dump" "-")]
+    (tu/rm-rf! dir)                                    ; export! makes its own directory
     (try
       (let [source (load! (fresh))]
         (export/export! source dir {:compression :none})
         (f dir source))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;;; ── the engine cannot tell ────────────────────────────────────────────
 

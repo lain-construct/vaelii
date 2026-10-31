@@ -26,8 +26,6 @@
   CxNaturalWorld, where the tests query them.  Social facts sit in a sibling
   CxSocialWorld, so a rule joining an owns-fact with a natural-world tangiblePartOf-fact
   finds no shared context and does not fire — the placement isolation the tests check.
-  The two join rules are the cast's own (`join-rules`): the starter states the same reach
-  as `transitiveInArgInverse` declarations, which store no conclusion to place.
 
   `load-into` layers onto a KB that already has the starter schema."
   (:require [vaelii.core :as v]
@@ -114,15 +112,6 @@
     (likes Ann Muffet)
     (birthYearOf Tom 1970) (birthYearOf Bob 1995)])
 
-(def join-rules
-  "Two forward rules joining on `?whole`, in CxWell, which both data contexts see.  Each
-  stores its conclusion in a context that sees both premises, so a join across the two
-  sibling data contexts stores nothing."
-  '[(set/forwardRule (implies (and (tangiblePartOf ?part ?whole) (locatedIn ?whole ?place))
-                              (locatedIn ?part ?place)))
-    (set/forwardRule (implies (and (owns ?p ?whole) (tangiblePartOf ?part ?whole))
-                              (owns ?p ?part)))])
-
 (defn load-cast
   "Assert the cast — topology, type memberships, and facts — into `kb` (already
   carrying the starter schema). Returns kb."
@@ -130,7 +119,6 @@
   (doseq [s topology]         (v/assert kb s 'CxWell))
   (doseq [s contexts]         (v/assert kb s 'CxUniverse))
   (doseq [s fluent-functions] (v/assert kb s 'CxWell))
-  (doseq [s join-rules]       (v/assert kb s 'CxWell))
   (doseq [s individuals]      (v/assert kb s 'CxNaturalWorld))
   (doseq [s natural-facts]    (v/assert kb s 'CxNaturalWorld))
   (doseq [s timed-day]        (v/assert kb s 'CxNaturalWorld))

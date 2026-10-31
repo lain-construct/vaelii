@@ -21,24 +21,16 @@
             [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
            [java.lang.ref WeakReference]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]
            [java.util.concurrent CountDownLatch Executors ScheduledExecutorService
             TimeUnit]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-disk-be-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
 
 (defn- with-tmp
   "Run `(f dir)` in a fresh temp directory, closing any disk stores opened on it (so
   the durability daemon doesn't outlive the dir) and deleting it afterwards."
   [f]
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-disk-be-")]
     (try (f dir)
-         (finally (backend/close-dir! dir) (rm-rf! dir)))))
+         (finally (backend/close-dir! dir) (tu/rm-rf! dir)))))
 
 (deftest an-overlapping-lock-in-this-process-is-diagnosed-as-ours
   ;; `tryLock` **throws** `OverlappingFileLockException` rather than returning nil when
@@ -134,9 +126,11 @@
     (fn [dir]
       (is (= :acquired (lock/acquire! dir)))
       (is (lock/held? dir))
-      (System/setProperty "vaelii.disk.lock" "false")
-      (try (lock/release! dir)
-           (finally (System/clearProperty "vaelii.disk.lock")))
+      (let [prior (System/getProperty "vaelii.disk.lock")]
+        (System/setProperty "vaelii.disk.lock" "false")
+        (try (lock/release! dir)
+             (finally (if prior (System/setProperty "vaelii.disk.lock" prior)
+                          (System/clearProperty "vaelii.disk.lock")))))
       (is (not (lock/held? dir)) "the entry went with the release")
       (is (= :acquired (lock/acquire! dir)) "and the OS lock was really given back")
       (lock/release! dir))))
@@ -188,6 +182,24 @@
         (is (= :unreleased (:type again))
             "and the directory is refused by name, not handed out or blamed on another channel")
         (swap! @#'lock/held dissoc path)))))
+
+(deftest a-lock-request-the-filesystem-answers-with-an-io-error-is-refused-as-unsupported
+  (doseq [[reason override?] [["Function not implemented" true] ["Input/output error" false]]]
+    (with-tmp
+      (fn [dir]
+        (let [e (with-redefs [lock/try-lock (fn [_] (throw (java.io.IOException. ^String reason)))]
+                  (try (lock/acquire! dir) nil (catch clojure.lang.ExceptionInfo t t)))]
+          (is (= {:type :lock-unsupported :dir (lock/canonical-dir dir) :reason reason}
+                 (ex-data e)))
+          (is (= override? (str/includes? (ex-message e) "vaelii.disk.lock=false"))
+              (str "the override is offered for a filesystem with no advisory locks alone: " reason))
+          (is (not (lock/held? dir)))
+          (is (= :acquired (lock/acquire! dir)) "the refused request leaves the lock file free")
+          (lock/release! dir))))))
+
+(deftest the-holder-tag-names-the-host-hostname-sets
+  (is (= "seat-a" (#'lock/host-name {"HOSTNAME" " seat-a\n"})))
+  (is (seq (#'lock/host-name {})) "an unset HOSTNAME takes the resolver's name"))
 
 ;; ---- the durability daemon's process-wide lifecycle ---------------------
 
@@ -488,6 +500,38 @@
                              nil
                              (catch clojure.lang.ExceptionInfo e (ex-data e)))))))))
 
+(deftest a-reopen-under-another-reasoner-set-is-refused
+  ;; Two seats over the same records reach different beliefs when one registers `:allen`
+  ;; and the other does not: the one without it finds `(before A C)` underivable.
+  (with-tmp
+    (fn [dir]
+      (tu/with-terms [EarlyEvent MidEvent LateEvent]
+        (let [opts {:backend :disk-log :dir dir}
+              late (list 'before EarlyEvent LateEvent)
+              open (fn [o] (try (v/open-kb (merge opts o))
+                                (catch clojure.lang.ExceptionInfo e (ex-data e))))]
+          (let [kb (v/open-kb opts)]
+            (v/add-reasoner kb :allen)
+            (v/assert kb (list 'before EarlyEvent MidEvent) 'CxUniverse)
+            (v/assert kb (list 'before MidEvent LateEvent) 'CxUniverse)
+            (v/close! kb))
+          (testing "an open naming no reasoner is refused, naming both sets"
+            (let [d (open {})]
+              (is (= :reasoner-mismatch (:type d)))
+              (is (= [:allen] (:stored d)))
+              (is (= [] (:requested d)))
+              (is (not (lock/held? dir)) "and the refused open released the lock")))
+          (testing "an open naming another set is refused"
+            (is (= :reasoner-mismatch (:type (open {:reasoners [:allen :rcc8]})))))
+          (testing "an open naming the recorded set registers it"
+            (let [kb (open {:reasoners [:allen]})]
+              (is (v/ask? kb late 'CxUniverse))
+              (v/close! kb)))
+          (testing ":reasoners :stored registers the recorded set"
+            (let [kb (open {:reasoners :stored})]
+              (is (v/ask? kb late 'CxUniverse))
+              (v/close! kb))))))))
+
 (deftest a-durable-index-built-against-other-records-is-refused
   ;; A `:disk-log` index over records on a server is a directory and a database joined by
   ;; nothing but one opts map, so the directory records the database it describes
@@ -562,9 +606,11 @@
                   ;; the crash shape is an *append-mode* log — compaction runs on
                   ;; close, and a crashed process never closed — so build one:
                   ;; compaction off for the write, marker deleted for the crash
-                  (System/setProperty "vaelii.disk.auto-compact" "off")
-                  (try (build! dir)
-                       (finally (System/clearProperty "vaelii.disk.auto-compact")))
+                  (let [prior (System/getProperty "vaelii.disk.auto-compact")]
+                    (System/setProperty "vaelii.disk.auto-compact" "off")
+                    (try (build! dir)
+                         (finally (if prior (System/setProperty "vaelii.disk.auto-compact" prior)
+                                      (System/clearProperty "vaelii.disk.auto-compact")))))
                   (.delete (java.io.File. (str dir "/index/clean.nippy")))
                   (lop! dir 64)
                   (is (reopened-finds-all? dir)))))))

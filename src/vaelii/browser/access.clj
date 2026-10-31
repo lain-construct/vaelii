@@ -78,7 +78,7 @@
        (def read-ops ~(mapv keyword names))))
 
 (defreads
-  sentexes-matching ask ask? sentex handle-of find-sentexes
+  sentexes-matching ask argue sentex handle-of find-sentexes
   in? believed? belief-status believed why-not
   why genls types contexts premise? defeat-class justification
   ;; one `genl` step each way, whatever installed the edge — a stated `genl` or a cover
@@ -136,6 +136,10 @@
   ;; into `violations`.  Computed on demand, so a caller asks for it rather than
   ;; receiving it, and a remote one pays a round trip for the pass
   exposed-clashes
+  ;; the seven readings about the knowledge rather than about a run, which `/quality`
+  ;; renders.  `:on-progress` is a fn and does not cross the wire, so a remote reading
+  ;; reports no phase and cannot be cancelled
+  kb-quality
   ;; qualitative constraint reasoning: the network a context's facts constrain, and one
   ;; arrangement out of it
   qualitative-network qualitative-scenario

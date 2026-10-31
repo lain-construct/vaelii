@@ -20,17 +20,9 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.solve :as solve]
             [vaelii.test-util :as tu])
-  (:import [java.io File RandomAccessFile]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
+  (:import [java.io RandomAccessFile]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-oplog-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
 
 (defn- with-log
   "Call `(f lkb log dir)`, where `lkb` is `kb` attached to an operation log in a fresh
@@ -38,11 +30,11 @@
   directory removed afterwards."
   ([kb f] (with-log kb nil f))
   ([kb opts f]
-   (let [dir (tmpdir)
+   (let [dir (tu/tmpdir "vaelii-oplog-")
          log (oplog/open-log dir 0 opts)]
      (try (f (oplog/attach kb log) log dir)
           (finally (oplog/close-log! log)
-                   (rm-rf! dir))))))
+                   (tu/rm-rf! dir))))))
 
 (tu/deftest-kb a-write-to-an-older-record-fsyncs-its-frame-first
   (tu/with-terms [dog Fido Rex CxPets]

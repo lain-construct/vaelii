@@ -21,12 +21,10 @@
 ;; across configurations (`tu/shipped-fixture`).
 (use-fixtures :each (tu/neutral-fresh tu/fresh) (tu/shipped-fixture [#'plan/*enabled*]))
 
-(defn- permutations [coll]
-  (if (<= (count coll) 1)
-    (list (vec coll))
-    (for [i (range (count coll))
-          p (permutations (concat (subvec (vec coll) 0 i) (subvec (vec coll) (inc i))))]
-      (into [(nth coll i)] p))))
+(defn- permutations
+  "Every ordering of `coll` as a vector: `prove` reads a vector as a conjunction and a list as one literal."
+  [coll]
+  (map vec (tu/permutations coll)))
 
 (defn- unplanned
   "Run `f` with the planner inert, for comparison against the planned run."

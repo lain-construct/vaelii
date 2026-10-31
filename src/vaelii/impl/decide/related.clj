@@ -16,8 +16,10 @@
 
 ;; ---- declarations over related types -------------------------------------------
 ;;
-;; The `disjoint` alone is a one-member hard clash, and the cover and its `disjoint` a
-;; two-member one.  Both are found from the declarations' own arguments, read off the argument trie: the
+;; A `disjoint` over related types forms one nogood per route of `genl` edges relating its
+;; arguments, whose members are the declaration and the route's supporters, and the cover
+;; and its `disjoint` a two-member one; every member is weighed (docs/reference.md, decision
+;; 8).  Both are found from the declarations' own arguments, read off the argument trie: the
 ;; `disjoint`s naming a type at argument 1 or 2, and the covers naming a whole at argument
 ;; 1.  `:related-dj` keeps the `disjoint`s whose arguments are related over the unscoped
 ;; `genl` closure, read again for the declarations naming a type at or below the lower end
@@ -209,27 +211,92 @@
                         (or (:related-orth c) #{}) orths))
       (journal/note (keys orths))))
 
+(defn- edge-fact?
+  "Is the stored fact `sx` a `genl` edge between two plain symbols, or a cover, which
+  installs its parts' edges (`tax/installed-edges`)?"
+  [sx]
+  (let [s (:sentence sx)]
+    (boolean (and (nil? (:antecedent sx)) (seq? s)
+                  (or (and (= 'genl (first s)) (= 3 (count s)) (sx/plain-symbol? (second s)))
+                      (cover-args sx))))))
+
+(defn- sxs-kind
+  "The kind of the related-types nogood over the stored facts `sxs`: `:cover` for a cover
+  beside a `disjoint`, `:disjoint` for one `disjoint` alone or beside the `genl` edges or
+  covers of a route relating its arguments, else nil.  A `disjoint` whose route is one cover
+  is the cover pair."
+  [sxs]
+  (let [[ds others] ((juxt filter remove) disjoint-args sxs)]
+    (when (= 1 (count ds))
+      (cond
+        (and (= 1 (count others)) (cover-args (first others))) :cover
+        (every? edge-fact? others)                             :disjoint))))
+
 (defn kind-of
   "The kind of the related-types nogood over the member handles `ms`, read off their
-  sentences through the unscoped closures `w`: `:disjoint` for one `disjoint`, `:orthogonal` for
-  one fact stating an `orthogonal` (`orthogonal-args`), `:cover` for a cover beside a
-  `disjoint`, else nil."
+  sentences through the unscoped closures `w`: `:orthogonal` for one fact stating an
+  `orthogonal` (`orthogonal-args`), else `sxs-kind`'s, else nil."
   [w recs ms]
   (let [sxs (keep #(p/get-sentex recs %) ms)]
     (when (= (count sxs) (count ms))
-      (case (count sxs)
-        1 (let [[sx] sxs]
-            (cond (disjoint-args sx)     :disjoint
-                  (orthogonal-args w sx) :orthogonal))
-        2 (when (and (some disjoint-args sxs) (some cover-args sxs)) :cover)
-        nil))))
+      (or (when (= 1 (count sxs)) (when (orthogonal-args w (first sxs)) :orthogonal))
+          (sxs-kind sxs)))))
+
+(defn- edge-routes
+  "Every acyclic route of `genl` edges from `lower` up to `upper` over the unscoped
+  relation, each as the supporter handles of its edges, one route per believed supporter of
+  each edge (`tax/genl-edge-supporters`): a `genl` fact and a cover installing one edge
+  are two routes, and neither covers the other.  The walk takes only the steps that end
+  at `upper` or below it, read over the unscoped closures `w` as `:related-dj` is kept;
+  the settle places each nogood at the readers that see its members
+  (`chain/place-related!`)."
+  [w lower upper]
+  (let [tax   (:tax w)
+        genl? (:genl?-global w)]
+    (letfn [(walk [u seen]
+              (if (= u upper)
+                [#{}]
+                (for [v     (tax/direct-genls-global tax u)
+                      :when (and (not (contains? seen v))
+                                 (or (= v upper) (genl? v upper)))
+                      h     (tax/genl-edge-supporters tax u v nil)
+                      route (walk v (conj seen v))]
+                  (conj route h))))]
+      (walk lower #{lower}))))
+
+(defn- edge-sets
+  "The member sets of the `disjoint` `h` over `[a b]`: the declaration and the supporters of
+  one route of `genl` edges from either argument up to the other (`edge-routes`), one set
+  per route."
+  [w h [a b]]
+  (into #{} (for [[s t] [[a b] [b a]]
+                  :when ((:genl?-global w) s t)
+                  route (edge-routes w s t)
+                  :when (seq route)]
+              (conj route h))))
+
+(defn- spanned
+  "The `disjoint`s of `c`'s `:related-dj` that a route through one of the `genl` edges
+  `es` can relate: one argument at or below the edge's lower end and the other at or above
+  its upper end.  A supporter arriving at or leaving an edge that stays active moves no
+  edge (`tax/moves-since`) and still adds or removes a route."
+  [kb w c es]
+  (let [genl? (:genl?-global w)
+        sub?  (fn [x y] (or (= x y) (genl? x y)))
+        hit?  (fn [[a b]] (some (fn [[s t]] (or (and (sub? a s) (sub? t b))
+                                                (and (sub? b s) (sub? t a))))
+                                es))]
+    (into [] (keep (fn [[h ab]] (when (hit? ab) h)))
+          (read-args kb disjoint-args (:related-dj c)))))
 
 (defn- note-declaration!
   "Keep the related-types rows in step with the fact `sx` arriving (`stored?`) or leaving.
   A `disjoint` enters `:related-dj` when `::genl-seen` holds a generation it is read under
   (`sync-related` reads every one otherwise) and its arguments are related, and leaves it
   with its record; a `disjoint` or a cover arriving or leaving queues the members of the
-  cover pairs it is a side of, read off the stored other side it names (`pairs-of`).  A fact stating an
+  cover pairs it is a side of, read off the stored other side it names (`pairs-of`), and a
+  `genl` edge or a cover arriving or leaving queues the `disjoint`s of `:related-dj` its
+  edges can relate (`spanned`).  A fact stating an
   `orthogonal` enters `:related-orth` likewise when it is contradicted somewhere, and a
   `siblingDisjointException` either way queues the contradicted `orthogonal`s with an
   argument at or below one of its own: its exemption moves where they are placed.  A
@@ -260,9 +327,11 @@
                                  :else c)
                          (seq prs) (noted prs)))))
 
-      (cover-args sx)
-      (let [prs (into #{} cat (pairs-of kb sx))]
-        (when (seq prs) (swap! cands noted prs)))
+      (edge-fact? sx)
+      (let [prs (into #{} cat (pairs-of kb sx))
+            sps (when (seq (:related-dj @cands))
+                  (spanned kb w @cands (tax/installed-edges (:sentence sx))))]
+        (when (or (seq prs) (seq sps)) (swap! cands noted (into prs sps))))
 
       :else
       (let [ab (orthogonal-args w sx)]
@@ -379,19 +448,25 @@
 
 (defn nogoods-holding
   "The related-types nogoods with the declaration `h` among their members, each
-  `{:members #{h} :kind k}`: a `disjoint` of `:related-dj` in the candidate index `c`,
-  kind `:disjoint`; each cover pair holding `h`, read off the index (`pairs-holding`),
-  kind `:cover`; and an `orthogonal` of `:related-orth`, kind `:orthogonal`."
-  [kb c h]
-  (cond-> (mapv (fn [pr] {:members pr :kind :cover}) (pairs-holding kb h))
-    (contains? (:related-dj c) h)   (conj {:members #{h} :kind :disjoint})
-    (contains? (:related-orth c) h) (conj {:members #{h} :kind :orthogonal})))
+  `{:members ms :kind k}`: for a `disjoint` of `:related-dj` in the candidate index `c`,
+  one per route relating its arguments (`edge-sets`), kind `sxs-kind`'s; each cover pair
+  holding `h`, read off the index (`pairs-holding`), kind `:cover`; and an `orthogonal`
+  of `:related-orth`, kind `:orthogonal`.  `w` is the unscoped closures map
+  (`decide/unscoped-closures`)."
+  [kb w c h]
+  (let [recs (:records kb)]
+    (cond-> (mapv (fn [pr] {:members pr :kind :cover}) (pairs-holding kb h))
+      (contains? (:related-dj c) h)
+      (into (keep (fn [ms] (when-let [k (sxs-kind (keep #(p/get-sentex recs %) ms))]
+                             {:members ms :kind k})))
+            (some->> (p/get-sentex recs h) disjoint-args (edge-sets w h)))
+      (contains? (:related-orth c) h) (conj {:members #{h} :kind :orthogonal}))))
 
 (defn routes
   "Each way the unscoped taxonomy convicts the related-types nogood `ng`, as
   `{:links [[sub super]] :keys #{k} :pair [x y]}` (`tax/separation-routes`' shape): a
-  `disjoint` over `a` and `b`, the subsumption between them in each direction the
-  closure holds; a cover pair, none; an `orthogonal` over one type twice, none, and
+  `disjoint` and the edges of a route, or a cover pair, none, since every fact it reads
+  is a member; an `orthogonal` over one type twice, none, and
   otherwise the subsumption between the two in each direction the closure holds and
   each separation of the two (`tax/separation-routes`).  A fact whose functor `f` is a
   `genl` of `orthogonal` adds the subsumption `f` to `orthogonal` to each route.  `w` is
@@ -403,8 +478,7 @@
                             (genl? a b) (conj {:links [[a b]]})
                             (genl? b a) (conj {:links [[b a]]})))]
     (case kind
-      :disjoint   (some-> (disjoint-args sx) links)
-      :cover      [{:links []}]
+      (:disjoint :cover) [{:links []}]
       :orthogonal (when-let [[a b :as ab] (orthogonal-args w sx)]
                     (let [f  (nm/functor (:sentence sx))
                           rs (if (= a b)

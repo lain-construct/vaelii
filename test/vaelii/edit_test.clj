@@ -411,12 +411,14 @@
                          :only-records (remove via-edit via-records)}))))))))
 
 (deftest edit-records-refuses-before-writing
-  (tu/with-terms [p q A CxThe]
+  (tu/with-terms [p q w A CxThe]
     (let [ex-type (fn [f] (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))]
       (tu/with-cleared-kb [kb tu/fresh]
         (let [fa (v/assert kb (list p A) CxThe)
               fq (v/assert kb (list q A) CxThe)
-              ex (v/assert kb (list 'except (list 'sentexHandle fq)) CxThe)]
+              ex (v/assert kb (list 'except (list 'sentexHandle fq)) CxThe)
+              rb (v/assert kb (list 'implies (list p '?x) (list q '?x)) CxThe)
+              rl (v/assert kb (list 'set/lazyForwardRule (list 'implies (list q '?x) (list w '?x))) CxThe)]
           (testing "a KB with belief"
             (is (= :belief-built (ex-type #(v/edit-records! kb {:remove [fa]})))))
           (let [kb2 (tu/test-kb)]
@@ -427,6 +429,9 @@
               (is (= :unknown-option (ex-type #(v/edit-records! kb2 {:direction {fa :forward}}))))
               (is (= :unknown-option (ex-type #(v/edit-records! kb2 {:direction {fa :sideways}}))))
               (is (= :unknown-handle (ex-type #(v/edit-records! kb2 {:direction {99999 :forward}})))))
+            (testing "a direction onto or off lazy-forward"
+              (is (= :unknown-option (ex-type #(v/edit-records! kb2 {:direction {rb :lazy-forward}}))))
+              (is (= :unknown-option (ex-type #(v/edit-records! kb2 {:direction {rl :backward}})))))
             (testing "the same batch run again completes it and counts what is gone"
               (is (= 1 (:removed (v/edit-records! kb2 {:remove [fa]}))))
               (is (= {:removed 0 :absent 1}

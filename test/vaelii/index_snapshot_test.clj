@@ -36,20 +36,13 @@
             [vaelii.impl.types.snapshot :as snapshot-types]
             [vaelii.test-util :as tu])
   (:import [java.io File RandomAccessFile]
-           [java.nio.file CopyOption Files Paths StandardCopyOption]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-snapshot-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (File. dir)))] (.delete ^File f)))
+           [java.nio.file CopyOption Files Paths StandardCopyOption]))
 
 (defn- copy-tree!
   "Copy every regular file of `from` into a fresh `to` — how a test takes an image aside
   and puts it back, which is the only defensible way to produce a *stale* one."
   [^String from ^String to]
-  (rm-rf! to)
+  (tu/rm-rf! to)
   (.mkdirs (File. to))
   ;; hoisted and hinted: the options array is the same on every file, and unhinted it
   ;; reads as Object at the call, which is a reflective `Files/copy` per file
@@ -70,11 +63,11 @@
   that wants the pairing that names no image opens `{:index :columnar}` over the same
   helper."
   [f]
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-snapshot-")]
     (try (f dir)
          (finally
            (backend/close-dir! dir)
-           (rm-rf! dir)))))
+           (tu/rm-rf! dir)))))
 
 (defn- with-properties
   "Run `f` with each system property set, restoring every one afterwards."
@@ -380,7 +373,7 @@
                   (is (= want (answers kb4)) "and the records answered instead")
                   (is (v/ask? kb4 '(fish SnapNemo) 'CxUniverse)
                       "including the fact the stale image had never heard of")))
-              (finally (rm-rf! aside)))))))))
+              (finally (tu/rm-rf! aside)))))))))
 
 (deftest a-cleared-store-declines-an-image-of-the-records-it-held
   (tu/with-snapshot-platform
@@ -405,7 +398,7 @@
               (is (= 1 rebuilds) "the records fingerprint caught it")
               (is (v/ask? kb3 '(cat SnapTiddle) 'CxUniverse))
               (is (empty? (v/sentexes-matching kb3 '(dog ?x) 'CxUniverse))))
-            (finally (rm-rf! aside))))))))
+            (finally (tu/rm-rf! aside))))))))
 
 ;; ---- every other mismatch class, one at a time --------------------------
 
@@ -561,7 +554,7 @@
           (fn [dir]
             (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
             (backend/close-dir! dir)
-            (rm-rf! (snap/snapshot-root dir))
+            (tu/rm-rf! (snap/snapshot-root dir))
             (let [kb    (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
                   saves (atom 0)
                   in    (atom nil)
@@ -833,7 +826,7 @@
   ;; Only the image's publish is implicated.  A guard that reached the records or the
   ;; lock would turn a working platform into a refused one on the strength of one index
   ;; representation, so the pairing the refusal names as the remedy has to work there.
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-snapshot-")]
     (try
       (on-windows
        (fn []
@@ -845,7 +838,7 @@
            (let [[kb2 rebuilds] (opening-columnar dir)]
              (is (= 1 rebuilds) "the index rebuilds from the records, which is what :columnar is")
              (is (= want (answers kb2)))))))
-      (finally (backend/close-dir! dir) (rm-rf! dir)))))
+      (finally (backend/close-dir! dir) (tu/rm-rf! dir)))))
 
 (deftest an-image-on-a-platform-that-cannot-refresh-it-is-discarded
   (tu/with-snapshot-platform
@@ -1005,7 +998,7 @@
   ;; short and every id past the pair moves, which is the shift above — but this one the
   ;; load can do something about, so it says which cause it is and rewrites the log rather
   ;; than condemning the image again on every open.
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-snapshot-")]
     (try
       (let [log (f/open-log (str dir "/tokens.log"))]
         (try (doseq [t ['aToken 1970 (int 1970)]] (f/append-record! log t))
@@ -1018,7 +1011,7 @@
         (is (= 2 (:entries d)) "and what the rewritten log holds"))
       (testing "and the rewritten log reloads whole, so the next open maps again"
         (is (= 2 (#'snap/load-dictionary! (tok/token-dict) dir))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-token-log-holding-a-duplicate-is-repaired-rather-than-rediagnosed
   (tu/with-snapshot-platform

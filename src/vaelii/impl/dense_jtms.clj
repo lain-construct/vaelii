@@ -1,100 +1,33 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.dense-jtms
-  "The dense truth-maintenance network — the `:tms :dense` option, the default since
-  0.9.0 (it holds the network in ~3.8× less RAM at corpus scale; docs/density.md).
+  "The dense truth-maintenance network, `:tms :dense`, the default. A node is a bit in a bitmap
+  and, where it has one, an entry in a primitive-keyed map, instead of a map per node
+  (docs/density.md, Phase 3).
 
-  The JTMS is **always resident**, so its footprint is a wall in its own right
-  (measured: ~467 B/node, which is ~43 GB at 100M nodes), and the decomposition
-  (`lein bench-jtms`) says exactly where the bytes are:
-
-  ```
-    nodes  71%   <- 310 B/node of it is the per-node MAP OBJECT and its HAMT slot
-    in     13%   <- 100% dense; RoaringBitmap measured 384x here
-  ```
-
-  Two findings shape everything below.  **The per-node scalars are already free** —
-  stripping `:depth`, `:premise?` or `:datum` from the reference releases *nothing*,
-  because they are shared cached objects (small `Long`s, keywords, booleans).  So the
-  lever is not \"shrink the fields\", it is \"stop having a map per node\": a node here
-  is a bit in a bitmap and, where it has one, an entry in a primitive-keyed map.  And
-  **belief sets are the opposite regime from the index's postings** — `bench-postings`
-  found RoaringBitmap a *loss* (1.07-1.45x) on the index's millions of tiny postings,
-  while `:in` holds nearly every node and compresses 384x.  Both measurements are
-  right; density is the variable.
-
-  ```
     nodes / premises / in / blocked / forced mono, out, void, held
-    touched / touched-in / touched-new / touched-out           RoaringBitmap
-    depths                                    Int2IntOpenHashMap  (absent => 0)
-    supports / consequences   Int2ObjectOpenHashMap<IntPostings>  (absent => empty)
-    a justification            columns keyed by id, never an object  (see below)
-    superseded                             atom of a persistent map  (sparse)
-  ```
+    touched / touched-in / touched-new / touched-out         RoaringBitmap
+    depths                                  Int2IntOpenHashMap  (absent => 0)
+    supports / consequences Int2ObjectOpenHashMap<IntPostings>  (absent => empty)
+    a justification         columns keyed by id, never an object
+    superseded                           atom of a persistent map  (sparse)
 
-  The depths, the two adjacency maps and the three justification columns keyed by id are
-  the fact-scaled half of that table, and the network reaches them through the
-  `TmsColumns` interface rather than as fields.  `HeapColumns` holds them in the fastutil
-  maps above.  Every relabel, sweep and mutation below is written once against the
-  interface, so an implementation that holds the six elsewhere runs the same fixpoint.
+  The depths, the two adjacency maps and the three justification columns are reached
+  through the `TmsColumns` interface, which `HeapColumns` implements with the fastutil maps,
+  so every relabel, sweep and mutation is written once against the interface. The defeat
+  classes are one bitmap because the lattice has two elements.
 
-  Two of those deserve their reasons.  **The defeat-classes are one bitmap** because
-  the lattice has exactly two elements (`vaelii.impl.strength` — monotonic > default,
-  and the reference already stores only the entries *above* the bottom), so \"the
-  class map\" is precisely \"the set of monotonic datums\".  **Adjacency reuses Phase
-  1's `IntPostings`** (a sorted `int[]` promoted to a bitmap past 128) rather than a
-  bare `int[]`: a node's supports are usually one or two, but the *consequences* of a
-  much-used premise — a rule's node lists every justification it licensed — grow
-  without bound, and an array-copy insert would make loading such a
-  rule quadratic.
+  Concurrency: a `StampedLock` gives a reader beside the writer a consistent snapshot.
+  Writers take the write lock. Point reads (`in?`) are optimistic, validated after the fact
+  and redone under the shared read lock if a write intervened; iterating reads take the
+  shared lock. The lock is non-reentrant, so every protocol method takes it once and calls
+  only raw-field helpers, and every read body is side-effect-free.
 
-  ## Why this is a second implementation and not a swap
-
-  `RoaringBitmap` is mutable, and the reference is an atom over one persistent map
-  whose all-or-nothing mutation `jtms_atomicity_test` asserts.  A mutable bitmap inside
-  that value would break `swap!`'s retry semantics and let a reader observe a
-  half-applied relabel — so the dense structures cannot be dropped into the reference,
-  and the two ship side by side behind `vaelii.impl.jtms-protocol/Tms`.  That is the same shape
-  the index took (`:memory-columnar` is a whole second trie beside `KvIndexStore`),
-  and it carries the same obligation: the algorithms are duplicated here against the
-  dense structures, so `jtms_dense_oracle_test` proves the two answer identically
-  under randomized operation streams before either is trusted.
-
-  **Concurrency.** A `StampedLock` gives the incidental reader the consistent snapshot the
-  single-writer contract owes one — \"a reader thread beside a writer thread (the web
-  browser over a REPL's KB) is the supported shape\" (docs/storage.md), and the atom-
-  over-persistent-map reference gives that reader a consistent snapshot for free.  The dense
-  network mutates its bitmaps in place, so it earns the same guarantee with a lock, and
-  the lock is chosen so the engine's own single writer never pays for it.  Writers take
-  the write lock — serializing exactly as the reference's `swap!` retry does.  Point
-  reads (`in?`, the hottest call in the engine, one per candidate on the match path) run
-  **optimistically**: no lock in the steady state, since writes are bursty and reads are
-  the hot path, validated after the fact and redone under a shared read lock only if a
-  write intervened or the lock-free read saw torn state.  Iterating reads take the shared
-  lock directly — they already allocate O(nodes), so the acquisition disappears into the
-  materialization, and an unlocked walk over a bitmap a writer is rewriting in place could
-  tear.  A reader never observes a partially-applied relabel; it sees the state either
-  fully before or fully after, exactly as it would on the reference.  The lock is
-  **non-reentrant**: every protocol method below takes a lock once and calls only
-  raw-field helpers (no method re-enters), and every read body is side-effect-free (so the
-  optimistic retry is safe).
-
-  **Precondition.** `ensure-node` precedes `add-justification`, and a justification's
-  antecedents already have nodes — which every engine path does.  (The reference
-  tolerates the violation by growing a malformed phantom node; neither implementation
-  is specified there.)
-
-  **Limit.** The bitmaps and the fastutil maps are `int`-keyed, so a handle or
-  justification id must fit a 32-bit int: the ceiling is 2^31-1 = 2,147,483,647.
-  Handles are allocated in assertion order and never reused, so this bounds a KB's
-  *cumulative* allocations (~2.1B), not its live node count — 21x the engine's 100M
-  target, but reachable by a long-lived writer that churns assert/retract for long
-  enough.  Crossing it throws `:type :handle-ceiling`, an actionable error naming the
-  ceiling and carrying `:remedy {:tms :reference}` (`check-handle!`, at the two entry
-  points a new id enters), rather than the bare \"integer overflow\" the cast would raise — and never a silent truncation
-  that would collide two handles, so belief is never corrupted.  A KB that expects to
-  churn past 2^31 sets `{:tms :reference}`, whose `Long`-keyed persistent maps have no
-  such ceiling.  This is measured in density.md."
+  `ensure-node` precedes `add-justification`, and a justification's antecedents already have
+  nodes. Handles and justification ids must fit a 32-bit int; crossing 2^31-1 throws
+  `:type :handle-ceiling` with `:remedy {:tms :reference}` (`check-handle!`).
+  `jtms_dense_oracle_test` proves the two networks answer identically. See docs/nmtms.md,
+  \"Two representations of the same network\"."
   (:require [taoensso.nippy :as nippy]
             [vaelii.impl.io.thaw :as safe]
             [vaelii.impl.jtms :as jtms]
@@ -151,30 +84,14 @@
 
 ;; ---- the justification columns ------------------------------------------
 ;;
-;; A justification is not stored as an object.  Its belief-relevant fields are held in
-;; primitive columns keyed by justification id — `jtms/graph-just` projects on the way
-;; in, `just-record` rebuilds one only when a caller asks, which no relabel does.  The
-;; decomposition
-;; (`lein bench-jtms`, a rules-heavy corpus at 3.6 justifications per node) is what
-;; picks the columns:
-;;
-;; ```
-;;   structure     118 B   the record object + its map slot   -> gone
-;;   bindings       80 B   never read by belief               -> the record store's
-;;   antecedents    73 B   a vector of boxed handles          -> one int[]
-;;   consequence     6 B                                      -> an int column
-;;   id/informant/strength       0 B   shared objects already
-;; ```
-;;
-;; `informant` splits in two because it is either a rule handle or a symbol
-;; (`:premise`, a special-predicate name).  Both columns' values are compared with `=`
-;; and never arithmetic, so an int column and an object column answer alike; the int
-;; one exists so the common case cannot depend on a caller happening to share its
-;; boxed handle.  A rule handle lives in `j-inf` alone: `j-antes` never repeats it
-;; (`jtms/graph-just`), and `valid?` and the adjacency read the two columns together.
-;; `strength` is one bitmap for the same reason the class map is: the lattice has two
-;; elements.  `subsumptions` is a sparse object column like the symbol informants: only a
-;; firing that matched a literal through a `genl` pair has one, and the dedup key reads it.
+;; A justification is not stored as an object. Its belief-relevant fields are primitive
+;; columns keyed by justification id: `jtms/graph-just` projects on the way in, and
+;; `just-record` rebuilds one only when a caller asks (docs/density.md). `informant` splits
+;; in two because it is either a rule handle or a symbol (`:premise`, a special-predicate
+;; name); both columns' values are compared with `=`. A rule handle lives in `j-inf` alone,
+;; and `valid?` and the adjacency read the two columns together. `strength` is one bitmap,
+;; as the class map is. `subsumptions` is a sparse object column: only a firing that matched
+;; a literal through a `genl` pair has one, and the dedup key reads it.
 
 (def ^:private ^:const no-informant
   "The `informant` column's absent marker — a justification whose informant is not a
@@ -699,22 +616,12 @@
     seen))
 
 (defn- region-fixpoint!
-  "Least fixpoint of IN over `region`, accumulated **into** `acc` — the live bitmap, with
-  the region already cleared out of it, so what it holds on entry is the boundary and the
-  fixpoint only ever adds region members back.
-
-  Starting from nothing believed inside the region and only ever adding is what keeps
-  support well-founded, and a least fixpoint is unique — so going local costs no order
-  independence.  Semi-naive: `valid?` is monotone in `in`, so a justification is
-  retried only when one of its antecedents newly enters, reached through the stored
-  inverse edge.
-
-  **It accumulates into the live bitmap rather than into a clone of it, and that is what
-  makes a relabel proportional to the region rather than to the graph.**  A clone is
-  proportional to the *believed set*, so adding one premise to a KB with ten million
-  believed datums copied ten million bits — and a rebuild, which adds a premise per
-  stored premise, was quadratic.  Measured: per-premise cost rose 14.9× across three
-  million premises where the reference representation stayed flat."
+  "Least fixpoint of IN over `region`, accumulated into `acc`, the live bitmap with the region
+  already cleared out of it, so what it holds on entry is the boundary and the fixpoint only
+  adds region members back. Semi-naive: `valid?` is monotone in `in`, so a justification is
+  retried only when one of its antecedents newly enters, through the stored inverse edge.
+  Accumulating into the live bitmap, not a clone, keeps a relabel proportional to the region
+  (docs/defenses.md, \"Locality is a claim about every representation\")."
   [^DenseTms this ^RoaringBitmap region cands ^RoaringBitmap acc]
   (let [blocked ^RoaringBitmap (.-blocked this)
         out     ^RoaringBitmap (.-f-out this)]
@@ -737,17 +644,11 @@
             (recur stack)))))))
 
 (defn- region-classes!
-  "Defeat-classes for `region` under `in`, as a least fixpoint — every in-region IN
-  node starts at the lattice's bottom and the recursive equation is iterated to
-  stability, so the answer is unique and cannot depend on visit order.
-
-  `classes` is the live monotonic bitmap with the region already cleared out of it, and
-  is mutated in place for the same reason `region-fixpoint!` is: an OUT datum has no
-  class and an IN one restarts at `:default` (absent from the bitmap), so what is left
-  outside the region is boundary that does not move.
-
-  The bitmap *is* the whole class map: the lattice has two elements.  A boundary node
-  whose class could move would have an antecedent in the region and so would be in it."
+  "Defeat-classes for `region` under `in`, as a least fixpoint: every in-region IN node starts
+  at the lattice's bottom and the equation is iterated to stability, so the answer cannot
+  depend on visit order. `classes` is the live monotonic bitmap with the region already
+  cleared out of it, mutated in place; an OUT datum has no class and an IN one restarts at
+  `:default` (absent from the bitmap)."
   [^DenseTms this ^RoaringBitmap region ^RoaringBitmap in ^RoaringBitmap classes]
   (let [members (RoaringBitmap/and region in)
         ;; the nodes on the stack: a node a rise reaches through several of its
@@ -948,15 +849,10 @@
   nil)
 
 (defn- add-just!
-  "Record `just` and relabel only what it actually moves.
-
-  The fast path is what keeps a recursive forward load linear.  A *redundant*
-  justification — one whose consequence is already believed and which confers no
-  stronger a class than it already holds (or is not even valid) — moves nothing: an
-  already-IN node feeds its consequences identically on one witness or two.  So the
-  forward closure is walked once, when a fact is *first* derived (a brand-new node has
-  no consequences yet, so its region is a singleton), and every later re-derivation by
-  another path is a no-op.  Any real change still takes the full resettle."
+  "Record `just` and relabel only what it moves. A redundant justification (its consequence
+  already believed, conferring no stronger a class, or not valid) moves nothing, so the
+  forward closure is walked once, when a fact is first derived. Any real change takes the
+  full resettle."
   [^DenseTms this just]
   (let [{:keys [id informant antecedents consequence strength subsumptions]} (jtms/graph-just just)
         jid   (int (check-handle! id "justification id"))
@@ -1031,11 +927,11 @@
             (when (seq s) (resettle! this s))))))))
 
 (defn- set-blocked!
-  "Replace the blocked set and relabel what moved.  Only the justifications whose
-  blocked status actually changed can move a label, so they alone seed the region —
-  a call that changes nothing does no work at all."
+  "Replace the blocked set with the ids of `jids` the network holds, and relabel what moved.
+  Only the justifications whose blocked status actually changed can move a label, so they
+  alone seed the region — a call that changes nothing does no work at all."
   [^DenseTms this jids]
-  (let [want    (reduce rb-add! (rb) jids)
+  (let [want    (RoaringBitmap/and (reduce rb-add! (rb) jids) (.-jids this))
         blocked ^RoaringBitmap (.-blocked this)
         changed (RoaringBitmap/xor want blocked)]
     (when-not (.isEmpty changed)
@@ -1111,19 +1007,12 @@
     (when-not (== inf no-informant) (.removeDependent cols (int inf) k))))
 
 (defn- sweep!
-  "Collect the datums in `suspects` that are no longer *structurally* derivable and are
-  not premises, tear them and every justification touching them out of the graph, and
-  return the removals for the caller to apply to its own stores.  A survivor that lost a
-  justification, and each of `raised`, has its depth re-solved (`redepth!`).
-
-  A node OUT is one with no valid derivation, since nothing forces a node OUT: blocking
-  suppresses a derivation, which is what makes this the garbage collector for an
-  excepted conclusion as well as for a retracted one.
-
-  Region-local: the justifications to tear down are read off the dead nodes' own
-  adjacency, never by scanning `jids` — `exceptWhen` blocks on ordinary fact arrival,
-  so sweeping is routine, and a sweep that scanned the graph would make a run of them
-  quadratic."
+  "Collect the datums in `suspects` that are no longer structurally derivable and are not
+  premises, tear them and every justification touching them out of the graph, and return the
+  removals for the caller to apply to its own stores. A survivor that lost a justification,
+  and each of `raised`, has its depth re-solved (`redepth!`). Nothing forces a node OUT, so
+  this also collects an excepted conclusion. Region-local: the justifications come off the
+  dead nodes' own adjacency, never a scan of `jids`."
   [^DenseTms this ^RoaringBitmap suspects raised]
   (let [ground ^RoaringBitmap (.-in this)
         prem   ^RoaringBitmap (.-premises this)
@@ -1316,14 +1205,10 @@
 ;; ---- the byte image -------------------------------------------------------
 ;;
 ;; The whole network as bytes, written between operations and read back into an empty
-;; network with no relabel: every label, class, block and supersession is read,
-;; not recomputed.  `vaelii.impl.reasoning-image` is the caller, and decides whether an
-;; image may be installed at all; this section only writes and reads one.
-;;
-;; The touched sets are not written.  An image is taken between operations, and a
-;; reloaded network starts its touched sets empty, as a freshly settled one does.  Keys are
-;; written in sorted order, so two images of equal networks are equal bytes.  A zero depth
-;; is not written: `depths` answers an absent key as 0.
+;; network with no relabel: every label, class, block and supersession is read, not
+;; recomputed. `vaelii.impl.reasoning-image` decides whether an image may be installed. The
+;; touched sets are not written, and keys are written in sorted order, so two images of
+;; equal networks are equal bytes. A zero depth is not written.
 
 (def image-version
   "The byte image's layout number.  `read-image!` refuses any other, so an image of

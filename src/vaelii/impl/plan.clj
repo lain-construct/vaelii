@@ -10,6 +10,7 @@
   waiting literals back in; `explain` reports the same decision.
   See docs/inference.md, \"Conjunctive query planning\"."
   (:require [vaelii.impl.budget :as budget]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
@@ -356,12 +357,7 @@
 (defn- reachable
   "Every literal index connected to `start` through a chain of shared variables."
   [start by-idx by-var]
-  (loop [stack [start], seen #{}]
-    (if-let [i (peek stack)]
-      (if (seen i)
-        (recur (pop stack) seen)
-        (recur (into (pop stack) (mapcat by-var) (by-idx i)) (conj seen i)))
-      seen)))
+  (graph/reach-all [start] #(mapcat by-var (by-idx %))))
 
 (defn- components
   "Split the generators `gens` into blocks: two literals share a block when they share a

@@ -25,13 +25,9 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.chain :as chain]
-            [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- fwd [antes conseq]
-  (list 'set/forwardRule (vr/rule-sentence antes conseq)))
 
 (defn- sentences [kb pred]
   (set (map :sentence (v/sentexes-with-functor kb pred {:believed? true}))))
@@ -45,8 +41,8 @@
   (tu/with-terms [ageOf youngerThan Ann Bob Cid]
     (doseq [[who n] [[Ann 10] [Bob 20] [Cid 30]]]
       (v/assert kb (list ageOf who n) 'CxNaturalWorld {:chain? false}))
-    (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
-                      (list youngerThan '?x '?y))
+    (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
+                         (list youngerThan '?x '?y))
               'CxNaturalWorld)
     (let [derived (sentences kb youngerThan)]
       (testing "every strictly-increasing pair is derived"
@@ -65,8 +61,8 @@
   (tu/with-terms [ageOf youngerThan Ann Bob]
     (doseq [who [Ann Bob]]
       (v/assert kb (list ageOf who 10) 'CxNaturalWorld {:chain? false}))
-    (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
-                      (list youngerThan '?x '?y))
+    (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
+                         (list youngerThan '?x '?y))
               'CxNaturalWorld)
     (is (empty? (sentences kb youngerThan)))))
 
@@ -76,8 +72,8 @@
   (tu/with-terms [ageOf nextAge Ann Bob]
     (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
     (v/assert kb (list ageOf Bob 41) 'CxNaturalWorld {:chain? false})
-    (v/assert kb (fwd [(list ageOf '?x '?a) (list 'evaluate '?next (list '+ '?a 1))]
-                      (list nextAge '?x '?next))
+    (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list 'evaluate '?next (list '+ '?a 1))]
+                         (list nextAge '?x '?next))
               'CxNaturalWorld)
     (testing "the computed value reaches the conclusion"
       (is (= #{(list nextAge Ann 11) (list nextAge Bob 42)}
@@ -90,8 +86,8 @@
   ;; arrives and computes; waiting on every variable would strand it in the tail.
   (tu/with-terms [ageOf nextAge Ann]
     (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
-    (v/assert kb (fwd [(list 'evaluate '?next (list '+ '?a 1)) (list ageOf '?x '?a)]
-                      (list nextAge '?x '?next))
+    (v/assert kb (tu/fwd [(list 'evaluate '?next (list '+ '?a 1)) (list ageOf '?x '?a)]
+                         (list nextAge '?x '?next))
               'CxNaturalWorld)
     (is (= #{(list nextAge Ann 11)} (sentences kb nextAge)))))
 
@@ -101,8 +97,8 @@
   (tu/with-terms [ageOf youngerThan Ann Bob]
     (let [h1 (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
           h2 (v/assert kb (list ageOf Bob 20) 'CxNaturalWorld {:chain? false})
-          rh (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
-                               (list youngerThan '?x '?y))
+          rh (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
+                                  (list youngerThan '?x '?y))
                        'CxNaturalWorld)
           ch (handle-of kb youngerThan (list youngerThan Ann Bob))]
       (is (some? ch))
@@ -115,7 +111,7 @@
   ;; The degenerate case the placeholder question is really about: there is no fact to
   ;; name, so the justification names no antecedent, only its rule as the informant.
   (tu/with-terms [theSum]
-    (let [rh (v/assert kb (fwd [(list 'evaluate '?s (list '+ 1 2))] (list theSum '?s))
+    (let [rh (v/assert kb (tu/fwd [(list 'evaluate '?s (list '+ 1 2))] (list theSum '?s))
                        'CxNaturalWorld)
           ch (handle-of kb theSum (list theSum 3))]
       (is (some? ch))
@@ -131,8 +127,8 @@
   (tu/with-terms [ageOf youngerThan Ann Bob]
     (let [h1 (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
           _  (v/assert kb (list ageOf Bob 20) 'CxNaturalWorld {:chain? false})
-          _  (v/assert kb (fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
-                               (list youngerThan '?x '?y))
+          _  (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list ageOf '?y '?b) (list 'lessThan '?a '?b)]
+                                  (list youngerThan '?x '?y))
                        'CxNaturalWorld)
           ch (handle-of kb youngerThan (list youngerThan Ann Bob))]
       (is (v/in? kb ch))
@@ -150,8 +146,8 @@
   ;; empty result would report an unrunnable rule as a rule that merely did not fire.
   (tu/with-terms [ageOf tooOld Ann]
     (v/assert kb (list ageOf Ann 10) 'CxNaturalWorld {:chain? false})
-    (let [e (try (v/assert kb (fwd [(list ageOf '?x '?a) (list 'lessThan '?a '?b)]
-                                   (list tooOld '?x))
+    (let [e (try (v/assert kb (tu/fwd [(list ageOf '?x '?a) (list 'lessThan '?a '?b)]
+                                      (list tooOld '?x))
                            'CxNaturalWorld)
                  nil
                  (catch clojure.lang.ExceptionInfo ex ex))]

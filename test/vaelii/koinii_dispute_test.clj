@@ -12,8 +12,8 @@
             [vaelii.koinii.speech-acts :as sa]
             [vaelii.test-util :as tu]))
 
-(defn- dispute-kb [] (tu/load-core! (tu/fresh)))
-(use-fixtures :each (tu/neutral-fresh dispute-kb))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def P '(reliable ProdCluster))
 (def not-P '(not (reliable ProdCluster)))
@@ -131,7 +131,7 @@
   (holds! kb 'AgentCiel '(fast ProdCluster))
   (holds! kb 'AgentDoris '(not (fast ProdCluster)))
   (channel-sees! kb 'CxOps '[AgentCiel AgentDoris])
-  (let [whole (into #{} (map d/dispute-id) (concat (v/contradictions kb) (v/conflicts kb)))
+  (let [whole (into #{} (map #(d/dispute-id kb %)) (concat (v/contradictions kb) (v/conflicts kb)))
         union (into #{} (mapcat #(map :dispute-id (d/disputes-in kb %))) (v/contexts kb))]
     (testing "the union of disputes-in over every context equals the whole-KB surface"
       (is (= 2 (count whole)) "two independent clashes")
@@ -153,7 +153,7 @@
 (tu/deftest-kb the-named-read-detects-without-computing-whole-kb-contradictions
   (cross-agent-clash! kb)
   (let [scans (atom 0)]
-    (with-redefs [v/contradictions (fn [_] (swap! scans inc) [])]
+    (with-redefs [v/contradictions (fn [& _] (swap! scans inc) [])]
       (testing "disputed? on a named S detects the clash via argue, scanning nothing"
         (is (d/disputed? kb P 'CxDeploy))
         (is (zero? @scans) "no whole-KB contradictions scan on the hot path"))
@@ -166,9 +166,9 @@
 (tu/deftest-kb a-dispute-id-is-a-function-of-the-clash-not-the-side-order
   (cross-agent-clash! kb)
   (let [entry (first (d/disputes-in kb 'CxDeploy))]
-    (testing "the id is the sorted handle pair, however the engine ordered the sides"
-      (is (= (vec (sort (:handles entry))) (:dispute-id entry)))
-      (is (= (d/dispute-id entry) (d/dispute-id (update entry :handles reverse)))))
+    (testing "the id is the sorted digest pair, however the engine ordered the sides"
+      (is (= (vec (sort (v/digests kb (:handles entry)))) (:dispute-id entry)))
+      (is (= (d/dispute-id kb entry) (d/dispute-id kb (update entry :handles reverse)))))
     (testing "and the reified term is order-independent for the same reason"
       (is (= (d/dispute-term (:dispute-id entry))
              (d/dispute-term (reverse (:dispute-id entry))))))))
@@ -276,23 +276,22 @@
 
 ;; ---- a clash with more than two members gets a name of its own -----------
 
-(clojure.test/deftest a-three-member-dispute-is-named-by-all-three-handles
+(clojure.test/deftest a-three-member-dispute-is-named-by-all-three-digests
   ;; A nogood is a SET, and `anti_transitive` forms one over three sentexes
   ;; (docs/nmtms.md), so `disputes-in` hands back three-handle entries — "a caller
   ;; destructuring `:handles` as a pair is reading a coincidence."  The lifecycle term is
   ;; where that bites: the stored `:notified` / `:stale` marks are keyed on it and the
   ;; sweeps read them as their idempotency key, so a term naming only the two lowest
-  ;; handles would mark one dispute and silently retire another.
+  ;; digests would mark one dispute and silently retire another.
   ;;
   ;; A pure test — `dispute-term` needs no KB, and the collision is a property of the
   ;; term rather than of any clash a scenario happens to build.
-  (testing "the pair case is a sorted pair, unchanged"
-    (is (= '(DisputeFn (sentexHandle 478) (sentexHandle 479))
-           (d/dispute-term [479 478]))))
-  (testing "a three-member clash names all three, sorted"
-    (is (= '(DisputeFn (sentexHandle 478) (sentexHandle 479) (sentexHandle 999))
-           (d/dispute-term [999 478 479]))))
-  (testing "so two three-member disputes sharing their lowest pair are told apart"
-    (is (not= (d/dispute-term [478 479 999]) (d/dispute-term [478 479 1234]))))
-  (testing "and a three-member one is not the pair over its two lowest handles"
-    (is (not= (d/dispute-term [478 479 999]) (d/dispute-term [478 479])))))
+  (let [[a b c e] (map #(str "sha256:" (apply str (repeat 64 %))) "abce")]
+    (testing "the pair case is a sorted pair, unchanged"
+      (is (= (list 'DisputeFn a b) (d/dispute-term [b a]))))
+    (testing "a three-member clash names all three, sorted"
+      (is (= (list 'DisputeFn a b c) (d/dispute-term [c a b]))))
+    (testing "so two three-member disputes sharing their lowest pair are told apart"
+      (is (not= (d/dispute-term [a b c]) (d/dispute-term [a b e]))))
+    (testing "and a three-member one is not the pair over its two lowest digests"
+      (is (not= (d/dispute-term [a b c]) (d/dispute-term [a b]))))))

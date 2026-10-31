@@ -10,6 +10,8 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.serve :as serve]
+            [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.overlay.rebase :as rebase]
             [vaelii.impl.sentex :as sx]
             [vaelii.koinii.adjudication :as adj]
             [vaelii.koinii.deref :as deref]
@@ -21,20 +23,13 @@
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-(defn- adj-kb [] (tu/load-core! (tu/fresh)))
-
-(defn- refusal-type
-  "The `:type` in the `ex-data` of the refusal `thunk` raises, or nil when it raises
-  none.  The keyword is the contract a caller discriminates on; the message is not."
-  [thunk]
-  (try (thunk) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
-
 (defn- with-proof-tier
   "Majority resolution requires the `:proof-tier` identity policy, so the majority tests
   run under it and cast their ballots through `ballot!`, which attests them."
   [f] (binding [id/*policy* :proof-tier] (f)))
 
-(use-fixtures :each (tu/neutral-fresh adj-kb) with-proof-tier)
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral) with-proof-tier)
 
 (def P '(reliable ProdCluster))
 (def not-P '(not (reliable ProdCluster)))
@@ -148,9 +143,10 @@
       (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic}))
     (holds! kb 'AgentAtlas '(fast Disk1))
     (holds! kb 'AgentBoreas '(flaky Net1)))
-  (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
+  (let [e   (first (d/disputes-in kb 'CxDeploy))
+        did (:dispute-id e)]
     (is (some? did) "the rules raised the clash")
-    (is (not-any? #(v/premise? kb %) did) "and both of its sides are derived")
+    (is (not-any? #(v/premise? kb %) (:handles e)) "and both of its sides are derived")
     (binding [adj/*timeout-ms* 1000]
       (testing "inside the timeout, counted from the premises: nothing swept"
         (binding [v/*clock* (constantly (+ t0 500))]
@@ -582,13 +578,38 @@
   ;; Discriminated on `:type`, not on the message: the keyword is what a caller branches
   ;; on, and a message a later edit rewords would take this test with it.
   (let [did (clash! kb)]
-    (is (= :arbiter-is-party (refusal-type #(adj/rule kb 'AgentAtlas did P 'CxDeploy))))
+    (is (= :arbiter-is-party (tu/refusal-type #(adj/rule kb 'AgentAtlas did P 'CxDeploy))))
     (is (= :arbiter-is-party
-           (refusal-type #(adj/rule kb 'AgentAtlas did not-P 'CxDeploy))))
+           (tu/refusal-type #(adj/rule kb 'AgentAtlas did not-P 'CxDeploy))))
     (testing "and the party's own claim is untouched"
       (is (v/ask? kb P (id/context-for 'AgentAtlas))))
     (testing "an uninvolved arbiter still rules it"
       (is (some? (adj/rule kb 'AgentArbiter did P 'CxDeploy))))))
+
+(tu/deftest-kb a-party-is-refused-once-another-arbiter-has-resolved-the-dispute
+  (let [did   (clash! kb)
+        claim (v/handle-of kb P (id/context-for 'AgentAtlas))]
+    (adj/rule kb 'AgentArbiter did P 'CxDeploy)
+    (is (= :resolved (d/dispute-state kb did)))
+    (is (= :arbiter-is-party (tu/refusal-type #(adj/rule kb 'AgentAtlas did P 'CxDeploy))))
+    (is (= :arbiter-is-party (tu/refusal-type #(adj/rule kb 'AgentAtlas did not-P 'CxDeploy))))
+    (is (= :default (:strength (v/sentex kb claim))))
+    (is (nil? (adj/who-ruled kb claim)))))
+
+(tu/deftest-kb a-ruling-for-a-sentence-no-side-of-the-dispute-holds-is-refused
+  (tu/with-terms [nearTo Zed Abe]
+    (let [s (list nearTo Zed Abe)]
+      (holds! kb 'AgentAtlas s)
+      (holds! kb 'AgentBoreas (list 'not s))
+      (doseq [a '[AgentAtlas AgentBoreas]]
+        (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic}))
+      (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
+        (is (= :koinii/not-a-side (tu/refusal-type #(adj/rule kb 'AgentArbiter did P 'CxDeploy))))
+        (testing "a symmetric declaration respells both sides, so the id names no stored side"
+          (v/assert kb (list 'symmetric nearTo) 'CxUniverse {:strength :monotonic})
+          (is (= :koinii/not-a-side
+                 (tu/refusal-type #(adj/rule kb 'AgentAtlas did (list 'not s) 'CxDeploy))))
+          (is (v/ask? kb s (id/context-for 'AgentAtlas))))))))
 
 ;; ---- the reads follow BELIEF, not storage --------------------------------
 ;; A defeated sentex stays stored on purpose (it can revive), so an adjudication read that
@@ -1005,3 +1026,110 @@
   (let [{:keys [provenance unattested]} (imported-ballot v/import!)]
     (is (= 'AgentAtlas (:principal provenance)))
     (is (= #{} unattested))))
+
+(defn- beside-kb
+  "A cleared in-RAM KB on its own space beside the fixture's."
+  [tag]
+  (doto (v/open-kb (assoc tu/plain-memory-space :space [tag (second (:space tu/plain-memory-space))]))
+    (tu/clear-kb!)))
+
+(deftest a-dispute-id-is-one-value-on-two-seats-holding-the-clash-at-different-handles
+  (let [a (beside-kb ::id-seat-a)
+        b (beside-kb ::id-seat-b)]
+    (try
+      (house! a)
+      (v/assert b '(reliable StageCluster) 'CxShared)
+      (house! b)
+      (let [[ea eb] (map #(first (d/disputes-in % 'CxDeploy)) [a b])]
+        (is (not= (sort (:handles ea)) (sort (:handles eb))))
+        (is (= (:dispute-id ea) (:dispute-id eb)))
+        (is (= (d/dispute-term (:dispute-id ea)) (d/dispute-term (:dispute-id eb)))))
+      (finally (doseq [k [a b]] (tu/clear-kb! k) (v/close! k))))))
+
+(deftest an-attested-ballot-stays-attested-after-a-pull-moves-it
+  (let [src1 (beside-kb ::reattest-src1)
+        src2 (beside-kb ::reattest-src2)
+        tmp  (.toFile (Files/createTempDirectory "vaelii-reattest-" (into-array FileAttribute [])))
+        c1   (str (io/file tmp "c1"))
+        c2   (str (io/file tmp "c2"))
+        seat (v/open-kb {:backend :overlay
+                         :base    {:backend :memory :space [::reattest :base]}
+                         :overlay {:backend :memory :space [::reattest :own]}})
+        ballot-on #(v/handle-of seat (list 'votesFor %1 (sx/sentex-handle %2)) (id/context-for %1))]
+    (try
+      (doseq [s [src1 src2]]
+        (v/assert s '(quotedArg votesFor 2 sentex_handle_term) 'CxUniverse {:strength :monotonic}))
+      (house! src1)
+      (v/export! src1 c1)
+      (v/assert src2 '(reliable StageCluster) 'CxShared)
+      (house! src2)
+      (v/export! src2 c2)
+      (deref/pull! seat c1)
+      (let [ph (v/handle-of seat P (id/context-for 'AgentAtlas))
+            bh (ballot! seat 'AgentAtlas ph :for)
+            ch (ballot! seat 'AgentCiel ph :for)
+            cp (v/provenance seat ch)]
+        (is (= 'AgentAtlas (id/attested-by seat bh)))
+        (v/retract! seat ch)
+        (let [ch' (v/assert seat (list 'votesFor 'AgentCiel (sx/sentex-handle ph))
+                            (id/context-for 'AgentCiel)
+                            {:creator 'AgentCiel :provenance (dissoc cp :creator)})]
+          (is (= (:attestation cp) (:attestation (v/provenance seat ch'))))
+          (is (nil? (id/attested-by seat ch')) "a re-asserted ballot's copied MAC does not verify"))
+        (deref/pull! seat c2)
+        (let [ph2 (v/handle-of seat P (id/context-for 'AgentAtlas))
+              bh2 (ballot-on 'AgentAtlas ph2)]
+          (is (not= ph ph2) "the pull moved the claim the ballot names")
+          (is (= 'AgentAtlas (id/attested-by seat bh2)))
+          (is (nil? (id/attested-by seat (ballot-on 'AgentCiel ph2)))
+              "the pull seals no attestation that did not verify before it")))
+      (finally
+        (doseq [k [src1 src2]] (tu/clear-kb! k) (v/close! k))
+        (v/close! seat)
+        (doseq [sp [[::reattest :base] [::reattest :own]]] (tu/drop-space! sp))
+        (doseq [^java.io.File f (reverse (file-seq tmp))] (.delete f))))))
+
+(deftest a-pull-that-finishes-a-stopped-pull-seals-the-attestation-again
+  (let [srcs (mapv beside-kb [::stopped-src1 ::stopped-src2])
+        dir  (tu/tmpdir "vaelii-reattest-")
+        [c1 c2] (mapv #(str dir "/c" %) [1 2])
+        seat (v/open-kb {:backend :overlay
+                         :base    {:backend :disk-log :dir (str dir "/base")}
+                         :overlay {:backend :disk-log :dir (str dir "/own")}})
+        ballot-on #(v/handle-of seat (list 'votesFor 'AgentAtlas (sx/sentex-handle %))
+                                (id/context-for 'AgentAtlas))]
+    (try
+      (v/assert (srcs 1) '(reliable StageCluster) 'CxShared)
+      (doseq [[s c] (map vector srcs [c1 c2])]
+        (v/assert s '(quotedArg votesFor 2 sentex_handle_term) 'CxUniverse {:strength :monotonic})
+        (house! s)
+        (v/export! s c))
+      (deref/pull! seat c1)
+      (let [bh (ballot! seat 'AgentAtlas (v/handle-of seat P (id/context-for 'AgentAtlas)) :for)]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (binding [rebase/*phase-hook* #(when (= :refilled %) (throw (ex-info "stopped" {})))]
+                       (deref/pull! seat c2))))
+        (is (rebase/pending? seat))
+        (deref/pull! seat c2)
+        (let [bh2 (ballot-on (v/handle-of seat P (id/context-for 'AgentAtlas)))]
+          (is (not= bh bh2) "the pulls moved the ballot")
+          (is (= 'AgentAtlas (id/attested-by seat bh2)))))
+      (finally
+        (doseq [s srcs] (tu/clear-kb! s) (v/close! s))
+        (v/clear! seat)
+        (v/close! seat)
+        (disk/close-dir! (str dir "/base"))
+        (tu/rm-rf! dir)))))
+
+(tu/deftest-kb a-retracted-ballots-attestation-does-not-verify-on-a-re-assert
+  (let [ph   (house! kb)
+        bh   (ballot! kb 'AgentAtlas ph :for)
+        prov (v/provenance kb bh)
+        s    (v/sentence-of (v/sentex kb bh))]
+    (is (= 'AgentAtlas (id/attested-by kb bh)))
+    (v/retract! kb bh)
+    (let [bh' (v/assert kb s (id/context-for 'AgentAtlas)
+                        {:creator 'AgentAtlas :provenance (dissoc prov :creator)})]
+      (is (not= bh bh'))
+      (is (nil? (id/attested-by kb bh')))
+      (is (= #{bh'} (unattested kb ph)) "and the count refuses it"))))

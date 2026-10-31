@@ -30,14 +30,15 @@
   (:import [org.eclipse.jetty.server Server]))
 
 (defn- channel-kb
-  "A fresh vocabulary KB with the koinii speech-act vocabulary loaded — the deployment's
+  "Load the upper layer and the koinii speech-act vocabulary into `kb` — the deployment's
   substrate: the reply verbs' `target_following_predicate` marks must be in force for a
   reply to cascade."
-  []
-  (tu/load-dumped! (tu/fresh) :koinii/speech-acts
+  [kb]
+  (tu/load-dumped! kb :koinii/speech-acts
                    #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
-(use-fixtures :each (tu/neutral-fresh channel-kb))
+(use-fixtures :once (tu/loaded channel-kb))
+(use-fixtures :each (tu/neutral))
 
 (defn- join!
   "Join `agent` to a `local` medium over `kb` on channel `CxDeploy`."
@@ -241,26 +242,29 @@
         seen (atom [])
         sub  (ch/subscribe boreas (list 'queries '?a '?q) 'CxDeploy
                            (fn [e] (swap! seen conj e)))]
-    (ch/pose-query atlas 'WhichDb)
-    (is (= 1 (count @seen)) "the subscriber saw Atlas's query, posed in CxAtlas")
-    (is (= [(list 'queries 'AgentAtlas 'WhichDb)]
-           (map :sentence (mapcat :believed-added @seen))))
-    (testing "dropping the subscription stops delivery, and is idempotent"
-      (ch/unsubscribe sub)
-      (ch/pose-query atlas 'WhichCache)
-      (is (= 1 (count @seen)) "no further events after unsubscribe")
-      (ch/unsubscribe sub)                                  ; a second drop must not throw
-      (ch/pose-query atlas 'WhichMore)
-      (is (= 1 (count @seen)) "still stopped after a double unsubscribe"))))
+    (try
+      (ch/pose-query atlas 'WhichDb)
+      (is (= 1 (count @seen)) "the subscriber saw Atlas's query, posed in CxAtlas")
+      (is (= [(list 'queries 'AgentAtlas 'WhichDb)]
+             (map :sentence (mapcat :believed-added @seen))))
+      (testing "dropping the subscription stops delivery, and is idempotent"
+        (ch/unsubscribe sub)
+        (ch/pose-query atlas 'WhichCache)
+        (is (= 1 (count @seen)) "no further events after unsubscribe")
+        (ch/unsubscribe sub)                                ; a second drop must not throw
+        (ch/pose-query atlas 'WhichMore)
+        (is (= 1 (count @seen)) "still stopped after a double unsubscribe"))
+      (finally (ch/unsubscribe sub)))))
 
 (tu/deftest-kb local-subscribe-with-a-nil-goal-sees-every-change
   ;; the goal-less branch: a plain listener, not a standing query
   (let [atlas (join! kb 'AgentAtlas)
         seen  (atom 0)
         sub   (ch/subscribe atlas nil nil (fn [_] (swap! seen inc)))]
-    (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
-    (is (pos? @seen) "a nil-goal listener fires on any belief change")
-    (ch/unsubscribe sub)))
+    (try
+      (ch/assert atlas (list 'usesDatabase 'ProdCluster 'PostgreSQL14))
+      (is (pos? @seen) "a nil-goal listener fires on any belief change")
+      (finally (ch/unsubscribe sub)))))
 
 (tu/deftest-kb a-goal-core-watch-refuses-is-refused-here-too
   (let [boreas (join! kb 'AgentBoreas)]
@@ -495,6 +499,7 @@
                     vc/poll    poll]
         (let [sub (koinii-types/-subscribe medium nil 'CxDeploy (fn [_]) nil)]
           (is (stopped? sub) "the dead subscription reads stopped, not live")
+          (.join ^Thread (:thread sub) 3000)
           (is (some #{[:error ::ch/subscription-failed]} @logged)
               "and the failure was logged at :error rather than swallowed")))
       (finally (restore!)))))
@@ -509,6 +514,7 @@
                     vc/poll    poll]
         (let [sub (koinii-types/-subscribe medium nil 'CxDeploy (fn [_]) nil)]
           (is (stopped? sub) "an Error ends the loop as an exception does, and reads stopped")
+          (.join ^Thread (:thread sub) 3000)
           (is (some #{[:error ::ch/subscription-failed]} @logged))))
       (finally (restore!)))))
 
@@ -524,11 +530,43 @@
         (let [sub (koinii-types/-subscribe medium nil 'CxDeploy (fn [_])
                                            {:on-error #(swap! seen conj %)})]
           (is (stopped? sub))
+          (.join ^Thread (:thread sub) 3000)
           (is (= 1 (count @seen)) ":on-error was told")
           (is (= "the proxy hung up" (ex-message (first @seen))))
           (is (not-any? #{[:error ::ch/subscription-failed]} @logged)
               "and the default line stood aside for it")))
       (finally (restore!)))))
+
+(deftest a-wire-poll-that-fails-unwatches-the-daemon-subscription-unless-the-daemon-has-none
+  (doseq [[data unwatched] [[{} ["T"]]
+                            [{:type :bad-cursor} ["T"]]
+                            [{:type :unknown-subscription} []]]]
+    (let [[medium poll] (scripted-wire (fn [_] (throw (ex-info "failed" data))))
+          unwatches (atom [])]
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ token] (swap! unwatches conj token) true)
+                    vc/poll    poll]
+        (let [sub (koinii-types/-subscribe medium nil 'CxDeploy (fn [_]) {:on-error (fn [_])})]
+          (is (= [true unwatched] [(stopped? sub) (do (.join ^Thread (:thread sub) 3000) @unwatches)])
+              (pr-str data)))))))
+
+(deftest a-failed-wire-poll-reads-stopped-before-its-unwatch-returns-or-throws
+  (doseq [[label unwatch] [["an unwatch that throws an Error"
+                            (fn [_] (throw (AssertionError. "unwatch failed")))]
+                           ["an unwatch that has not returned" (fn [release] @release true)]]]
+    (let [[medium poll] (scripted-wire (fn [_] (throw (ex-info "failed" {}))))
+          release (promise)
+          called  (promise)]
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ _] (deliver called true) (unwatch release))
+                    vc/poll    poll]
+        (let [sub     (koinii-types/-subscribe medium nil 'CxDeploy (fn [_]) {:on-error (fn [_])})
+              stopped (stopped? sub)]
+          (deliver release true)
+          (.join ^Thread (:thread sub) 3000)
+          (is (= [true true] [stopped (realized? called)]) label))))))
 
 (deftest a-lagged-wire-reply-is-not-dropped-in-silence
   ;; `:lagged` is the one field a feed reader must not ignore (docs/feed.md): non-zero,

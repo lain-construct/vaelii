@@ -52,6 +52,40 @@ group with no name and the placement lands on whichever member the caller asked 
 defeated out of a cycle or revived into one moves a component with no sentex moving
 ([taxonomy.md](taxonomy.md)).
 
+The placement reads share these rules:
+
+- **`seeing-member`** answers the member of `ctxs` that sees every other, which is a
+  maximal common descendant, by |ctxs|² depth-pruned `sees?` probes and no closure read:
+  a rule and its antecedent facts on one chain, nearly every forward firing. Two
+  members that see each other tie, and `term-min` breaks it, not list position.
+- **`maximal-in`** is the one filter behind `maximal-common-descendant-contexts` and
+  `maximal-contexts`, so a `CxInference` witness, a forward placement and an
+  exception-aware placement share one notion of most general. A candidate is struck when
+  another candidate stands above it and does not see it back, and `placement-rep` names
+  each survivor's group. With `member?`, an ancestor strikes a candidate when `member?`
+  holds of it (`descendant-frontier`).
+- **`maximal-common-descendant-contexts`** returns the maximal common descendants of
+  `ctxs`: possibly empty, possibly several. It exits early when one member sees the rest
+  (`seeing-member`) and when the intersection empties, which skips the per-survivor
+  `context-up` read. Its callers accumulate contexts in a set, so it builds the distinct
+  vector with `into []` and a transducer: `clojure.core/distinct`'s seq arity throws on a
+  set.
+- **`maximal-contexts`** maximizes a set the caller already filtered, as forward
+  placement does while visibility exceptions are active. A `CxInference` fan reports only
+  the maximal answering readers, since a reader below one that answered adds no claim.
+- **`meet-closure`** closes `ctxs` under `maximal-common-descendant-contexts` of its
+  pairs, plus the members, for the readers that inherit some combination of them
+  ([qcn.md](qcn.md), [equality.md](equality.md)). Pairs reach every subset, since a
+  common descendant of `{a b c}` lies under a maximal common descendant of `{m c}`. Fewer
+  than two contexts closes with no read.
+- **`context-up-global`** is the unscoped `genlCx` read, with no `except` holes.
+  Exception evaluation reads it to decide which exceptions a reader sees, since the filter
+  cannot answer the question it is derived from. Every other caller wants `context-up`.
+- **`min-context-parents`** and **`max-context-children`** reduce `context-up` and
+  `context-down` to one `genlCx` edge. While an `except` targets a `genlCx` supporter, each
+  direct child is judged by its own forward answer, so a context is drawn below `c` exactly
+  when `c` is drawn above it.
+
 ## The context topology
 
 The default topology is three levels, most general (top) to most specific (bottom):
@@ -78,7 +112,8 @@ Data hangs below CxWell.
     `tangiblePartOf`/`locatedIn`, and the `travelling` and `flying` event kinds.
   - `organism.txt` — the biological taxonomy and its disjointness.
   - `life.txt` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
-    `birthYearOf`, `olderThan`, …) with their arg and metadata.
+    `birthDate`, `birthYearOf`, `olderThan`, …) with their arg and metadata, and the
+    rules concluding `birthYearOf` from a `birthDate`.
   - `society.txt` — the social relations (`marriedTo`, `likes`, `owns`).
   - `measure.txt` — the theory of measurement: the two measure terms, the
     `dimensionOf`/`conversionFactor` table, the five comparisons
@@ -112,8 +147,7 @@ Data hangs below CxWell.
   CxUniverse and seen by CxWell:
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
-    owning its parts. Both are `transitiveInArgInverse` declarations along
-    `tangiblePartOf`.
+    owning its parts.
   - `CxBiology` — birds fly by default except penguins; organisms are mortal;
     flight enables travel.
   - `CxChange` — a simple event calculus: a state persists until an event ends it,
@@ -466,11 +500,9 @@ knowledge, so it either agrees with a more general one or refines it. **Fewer th
 contexts closes immediately**, which is every KB that has not divided the knowledge in
 question between contexts: there is nothing for a second to meet.
 
-The test world's owns-parts rule shows both outcomes. The forward rule `(implies (and
-(owns ?p ?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is stored in CxWell, which
-every data context sees, and the test-world cast supplies the facts. The starter states the
-same reach as `(transitiveInArgInverse owns 2 tangiblePartOf)` in `CxMereology`, which
-answers at query time and stores no conclusion to place ([inherit.md](inherit.md)). The rule
+The starter's owns-parts rule shows both outcomes. The rule `(implies (and (owns ?p
+?whole) (tangiblePartOf ?part ?whole)) (owns ?p ?part))` is a middle theory (`CxMereology`,
+seen by every data context below Well), and the test-world cast supplies the facts. It
 derives `(owns Tom Roof1)`: both `(owns Tom House1)` and `(tangiblePartOf Roof1 House1)` sit in
 CxSocialWorld, so the intersection is non-empty and the conclusion lands there.
 But `(owns Tom Engine1)` is **not** derived — `(owns Tom Car1)` is in CxSocialWorld
@@ -627,7 +659,10 @@ correspondence declaration meets differently once a declaration or a rule is in 
 effective stratum. The
 placement families and the inherited clashes read the moves' reach: `:under`, the contexts
 at or below a moved lower end, and `:below`, what those see that an active edge's upper end
-does not. The `genlCx` integrate arms update the taxonomy alone, so an asserted,
+does not. `:gained-below` is the part of `:below` that the readers that gain or lose a
+context see without the edge: a reader of `:under` that reaches the upper end without the
+edge sees what it saw before. While an `except` reaches a `genlCx` supporter it equals
+`:below`. The `genlCx` integrate arms update the taxonomy alone, so an asserted,
 rule-concluded, computed or relabelled edge reaches the families by one path.
 
 A move that shows contexts is also split by what each reader gains (`:gains`): per
@@ -800,14 +835,18 @@ the context it was lifted from.
 
 ### The lift is about the predicate, so derived content is lifted too
 
-The declaration runs at **both** points new content is stored: `assert`, and forward
-chaining's `place-conclusion`. A rule concluding `(P ...)` gets its conclusion lifted
-exactly as a caller asserting `(P ...)` does, because the declaration is a claim about
-the *predicate*, not about how a particular sentence arrived.
+The declaration runs at each of the three points new content is stored: `assert`, forward
+chaining's `place-conclusion`, and `special/entail-arg-type`, which stores the type an
+argument declaration mints ([argtypes.md](argtypes.md)). A rule concluding `(P ...)` gets
+its conclusion lifted exactly as a caller asserting `(P ...)` does, and so does a minted
+`(P ...)`, because the declaration is a claim about the *predicate*, not about how a
+particular sentence arrived.
 
 Lifting only asserted content would make belief depend on arrival order, which
 [nmtms.md](nmtms.md) forbids: with the declaration first, a rule's `(P a)` would stay where
 it was concluded, and with the declaration last the retroactive sweep would lift it.
+`recover` would disagree with the live KB as well, since it replays the declaration's
+sweep over every stored `(P ...)`.
 
 Each copy is a **new datum in a context that did not have it**, so it goes on the
 chaining agenda like any rule conclusion: its arrival re-triggers any `exceptWhen` stated

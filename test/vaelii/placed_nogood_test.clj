@@ -11,6 +11,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.walk]
             [vaelii.core :as v]
+            [vaelii.impl.budget :as budget]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide :as decide]
@@ -19,6 +20,7 @@
             [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.progress :as progress]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.settle :as settle]
@@ -186,13 +188,8 @@
            first-edge))
     (is (= first-edge last-edge))))
 
-(defn- permutations [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (permutations (remove #{x} xs))] (cons x more))))
-
 (tu/deftest-kb every-arrival-order-of-the-members-the-ground-and-the-edge-places-the-same
-  (is (= 1 (count (into #{} (map placed-after) (permutations [:l :w :g :edge]))))))
+  (is (= 1 (count (into #{} (map placed-after) (tu/orders [:l :w :g :edge]))))))
 
 (defn- negation-placed-after
   "The placed sentexes and the counts of placed sentexes and their justifications once
@@ -228,13 +225,39 @@
          (count (mapcat #(v/supporting-justifications kb (:id %)) sxs))]))))
 
 (tu/deftest-kb a-context-edge-re-places-a-negation-pair-alike-in-every-arrival-order
-  (let [readings (into #{} (map negation-placed-after) (permutations [:p :n :l :s :edge]))]
+  (let [readings (into #{} (map negation-placed-after) (tu/orders [:p :n :l :s :edge]))]
     (is (= #{[#{[(list 'contradicts [(list 'not (list 'pp 'Rex)) 'CxB] [(list 'pp 'Rex) 'CxA]) 'CxM]
                 [(list 'defeat [(list 'pp 'Rex) 'CxA]) 'CxM]
                 [(list 'contradicts [(list 'not (list 'pp 'Rex)) 'CxB] [(list 'pp 'Rex) 'CxA]) 'CxS]
                 [(list 'defeat [(list 'pp 'Rex) 'CxA]) 'CxS]}
               4 4]}
            readings))))
+
+(tu/deftest-kb a-placement-pass-counts-each-placement-it-removes-in-its-progress-total
+  (let [passes (atom {})
+        writes (atom 0)
+        start  progress/start
+        tick   progress/tick!
+        place  @#'chain/place-justified!]
+    (with-redefs [progress/start         (fn [id label total & more]
+                                           (let [r (apply start id label total more)]
+                                             (when (= ::chain/place-sets id)
+                                               (reset! writes 0)
+                                               (swap! passes assoc (System/identityHashCode r)
+                                                      {:total total :ticked 0 :written 0}))
+                                             r))
+                  progress/tick!         (fn ([r] (tick r))
+                                           ([r n]
+                                            (when (= ::chain/place-sets (:id r))
+                                              (swap! passes update (System/identityHashCode r)
+                                                     #(-> % (update :ticked + n) (update :written + @writes)))
+                                              (reset! writes 0))
+                                            (tick r n)))
+                  chain/place-justified! (fn [& args] (swap! writes inc) (apply place args))]
+      (negation-placed-after [:p :n :l :s :edge]))
+    (is (seq @passes))
+    (is (every? (fn [{:keys [total ticked written]}] (= total ticked written)) (vals @passes))
+        (str "the edge arriving last retires the placement at CxL: " (pr-str (vals @passes))))))
 
 ;; ---- the read walk -----------------------------------------------------------
 
@@ -383,7 +406,7 @@
             #{[(list 'rr 'Rex) 'CxD]}]
            (swept-after [:neg :fire]))))
   (testing "an except of the member in CxD stores neither, in every arrival order"
-    (is (= #{[#{} #{}]} (into #{} (map swept-after) (permutations [:neg :fire :except]))))))
+    (is (= #{[#{} #{}]} (into #{} (map swept-after) (tu/orders [:neg :fire :except]))))))
 
 (defn- closure-swept-after
   "`[with-except after-retract]` once `ops` run in order on a fresh KB after `P = (pp Rex)`
@@ -420,7 +443,7 @@
 
 (tu/deftest-kb an-except-sweeps-what-rests-on-its-target-and-retracting-it-restores-it
   (is (= #{[#{} #{'contradicts 'defeat 'rr}]}
-         (into #{} (map closure-swept-after) (permutations [:rule :neg :fire :except])))
+         (into #{} (map closure-swept-after) (tu/orders [:rule :neg :fire :except])))
       "nothing resting on P stays at CxD in any order, and every placement comes back"))
 
 (defn- grounded-reading
@@ -460,7 +483,7 @@
   ;; A depth-two shape: N2 defeats N1's ground, N1 does not reach N2, and N1's defeat is
   ;; not in force.  The mutual case, each nogood's loser a dependency of the other through
   ;; a rule-derived ground, is `a-defeat-dependency-cycle-is-broken-in-content-order`.
-  (is (= #{[false true]} (into #{} (map grounded-reading) (permutations [:G :H :M1 :M2])))))
+  (is (= #{[false true]} (into #{} (map grounded-reading) (tu/orders [:G :H :M1 :M2])))))
 
 (tu/deftest-kb why-not-names-the-placed-defeat
   ;;   CxD   (cat Rex) :default and (dog Rex) :monotonic, the nogood placed in CxD
@@ -556,7 +579,7 @@
     (testing (name arm)
       (is (= #{[false true]}
              (into #{} (map #(guard-through-a-defeated-edge arm %))
-                   (permutations [:edge :neg :cat :rule])))))))
+                   (tu/orders [:edge :neg :cat :rule])))))))
 
 (tu/deftest-kb an-except-lowering-a-nogood-member-s-class-requeues-the-guards-watching-the-loser
   ;;   CxD  (disjoint dog cat) M   X = (xx Rex) M   Y = (yy Rex) :default
@@ -641,7 +664,7 @@
   (into [] (comp (mapcat (fn [ops] (let [[pre post] (split-with #(not= :x %) ops)]
                                      [(concat ops [:except]) (concat pre [:x :except] (rest post))])))
                  (distinct))
-        (permutations [:x :pp :g :cat])))
+        (tu/orders [:x :pp :g :cat])))
 
 (defn- lowering-except-readings [target orders]
   (doseq [arm [:unknown :except], wctx [:a :d]]
@@ -698,7 +721,7 @@
     (testing (name arm)
       (is (= #{[true false true]}
              (into #{} (map #(guard-through-a-ground-defeated-below arm %))
-                   (permutations [:edge :neg :cat :rule])))))))
+                   (tu/orders [:edge :neg :cat :rule])))))))
 
 (defn- breed-cycle
   "The reading of the defeat-dependency cycle after the writes `ops`, in order:
@@ -760,7 +783,7 @@
   ;; Each defeat rests, through a rule-derived :default type edge, on the other's loser.
   ;; The defeat whose loser is first in content order is in force:
   ;; its loser and the edge resting on it are hidden, and the other loser is believed.
-  (let [readings (into #{} (map breed-cycle) (permutations [:l1 :l2 :r1 :r2]))
+  (let [readings (into #{} (map breed-cycle) (tu/orders [:l1 :l2 :r1 :r2]))
         {:keys [first]} (clojure.core/first readings)
         hidden   (if (= :l1 first) [true false] [false true])]
     (is (= #{{:first first
@@ -786,11 +809,11 @@
     (is (= #{(assoc expected :first first :r excepted :s expected)} readings))))
 
 (tu/deftest-kb ^:slow a-cycle-whose-first-defeat-is-out-of-force-at-a-reader-puts-the-second-in-force-there
-  (excepted-cycle-readings (permutations [:l1 :l2 :r1 :r2 :ex])))
+  (excepted-cycle-readings (tu/orders [:l1 :l2 :r1 :r2 :ex])))
 
 (tu/deftest-kb sampled-orders-put-the-second-defeat-of-a-cycle-in-force-where-the-first-is-excepted
   ;; The sampled twin: every twelfth of the 120 orders.
-  (excepted-cycle-readings (take-nth 12 (permutations [:l1 :l2 :r1 :r2 :ex]))))
+  (excepted-cycle-readings (take-nth 12 (tu/orders [:l1 :l2 :r1 :r2 :ex]))))
 
 (defn- ground-cycle
   "`{:first … :read [W G L]}`: which of G and L is first in content order, and W, G and L
@@ -841,7 +864,7 @@
   ;; whose target is first in content order is in force at CxB, and the other is not.
   (doseq [arm [:unknown :except]]
     (testing (name arm)
-      (let [readings (into #{} (map #(ground-cycle :guard arm %)) (permutations [:w :breed :rule :l]))
+      (let [readings (into #{} (map #(ground-cycle :guard arm %)) (tu/orders [:w :breed :rule :l]))
             first    (:first (clojure.core/first readings))]
         (is (= #{{:first first :read (if (= :g first) [true false true] [true true false])}}
                readings))))))
@@ -853,7 +876,7 @@
   ;; does for the two-context shape.
   (doseq [arm [:unknown :except]]
     (testing (name arm)
-      (let [readings (into #{} (map #(ground-cycle :own arm %)) (permutations [:w :breed :rule :l]))
+      (let [readings (into #{} (map #(ground-cycle :own arm %)) (tu/orders [:w :breed :rule :l]))
             first    (:first (clojure.core/first readings))]
         (is (= #{{:first first :read (if (= :g first) [true false true] [true true false])}}
                readings))))))
@@ -895,7 +918,7 @@
   ;; The guard defeat's force reads its blocker C and not the firing's antecedent B, so
   ;; the two defeats form no cycle and N wins over B.
   (is (= #{[true false true]}
-         (into #{} (map loser-under-a-guarded-firing) (permutations [:n :c :a :guarded :rule])))))
+         (into #{} (map loser-under-a-guarded-firing) (tu/orders [:n :c :a :guarded :rule])))))
 
 (defn- loser-beside-an-unguarded-copy
   "`[(tya IndB) (tyc IndB)]` believed at CxC, on any handle CxC sees, after the writes
@@ -942,14 +965,14 @@
   ;; force.  Every fifth of the 720 orders.
   (is (= #{[true false]}
          (into #{} (map loser-beside-an-unguarded-copy)
-               (take-nth 5 (permutations [:rule :b :guard :genl :c :except]))))))
+               (take-nth 5 (tu/orders [:rule :b :guard :genl :c :except]))))))
 
 (tu/deftest-kb a-defeat-resting-on-its-own-target-through-a-ground-is-in-force
   ;; G rests on L, so the defeat of L rests on L through G as well as directly.  The cycle
   ;; holds one defeat, which is first in content order, so it is in force at CxB: L is
   ;; hidden there, and G with it.
   (is (= #{{:read [true false false]}}
-         (into #{} (map #(dissoc (ground-cycle :self nil %) :first)) (permutations [:w :breed :rule :l])))))
+         (into #{} (map #(dissoc (ground-cycle :self nil %) :first)) (tu/orders [:w :breed :rule :l])))))
 
 ;; ---- a cycle closed from every entry ------------------------------------------------
 
@@ -1000,7 +1023,7 @@
                  #(or (not (% 3)) (not (% 1))) #(and (not (% 2)) (not (% 0)))]
                 [true false true false]]]]
         (is (= #{expected}
-               (into #{} (map #(reading forms %)) (permutations (range (count forms))))))))))
+               (into #{} (map #(reading forms %)) (tu/orders (range (count forms))))))))))
 
 (tu/deftest-kb a-cycle-nested-in-a-members-read-is-closed-once-per-read
   ;; Conflict keys with stub reads: d rings of m members, member i of ring l out of force
@@ -1032,6 +1055,66 @@
         (when (even? m)
           (is (every? (fn [[l i]] (= (r l i) (not (r l (mod (inc i) m)))))
                       (for [l (range d) i (range m)] [l i]))))))))
+
+(tu/deftest-kb a-cycle-s-discovery-reads-each-key-once-however-many-paths-reach-it
+  ;; Conflict keys with stub reads: a root reading the two keys of layer 0, each key of
+  ;; layer l reading both keys of layer l + 1, and the last layer reading the root, so
+  ;; 2^l paths reach a key of layer l and every key's first read meets the root open.
+  ;; The cycle's 2d + 1 members exceed `enumerated-members`, so its passes read at most
+  ;; (2m + 1) · m; discovery reads each key once, where reading it once a path costs 2^d.
+  (tu/with-terms [w_kind]
+    (doseq [d [4 12]]
+      (let [in-force-once @#'exc/in-force-once
+            m     (inc (* 2 d))
+            hs    (mapv (fn [_] (v/assert kb (list w_kind (tu/tmp-ind "Layer")) 'CxUniverse))
+                        (range (* 2 m)))
+            ck    (fn [i] [:vaelii.impl.except/conflict (hs (* 2 i)) (hs (inc (* 2 i)))])
+            reads (atom 0)
+            s     {:memo (volatile! {}) :recs (:records kb)}
+            root  (ck (dec m))
+            r     (fn r [l i]
+                    (in-force-once s (if (neg? l) root (ck (+ (* 2 l) i)))
+                                   (fn []
+                                     (swap! reads inc)
+                                     (if (= l (dec d))
+                                       (not (r -1 0))
+                                       (let [a (r (inc l) 0) b (r (inc l) 1)]
+                                         (not (or a b)))))))]
+        (r -1 0)
+        (is (<= @reads (* m (+ (* 2 m) 3))) (str "d " d ": " @reads " member reads"))))))
+
+(tu/deftest-kb a-read-the-unit-budget-stops-leaves-the-memo-answering-as-a-fresh-one
+  ;; The rings of the test above, 2 of 4 members, with the unit's budget passing at the
+  ;; n-th member read, inside discovery or inside a ring's close.  The read throws the
+  ;; unit's signal, and the memo it leaves reads every key as a fresh memo does.
+  (tu/with-terms [w_kind]
+    (let [in-force-once @#'exc/in-force-once
+          d 2, m 4
+          hs    (mapv (fn [_] (v/assert kb (list w_kind (tu/tmp-ind "Ring")) 'CxUniverse))
+                      (range (* 2 d m)))
+          ck    (fn [l i] (let [j (* 2 (+ (* l m) i))] [:vaelii.impl.except/conflict (hs j) (hs (inc j))]))
+          clock (atom 0)
+          rd    (fn [s]
+                  (fn r [l i]
+                    (in-force-once s (ck l i)
+                                   (fn []
+                                     (swap! clock inc)
+                                     (let [nxt (r l (mod (inc i) m))
+                                           b   (r l (mod (+ i 2) m))]
+                                       (when (and nxt b (< l (dec d))) (r (inc l) 0))
+                                       (not nxt))))))
+          all   (fn [s] (let [r (rd s)] (r 0 0) (mapv (fn [[l i]] (r l i)) (for [l (range d) i (range m)] [l i]))))
+          fresh (all {:memo (volatile! {}) :recs (:records kb)})]
+      (is (= [] (into []
+                      (keep (fn [n]
+                              (let [s    {:memo (volatile! {}) :recs (:records kb)}
+                                    over (with-redefs [budget/now (fn [] @clock)]
+                                           (reset! clock 0)
+                                           (binding [budget/*unit-deadline* n]
+                                             (try ((rd s) 0 0) nil
+                                                  (catch clojure.lang.ExceptionInfo e (budget/unit-over? e)))))]
+                                (when-not (and over (= fresh (all s))) n))))
+                      (range 1 40)))))))
 
 (tu/deftest-kb an-empty-answer-builds-no-reader-state
   ;; a probe matching nothing has no handle to hide, so the visibility filter reads no
@@ -1177,6 +1260,24 @@
               [:a-denial-again true true] [:the-declaration-leaving false false]]
              (for [[step write] steps]
                (do (write) [step (held) (whole)])))))))
+
+(tu/deftest-kb an-edit-builds-each-reader-frame-once
+  (tu/with-terms [q_dog q_cat q_animal q_fed PO CxA CxB]
+    (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list 'disjoint q_dog q_cat) 'CxUniverse)
+    (v/assert kb (list q_dog PO) CxB)
+    (v/assert kb (list q_cat PO) CxB)
+    (let [edge (v/assert kb (list 'genl q_dog q_animal) 'CxUniverse {:strength :monotonic})]
+      (v/assert kb (list 'except (v/sentex-handle edge)) CxB))
+    (v/assert kb (list 'implies (list 'and (list q_animal '?x)) (list q_fed '?x)) CxA {:direction :forward})
+    (let [xs     (map #(symbol (str "Dog" %)) (range 12))
+          frames (atom 0)
+          frame  @#'exc/reader-frame]
+      (with-redefs-fn {#'exc/reader-frame (fn [kb ctx] (swap! frames inc) (frame kb ctx))}
+        #(v/edit! kb {:add (vec (for [x xs] [(list q_dog x) CxA]))}))
+      (is (= 2 @frames) "an except and a placed defeat: 24 frames when each read builds one")
+      (is (every? #(v/ask? kb (list q_fed %) CxA) xs))
+      (is (not (v/ask? kb (list q_fed (first xs)) CxB))))))
 
 (deftest a-release-settles-to-the-same-belief-with-its-reader-frames-kept
   ;; CxC under CxA and CxB.  QM, QE and QO each hold a membership that withholds a mint

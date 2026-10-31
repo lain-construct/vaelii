@@ -63,12 +63,12 @@
          (ng/disjoint (view-of '[(disjoint dog cat) (disjoint cat dog)
                                  (dog Fido) (cat Fido)])))))
 
-(deftest a-declaration-between-a-type-and-its-supertype-is-its-own-nogood-and-convicts-two-memberships
-  (testing "the declaration is a one-member nogood, and one membership under both types forms none"
-    (is (= [{:kind :disjoint :members #{'(disjoint dog animal)} :ground #{'(genl dog animal)}}]
+(deftest a-declaration-between-a-type-and-its-supertype-is-a-nogood-with-the-edge-and-convicts-two-memberships
+  (testing "the declaration and the edge are one nogood's members, and one membership under both types forms none"
+    (is (= [{:kind :disjoint :members #{'(disjoint dog animal) '(genl dog animal)} :ground #{}}]
            (ng/disjoint (view-of '[(disjoint dog animal) (genl dog animal) (dog Fido)])))))
   (testing "a membership of each separated type forms one"
-    (is (= #{#{'(dog Fido) '(animal Fido)} #{'(disjoint dog animal)}}
+    (is (= #{#{'(dog Fido) '(animal Fido)} #{'(disjoint dog animal) '(genl dog animal)}}
            (member-sets (ng/disjoint (view-of '[(disjoint dog animal) (genl dog animal)
                                                 (dog Fido) (animal Fido)])))))))
 

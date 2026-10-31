@@ -26,6 +26,7 @@
             [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.recheck :as recheck]
             [vaelii.impl.resolution :as res]
@@ -136,8 +137,8 @@
 
 (defn- sweep-excepted!
   "Delete what the newly-blocked justifications were solely supporting, through the JTMS
-  sweep (`integrate/apply-removals!`), and record each newly-blocked rule firing the
-  sweep deletes as a refusal (`chain/record-swept-firing!`), so the trigger that lifts
+  sweep (`integrate/apply-removals!`), and record each newly-blocked forward rule firing
+  the sweep deletes as a refusal (`chain/record-swept-firing!`), so the trigger that lifts
   its block releases it from its bindings.  Deletes nothing while `*sweep?*` is false."
   [kb newly-blocked]
   (let [tms   (reasoning/tms kb)
@@ -162,7 +163,7 @@
     (into #{}
           (keep (fn [jid]
                   (let [inf (:informant (jtms/justification tms jid))]
-                    (when (integer? inf) inf))))
+                    (when (special/firing-informant? kb inf) inf))))
           (remove new was))))
 
 (defn- region-terms
@@ -504,13 +505,18 @@
   "`{:gone :back}`: the targets of the defeats `stored` that their own context no longer
   believes, and the targets of `removed` it believes again (`exc/believed-own?`) — the
   handles a defeat moved with no relabel, which a pass reads as it reads a relabelled
-  one."
+  one.  One progress line covers both."
   [kb [stored removed]]
-  (let [recs (:records kb)]
-    {:gone (into #{} (comp (keep #(some-> (p/get-sentex recs %) :sentence kb/defeat-target))
-                           (remove #(exc/believed-own? kb %)))
-                 stored)
-     :back (into #{} (comp (map first) (filter #(exc/believed-own? kb %))) removed)}))
+  (if (and (empty? stored) (empty? removed))
+    {:gone #{} :back #{}}
+    (let [recs (:records kb)]
+      (with-open [r (progress/start ::defeat-belief-moves "settle: read the defeats' own-context belief"
+                                    (+ (count stored) (count removed)))]
+        {:gone (into #{} (comp (keep #(some-> (p/get-sentex recs %) :sentence kb/defeat-target))
+                               (remove #(exc/believed-own? kb %)))
+                     (progress/each r stored))
+         :back (into #{} (comp (map first) (filter #(exc/believed-own? kb %)))
+                     (progress/each r removed))}))))
 
 (defn- pass-belief
   "`[was-in believed?]` for a pass: the relabelled handles believed before the settle
@@ -618,21 +624,22 @@
 (defn- narrow-marker?
   "Is `t` a withdrawal marker whose re-derivations a settle chains narrowly rather than
   over the rule's extent: an `except`'s move, chained from the moved target's consequence
-  closure (`special/drain-except-moves!`), a separation move, re-joined over the types
-  it moved (`separation-rejoins`), or a merge's class queued for a rule whose only
+  closure (`special/drain-except-moves!`), a separation or `nonempty` move, re-joined over
+  the types it moved (`typed-rejoins`), or a merge's class queued for a rule whose only
   re-check condition is `different`, which the merge can withdraw and never release
   (`special/recheck-equality-edge`)?"
   [t]
   (boolean (and (map? t) (or (::special/except-closure t) (::special/separation t)
-                             (::special/merged t)))))
+                             (::special/nonempty t) (::special/merged t)))))
 
-(defn- separation-rejoins
+(defn- typed-rejoins
   "`{rule-handle types}` for the rules of the re-check queue `queued` queued with a
-  `{::separation types}` marker, the types of every such marker on one rule merged."
+  `{::separation types}` or `{::nonempty types}` marker, the types of every such marker on
+  one rule merged."
   [queued]
   (into {} (keep (fn [[rh ts]]
                    (when (set? ts)
-                     (when-let [ms (seq (keep ::special/separation ts))]
+                     (when-let [ms (seq (keep #(or (::special/separation %) (::special/nonempty %)) ts))]
                        [rh (into #{} cat ms)]))))
         queued))
 
@@ -692,7 +699,8 @@
 
 (defn rechain-exception-rules
   "Re-chain the stored, believed forward rules among `rule-handles` over their whole
-  extent, to re-derive what a released exception suppressed.  A firing whose conclusion
+  extent, to re-derive what a released exception suppressed, and re-join the readers of
+  each lazy-forward rule among them (`chain/lazy-readers`).  A firing whose conclusion
   stands or whose exception still holds places nothing.  Each rule costs one join over its
   extent, so callers pass the released rules rather than the queued ones
   (docs/exceptions.md).  Uses `chain`, not `chain-all`: the violations ledger is scoped to
@@ -700,7 +708,8 @@
   [kb rule-handles]
   (let [live (filter (fn [rh]
                        (let [rsx (p/get-sentex (:records kb) rh)]
-                         (and rsx (rules/rule? rsx) (rules/forward-sentex? rsx)
+                         (and rsx (rules/rule? rsx)
+                              (or (rules/forward-sentex? rsx) (rules/lazy-sentex? rsx))
                               (jtms/in? (reasoning/tms kb) rh))))
                      rule-handles)]
     (when (seq live)
@@ -725,7 +734,8 @@
 
 (defn- settle-finish
   "Reconcile the derived caches with settled belief, publish the moved region to the
-  sinks and the feed, and clear the touched set.  `belief-moved?` decides whether
+  sinks and the feed, file a calculus network the region made unsatisfiable
+  (`qkb/report-moved!`), and clear the touched set.  `belief-moved?` decides whether
   the first `refresh-beliefs` reconcile runs.  Returns the spellings superseded since the
   last settle, for `settle` to withdraw the firings over (`withdraw-retired-firings!`),
   and on a rebuild's first settle every superseded spelling; empty with `*sweep?*` off.
@@ -797,6 +807,12 @@
         (vreset! retired (if (and *rebuilding?* discovery/*whole-store-region?*)
                            (vec (keys after))
                            (filterv #(and (contains? after %) (not (contains? before %))) moved)))))
+    ;; a network the settle made unsatisfiable files its ledger entry here, whether or
+    ;; not a rule or a read asks it, before the feed event that carries it (docs/qcn.md,
+    ;; "The settle asks every write")
+    (cond
+      *rebuilding?*        (qkb/forget-settled kb)
+      (qkb/settles? kb)    (qkb/report-moved! kb @region @extra))
     ;; the published set is built only when a sink is bound or a listener registered
     (let [sink    *touched-sink*
           in-sink *touched-in-sink*
@@ -912,6 +928,7 @@
         rs      (vec (revived-seeds kb reseeded region (:released placed)))
         back    (into [] (remove reseeded) (:back dmoves))
         revived (into rs (filter #(tax/derives-from? (reasoning/taxonomy kb) %)) back)
+        _       (special/note-producer-moves! :arrived (into rs back))
         ;; the facts under an edge a firing named that this settle defeated, whose second
         ;; route nothing else re-joins (`departed-seeds`)
         out      (departed-handles kb region)
@@ -959,7 +976,7 @@
   claim of an inherited antecedent, can block."
   [kb cands]
   (let [tms (reasoning/tms kb)]
-    (into [] (comp (filter #(integer? (:informant (jtms/justification tms %))))
+    (into [] (comp (filter #(special/firing-informant? kb (:informant (jtms/justification tms %))))
                    (keep #(p/get-justification (:records kb) %)))
           cands)))
 
@@ -982,7 +999,7 @@
         aggs (rejoin-on-arrival-rules kb queued)
         {free :free over :overflow} (recheck/released-refusals kb queued)]
     (assoc w :was was :new new :gmoved gmoved :forced (vec (forced-recheck-rules queued))
-           :aggs aggs :free free :over over :sep (separation-rejoins queued))))
+           :aggs aggs :free free :over over :sep (typed-rejoins queued))))
 
 (defn- apply-pass!
   "Block what `w` blocks, sweep what that excepts, and re-chain what the pass owes: the
@@ -1017,7 +1034,7 @@
       ;; joins over the whole extent, except a rule a separation move alone queued, which
       ;; joins over the types it moved
       (let [full (into (set released) (concat (blanket-recheck-rules queued) aggs over swept))]
-        (binding [chain/*separation-moved* (apply dissoc sep full)]
+        (binding [chain/*moved-types* (apply dissoc sep full)]
           (rechain-exception-rules kb (into full (keys sep))))))))
 
 (defn- settle*
@@ -1121,7 +1138,7 @@
         jids (into (sorted-set)
                    (comp (mapcat #(jtms/dependents tms %))
                          (filter #(let [j (jtms/justification tms %)]
-                                    (and (integer? (:informant j))
+                                    (and (special/firing-informant? kb (:informant j))
                                          (not (contains? @held (:consequence j)))))))
                    retired)
         wseeds (when (seq jids) (not-empty (special/withdrawn-edge-seeds kb retired)))]
@@ -1205,6 +1222,7 @@
   (binding [special/*release-withheld?* (and special/*release-withheld?*
                                              (not (special/take-first-deferral! kb)))
             rules/*stratification-memo* (or rules/*stratification-memo* (volatile! nil))
+            rules/*negated-keys-memo*   (or rules/*negated-keys-memo* (volatile! nil))
             exc/*reader-states*         (or exc/*reader-states* (volatile! nil))]
     (let [held (hold-belief! kb)]
       ;; the removals a settle makes, whose defeats moved their targets' belief with no

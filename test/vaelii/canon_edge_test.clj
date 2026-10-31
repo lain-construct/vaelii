@@ -47,13 +47,6 @@
   (mapv (fn [i] (list pred (symbol (str prefix i)) (symbol (str prefix (inc i)))))
         (range n)))
 
-(defn- permutations [coll]
-  (if (<= (count coll) 1)
-    (list (seq coll))
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 (defn- sentex-count [kb] (count (p/sentex-ids (:records kb))))
 
 ;; ---- tie-group search: no cutoff, and the whole rule decides -------------
@@ -94,7 +87,7 @@
   ;; the cutoff, and the tiebreak is what fails (see the next test).
   (let [lits '[(p ?a ?b) (p ?b ?c) (p ?c ?d) (p ?d ?e) (p ?e ?a)]
         forms (into #{} (map #(sx/sentence-of (sx/sentex (list 'implies (cons 'and %) '(out ?a)) 'CxA)))
-                    (permutations lits))]
+                    (tu/permutations lits))]
     (is (= 1 (count forms)) (str "one canonical form, got " (count forms) ": " (pr-str forms)))))
 
 (deftest a-cross-product-dedups-on-what-its-consequent-says
@@ -123,7 +116,7 @@
     ;; antecedents, and only the consequent says which copy matters
     (let [lits '[(p ?a ?b) (p ?c ?d) (p ?e ?f) (p ?g ?h)]
           forms (into #{} (map #(sx/sentence-of (sx/sentex (list 'implies (cons 'and %) '(out ?e)) 'CxA)))
-                      (permutations lits))]
+                      (tu/permutations lits))]
       (is (= 1 (count forms))))))
 
 ;; ---- the automorphic cross product is bounded, not enumerated -----------
@@ -144,7 +137,7 @@
     (let [antes (joinless-antes 6)
           rule  (fn [a] (list 'implies (cons 'and a) (cons 'q (map second a))))  ; consequent refs each first arg
           forms (into #{} (map #(sx/sentence-of (sx/sentex (rule (vec %)) 'CxA)))
-                      (permutations antes))]
+                      (tu/permutations antes))]
       (is (= 1 (count forms)) (str "expected one canonical form, got " (count forms)))
       (testing "and it is the minimal numbering — each antecedent's first var in consequent order"
         (is (= '(q ?var0 ?var2 ?var4 ?var6 ?var8 ?var10)
@@ -170,7 +163,7 @@
                  '(out Constant)]]                    ; none — wholly interchangeable
     (doseq [conseq conseqs]
       (let [forms (into #{} (map #(sx/sentence-of (sx/sentex (list 'implies (cons 'and %) conseq) 'CxA)))
-                        (permutations antes))]
+                        (tu/permutations antes))]
         (is (= 1 (count forms))
             (str "consequent " (pr-str conseq) " gave " (count forms) " forms across orderings"))))))
 
@@ -200,7 +193,7 @@
           conseq (list spans '?p0 '?p3)
           h1 (v/assert-rule kb lits conseq 'CxU)
           n1 (sentex-count kb)
-          hs (mapv #(v/assert-rule kb (vec %) conseq 'CxU) (permutations lits))]
+          hs (mapv #(v/assert-rule kb (vec %) conseq 'CxU) (tu/permutations lits))]
       (testing "all six spellings resolve to the one handle"
         (is (= #{h1} (set hs)))
         (is (= n1 (sentex-count kb))))
@@ -249,7 +242,7 @@
               '[(asleep ?y) (fed ?y)]]
              ["an exception's thereExists binder list" exception
               #(list 'thereExists % '(and (likes ?x ?c) (likes ?c ?d))) '[?c ?d]]]]
-      (let [forms (into #{} (map #(canon (wrap %))) (permutations lits))]
+      (let [forms (into #{} (map #(canon (wrap %))) (tu/permutations lits))]
         (is (= 1 (count forms)) (str label ": " (pr-str forms))))))
   (testing "a one-variable binder list is the variable"
     (is (= (sx/sentence-of (sx/sentex '(implies (and (pair ?x ?z) (unknown (thereExists ?c (likes ?x ?c))))

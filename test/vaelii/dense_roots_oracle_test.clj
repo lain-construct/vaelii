@@ -32,9 +32,8 @@
             [vaelii.impl.memory :as mem]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.tokens :as tok]
-            [vaelii.impl.types.dense-roots :as dense-roots-types]))
-
-(defn- pick [^java.util.Random rng v] (nth v (.nextInt rng (count v))))
+            [vaelii.impl.types.dense-roots :as dense-roots-types]
+            [vaelii.test-util :as tu]))
 
 ;; a keyspace spanning every routed family plus fallback keys (counters / plain sets)
 (def ^:private index-keys
@@ -65,18 +64,18 @@
     (dotimes [_ 9000]
       (let [r (.nextInt rng 100)]
         (cond
-          (< r 45) (let [k (pick rng index-keys) h (.nextInt rng 400)]
+          (< r 45) (let [k (tu/pick rng index-keys) h (.nextInt rng 400)]
                      (p/kv-add-to-set m k h) (p/kv-add-to-set d k h))
-          (< r 50) (let [k (pick rng node-keys) c (pick rng '[C0 C1 C2])]
+          (< r 50) (let [k (tu/pick rng node-keys) c (tu/pick rng '[C0 C1 C2])]
                      (p/kv-add-to-set m k c) (p/kv-add-to-set d k c))
-          (< r 55) (let [k (pick rng node-keys) c (pick rng '[C0 C1 C2 NeverStated])]
+          (< r 55) (let [k (tu/pick rng node-keys) c (tu/pick rng '[C0 C1 C2 NeverStated])]
                      (is (= (p/kv-member? m k c) (p/kv-member? d k c)) (str "sismember " k))
                      (p/kv-remove-from-set m k c) (p/kv-remove-from-set d k c))
-          (< r 75) (let [k (pick rng index-keys) h (.nextInt rng 400)]
+          (< r 75) (let [k (tu/pick rng index-keys) h (.nextInt rng 400)]
                      (p/kv-remove-from-set m k h) (p/kv-remove-from-set d k h))
-          (< r 85) (let [k (pick rng fallback-keys)]           ; fallback counter
+          (< r 85) (let [k (tu/pick rng fallback-keys)]           ; fallback counter
                      (is (= (p/kv-increment m k) (p/kv-increment d k)) "incr reply"))
-          (< r 92) (let [k (pick rng fallback-keys)]
+          (< r 92) (let [k (tu/pick rng fallback-keys)]
                      (is (= (p/kv-decrement m k) (p/kv-decrement d k)) "decr reply"))
           :else    (let [ks (vec (take (inc (.nextInt rng 3)) (shuffle index-keys)))]
                      (is (= (p/kv-intersect m ks) (p/kv-intersect d ks)) (str "sinter " ks))))))

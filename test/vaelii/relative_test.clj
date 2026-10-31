@@ -10,10 +10,9 @@
             [vaelii.impl.relative :as rel]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (rel/relative-prover)))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (rel/relative-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

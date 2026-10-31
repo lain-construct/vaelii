@@ -128,6 +128,29 @@
               (do (aset out i \space) (recur (inc i) :comment)))))))
     (String. out)))
 
+(defn- type-helpers
+  "The names of the fns `src` defines whose body text satisfies `reads?`. Three characters
+  at least: a one- or two-letter name occurs inside half the identifiers in a file, and a
+  substring test on it would read every form as evidence."
+  [^String src reads?]
+  (let [defs  (matches-of src defn-form)
+        pairs (:pairs (tc/delimiter-analysis src (map :pos defs)))
+        n     (.length src)]
+    (into #{}
+          (comp (filter #(reads? (subs src (:pos %) (min n (inc (get pairs (:pos %) n))))))
+                (map :name)
+                (filter #(<= 3 (count %))))
+          defs)))
+
+(def ^:private shared-type-helpers
+  "The `vaelii.test-util` fns that return a thrown refusal's `:type`, which a test calls as
+  `tu/<name>`. The needle is the read itself: test-util also builds terms and fixtures whose
+  bodies name `:type` for another reason."
+  (delay (into #{}
+               (map #(str "tu/" %))
+               (type-helpers (blank-prose (slurp "test/vaelii/test_util.clj"))
+                             #(str/includes? % "(:type (ex-data")))))
+
 (defn- asserted-in
   "Every keyword literal in one test source that sits inside a top-level form which reads
   a refusal's `:type` — directly, or through one of the file's own helpers.
@@ -145,14 +168,10 @@
         {:keys [pairs stacks]} (tc/delimiter-analysis src (map :pos lits))
         n       (.length src)
         span    (fn [^long p] (subs src p (min n (inc (get pairs p n)))))
-        ;; three characters at least: a one- or two-letter helper name occurs inside
-        ;; half the identifiers in the file, and a substring test on it would read every
-        ;; form as evidence
-        helpers (into #{}
-                      (comp (filter #(str/includes? (span (:pos %)) ":type"))
-                            (map :name)
-                            (filter #(<= 3 (count %))))
-                      (matches-of src defn-form))
+        shared  @shared-type-helpers
+        helpers (into shared
+                      (type-helpers src (fn [body] (or (str/includes? body ":type")
+                                                       (some #(str/includes? body %) shared)))))
         spans   (volatile! {})
         about-types?
         (fn [pos]

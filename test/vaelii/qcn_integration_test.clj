@@ -19,6 +19,9 @@
 
 ;; both spatial calculi and the interval one, all three provers registered — the point
 ;; being that they coexist without seeing each other's facts
+;; The KB is built per test because tests record join baselines on CxUniverse
+;; (`qkb/note-joined`), and `a-delta-with-no-baseline-is-all-and-an-unchanged-network-moves-nothing`
+;; expects none.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core!)
@@ -148,16 +151,10 @@
         (is (v/ask? kb (list 'spatiallyDisconnected Canary Room) C) (str order))
         (is (empty? (v/sentexes-matching kb (list flies Canary) C)) (str order))))))
 
-(defn- permutations
-  [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs p (permutations (remove #{x} xs))] (cons x p))))
-
 (tu/deftest-kb a-rule-joining-on-a-calculus-gains-a-firing-from-a-sub-predicate-fact
   ;; the sub-predicate fact composes with the `ntpp` one into the rule's antecedent, and
   ;; names the cage where the firing names the canary, so the trigger position misses it
-  (doseq [order (permutations [:rule :edge :sub :ntpp])]
+  (doseq [order (tu/orders [:rule :edge :sub :ntpp])]
     (tu/with-terms [Cage Room Canary bird caged dc]
       (let [steps {:rule #(v/assert kb (list 'set/forwardRule
                                              (list 'implies
@@ -517,9 +514,9 @@
 
 (tu/deftest-kb an-unsatisfiable-network-reaches-the-violations-ledger
   (tu/with-terms [A B]
+    (v/clear-violations! kb)
     (v/assert kb (list 'spatiallyDisconnected A B) C)
     (v/assert kb (list 'spatiallyEqual A B) C)
-    (v/clear-violations! kb)
     (testing "the query answers nothing, as before"
       (is (not (v/ask? kb (list 'regionOverlaps A B) C))))
     (testing "and now says why, in the ledger the engine already keeps"
@@ -546,10 +543,10 @@
 
 (tu/deftest-kb an-inconsistency-only-composition-finds-is-reported-without-a-pair
   (tu/with-terms [A B D]
+    (v/clear-violations! kb)
     (v/assert kb (list 'before A B) C)
     (v/assert kb (list 'before B D) C)
     (v/assert kb (list 'after A D) C)
-    (v/clear-violations! kb)
     (is (not (v/ask? kb (list 'before A B) C)))
     (let [e (first (filter #(= :qualitative-inconsistency (:violation %)) (v/violations kb)))]
       (is (= :allen (:calculus e)))
@@ -557,6 +554,58 @@
           "no single pair is at fault — every constraint is satisfiable as written, and
            only composing them empties one")
       (is (= #{A B D} (set (:nodes (:detail e))))))))
+
+(defn- inconsistencies [kb]
+  (filterv #(= :qualitative-inconsistency (:violation %)) (v/violations kb)))
+
+(tu/deftest-kb a-write-that-makes-a-network-unsatisfiable-files-its-entry-at-the-write
+  ;; no rule joins on the calculus and nothing reads the network: the settle asks
+  (tu/with-terms [A B]
+    (v/assert kb (list 'before A B) C)
+    (is (empty? (inconsistencies kb)))
+    (v/assert kb (list 'after A B) C)
+    (let [[e :as es] (inconsistencies kb)]
+      (is (= 1 (count es)) "filed by the write, before any read")
+      (is (= [:allen C] [(:calculus e) (:context e)]))
+      (is (= [A B] (:nodes (:detail e)))))
+    (testing "a read of the same network files nothing more"
+      (is (not (v/ask? kb (list 'before A B) C)))
+      (is (= 1 (count (inconsistencies kb)))))))
+
+(tu/deftest-kb try-assert-refuses-a-write-that-makes-a-network-unsatisfiable
+  (tu/with-terms [A B D E]
+    (let [h (v/assert kb (list 'before A B) C)
+          e (try (v/try-assert kb (list 'after A B) C) nil
+                 (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+      (is (= [:definitional-clash :unsatisfiable-network] [(:type e) (:violation e)]))
+      (is (= [h] (mapv :handle (:clashes-with e))) "the stored fact the pass blames")
+      (is (= {:calculus :allen :context C :nodes [A B]}
+             (select-keys (:detail e) [:calculus :context :nodes])))
+      (testing "and the call stores nothing and files nothing"
+        (is (nil? (v/handle-of kb (list 'after A B) C)))
+        (is (true? (:consistent? (v/qualitative-network kb :allen C))))
+        (is (empty? (inconsistencies kb))))
+      (testing "a write into a satisfiable component beside an unsatisfiable one is stored"
+        (v/assert kb (list 'after A B) C)
+        (is (some? (v/try-assert kb (list 'before D E) C))))
+      (testing "{:refuse-unsatisfiable? false} stores the write"
+        (is (some? (v/try-assert kb (list 'after D E) C {:refuse-unsatisfiable? false})))
+        (is (false? (:consistent? (v/qualitative-network kb :allen C))))))))
+
+(tu/deftest-kb a-feed-event-carries-the-network-its-settle-made-unsatisfiable
+  (tu/with-terms [A B D]
+    (v/assert kb (list 'before A B) C)
+    (let [events (atom [])
+          t      (v/watch kb #(swap! events conj %))]
+      (try
+        (v/assert kb (list 'before B D) C)
+        (is (nil? (:unsatisfiable (last @events))) "a satisfiable network rides on nothing")
+        (v/assert kb (list 'after A D) C)
+        (let [[e :as es] (:unsatisfiable (last @events))]
+          (is (= 1 (count es)))
+          (is (= (first (inconsistencies kb)) e) "the ledger's entry, in the ledger's shape")
+          (is (= #{A B D} (set (:nodes (:detail e))))))
+        (finally (v/unwatch kb t))))))
 
 ;; ---- the calculi are independent ----------------------------------------
 

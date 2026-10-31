@@ -2,8 +2,8 @@
 
 - **Covers:** the five surfaces that drive a KB — CLI, daemon, client, access facade
   and the browser's launch path — the single-writer contract across them, what to do
-  after a crash, and every environment variable or system property with where it is
-  read.
+  after a crash, the mesh of seats, a seat on a phone-sized host, and every environment
+  variable or system property with where it is read.
 - **Not here:** the browser's own pages, panels and editing UI → [web.md](web.md); which
   KB a process has loaded, and how one is found → [catalog.md](catalog.md).
 - **Assumes:** sentex, context, handle → [glossary.md](glossary.md).
@@ -35,15 +35,25 @@ enforces it with a fail-fast file lock. That shapes how the surfaces coexist:
 - The **CLI** with `--dir` takes the same lock, so it and a daemon **cannot own one
   directory at once**. Point them at different directories, or let the daemon own the
   writable KB and give the CLI its own. `diff` and `upgrade` are the two commands that
-  open no KB of the run's, so `diff` answers beside a daemon holding `--dir`.
+  open no KB of the run's, so `diff` answers beside a daemon holding `--dir`. A command
+  closes the KB it opened before it returns, refused or not, so a process that calls
+  `vaelii.cli/-main` holds the lock only while the command runs.
 - **Every open writes the lock file first**, reads included, so the directory must be
   writable by the process opening it. A directory that cannot hold the file is refused
   by name before the lock is tried: `:not-a-directory` when the path, or a part of it
   above, is a regular file, and `:not-writable` when the process cannot create files
   there, naming the user it runs as. The OS's own words name `.vaelii.lock`, a file the
-  operator never typed, so neither refusal repeats them as its subject.
+  operator never typed, so neither refusal repeats them as its subject. A filesystem that
+  answers the lock request with an I/O error, as one with no POSIX advisory locks does, is
+  refused with `:lock-unsupported`, naming the directory and the OS's reason.
 - An in-memory KB (no `--dir`) has no lock and no persistence — fine for a REPL session
   or a one-shot check, useless for one-shot commands that expect earlier facts.
+- A **seat** (koinii's independent-seat layout) is a fork over two directories: the base,
+  which each `pull!` replaces with the pulled commit, and the fork's own half, which holds
+  the seat's writes ([koinii.md](koinii.md#the-other-deployment-shape-independent-seats)).
+  The process that opens the seat holds both locks, the base's until the JVM exits, and a
+  pull writes both directories on the writer's thread
+  ([overlay.md](overlay.md#replacing-the-base)).
 
 ## After a crash
 
@@ -61,6 +71,13 @@ a `:disk-locked` refusal names a process that is still running.
 - **With `:oplog?`**, the open restores from the last seal and logs at `:info`:
   `restored <dir> from its seal, replaying n operations, in t ms`. Nothing is left to do.
   Under `:oplog? true` a machine crash loses no write whose call returned.
+- **A crash inside a seat's pull** (`import!` with `:rebase?`) leaves the seat's writes in
+  its own directory, and the next open asserts them again
+  ([overlay.md](overlay.md#replacing-the-base)). A crash inside the import of the dump
+  leaves the base partly imported, and that open drops each write the partial base cannot
+  hold: a form naming a record not yet imported, a form refused, and a retraction of a base
+  premise not yet imported. Pulling the commit again restores the base and none of those
+  writes.
 - **A declined restore** logs at `:warn`: `opened <dir> from its records and sealed it in
   t ms: the restore declined, <reason>`. The KB holds what the records hold, and its log
   starts again at a new generation. The reason says which write the log could not
@@ -68,7 +85,7 @@ a `:disk-locked` refusal names a process that is still running.
 
   | reason | what happened | what to do |
   |---|---|---|
-  | `[:unusable [:config op]]` | a prover, evaluatable, reasoner or solver was registered | nothing; a KB that registers one cannot be sealed, so each crash of it rebuilds |
+  | `[:unusable [:config op]]` | a prover, evaluatable, reasoner or solver was registered | nothing; the next seal clears a reasoner's mark, and a KB that registers any of the others cannot be sealed, so each crash of it rebuilds |
   | `[:unusable [:seal op]]` | the crash came inside `import!`, `clear!`, `recover`, `reindex` or `load-text!`, before its seal | check what that operation stored, and run it again if it did not finish |
   | `[:unusable [:unfreezable op cls]]`, `[:unusable [:listener-write op]]`, `[:unusable [:unlogged-write kind]]` | a write the log could not record ran | nothing; writes from a change-feed listener are the usual source |
   | `[:unusable [:vm-error op cls]]` | a write ran out of heap or stack after its frame was written, and was rolled back | raise `-Xmx` (or `-Xss` for `StackOverflowError`) |
@@ -128,7 +145,9 @@ lein cli repl --starter                                                    # int
   for byte. **`--trust`** opens as the browser does (`:recover? :trust`): an image written
   under other engine source is kept and reported `:current`, and belief is recovered only
   when the records moved behind the images, as a writer killed before its close leaves
-  them. `--trust` with `--verify` is refused. **`--sync`** then brings the shipped
+  them. `--trust` with `--verify` is refused. **`--sync`** rewrites the premises naming a
+  symbol a release renamed and reports the ones naming a re-meant or retired symbol, under
+  `:renames` ([catalog.md](catalog.md#a-releases-renames)). It then brings the shipped
   contexts to what this engine ships, one change at a time (`vaelii.host.sync/sync-each!`,
   [catalog.md](catalog.md#a-loaded-kb-states-this-engines-shipped-contexts)), with a
   progress line per change on stderr, and reports `:sync {:added :removed :forwarded
@@ -245,7 +264,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 
   **The rule is one rule and both servers hold it**: `--listen` naming a non-loopback
   address requires `VAELII_API_TOKEN`, and without one the server prints a line and
-  exits **2** before it opens a KB. `lein run -m vaelii.web --listen 0.0.0.0` is refused
+  exits **2** before it opens a KB. The code is distinct from the exit 1 of a configuration typo
+  (a flag without its value, a non-numeric port), so a supervisor can tell a missing
+  credential from a mistyped line. `lein run -m vaelii.web --listen 0.0.0.0` is refused
   on the same terms and, with the token set, answers **401** to a request that does not
   carry it — the browser's write routes include two (`/kbs/export`, `/kbs/load`) that
   write the host filesystem, and both servers' `/op :export` writes it too, at a path the
@@ -289,7 +310,8 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 - **Wire format is EDN.** A sentence is a symbol s-expression — `(dog Muffet)`, `?x` —
   which EDN round-trips losslessly; JSON would mangle the symbols. Bodies are read with
   `clojure.edn/read-string`, which has no reader-eval, so an untrusted body cannot run
-  code.
+  code. The daemon and the client write a body with `guard/edn-str`, which releases
+  `*print-length*` and `*print-level*`, so a caller's print bound elides no sentence.
 - **The protocol is one endpoint.** `POST /op` with `{:op <keyword> :args [...]}` returns
   `{:ok true :result …}` or `{:ok false :error "…" :type <keyword>}`. `GET /health`
   returns `{:ok true}`. The op is looked up in an **allowlist** (`serve/ops`) of
@@ -298,6 +320,16 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   that table and are looked up in a second one (`serve/feed-ops`, below);
   `serve/op-names` is the two together, which is the list an `:unknown-op` refusal
   hands back.
+- **A handle names a sentex on this daemon's KB only.** Another seat allocates its own
+  handles, so a client that forwards a reply names each sentex by its `:sentence` and
+  `:context` ([overlay.md](overlay.md#a-handle-stays-in-its-kb)). A sentence in a reply
+  keeps each `(sentexHandle n)` as stored, so a meta-sentex's sentence names the daemon's
+  target, and its `:digest` digests that target by its content. A body carrying
+  `:digests? true` adds `:digest`, the content digest
+  ([storage.md](storage.md#content-digests)), to each map in the reply that names a
+  sentex: a sentex record, a feed or `preview` entry, a clash report's side. A `client`
+  opened with `{:digests? true}` sends it with every call, and a `:digests?` that is not a
+  boolean is refused `:bad-args`.
 - **`POST /op` requires `Content-Type: application/edn`** — parameters and case are
   tolerated (`application/edn;charset=utf-8` passes), anything else is refused with 415
   in the same `{:ok false :error … :type …}` shape every refusal carries. The
@@ -502,12 +534,14 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   so a remote caller has no query that reconstructs them — `:deprecated?` in particular is
   what makes the `rewriteOf` / `sameAs` distinction observable at all.
 - **…and the whole-KB enumerations an audit pass folds over** (`:handles`,
-  `:contexts-of`, `:canonical-sentex`). `:handles` answers a **sorted vector**: the
+  `:contexts-of`, `:canonical-sentex`, `:digest`, `:digests`). `:handles` answers a **sorted vector**: the
   handle set a store hands back is a `java.util.Set` that is deliberately not an
   `IPersistentSet` at scale ([storage.md](storage.md)) and has no EDN print form, and
   sorting it means two daemons over one store answer the same bytes.
   `:canonical-sentex` is the content identity of a sentence that was never stored, which
   is the read behind content-addressing one ([canonicalization.md](canonicalization.md)).
+  `:digest` and `:digests` read the content digest, the checksum a sentex has in every
+  store that holds it ([storage.md](storage.md#content-digests)).
 - **Five ops take no KB** — `:levels`, `:calculi`, `:readable-sentence`, `:sentence-of`
   and `:quality-report` (above) — and are in
   the table all the same, because a client that has to *display* a stored rule needs the
@@ -593,7 +627,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   | `close!` | 2 | It ends the process's ownership of the store; the socket that asked would be answering from a KB that no longer has one |
   | `seal` | 2 | It writes the images of an operation log `open-kb`'s `:oplog?` attached, and the daemon opens without one; the cadence of seals is the opener's |
   | `write-hazards`, `store-state`, `rebuild-progress` | 2 | Each reads the state that opening the store left. The daemon opens with `open-kb`'s default, `{:recover? :trust}`, so each answers the same value for the whole of its service, and the repair each one names (`recover`, `reindex`, a reload) is a row above. A write into an unrecovered KB is refused `:unrecovered-kb` over the wire as in process |
-  | `add-prover`, `add-evaluatable`, `add-reasoner`, `set-solver` | 1, 2 | The prover registry and the edge solver are held in the process's memory, and none of them is stored. `add-prover` and `add-evaluatable` take a function, and `add-reasoner` and `set-solver` answer the KB value |
+  | `add-prover`, `add-evaluatable`, `add-reasoner`, `set-solver` | 1, 2 | The prover registry and the edge solver are held in the process's memory. `add-prover` and `add-evaluatable` take a function, and `add-reasoner` and `set-solver` answer the KB value. The daemon registers the reasoners its store records when it opens ([storage.md](storage.md#the-reasoner-set)) |
   | `fork` | 1 | It answers a KB value |
   | `with-deferred-settle` | 1 | It is a macro over a body of forms, and `:assert-many` is the batch a request sends |
   | `watch`, `unwatch`, `watchers` | 1 | `watch` takes a callback. The feed crosses as a subscription with a cursor, `serve/feed-ops` (above) |
@@ -810,12 +844,13 @@ the asking one, and `:abduce-discard` and `:clear-caches` take any token in the 
 
   The claim is **generated rather than maintained**. `lein regen-client`
   (`vaelii.regen-client`) reads `serve/ops`, resolves each op in `vaelii.core` and writes
-  the wrappers between two markers in `vaelii.host.client` and `vaelii.client`; a
-  hand-written wrapper in the public shim wins, so prose written for one survives.
+  the wrappers between two markers in `vaelii.host.client`; `vaelii.client` interns each
+  one it does not write out by hand, with its docstring and arglists, so prose written
+  for one survives.
   Generated at *build* time rather than macroexpanded from the table, because requiring
   the table would pull the engine, jetty and reitit onto the classpath of a namespace
   whose whole point is not needing them — the client is JDK-only and stays that way.
-  `client_surface_test` compares both files against what the generator would write now,
+  `client_surface_test` compares the file against what the generator would write now,
   so an op added to the daemon reds the suite until the wrapper is written; that red is
   the notification rather than the chore, which is the bargain the frozen goldens under
   `test/golden/` make too.
@@ -970,6 +1005,88 @@ A client reaches it with the same token from its own environment:
 (c/assert conn '(dog Muffet) 'CxNaturalWorld)
 ```
 
+## A mesh of seats
+
+The supported multi-machine topology is a mesh of peer seats. Every machine runs the same
+vaelii as a seat: a daemon in its own process over a fork of its own copy of the shipped KB
+([koinii.md](koinii.md#the-other-deployment-shape-independent-seats)). No seat is special,
+and each one publishes its own writes and merges every peer's.
+
+- **A seat starts from its own copy.** Its first open imports the shipped dump as the
+  fork's base with `import! {:rebase? true}`. A restart opens the same two directories and
+  imports nothing.
+- **A seat publishes its writes as a delta** with `export-text! {:delta? true}`, and each
+  peer merges the delta with `load-text! {:merge? true}`. The merge reports each form it
+  refuses with the refusal's `:type`, and a reference the peer canonicalizes otherwise is
+  refused `:canonical-mismatch` ([overlay.md](overlay.md#a-delta)).
+- **A seat may take a peer's dump as its base** with `deref/pull!`, which asserts the
+  seat's writes again over the new base. A seat killed after the pull imported the dump
+  holds its writes again at its next open, and one killed inside the import loses the
+  writes the partial base cannot hold ([After a crash](#after-a-crash)).
+- **Once every seat has merged every peer's delta, the seats believe one set** over the
+  shared contexts, when no merge refused a form and no seat retracted a shared premise. A
+  delta writes no retraction ([overlay.md](overlay.md#a-delta)). A form one merge refuses
+  stays stored at the seats that accepted it: a seat that merges a peer's `except` before
+  a third seat's `(symmetric P)` respells its target holds the `except`, and the third seat
+  refuses it `:canonical-mismatch`.
+- **Compare the sets by `:digest` and `:strength`** (a client opened with `{:digests?
+  true}`), not by sentence: a meta-sentex's sentence names its target by the seat's own
+  handle ([the daemon](#daemon--vaeliiserve)), and a digest leaves the strength out.
+
+`multi_jvm_test/three-seats-merging-each-others-deltas-believe-one-set-after-each-round`
+runs three seat daemons through four rounds, with a clean restart, a kill inside a pull of
+a peer's dump and a `:canonical-mismatch` refusal, and compares the believed sets after
+each round. Its refused `except` sits in seat A's own context, outside the compared ones,
+and the test asserts which seats hold it. `lein test-multi-jvm` runs it.
+
+## A seat on a small host
+
+A phone-sized host, such as an Android phone under Termux or a small ARM virtual machine,
+runs a seat as a server does, with a smaller heap and slower storage. No configuration of
+the suite has run on Android, Termux or Linux on aarch64, and the suite runs at a 4 GB
+heap (`VAELII_TEST_HEAP`). At a 1 GB heap, `_JAVA_OPTIONS=-Xmx1g lein perf --only
+membership,recover` passes 24 of its 26 growth checks on a development machine
+(2026-10-30, load average about 30). The other two read below its noise floor, which
+leaves them unjudged.
+
+- **The heap comes from the host.** The start scripts set `-Xmx` from `VAELII_HEAP`, else
+  half the host's physical memory up to `31g`, the largest heap the JVM addresses with
+  compressed object pointers (`scripts/lib/start.sh`). They refuse a `VAELII_HEAP` above
+  physical memory: the OS kills a JVM whose heap it cannot back before the heap mark at
+  92% of the old generation fires ([caches.md](caches.md#the-heap-mark)). A seat started
+  from the jar without a start script names `-Xmx` itself. The heap mark rolls back a
+  chaining write that a larger heap stores, so two seats fed one stream on different heaps
+  can store different knowledge.
+- **Run the jar, not `lein`.** A cold start through `lein` compiles the sources before the
+  KB opens. `lein uberjar` writes an ahead-of-time compiled standalone jar under `target/`,
+  started as the container starts it: `java <flags> -cp <jar> clojure.main -m
+  vaelii.host.serve`, with the flags [the container section](#container--the-daemon-as-an-image)
+  lists.
+- **Open over `:disk-snapshot`, and seed it from a dump that carries a reasoning image.** An
+  open that installs the store's reasoning image skips the recover
+  ([storage.md](storage.md#the-reasoning-image)). `export!` on a larger host writes the
+  image into the dump by default, and `import!` with `{:belief? true}` on the seat installs
+  it in place of the recover. `:recover? false` is not a faster open: every query on it
+  answers empty.
+- **Give no `--starter` on a restart.** A store that already holds the schema dedups each
+  starter sentence to its stored handle, and the load still reads every starter file.
+- **Keep the store under `$HOME`.** Termux's home directory is app-private storage on the
+  device's own filesystem. Android's shared storage (`/sdcard`) is a FUSE mount, and the
+  engine's file lock, rename and fsync have not been run over one
+  ([The single-writer contract](#the-single-writer-contract)).
+- **Run one engine version across the fleet.** An open installs a store's reasoning image
+  only under the source identity that wrote it ([storage.md](storage.md#the-source-identity)),
+  so a seat on another engine build pays the full recover at every open.
+- **Durability waits for the 3 s tick.** On the default, an append is durable within
+  `vaelii.disk.sync-ms`, so a host that loses power, or an OS that kills the process, drops
+  up to three seconds of acknowledged writes. `-Dvaelii.disk.fsync=dsync` makes each
+  append durable when it returns, for one device sync per append.
+- **A thread interrupt during disk I/O stops the store until it is reopened.** The
+  interrupt closes the store's channel, and every later call on the store throws
+  `:store-unusable` with `:reason :interrupted`
+  ([storage.md](storage.md#a-store-that-stops)). Only opening the directory again clears
+  the refusal.
+
 ## Logging — a dial, and what is behind it
 
 ```sh
@@ -1048,7 +1165,9 @@ recover: add the justifications: done, 1,000,000 in 8.3 min
 - **A timer logs a line that no tick does.** A step that counts nothing (the index
   snapshot and reasoning image writes) or a loop held on one item still prints
   `kb-2026-10-18: write the index snapshot: 15 s in` when its line falls due, so a
-  console silent for 15 s has a line above it naming the step that runs.
+  console silent for 15 s has a line above it naming the step that runs. A loop over a
+  total of 0 items schedules no timer, and a closed loop's timer task leaves the timer's
+  queue when the loop closes.
 - **The estimate waits for 0.1% of the loop.** A rate read off fewer items names hours
   for a loop that ends in minutes.
 - **A rate change logs a line outside the schedule.** When the projected total time
@@ -1172,7 +1291,7 @@ the read still found one of them. Set a new floor by rounding the first mention 
 | `VAELII_WEB_PORT` | `src/vaelii/browser/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value, or a number outside 0–65535, is logged at `:warn` and falls through to the property rather than failing the start. |
 | `vaelii.web.port` | `src/vaelii/browser/web.clj:5830+` | a port number | `3000` | The same port, read after the variable, and logged the same way when unusable. |
 | `VAELII_KB_DIR` | `src/vaelii/browser/web.clj:6930+` | a KB directory: a store, a dump or a corpus; blank is unset | unset | The directory the browser loads at startup, as a catalog job with belief recovered, while it serves the starter. The KB becomes the active one when the load finishes. A path holding no KB is logged and the browser stays on the starter. The three `scripts/start-vaelii*.sh` set it. |
-| `VAELII_HEAP` | `scripts/lib/start.sh:20+` | a JVM heap size (`40g`, `24g`) | `40g` | The `-Xmx` the three `scripts/start-vaelii*.sh` add to `JVM_OPTS`, beside `-XX:+ExitOnOutOfMemoryError`. |
+| `VAELII_HEAP` | `scripts/lib/start.sh:20+` | a JVM heap size (`40g`, `24g`) | half of physical memory, up to `31g` | The `-Xmx` the three `scripts/start-vaelii*.sh` add to `JVM_OPTS`, beside `-XX:+ExitOnOutOfMemoryError`. A value above physical memory is refused, exit 1. |
 | `VAELII_DEV` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether `lein browser` hot-reloads source edits and syncs shipped KB file edits into its loaded KBs and the starter's writes back into the files (`docs/web.md`), and re-reads its stylesheet per request, serving it uncached. Set only by `scripts/start-vaelii-dev.sh`; `-main` never hot-reloads. |
 | `VAELII_PROFILER` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether the browser starts the sampling profiler's UI. Off unless asked for: it attaches an agent to the JVM and serves on a port of its own with no authentication. The dependency ships in the `:repl` profile, so `lein browser` has it and `lein run -m vaelii.web` does not — with it absent the start logs a line and `/caches` says so rather than linking to nothing. |
 | `VAELII_PROFILER_PORT` | `src/vaelii/impl/config.clj:250+` | a port number | `8080` | Where that UI binds. Read only when the switch above says to start one. |
@@ -1255,8 +1374,8 @@ representation nobody chose.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `vaelii.build` | `src/vaelii/impl/io/export.clj:180+` | any label; blank is unset | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
-| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:180+` | any label; blank is unset | as above | The same label, read after the property. |
+| `vaelii.build` | `src/vaelii/impl/io/export.clj:130+` | any label; blank is unset | the git HEAD, else `dev` | How the writing build names itself in a dump's `meta.edn`. Diagnostic: a dump that will not read is first a question about which build wrote it. |
+| `VAELII_BUILD` | `src/vaelii/impl/io/export.clj:130+` | any label; blank is unset | as above | The same label, read after the property. |
 
 ### Developer — the suite and the scripts
 
@@ -1273,6 +1392,7 @@ CI sets these too; nothing in a deployment does.
 | `VAELII_FULL_KB_WORK` | `scripts/test-full-kb.sh:0+` | a directory on the same volume as KB-DIR | `testbench/full-kb` | Where `lein test-full-kb` puts each run's clone of KB-DIR, deleted after the run. Outside `target/`, so a `lein clean` during a run does not delete the KB the test JVM has open. KB-DIR itself is what the run upgrades. The clone is an APFS clone, so another volume turns it into a full copy. The script's `VAELII_HEAP` default is `44g`. |
 | `VAELII_TEST_LOG_LEVEL` | `project.clj:130+` | `error` `warn` `info` `debug` `trace`; blank is unset | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
 | `VAELII_TEST_NS_COUNTS` | `project.clj:150+` | the boolean vocabulary | `false` | Prints one `NSCOUNT <namespace> <assertions>` line per test namespace. Two runs diffed name the namespace whose count moved, which is what `test-backends.sh`'s assertion-count check cannot say on its own. |
+| `VAELII_TEST_VERDICTS` | `project.clj:150+` | the boolean vocabulary | `false` | Prints one `TESTVERDICT <ns/name> pass\|fail` line per test var. `lein test-red` sets it and fails on a `^:red` test that passes. |
 | `VAELII_SETTLE_HOUR` | `test/vaelii/settle_hour_test.clj:0+` | `1` or unset | unset (the settle test prints that it skipped) | Runs `settle-of-the-full-kb-within-an-hour`, the `^:full-kb` test that opens `VAELII_FULL_KB_DIR` without belief, settles it with `settle-record-edits!`, prints each phase's minutes and fails past 60. Opt-in beyond the selector because `full_kb_test` opens the same clone with belief and two full-size KBs do not fit one heap: `VAELII_SETTLE_HOUR=1 lein test-full-kb <store> :only vaelii.settle-hour-test`. A postgres store is refused. |
 | `VAELII_SETTLE_REMOVE` | `test/vaelii/settle_hour_test.clj:0+` | a count | `0` | How many stored premises the settle test removes through `edit-records!` before it settles, so the sweep has seeds. |
 | `VAELII_TEST_HEAP` | `project-env.clj:40+` | a JVM heap size (`4g`, `6144m`) | `4g` | The `-Xmx` the `:test` profile gives a test JVM. Unset, a `JVM_OPTS` that already names `-Xmx` keeps its own, which is how `lein test-full-kb` passes `VAELII_HEAP`. The profile also sets G1 to return freed heap (`MaxHeapFreeRatio=30`, a 15 s periodic collection) and two parallel and one concurrent collector thread per JVM. |

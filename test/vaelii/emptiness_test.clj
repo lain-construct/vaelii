@@ -6,6 +6,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [clojure.walk :as walk]
             [vaelii.core :as v]
+            [vaelii.impl.provers :as provers]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-core!))
@@ -75,6 +76,45 @@
 (tu/deftest-kb empty-and-nonempty-are-related-to-the-disjointness-terms
   (is (stored? kb '(termsRelated empty nonempty disjoint orthogonal))))
 
+(defn- nonempty-reader
+  "A forward-only rule concluding `(noted ?c)` from `(nonempty ?c)` for each `listed` type.
+  A test reads `[(nonempty C) (noted C)]` after each step of #121's worked example."
+  [listed noted]
+  (list 'implies (list 'and (list listed '?c) '(nonempty ?c)) (list noted '?c)))
+
+(tu/deftest-kb a-type-is-nonempty-while-a-member-is-believed-in-every-arrival-order
+  (is (= #{[[true true] [true true] [false false]]}
+         (into #{}
+               (for [order (tu/orders [:listed :rule :rex :fido])]
+                 (tu/with-terms [dog listed noted Rex Fido]
+                   (let [read (fn [] [(v/ask? kb (list 'nonempty dog) U)
+                                      (stored? kb (list noted dog))])
+                         hs   (into {} (for [op order]
+                                         [op (case op
+                                               :listed (v/assert kb (list listed dog) U)
+                                               :rule (v/assert kb (nonempty-reader listed noted) U
+                                                               {:direction :forward-only})
+                                               :rex  (v/assert kb (list dog Rex) U)
+                                               :fido (v/assert kb (list dog Fido) U))]))
+                         all  (read)]
+                     (v/retract! kb (:rex hs))
+                     (let [one (read)]
+                       (v/retract! kb (:fido hs))
+                       [all one (read)]))))))))
+
+(tu/deftest-kb a-membership-asks-no-nonempty-witness-of-a-type-not-above-its-own
+  (tu/with-terms [listed noted other dog cat bird Rex Tom Tweety Odd]
+    (v/assert kb (nonempty-reader listed noted) U {:direction :forward-only})
+    (doseq [[t m] [[dog Rex] [cat Tom] [bird Tweety]]]
+      (v/assert kb (list listed t) U)
+      (v/assert kb (list t m) U))
+    (let [asked   (atom #{})
+          witness provers/nonempty-witness]
+      (with-redefs [provers/nonempty-witness (fn [kb c ctx] (swap! asked conj c) (witness kb c ctx))]
+        (v/retract! kb (v/assert kb (list other Odd) U)))
+      (is (empty? (filter #{dog cat bird} @asked)))
+      (is (every? #(stored? kb (list noted %)) [dog cat bird])))))
+
 ;; ---- along genl ------------------------------------------------------------
 
 (tu/deftest-kb an-empty-type-makes-each-subtype-empty
@@ -102,11 +142,6 @@
 ;; `(empty outer)` reaches, and `(empty outer)` a denial of the `(nonempty outer)` that
 ;; `(nonempty inner)` reaches.  CxUniverse states both declarations `:monotonic`, so a reading
 ;; over a known-true claim and edge is known-true.
-(defn- permutations [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (permutations (remove #{x} xs))] (cons x more))))
-
 (tu/deftest-kb a-subtype-stated-nonempty-below-a-type-stated-empty-is-an-inherited-clash-in-every-order
   ;; Known-true throughout, the two clashes are conflicts.  A `:default` `(nonempty inner)`
   ;; is the unique weakest member of the first clash and is not believed.
@@ -116,7 +151,7 @@
                (for [strength [:monotonic :default]]
                  [strength
                   (into #{}
-                        (for [order (permutations [:empty :edge :nonempty])]
+                        (for [order (tu/orders [:empty :edge :nonempty])]
                           (tu/with-terms [outer_kind inner_kind]
                             (v/assert kb (list 'genl outer_kind 'thing) U)
                             (doseq [op order]
@@ -135,6 +170,23 @@
                                            (filter #(some '#{outer inner} %)))
                                      (concat (v/conflicts kb) (v/contradictions kb)))
                                (v/ask? kb (list 'nonempty inner_kind) U)]))))])))))
+
+(tu/deftest-kb a-member-of-a-subtype-makes-its-supertype-nonempty-through-the-edge
+  (is (= #{[[true true] [false false]]}
+         (into #{}
+               (for [order (tu/orders [:edge :rex])]
+                 (tu/with-terms [dog animal listed noted Rex]
+                   (v/assert kb (list listed animal) U)
+                   (v/assert kb (nonempty-reader listed noted) U {:direction :forward-only})
+                   (let [read (fn [] [(v/ask? kb (list 'nonempty animal) U)
+                                      (stored? kb (list noted animal))])
+                         hs   (into {} (for [op order]
+                                         [op (case op
+                                               :edge (v/assert kb (list 'genl dog animal) U)
+                                               :rex  (v/assert kb (list dog Rex) U))]))
+                         both (read)]
+                     (v/retract! kb (:edge hs))
+                     [both (read)])))))))
 
 ;; ---- below two disjoint types ---------------------------------------------
 

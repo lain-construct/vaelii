@@ -54,12 +54,10 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
-            [vaelii.impl.disk.files :as f])
+            [vaelii.impl.disk.files :as f]
+            [vaelii.test-util :as tu])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
-
-(defn- rm-rf! [^String dir]
-  (doseq [x (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File x)))
 
 (defn- with-tmp
   "Run `(g dir)` in a fresh temp directory, closing any disk stores opened on it — so the
@@ -67,7 +65,7 @@
   [g]
   (let [dir (str (Files/createTempDirectory "vaelii-wipe-fsync-" (into-array FileAttribute [])))]
     (try (g dir)
-         (finally (backend/close-dir! dir) (rm-rf! dir)))))
+         (finally (backend/close-dir! dir) (tu/rm-rf! dir)))))
 
 (defn- counting-dir-fsyncs
   "Run `thunk`, returning `[result n]` where `n` is the directory fsyncs made **on this

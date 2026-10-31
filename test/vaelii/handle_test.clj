@@ -23,15 +23,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
-            [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
-
-(defn- temp-dir ^File []
-  (.toFile (Files/createTempDirectory "vaelii-handle-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d] (doseq [^File f (reverse (file-seq d))] (.delete f)))
+            [vaelii.test-util :as tu]))
 
 (defn- with-each-backend
   "Run `f` over an empty KB on each backend in turn, and empty it again after.  A space
@@ -42,7 +34,7 @@
   (doseq [opts [{:backend :memory :space [::handle]}
                 {:backend :disk-log}]]
     (testing (str (:backend opts))
-      (let [dir (when (= :disk-log (:backend opts)) (temp-dir))
+      (let [dir (when (= :disk-log (:backend opts)) (tu/temp-dir "vaelii-handle-"))
             kb  (v/open-kb (cond-> (assoc opts :recover? false)
                              dir (assoc :dir (.getPath dir))))]
         (try
@@ -50,7 +42,7 @@
           (f kb)
           (finally
             (tu/clear-kb! kb)
-            (when dir (backend/close-dir! (.getPath dir)) (rm-rf! dir))))))))
+            (when dir (backend/close-dir! (.getPath dir)) (tu/rm-rf! dir))))))))
 
 ;;; ── the counter ───────────────────────────────────────────────────────
 

@@ -225,7 +225,7 @@ without storing anything, and answers with the identical problem.
 | `:arg-type` / `:arg-genl` | an `arg` / `genlArg` constraint convicted an input of a function application inside an argument; a convicted fact is stored and held inert — [argtypes.md](argtypes.md#an-argument-that-fails-its-declared-type-is-held-inert) |
 | `:disjoint` / `:functional` / `:asymmetric` | a definitional clash that names no stored member; a clash naming its members is stored, and `contradictions` or `conflicts` reports it — [nmtms.md](nmtms.md#1-order-independence) |
 | `:cover` | a `covering` declaration every part of which is now denied of a term the whole holds — [taxonomy.md](taxonomy.md) |
-| `:definitional-clash` | `try-assert` only: the sentence, or a membership its argument declarations mint, clashes with believed content; an argument fails its declared type; a rule variable two argument constraints demand separated types of (`:violation :arg-variable`); an argument declaration is broken by a stored tuple or would convict a stored rule; a fact's length breaks its relation's binding, or a binding, `genl` edge, metatype route or `except` of a binding would break stored tuples' length (`:violation :arity`); an `irreflexive` mark over stored self tuples; a self tuple of an `irreflexive` relation or a converse of an `anti_symmetric` one (`:violation :irreflexive` / `:anti-symmetric`); or a read answers the sentence's complement `:monotonic` through `:monotonic` edges (`:violation :complement`). `assert` stores it, an argument conviction or a convicted rule held inert, and `check` does not report the clash — [api.md](api.md#refusing-a-clash) |
+| `:definitional-clash` | `try-assert` only: the sentence, or a membership its argument declarations mint, clashes with believed content; an argument fails its declared type; a rule variable two argument constraints demand separated types of (`:violation :arg-variable`); an argument declaration is broken by a stored tuple or would convict a stored rule; a fact's length breaks its relation's binding, or a binding, `genl` edge, metatype route or `except` of a binding would break stored tuples' length (`:violation :arity`); an `irreflexive` mark over stored self tuples; a self tuple of an `irreflexive` relation or a converse of an `anti_symmetric` one (`:violation :irreflexive` / `:anti-symmetric`); a read answers the sentence's complement `:monotonic` through `:monotonic` edges (`:violation :complement`); or the write makes a registered calculus's network unsatisfiable (`:violation :unsatisfiable-network`). `assert` stores it, an argument conviction or a convicted rule held inert, and `check` does not report the clash — [api.md](api.md#refusing-a-clash) |
 | `:unknown-option` | an option key nothing reads, or a non-map `opts` — `:mismatch` says which. A refused `VAELII_*` or `vaelii.*` switch is named under `:switch`, and under `:property`, the older key |
 
 The one worth knowing in advance: **snake_case means arity 1.** An underscored functor
@@ -417,6 +417,13 @@ thing an open writes: `:not-a-directory` when the directory, or a part of the pa
 it, is a regular file, and `:not-writable` when this process cannot create files there.
 Each names the directory rather than the lock file, and `:not-writable` names the user the
 process runs as. A read needs write access as well, since it takes the lock too.
+`:lock-unsupported` comes once the lock file exists: the filesystem answered the lock
+request with an I/O error, which one with no POSIX advisory locks does (Android's shared
+storage, some network mounts). The refusal carries the OS's `:reason`. Open the KB from a
+directory on a local filesystem. When the reason is one a filesystem with no advisory
+locks gives (`Function not implemented`, `Operation not supported`, `No locks
+available`), the message also offers `vaelii.disk.lock=false` for a directory no second
+process opens.
 
 The CLI adds one more before it opens anything: a `--dir` whose parent does not exist is
 refused (`:unknown-source`) and nothing is created, so a mistyped path answers "no KB"
@@ -540,6 +547,7 @@ so one vocabulary reads both.
 | `:belief-built` | `edit-records!` was called on a KB with belief, or one answering from an installed image; it skips the checks, the sweep and the settle belief owes, so it runs on a store opened `{:recover? false}` | [storage.md](storage.md#editing-the-records-of-a-kb-without-belief) |
 | `:body-too-large` | a request body over `VAELII_MAX_BODY_BYTES` | [operations.md](operations.md) |
 | `:budget-exhausted` | a bounded `ask` / `ask?` / `prove` / `provable?` hit its `:max-ms` before the search ran dry, so what it held was a prefix rather than an answer | [anytime.md](anytime.md) |
+| `:canonical-mismatch` | a delta form's reference resolves to a sentex whose content digest differs from the one the delta recorded, or the loading KB reads a different number of references in the form (`:reference`, `:context`, `:expected`, `:actual`); the two KBs canonicalize the sentence differently, as when only one declares the predicate `symmetric` | [storage.md](storage.md#content-digests) |
 | `:choice-head-not-positive` | an `assumptionRule` head is negated, and a choice head must be a positive literal | [solving.md](solving.md) |
 | `:compaction-failed` | a record or index log compaction failed after its commit point — the store refuses writes until it is reopened | [storage.md](storage.md) |
 | `:complement` | `try-assert`'s `:violation`: a read from the context answers the sentence's complement (`(not S)` for `S`, `S` for `(not S)`) `:monotonic` through `:monotonic` `genl` edges, and the sentence is not a forced-monotonic positive | [api.md](api.md#refusing-a-clash) |
@@ -549,7 +557,7 @@ so one vocabulary reads both.
 | `:daemon-error` | the daemon refused and its reply carried no `:type` of its own — the client's fallback | [operations.md](operations.md) |
 | `:damaged-dictionary` | a tokenized frame cites a token id the dictionary has no entry for | [storage.md](storage.md) |
 | `:damaged-frame` | a frame inside a log the open reads whole — `tokens.log`, the index's `kv.log`, the operation log — does not decode, and frames follow it; the refusal names the file, the byte offset and the frame | [storage.md](storage.md) |
-| `:definitional-clash` | `try-assert` refused a sentence that would open a clash with believed content, whose argument-type mints would, whose argument holds a separated type, whose complement is believed `:monotonic`, whose length breaks its relation's binding, that is a self tuple of an `irreflexive` relation or a converse of an `anti_symmetric` one, or a declaration a stored tuple breaks (an argument declaration, a length binding, a `genl` edge's length, a metatype route, an `irreflexive` mark) or an `except` of a binding; `:violation` names the clash kind and `:clashes-with` the other members | [api.md](api.md#refusing-a-clash) |
+| `:definitional-clash` | `try-assert` refused a sentence that would open a clash with believed content, whose argument-type mints would, whose argument holds a separated type, whose complement is believed `:monotonic`, whose length breaks its relation's binding, that is a self tuple of an `irreflexive` relation or a converse of an `anti_symmetric` one, a declaration a stored tuple breaks (an argument declaration, a length binding, a `genl` edge's length, a metatype route, an `irreflexive` mark) or an `except` of a binding, or that makes a registered calculus's network unsatisfiable; `:violation` names the clash kind and `:clashes-with` the other members | [api.md](api.md#refusing-a-clash) |
 | `:derived-only` | a `defeat` literal in an asserted sentence, its negation, a rule or an `exceptWhen` query; only the engine derives a defeat | [glossary.md](glossary.md#d) |
 | `:disjoint` | a definitional clash between two disjoint types — see [`assert` refused it](#assert-refused-it) | [exceptions.md](exceptions.md) |
 | `:disjunction-too-wide` | a disjunctive antecedent over the alternative cap | [canonicalization.md](canonicalization.md) |
@@ -561,7 +569,7 @@ so one vocabulary reads both.
 | `:export-busy` | an export is already running, and one runs at a time | [catalog.md](catalog.md) |
 | `:forbidden-context` | a write op under a token-table grant places a sentence in, or removes or annotates a sentex stored in, a context the grant's `:writes` does not name; `:context` names it, and a `do/` imperative is refused to every grant but an admin one | [operations.md](operations.md#the-token-table) |
 | `:fork-base-overlap` | a durable fork that has written anything was remounted over a base that has grown or been rebuilt in another order since, so its records and removals would hide the base's sentences; `:handles` names the handles at issue | [overlay.md](overlay.md) |
-| `:frozen-base` | a write reached the overlay's base, which is mounted read-only | [overlay.md](overlay.md) |
+| `:frozen-base` | a write reached the overlay's base, which is mounted read-only, or an `import!` under `:rebase?` named a fork whose base is the stores of the KB it was forked from | [overlay.md](overlay.md) |
 | `:functional` | a second value for a predicate declared `functional`, or for the position a `functionalInArg` declaration names — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
 | `:handle-ceiling` | a handle past the dense TMS's int-keyed ceiling | [density.md](density.md) |
 | `:argument-family-ceiling` | more distinct `(predicate, position)` pairs than the packed root key's 24-bit scope field holds; take `:index :memory` | [indexing.md](indexing.md) |
@@ -575,10 +583,12 @@ so one vocabulary reads both.
 | `:labeling-run-blocked` | a previous run's artifacts cannot be replaced — see [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | [solving.md](solving.md) |
 | `:length-against-shape` | a length binding of an engine term admits no length its `:shape` takes, or fewer lengths than the shape takes: `(arity genl 3)`, `(arityMin partition 4)` | [taxonomy.md](taxonomy.md) |
 | `:length-against-spelling` | a length binding gives a type-spelled term a length other than 1, or a camelCase term the length 1; it follows the `:naming` policy | [naming.md](naming.md#a-length-binding-is-held-to-the-spelling) |
+| `:lock-unsupported` | the filesystem under a disk KB's directory answered the single-writer lock request with an I/O error, as one with no POSIX advisory locks does — see [The disk KB will not open](#the-disk-kb-will-not-open) | [operations.md](operations.md#the-single-writer-contract) |
 | `:malformed-entry` | an index entry stream holds something that is not a `[key value]` pair | [storage.md](storage.md) |
 | `:malformed-manifest` | a `meta.edn` / `format.edn` / `catalog.edn` / an index's `records.edn` the EDN reader cannot parse — cut mid-form, or never EDN | [storage.md](storage.md) |
 | `:malformed-record` | a tokenized record body holds a code this codec does not write; the open's walk tombstones the record | [storage.md](storage.md) |
 | `:manifest-too-large` | a manifest file longer than the bound the reader allows; a manifest is a handful of keys | [storage.md](storage.md) |
+| `:mint-rule` | a `retract!` or `edit!` named the inert rule one argument declaration kind's mints are justified under (`:kind`); the mints rest on it and the next mint would store it again | [argtypes.md](argtypes.md#the-entailment-as-a-justified-datum) |
 | `:missing-adapter` | a **legal** `:sqlite` or `:pg` records axis whose Apache-2.0 sibling is not on the classpath — `:coordinate` names the dependency to add, and the backend is not the thing to change | [storage.md](storage.md) |
 | `:missing-resource` | a KB file, ontology layer or text KB is not where it was looked for | [kbs.md](kbs.md) |
 | `:naf-justification` | a dump names a justification with a non-empty `:out`, and a justification here has no out-list | [naf.md](naf.md) |
@@ -597,7 +607,7 @@ so one vocabulary reads both.
 | `:not-assertible` | a `do/` imperative inside a rule, an imperative this build does not carry, or one written with the wrong arguments | [labeling.md](labeling.md) |
 | `:not-checkable` | `check` was handed a `do/` imperative, which stores nothing and so has nothing to check | [api.md](api.md) |
 | `:not-edn` | a request body does not read as EDN | [operations.md](operations.md) |
-| `:not-empty` | an export or import destination already holds content, and each wants a place of its own | [storage.md](storage.md) |
+| `:not-empty` | an export or import destination already holds content, and each wants a place of its own; a fork takes a newer dump under `import!`'s `:rebase?` | [storage.md](storage.md) |
 | `:not-encodable` | a value in a sentence does not round-trip through the durable log | [storage.md](storage.md) |
 | `:not-found` | the daemon has no route for the path | [operations.md](operations.md) |
 | `:not-ground` | a fact with a variable in it, or an `abduce` with a variable context — see [`assert` refused it](#assert-refused-it) | [nmtms.md](nmtms.md) |
@@ -607,7 +617,7 @@ so one vocabulary reads both.
 | `:not-range-restricted` | a consequent variable no antecedent binds | [nmtms.md](nmtms.md) |
 | `:not-sealed` | a browser backup sealed the KB and the seal did not complete, so the images might not name the records the dump holds; nothing was kept | [web.md](web.md#backing-up-a-store-kept-in-postgres) |
 | `:not-stratified` | the rule set would close a cycle through negation | [naf.md](naf.md) |
-| `:not-watchable` | a `watch` that could never deliver — no listener, a goal nothing unifies with, or an unscoped goal | [feed.md](feed.md) |
+| `:not-watchable` | a `watch` that could never deliver — no listener, a goal nothing unifies with, an unscoped goal, or a goal a registered calculus answers off its network | [feed.md](feed.md) |
 | `:not-well-formed` | a malformed connective frame, or an `or` somewhere polycanonicalization cannot expand it away | [canonicalization.md](canonicalization.md) |
 | `:not-writable` | a disk KB's directory is not writable by this process, and every open, reads included, creates the single-writer lock file there — see [The disk KB will not open](#the-disk-kb-will-not-open) | [storage.md](storage.md) |
 | `:owed-record-ahead` | the argument-type pass's owed record was written after the records the store holds — a store restored from an older copy under a newer record; `{:resume? false}` starts the pass again | [argtypes.md](argtypes.md#the-pass-over-a-stored-kb) |
@@ -615,6 +625,7 @@ so one vocabulary reads both.
 | `:pattern-too-costly` | a `find-terms` regex read past its per-term or scan-wide character budget | [api.md](api.md) |
 | `:quantifier-not-local` | a bound existential or universal variable appears outside its own quantifier | [aggregate.md](aggregate.md) |
 | `:quoted-arg-type` | a `quotedArg` constraint convicted an input of a function application inside an argument on its EDN kind as a term; a convicted fact is stored and held inert | [argtypes.md](argtypes.md) |
+| `:reasoner-mismatch` | a store or a dump records one reasoner set and the open or import names another, and two sets derive two beliefs from the same records; name the recorded set or pass `:reasoners :stored` | [storage.md](storage.md#the-reasoner-set) |
 | `:record-edit-unsupported` | an `edit-records!` batch removes an `except`, `defeat` or `exceptWhen` record, whose departure re-posts what the remaining ones name; remove it with `edit!` | [storage.md](storage.md#editing-the-records-of-a-kb-without-belief) |
 | `:reserved-family` | a packed index key names the reserved family, which nothing packs | [indexing.md](indexing.md) |
 | `:reset` | the sandbox page's row saying how much a reset discarded | [web.md](web.md) |
@@ -661,6 +672,8 @@ so one vocabulary reads both.
 | `:unrecovered-kb` | the KB is open over a store whose belief was never built, so writes are refused until `recover` runs; with `:hazards [:stale-belief]`, a `:recover? :background` open is rebuilding belief behind an earlier build's image, and writes resume when the rebuild finishes | [storage.md](storage.md) |
 | `:unrecovered-premise` | a retract named a premise this KB never recovered, so the dedup walk that would find its twin has not run | [storage.md](storage.md) |
 | `:unreleased` | an unload's release did not finish cleanly; the entry is still listed and unloading again retries it | [catalog.md](catalog.md) |
+| `:unresolved-reference` | a reference (`(ist Cx S)` or a bare `S`) names no stored sentex in its context, or a rule stored as several (`:reference`, `:context`); assert the sentence it names first | [canonicalization.md](canonicalization.md#a-reference-to-a-stored-sentex) |
+| `:unsatisfiable-network` | `try-assert`'s `:violation`: a registered calculus blames a sentex the write premised or concluded for an unsatisfiable component of its network; `assert` stores the write and files a `:qualitative-inconsistency` entry | [qcn.md](qcn.md#support-what-an-entailed-relation-rests-on) |
 | `:unsupported-compression` | a compression this build does not write, does not read, or whose codec is off the classpath | [storage.md](storage.md) |
 | `:unsupported-context` | a query context reached a read that does not resolve one, and would answer as though the KB were empty | [contexts.md](contexts.md) |
 | `:unsupported-format` | a durable store's format version is not one this engine reads | [storage.md](storage.md) |
@@ -690,6 +703,7 @@ rather than adding to the engine's flat one ([koinii.md](koinii.md)).
 | `:koinii/no-such-stance` | a ballot stance other than `:for` or `:against` |
 | `:koinii/no-wire-feed` | an in-process medium has no cursor feed; catch-up is a wire-only concern |
 | `:koinii/not-a-channel` | an agent cannot join under that parent, since a channel is a context agents are lifted into |
+| `:koinii/not-a-side` | `adjudication/rule` was asked to uphold a sentence that is neither a side of the dispute the id names nor a side's negation, a side respelled since the id was read included |
 | `:koinii/not-own-statement` | an agent may disregard only its own statement |
 | `:koinii/registry-forbidden` | the governed may not write the authority that governs them; an `:admin?` map `authenticate` did not mint is governed (`:minted? false`) |
 | `:koinii/registry-not-functional` | a registry read matched more than one row, where the vocabulary declares one |

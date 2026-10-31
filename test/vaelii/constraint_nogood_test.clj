@@ -19,16 +19,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- fwd [antes conseq]
-  (list 'set/forwardRule (vr/rule-sentence antes conseq)))
-
-(defn- permutations [coll]
-  (if (<= (count coll) 1)
-    (list (seq coll))
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 ;;; ── asymmetry: a relation declared not to hold both ways ──────────────
 
 (tu/deftest-kb an-asymmetric-pair-at-default-is-a-represented-dilemma
@@ -198,8 +188,9 @@
 ;; `strength` in `held-in`, with `(genl dog_t animal_t)` stored at `edge` when it is not
 ;; nil, then `try-assert` of `arriving` in `written-in`.  `siblingOf` is symmetric and
 ;; `(genl kinOf siblingOf)` is `:monotonic`, so one `kinOf` row reads the denial mirrored.
-;; `likes` is declared forced-monotonic, and a `disjoint` is forced-monotonic, so either
-;; reads `:monotonic` at the `:default` strength written.
+;; `likes` is declared forced-monotonic, so it reads `:monotonic` at the `:default` strength
+;; written.  A `disjoint` is defeasible, so a `:default` one and its `:default` denial are a
+;; dilemma.
 (defn- complement-rows [{:keys [dog_t animal_t cat_t siblingOf kinOf likes Rex Ann CxLow]}]
   (let [m :monotonic d :default U 'CxUniverse
         dog (list dog_t Rex) animal (list animal_t Rex)
@@ -210,7 +201,8 @@
      [:from-below    dog m U (no dog) CxLow nil true]
      [:not-visible   dog m CxLow (no dog) U nil false]
      [:default       dog d U (no dog) U nil false]
-     [:forced-denial dis d U (no dis) U nil true]
+     [:forced-denial lk d U (no lk) U nil true]
+     [:separation-denial dis d U (no dis) U nil false]
      [:symmetric     sib m U (no (list siblingOf Rex Ann)) U nil true]
      [:symmetric-super (no sib) m U (list kinOf Ann Rex) U nil true]
      [:symmetric-super-mirrored (no sib) m U (list kinOf Rex Ann) U nil true]
@@ -223,7 +215,7 @@
 (deftest try-assert-refuses-a-sentence-whose-complement-is-believed-monotonic
   ;; per row: `try-assert` of the arriving sentence, then, where it refused, `assert` of
   ;; it on the same KB; a `:default` pair is a dilemma, and a forced positive is believed
-  (doseq [row-index (range 14)]
+  (doseq [row-index (range 15)]
     (tu/with-kb [kb]
       (tu/with-terms [dog_t animal_t cat_t siblingOf kinOf likes Rex Ann CxLow]
         (v/assert kb (list 'genlCx CxLow 'CxUniverse) 'CxUniverse)
@@ -249,9 +241,10 @@
                   (is (v/in? kb h) "the complement stands"))
               (is (= :stored e)))
             (case label
-              :default (is (some #(= #{h (v/handle-of kb arriving written-in)} (set (:nogood %)))
-                                 (v/contradictions kb))
-                           "a default pair is a dilemma")
+              (:default :separation-denial)
+              (is (some #(= #{h (v/handle-of kb arriving written-in)} (set (:nogood %)))
+                        (v/contradictions kb))
+                  "a default pair is a dilemma")
               :forced-positive (is (= [true false] [(v/ask? kb arriving written-in) (v/in? kb h)])
                                    "the forced positive is believed and its denial loses")
               nil)))))))
@@ -534,9 +527,8 @@
 
 (tu/deftest-kb retracting-the-separation-revives-the-loser-decided-or-not
   ;; a reader decides the pair from current state on every read, so no verdict taken
-  ;; while the declaration was believed outlives it; a `disjoint` is in the baseline
-  ;; forced-monotonic set, so retraction is what takes it away, and the retraction drops the
-  ;; flat-cache entry before the settle runs
+  ;; while the declaration was believed outlives it; the retraction drops the flat-cache
+  ;; entry before the settle runs
   (doseq [dog-strength [:monotonic :default]]
     (testing (str "with the pair " (if (= :monotonic dog-strength) "decided" "a dilemma"))
       (tu/with-kb [kb]
@@ -552,6 +544,26 @@
           (is (empty? (v/contradictions kb)))
           (is (:believed? (v/why-not kb (list cat_t Muffet) 'CxUniverse))
               "and nothing is left defeated by a pair no reader can name"))))))
+
+(tu/deftest-kb defeating-the-separation-revives-the-loser-decided-or-not
+  ;; a separation is a defeasible ground of the membership nogood: a monotonic denial
+  ;; defeats the default declaration in its negation nogood, and the placed defeat hides
+  ;; the membership nogood resting on it, so no verdict taken while the declaration was
+  ;; believed outlives its defeat
+  (doseq [dog-strength [:monotonic :default]]
+    (testing (str "with the pair " (if (= :monotonic dog-strength) "decided" "a dilemma"))
+      (tu/with-kb [kb]
+        (tu/with-terms [dog_t cat_t Muffet]
+          (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
+          (v/assert kb (list cat_t Muffet) 'CxUniverse)
+          (v/assert kb (list dog_t Muffet) 'CxUniverse {:strength dog-strength})
+          (v/assert kb (list 'not (list 'disjoint dog_t cat_t)) 'CxUniverse
+                    {:strength :monotonic})
+          (is (not (v/disjoint? kb dog_t cat_t 'CxUniverse)))
+          (is (v/ask? kb (list dog_t Muffet) 'CxUniverse))
+          (is (v/ask? kb (list cat_t Muffet) 'CxUniverse)
+              "the loser comes back with the separation that convicted it")
+          (is (:believed? (v/why-not kb (list cat_t Muffet) 'CxUniverse))))))))
 
 (tu/deftest-kb defeating-the-edge-a-separation-is-read-over-revives-the-loser
   ;; an edge denied in its own context is a global defeat; `scoped_defeat_test` covers
@@ -632,7 +644,7 @@
   (tu/with-terms [dog_t cat_t Muffet]
     (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
     (v/assert kb (list dog_t Muffet) 'CxUniverse)
-    (v/assert kb (fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
     (testing "a definitional clash names its constraint"
       (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
     (testing "and ranks above a rebuttal"
@@ -655,7 +667,7 @@
     (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
     (let [dog    (v/assert kb (list dog_t Muffet) 'CxUniverse)
           before (v/sentex-count kb)]
-      (v/assert kb (fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
+      (v/assert kb (tu/fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
       (let [cat (v/handle-of kb (list cat_t Muffet) 'CxUniverse)
             [c] (v/sentexes-matching kb (list 'contradicts '?a '?b) '?ctx)]
         (is (= (set (map sx/sentex-handle [dog cat])) (set (rest (:sentence c)))))
@@ -688,7 +700,7 @@
   (tu/with-terms [dog_t cat_t Muffet]
     (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
     (v/assert kb (list dog_t Muffet) 'CxUniverse)
-    (v/assert kb (fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
     (is (= report-keys (into #{} (keys (first (v/contradictions kb)))))
         "the two readings differ in why the pair stands, not in what is reported")))
 
@@ -708,7 +720,7 @@
           (v/conflicts kb))))
 
 (deftest the-grounds-name-every-declaration-in-content-order-in-every-arrival-order
-  (doseq [order (permutations [:d1 :d2 :m1 :m2])]
+  (doseq [order (tu/permutations [:d1 :d2 :m1 :m2])]
     (tu/with-kb [kb]
       (tu/with-terms [dog_t cat_t animal_t Muffet]
         (let [ws {:d1 (list 'disjoint dog_t cat_t) :d2 (list 'disjoint animal_t cat_t)
@@ -884,7 +896,7 @@
   ;; mammal ⊑ animal does not contrapose, so Rex is an atypical mammal and no nogood forms.
   (doseq [[edge member expect] [[:monotonic :monotonic :conflict] [:monotonic :default :loses]
                                 [:default :monotonic :none] [:default :default :none]]
-          order                (permutations [:edge :member :deny])]
+          order                (tu/permutations [:edge :member :deny])]
     (tu/with-kb [kb]
       (tu/with-terms [dog mammal animal Rex]
         (let [m      {:strength :monotonic}
@@ -913,7 +925,7 @@
   ;; makes (not (q1 X)) deny p1, so the default (w X) loses; a :default edge leaves room
   ;; for an atypical p1 outside q1, and no nogood forms
   (doseq [edge  [:monotonic :default]
-          order (permutations [:cover :edge :member :deny])]
+          order (tu/permutations [:cover :edge :member :deny])]
     (tu/with-kb [kb]
       (tu/with-terms [w p1 p2 q1 X]
         (let [m      {:strength :monotonic}
@@ -980,7 +992,7 @@
   (tu/with-terms [dog_t cat_t Muffet]
     (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
     (v/assert kb (list dog_t Muffet) 'CxUniverse)
-    (v/assert kb (fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
+    (v/assert kb (tu/fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
     (is (= 1 (count (v/contradictions kb))) "a dilemma before the rebuild")
     (v/recover kb)
     (is (= 1 (count (v/contradictions kb))) "and the same dilemma after it")))
@@ -1263,7 +1275,7 @@
                             (let [kb (tu/fresh)]
                               (doseq [op ordering] (op kb))
                               (observe kb))))
-                 (permutations ops))]
+                 (tu/permutations ops))]
     (is (= 1 (count os))
         (str "three-way clash: " (count os) " distinct outcomes across 720 orderings — "
              (pr-str os)))
@@ -1290,7 +1302,7 @@
                             (let [kb (tu/fresh)]
                               (doseq [op ordering] (op kb))
                               (observe kb))))
-                 (permutations ops))]
+                 (tu/permutations ops))]
     (is (= 1 (count os))
         (str "anti-transitive triple: " (count os) " distinct outcomes across 24 orderings — "
              (pr-str os)))
@@ -1331,7 +1343,7 @@
                                     (v/assert kb (sens k) 'CxUniverse
                                               {:strength (if (strong k) :monotonic :default)}))
                                   (observe kb))))
-                     (permutations (keys sens)))]
+                     (tu/permutations (keys sens)))]
         (is (= #{expected} os) (str "known-true " (pr-str strong)))))
     (tu/clear-kb! (tu/test-kb))))
 
@@ -1424,7 +1436,7 @@
                             (let [kb (tu/fresh)]
                               (doseq [op ordering] (op kb))
                               (observe kb))))
-                 (permutations ops))]
+                 (tu/permutations ops))]
     (is (= 1 (count os))
         (str "disjointness clash: " (count os) " distinct outcomes across 24 orderings — "
              (pr-str os)))
@@ -1449,7 +1461,7 @@
                             (let [kb (tu/fresh)]
                               (doseq [op ordering] (op kb))
                               (observe kb))))
-                 (permutations ops))]
+                 (tu/permutations ops))]
     (is (= 1 (count os))
         (str "clash across a visibility edge: " (count os)
              " distinct outcomes across 120 orderings — " (pr-str os)))
@@ -1492,7 +1504,7 @@
                             (let [kb (tu/fresh)]
                               (doseq [op ordering] (op kb))
                               (observe kb))))
-                 (permutations ops))]
+                 (tu/permutations ops))]
     (is (= 1 (count os))
         (str "asymmetric pair: " (count os) " distinct outcomes across 6 orderings — "
              (pr-str os)))
@@ -1541,7 +1553,7 @@
                             (let [kb (tu/fresh)]
                               (doseq [op ordering] (op kb))
                               (observe kb))))
-                 (permutations ops))]
+                 (tu/permutations ops))]
     (is (= 1 (count os))
         (str "metatype clique: " (count os) " distinct outcomes across 120 orderings — "
              (pr-str os)))
@@ -1621,25 +1633,28 @@
 (tu/deftest-kb a-disjoint-over-related-types-is-reported-while-the-edge-and-the-cover-stand
   ;; The index keeps the related `disjoint`s under the `genl` generation and the cover
   ;; pairs at the store and removal choke points, so an edge or a cover leaving takes its
-  ;; report with it, and a context that does not see the edge reads no clash.  The KB
-  ;; loads no forced-monotonic declaration, so the declarations are asserted `:monotonic` as
-  ;; CxUniverse forces them.
+  ;; report with it, and a context that does not see the edge reads no clash.  The
+  ;; declarations and the edge are asserted `:monotonic`, so each clash is hard.  A
+  ;; route through a cover's installed edge has the cover as its supporter, so the
+  ;; declaration over it and the cover pair are one nogood.
   (tu/with-terms [animal_w dog_w cat_w CxRelSide]
     (let [clashes #(into #{} (map (fn [r] (into #{} (map :sentence) (:sides r)))) (v/conflicts kb))
+          m       {:strength :monotonic}
           decl    (list 'disjoint dog_w animal_w)
+          edge    (list 'genl dog_w animal_w)
           cover   (list 'covering animal_w dog_w cat_w)]
       (v/assert kb (list 'genl animal_w 'thing) 'CxUniverse)
       (v/assert kb (list 'genlCx CxRelSide 'CxUniverse) 'CxUniverse)
-      (v/assert kb decl 'CxUniverse {:strength :monotonic})
+      (v/assert kb decl 'CxUniverse m)
       (is (= #{} (clashes)) "unrelated types")
-      (let [e (v/assert kb (list 'genl dog_w animal_w) CxRelSide)]
-        (is (= #{#{decl}} (clashes)) "an edge relates them")
+      (let [e (v/assert kb edge CxRelSide m)]
+        (is (= #{#{decl edge}} (clashes)) "an edge relates them")
         (is (= [#{CxRelSide}] (map clashes/report-vantages (v/conflicts kb)))
             "read where the edge is seen, and not above it")
         (v/retract! kb e))
       (is (= #{} (clashes)) "the edge leaving takes the clash")
-      (let [c (v/assert kb cover 'CxUniverse {:strength :monotonic})]
-        (is (= #{#{decl} #{cover decl}} (clashes)) "the cover states the part's edge")
+      (let [c (v/assert kb cover 'CxUniverse m)]
+        (is (= #{#{cover decl}} (clashes)) "the cover states the part's edge")
         (v/retract! kb c))
       (is (= #{} (clashes)) "the cover leaving takes both"))))
 
@@ -1761,17 +1776,26 @@
       (is (= #{#{[(list dog CI5) CxB] [(list plant CI5) CxB]}} (:reports early))))))
 
 (tu/deftest-kb a-disjoint-over-related-types-is-placed-as-a-contradicts
-  ;; the declaration is its nogood's one member and the edge its ground; the declaration is
-  ;; in the forced-monotonic set, so nothing is defeated
-  (tu/with-terms [animal_w dog_w CxRelSide]
-    (v/assert kb (list 'genl animal_w 'thing) 'CxUniverse)
-    (v/assert kb (list 'genlCx CxRelSide 'CxUniverse) 'CxUniverse)
-    (let [decl (list 'disjoint dog_w animal_w)
-          _    (v/assert kb decl 'CxUniverse {:strength :monotonic})
-          e    (v/assert kb (list 'genl dog_w animal_w) CxRelSide)]
-      (is (= #{[(list 'contradicts [decl 'CxUniverse]) CxRelSide]} (placed kb)))
-      (v/retract! kb e)
-      (is (empty? (placed kb))))))
+  ;; the declaration and the edge relating its arguments are the nogood's members and are
+  ;; weighed alike: the `:monotonic` one defeats the `:default` one either way round, and
+  ;; two `:default` ones are a dilemma
+  (doseq [[decl-strength edge-strength loser] [[:monotonic :default :edge]
+                                               [:default :monotonic :decl]
+                                               [:default :default nil]]]
+    (testing (str "declaration " decl-strength ", edge " edge-strength)
+      (tu/with-kb [kb]
+        (tu/with-terms [animal_w dog_w CxRelSide]
+          (v/assert kb (list 'genl animal_w 'thing) 'CxUniverse)
+          (v/assert kb (list 'genlCx CxRelSide 'CxUniverse) 'CxUniverse)
+          (let [decl [(list 'disjoint dog_w animal_w) 'CxUniverse]
+                edge [(list 'genl dog_w animal_w) CxRelSide]
+                _    (v/assert kb (first decl) 'CxUniverse {:strength decl-strength})
+                e    (v/assert kb (first edge) CxRelSide {:strength edge-strength})]
+            (is (= (cond-> #{[(list 'contradicts decl edge) CxRelSide]}
+                     loser (conj [(list 'defeat ({:edge edge :decl decl} loser)) CxRelSide]))
+                   (placed kb)))
+            (v/retract! kb e)
+            (is (empty? (placed kb)))))))))
 
 (tu/deftest-kb a-separated-pair-among-many-types-gives-one-nogood-in-every-arrival-order
   ;; the pair's two memberships arrive first, last and apart among 200 memberships of
@@ -1837,7 +1861,7 @@
           c   (v/assert kb (list cat Rex) CxA)
           d   (v/assert kb (list dog Rex) CxB)
           srcs (for [[t src cx] [[cat cat_src CxA] [dog dog_src CxB]]]
-                 (do (v/assert kb (fwd [(list src '?x)] (list t '?x)) cx M)
+                 (do (v/assert kb (tu/fwd [(list src '?x)] (list t '?x)) cx M)
                      (v/assert kb (list src Rex) cx M)))]
       (doseq [s srcs] (v/assert kb (list 'except (sx/sentex-handle s)) CxHide M))
       (v/assert kb (list 'disjoint dog cat) 'CxUniverse M)
@@ -1861,7 +1885,7 @@
     (doseq [[k up] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxN 'CxUniverse]
                     [CxAB CxA] [CxAB CxB] [CxAN CxA] [CxAN CxN] [CxZ CxAB] [CxZ CxAN]]]
       (v/assert kb (list 'genlCx k up) 'CxUniverse))
-    (v/assert kb (fwd [(list feline '?x)] (list cat '?x)) CxA)
+    (v/assert kb (tu/fwd [(list feline '?x)] (list cat '?x)) CxA)
     (v/assert kb (list feline Rex) CxA)
     (v/assert kb (list 'not (list feline Rex)) CxN {:strength :monotonic})
     (v/assert kb (list dog Rex) CxB)
@@ -1875,3 +1899,68 @@
         (is (false? (v/believed? kb c CxZ)))
         (is (true? (v/believed? kb d CxZ)))
         (is (not (reports-nogood? (v/contradictions kb CxZ) [c d])))))))
+
+;;; ── observation beats expectation: the decided nogood as a report ───────
+
+;; docs/nmtms.md, "Observation beats expectation".
+
+(defn- decided-reports
+  "The `:defeat` reports `(conflicts kb {:defeats? true})` holds over the member `s`, as
+  `[loser winners placed-in rules]` over sentences and contexts: no handle enters the
+  comparison.  The rows of one test share a KB, so each row reads its own member."
+  [kb s]
+  (into [] (comp (filter #(= :defeat (:verdict %)))
+                 (filter #(some (fn [side] (= s (:sentence side))) (:sides %)))
+                 (map (fn [{:keys [loser winners placed-in]}]
+                        [[(:sentence loser) (:context loser) (:defeat-class loser)]
+                         (mapv (juxt :sentence :context :defeat-class) winners)
+                         placed-in
+                         (:rules loser)])))
+        (v/conflicts kb {:defeats? true})))
+
+(deftest a-decided-nogood-is-reported-by-content-and-an-undecided-one-is-not
+  ;; `[label write decided]`: the default `(cat_t Muffet)` is the expectation, concluded
+  ;; by a forward rule from `(pet_t Muffet)` in CxUniverse; `write` adds the second side.
+  (doseq [[label write decided]
+          [["an observation in the expectation's context defeats it there"
+            (fn [kb {:keys [dog_t Muffet]}]
+              (v/assert kb (list dog_t Muffet) 'CxUniverse {:strength :monotonic}))
+            (fn [{:keys [dog_t cat_t Muffet rule]}]
+              [[[(list cat_t Muffet) 'CxUniverse :default]
+                [[(list dog_t Muffet) 'CxUniverse :monotonic]]
+                ['CxUniverse]
+                [rule]]])]
+           ["an observation in a context below defeats it at that context only"
+            (fn [kb {:keys [dog_t Muffet CxSeat]}]
+              (v/assert kb (list dog_t Muffet) CxSeat {:strength :monotonic}))
+            (fn [{:keys [dog_t cat_t Muffet CxSeat rule]}]
+              [[[(list cat_t Muffet) 'CxUniverse :default]
+                [[(list dog_t Muffet) CxSeat :monotonic]]
+                [CxSeat]
+                [rule]]])]
+           ["a second default leaves a dilemma, which is no defeat"
+            (fn [kb {:keys [dog_t Muffet]}]
+              (v/assert kb (list dog_t Muffet) 'CxUniverse))
+            (constantly [])]
+           ["an observation against a backward-only default places no nogood"
+            (fn [kb {:keys [cat_t Muffet]}]
+              (v/assert kb (list 'not (list cat_t Muffet)) 'CxUniverse {:strength :monotonic}))
+            (constantly [])]]]
+    (tu/with-kb [kb]
+      (tu/with-terms [dog_t cat_t pet_t Muffet CxSeat]
+        (let [backward? (re-find #"backward-only" label)
+              rule      (if backward?
+                          (list 'implies (list pet_t '?x) (list cat_t '?x))
+                          (tu/fwd [(list pet_t '?x)] (list cat_t '?x)))
+              terms     {:dog_t dog_t :cat_t cat_t :Muffet Muffet :CxSeat CxSeat}]
+          (v/assert kb (list 'genlCx CxSeat 'CxUniverse) 'CxUniverse)
+          (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse {:strength :monotonic})
+          (v/assert kb rule 'CxUniverse)
+          (v/assert kb (list pet_t Muffet) 'CxUniverse)
+          (write kb terms)
+          (let [s    (list cat_t Muffet)
+                mine (fn [rs] (filterv #(some (fn [side] (= s (:sentence side))) (:sides %)) rs))]
+            (is (= (decided (assoc terms :rule (canonical kb rule))) (decided-reports kb s)) label)
+            (is (empty? (mine (v/conflicts kb))) (str label ": the conflicts alone are unchanged"))
+            (is (= (if (re-find #"dilemma" label) 1 0) (count (mine (v/contradictions kb))))
+                (str label ": the dilemmas are unchanged"))))))))

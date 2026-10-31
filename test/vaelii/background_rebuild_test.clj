@@ -24,17 +24,9 @@
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu])
   (:import [java.io File]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]
            [java.util.concurrent CountDownLatch TimeUnit]
            [vaelii.impl.types.kb KB]
            [vaelii.impl.types.reasoning Reasoning]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-rebuild-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
 
 (defn- manifest ^File [dir] (io/file dir "reasoning" "manifest.edn"))
 
@@ -46,7 +38,7 @@
   "A closed `:disk-snapshot` store holding a taxonomy edge and a membership, whose image
   records it as written under the engine source \"stale\"."
   ^String []
-  (let [dir (tmpdir)
+  (let [dir (tu/tmpdir "vaelii-rebuild-")
         kb  (v/open-kb {:backend :disk-snapshot :dir dir})]
     (v/assert kb '(genl dog animal) 'CxUniverse {:strength :monotonic})
     (v/assert kb '(dog Rex) 'CxUniverse)
@@ -108,7 +100,7 @@
             (doseq [[f x] (reasoning/of r)]
               (is (not (identical? x (get (reasoning/of kb) f)))
                   (str f " is the rebuild KB's own")))))
-        (finally (v/close! kb) (rm-rf! dir))))))
+        (finally (v/close! kb) (tu/rm-rf! dir))))))
 
 (deftest no-source-reads-a-belief-field-off-the-kb-by-keyword
   ;; The KB record has no `Reasoning` field, so a keyword read of one off a KB answers nil and
@@ -178,7 +170,7 @@
         (finally
           (.countDown release)
           (v/close! kb)
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (deftest a-stale-image-answers-while-belief-is-rebuilt-behind-it
   (tu/with-snapshot-platform
@@ -210,7 +202,7 @@
         (finally
           (.countDown release)
           (v/close! kb)
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (deftest a-rebuild-reports-its-step-against-the-recover-the-image-records
   (tu/with-snapshot-platform
@@ -241,7 +233,7 @@
         (finally
           (.countDown release)
           (v/close! kb)
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (defn- await-failed
   "Wait up to 30 s for `kb`'s rebuild to report `:failed`; its progress then, or at the
@@ -286,14 +278,14 @@
           (is (some? (v/assert kb '(dog Fido) 'CxUniverse))))
         (finally
           (v/close! kb)
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (deftest a-background-rebuild-writes-no-record-and-fails-naming-recover
   (tu/with-snapshot-platform
     ;; The rule is stored unchained, so the store holds no `(pet Rex)`, and a recover's
     ;; re-fire of the rules that can refuse places it.  A rebuild on its own thread writes
     ;; neither the shared record store nor the shared index a caller's read walks.
-    (let [dir (tmpdir)
+    (let [dir (tu/tmpdir "vaelii-rebuild-")
           kb0 (v/open-kb {:backend :disk-snapshot :dir dir})
           _   (v/assert kb0 '(dog Rex) 'CxUniverse)
           _   (v/assert kb0 '(set/forwardRule (implies (and (dog ?x) (unknown (cat ?x))) (pet ?x)))
@@ -324,7 +316,7 @@
           (is (= ['(pet Rex)] (pets kb)) "recover on the calling thread places the conclusion")
           (finally
             (v/close! kb)
-            (rm-rf! dir)))))))
+            (tu/rm-rf! dir)))))))
 
 (deftest a-close-during-the-rebuild-stops-it-and-the-next-open-recovers
   (tu/with-snapshot-platform
@@ -342,7 +334,7 @@
             (finally (v/close! kb2))))
         (finally
           (.countDown release)
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (deftest a-close-waiting-on-the-rebuild-blocks-no-other-directory
   (tu/with-snapshot-platform
@@ -350,7 +342,7 @@
     ;; after the close asks it to stop.  The close waits for it, and that wait must not hold
     ;; the monitor every other directory's open takes.
     (let [dir     (store!)
-          other   (tmpdir)
+          other   (tu/tmpdir "vaelii-rebuild-")
           reached (CountDownLatch. 1)
           asked   (CountDownLatch. 1)
           release (CountDownLatch. 1)
@@ -379,8 +371,8 @@
           (is (= :opened (deref opening 30000 ::blocked))))
         (finally
           (.countDown release)
-          (rm-rf! dir)
-          (rm-rf! other))))))
+          (tu/rm-rf! dir)
+          (tu/rm-rf! other))))))
 
 (deftest recover-during-the-rebuild-runs-it-on-the-calling-thread
   (tu/with-snapshot-platform
@@ -395,7 +387,7 @@
         (finally
           (.countDown release)
           (v/close! kb)
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (deftest an-image-declined-for-its-records-is-recovered-under-background-too
   (tu/with-snapshot-platform
@@ -408,7 +400,7 @@
           (is (not= :moved (:records (manifest-of dir))))
           (finally
             (v/close! kb)
-            (rm-rf! dir)))))))
+            (tu/rm-rf! dir)))))))
 
 (deftest a-trusted-image-is-kept-writable-and-keeps-its-source-digest
   (tu/with-snapshot-platform
@@ -443,4 +435,4 @@
             (is (= #{'(dog Rex) '(dog Fido)} (set (dogs kb))))
             (finally (v/close! kb))))
         (is (not= "stale" (:source (manifest-of dir))) "an :auto open recovers and rewrites the manifest")
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))

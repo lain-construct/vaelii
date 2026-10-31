@@ -34,7 +34,8 @@
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.types.snapshot :as snapshot-types]
-            [vaelii.impl.types.trie :as trie-types])
+            [vaelii.impl.types.trie :as trie-types]
+            [vaelii.test-util :as tu])
   (:import [it.unimi.dsi.fastutil.ints Int2IntOpenHashMap]))
 
 ;; ---- a small, collision-prone vocabulary --------------------------------
@@ -44,26 +45,24 @@
 (def ^:private types  '[t0 t1 t2])
 (def ^:private ctxs   '[C0 C1 C2])
 
-(defn- pick [^java.util.Random rng v] (nth v (.nextInt rng (count v))))
-
 (defn- rand-arg [^java.util.Random rng depth]
   (let [r (.nextInt rng 100)]
     (cond
-      (< r 55) (pick rng inds)
+      (< r 55) (tu/pick rng inds)
       (< r 75) (long (* 1900 (inc (.nextInt rng 4))))          ; a number token
       (and (< r 90) (pos? depth))                              ; a nested compound argument
-      (list (pick rng preds) (rand-arg rng (dec depth)) (rand-arg rng (dec depth)))
-      :else    (pick rng inds))))
+      (list (tu/pick rng preds) (rand-arg rng (dec depth)) (rand-arg rng (dec depth)))
+      :else    (tu/pick rng inds))))
 
 (defn- rand-sentence [^java.util.Random rng]
   (let [r (.nextInt rng 100)]
     (cond
-      (< r 25) (list (pick rng types) (pick rng inds))                        ; unary type
-      (< r 50) (list (pick rng preds) (pick rng inds) (pick rng inds))        ; binary
-      (< r 65) (list (pick rng preds) (pick rng inds) (pick rng inds) (pick rng inds)) ; ternary
-      (< r 80) (list (pick rng preds) (pick rng inds) (rand-arg rng 2))       ; nested arg
-      (< r 90) (list 'not (list (pick rng preds) (pick rng inds) (pick rng inds))) ; negative
-      :else    (list (pick rng preds) (pick rng inds) (long (.nextInt rng 3000)))))) ; numeric
+      (< r 25) (list (tu/pick rng types) (tu/pick rng inds))                        ; unary type
+      (< r 50) (list (tu/pick rng preds) (tu/pick rng inds) (tu/pick rng inds))        ; binary
+      (< r 65) (list (tu/pick rng preds) (tu/pick rng inds) (tu/pick rng inds) (tu/pick rng inds)) ; ternary
+      (< r 80) (list (tu/pick rng preds) (tu/pick rng inds) (rand-arg rng 2))       ; nested arg
+      (< r 90) (list 'not (list (tu/pick rng preds) (tu/pick rng inds) (tu/pick rng inds))) ; negative
+      :else    (list (tu/pick rng preds) (tu/pick rng inds) (long (.nextInt rng 3000)))))) ; numeric
 
 ;; ---- comparison ----------------------------------------------------------
 
@@ -141,7 +140,7 @@
     (p/clear-index! mem) (p/clear-index! col)
     ;; build one op stream and apply the identical (sentex, handle) to both stores
     (let [ops (vec (for [i (range 1200)]
-                     [(sx/sentex (rand-sentence rng) (pick rng ctxs)) (inc i)]))]
+                     [(sx/sentex (rand-sentence rng) (tu/pick rng ctxs)) (inc i)]))]
       (doseq [[s h] ops]
         (p/index-sentex mem s h)
         (p/index-sentex col s h))
@@ -171,7 +170,7 @@
         col (columnar/columnar-index-store {:space 73})]
     (p/clear-index! mem) (p/clear-index! col)
     (let [ops (vec (for [i (range 800)]
-                     [(sx/sentex (rand-sentence rng) (pick rng ctxs)) (inc i)]))]
+                     [(sx/sentex (rand-sentence rng) (tu/pick rng ctxs)) (inc i)]))]
       (doseq [[s h] ops] (p/index-sentex mem s h) (p/index-sentex col s h))
       ;; freeze the columnar trie into CSR; every frozen read must equal the mutable ref
       (columnar/compact! col)
@@ -189,7 +188,7 @@
         (compare-all mem col (map first live))
 
         ;; an insert after freezing thaws and lands correctly
-        (let [s (sx/sentex (rand-sentence rng) (pick rng ctxs))]
+        (let [s (sx/sentex (rand-sentence rng) (tu/pick rng ctxs))]
           (p/index-sentex mem s 90001) (p/index-sentex col s 90001)
           (compare-all mem col (map first (conj (vec live) [s 90001]))))))))
 
@@ -330,13 +329,6 @@
 
 ;; ---- the mapped snapshot: a round trip is one more representation --------
 
-(defn- tmpdir ^String []
-  (str (java.nio.file.Files/createTempDirectory
-        "vaelii-snap-oracle-" (into-array java.nio.file.attribute.FileAttribute []))))
-
-(defn- rm-rf! [^String d]
-  (doseq [f (reverse (file-seq (java.io.File. d)))] (.delete ^java.io.File f)))
-
 ;; The snapshot carries the *records'* fingerprint, and this oracle has no record store —
 ;; so it hands over a constant.  What the round trip has to prove is that a mapped index
 ;; answers what the store it was written from answered; that the fingerprint catches a KB
@@ -344,7 +336,7 @@
 (def ^:private constant-fingerprint (constantly {:count 1 :max-handle 1 :digest 42}))
 
 (deftest ^:slow columnar-snapshot-round-trip
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-snap-oracle-")]
     (try
       (let [rng (java.util.Random. 5150)
             mem (mem/memory-index-store        {:space 75})
@@ -352,7 +344,7 @@
             dst (columnar/columnar-index-store {:space 77})]
         (doseq [s [mem src dst]] (p/clear-index! s))
         (let [ops (vec (for [i (range 900)]
-                         [(sx/sentex (rand-sentence rng) (pick rng ctxs)) (inc i)]))]
+                         [(sx/sentex (rand-sentence rng) (tu/pick rng ctxs)) (inc i)]))]
           (doseq [[s h] ops] (p/index-sentex mem s h) (p/index-sentex src s h))
           (doseq [store [mem src]]
             (rules/index-rule store 7001 '[p0 p1] 'p2 'C0)
@@ -374,7 +366,7 @@
           ;; run out of the mapping and the roots thaw wholesale
           (let [removed (take-nth 5 ops)
                 live    (remove (set removed) ops)
-                extra   (sx/sentex (rand-sentence rng) (pick rng ctxs))]
+                extra   (sx/sentex (rand-sentence rng) (tu/pick rng ctxs))]
             (doseq [[s h] removed]
               (p/unindex-sentex! mem s h) (p/unindex-sentex! dst s h))
             (p/index-sentex mem extra 99001) (p/index-sentex dst extra 99001)
@@ -384,7 +376,7 @@
             (is (= :saved (:index (snap/save! dir dst constant-fingerprint))))
             (is (= :mapped (:index (snap/load! dir src constant-fingerprint))))
             (compare-all mem src (map first (conj (vec live) [extra 99001]))))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;; ---- the rule / exception index (delegated to the shared backend) --------
 
@@ -435,7 +427,7 @@
   ;; is the right one to fix on — and it is the order the postings already hold.
   (let [rng  (java.util.Random. 4242)
         ops  (vec (for [i (range 400)]
-                    [(sx/sentex (rand-sentence rng) (pick rng ctxs)) (inc i)]))
+                    [(sx/sentex (rand-sentence rng) (tu/pick rng ctxs)) (inc i)]))
         load (fn [space entries]
                (let [col (columnar/columnar-index-store {:space space})]
                  (p/clear-index! col)

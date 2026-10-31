@@ -14,8 +14,8 @@
 
     (load-into (v/open-kb {}))
 
-  Over 1,600 asserted sentexes — the upper ontology in CxUniverse and the middle
-  theories below it — which the rules take to 3,200+ stored once they have fired.  No
+  Over 3,700 asserted sentexes — the upper ontology in CxUniverse and the middle
+  theories below it — which the rules take to 4,900+ stored once they have fired.  No
   individuals: the starter is a schema to build on, not a world.  Loaded in any order the
   same sentences build the same KB (`absent_type_order_test`)."
   [kb]

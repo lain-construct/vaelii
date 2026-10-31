@@ -3,7 +3,7 @@
 - **Covers:** `arg` and `genlArg`; the forms that type several positions or relate two
   (`args`, `argAndRest`, `argArg`, `interArg`, `interArgEqual`, `interArgs`, `quotedArg`);
   how tight an argument type should be when the KB reads every declaration as an
-  entailment; declaring each position on the relation itself, and the six unary marks
+  entailment; declaring each position on the relation itself, and the unary predicates
   that declare none.
 - **Not here:** the relation's own place in the hierarchy and the widening a `genl` causes →
   [ch. 17](17-predicate-hierarchy.md); the type of an application's value (`result`) →
@@ -113,12 +113,10 @@ each entry, either name a filler that no narrower type covers or narrow the type
 
 ## Each position declared on the relation
 
-**Practice.** Declare `arg`, `genlArg` or `quotedArg` for each position of a relation on
-the relation itself, even when a `genl` parent's declaration already gives the type. A
-unary predicate whose parent carries an `arg` naming a type below `thing` restates it. Six
-unary marks are the exception and declare no position: `instance_relation_predicate`,
-`type_relation_predicate`, `equivalence_relation`, `injection`, `surjection` and
-`bijection`.
+**Practice.** Declare `arg`, `genlArg` or `quotedArg` for each position of a relation of
+arity 2 or more on the relation itself, even when a `genl` parent's declaration already
+gives the type. A unary predicate declares no position, because its `genl` edges conclude
+its argument's types.
 
 **Example.** `abstract.txt` declares both positions of `performedBy`, though `doneBy`
 above it declares the same two:
@@ -129,11 +127,9 @@ above it declares the same two:
 (genl performedBy doneBy)
 ```
 
-`core.txt` states `(arg fixed_arity 1 relation)`, though the edge that
-`(partition relation fixed_arity variable_arity)` installs names the same type. The
-declaration is also the only check that refuses a value: the edge concludes `(relation 5)` from
-`(fixed_arity 5)`, and nothing is disjoint from `relation` for a number, so without the
-declaration `(fixed_arity 5)` would be accepted.
+`(partition relation fixed_arity variable_arity)` installs the edge that concludes
+`(relation 5)` from `(fixed_arity 5)`. Nothing is disjoint from `relation` for a number, so
+`(fixed_arity 5)` is accepted.
 
 **Why.**
 
@@ -146,24 +142,22 @@ declaration `(fixed_arity 5)` would be accepted.
 - *Engine.* `kb-integrity`'s `:missing-arg` reads a position's declarations on the
   predicate and on every predicate above it, so it does not report a position only the
   parent declares. The check for this practice is the grep in the audit.
-- *Engine.* The six marks are the exception because each one's own `genl` parent supplies
-  the type a declaration would name. `instance_relation_predicate` sits under
-  `binary_predicate`, which is below `predicate`. Under the constraint-only reading,
-  `(arg instance_relation_predicate 1 predicate)` would turn the edge's conclusion into a
-  precondition: it would refuse `(instance_relation_predicate P)` stated after
-  `(arity P 2)`, because `P` is not yet a `predicate`, when the sentence itself supplies
-  that classification ([argtypes.md](../docs/argtypes.md)).
+- *Engine.* A unary predicate is the exception because its `genl` edges conclude the types a
+  declaration would name. `(arg instance_relation_predicate 1 binary_predicate)` beside
+  `(genl instance_relation_predicate binary_predicate)` would add a second justification for
+  each `(binary_predicate P)` the edge concludes
+  ([argtypes.md](../docs/argtypes.md#a-unary-predicate-carries-no-arg-declaration)).
 
 **Why not the other ways.** A position left to the parent's declaration carries no type on
 the relation, so a reader follows the hierarchy to find it, and a revision of the parent
-moves it. A declaration on one of the six marks refuses the classification its own
-sentence states. **State it once** ([ch. 4](04-economy.md#state-it-once)) does not drop an
+moves it. A declaration on a unary predicate duplicates its `genl` hierarchy. **State it
+once** ([ch. 4](04-economy.md#state-it-once)) does not drop an
 `arg` for being derivable from a parent.
 
 **Audit.** Run `kb-integrity` with `:categories #{:missing-arg}` over the change, which
 reports a position no declaration types. For each relation with a `genl` parent,
 `git grep -nE '^\((arg|genlArg|quotedArg) <relation> '` over `resources/kb` and confirm one
-line per position. Review each declaration on one of the six marks, and remove it.
+line per position. `ontology_test` fails on an `arg` declaration of a unary predicate.
 
 ## Positions related to each other
 

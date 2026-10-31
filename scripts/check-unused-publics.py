@@ -26,6 +26,8 @@ analysis can never see a caller for, not individual awkward cases:
   - `defmulti`                      dispatched, and its methods are `defmethod`
   - `declare`                       a forward declaration is not a definition
   - the six public namespaces       frozen by `public_api_test`; a different question
+  - `vaelii.host.client`            its `^:daemon-op` wrappers are interned by a macro in
+                                    `vaelii.client`, which the analysis cannot follow
 
 ADDED BY CONSTRUCTION: `vaelii.browser.access/defreads` defines one public wrapper per
 name in its argument list, and kondo records none of them as a definition. The scan
@@ -128,8 +130,8 @@ def scan() -> list[str]:
         name, ns = v["name"], v["ns"]
         if v.get("private") or v.get("defined-by") in DEFINED_BY_SKIP:
             continue
-        if name == "-main" or ns in PUBLIC_NAMESPACES:
-            continue
+        if name == "-main" or ns in PUBLIC_NAMESPACES or ns == "vaelii.host.client":
+            continue  # host.client's wrappers are interned by vaelii.client's macro
         if name.startswith("->") or name.startswith("map->"):
             continue
         if used[(ns, name)] == 0:

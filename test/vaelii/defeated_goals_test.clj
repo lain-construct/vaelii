@@ -23,19 +23,11 @@
     * and none of it depends on when the defeater arrived."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (def ^:private C 'CxUniverse)
-
-(defn- default-rule
-  "A `set/defaultRule`, whose firings confer `:default` — the wrapper is what makes a
-  rule defeasible, where a bare one confers `:monotonic` and is capped by its weakest
-  antecedent."
-  [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- flying-world
   "Birds fly by default; penguins do not; Tweety is a penguin and Robin a plain bird.
@@ -43,7 +35,7 @@
   Tweety))` the penguin rule concludes — while `(flies Robin)` stands."
   [kb {:keys [bird penguin flies Tweety Robin]}]
   (v/assert kb (list 'genl penguin bird) C)
-  (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) C)
+  (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) C)
   (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) C {:direction :forward})
   (v/assert kb (list penguin Tweety) C {:strength :monotonic})
   (v/assert kb (list bird Robin) C {:strength :monotonic}))
@@ -105,7 +97,7 @@
   ;; back — otherwise this filter would be a deletion.  The defeater is a *separate*
   ;; assertion here, so retracting it leaves everything the default rested on in place.
   (tu/with-terms [bird flies Tweety]
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) C)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) C)
     (v/assert kb (list bird Tweety) C {:strength :monotonic})
     (let [defeater (v/assert kb (list 'not (list flies Tweety)) C {:strength :monotonic})]
       (is (empty? (v/prove kb [(list flies Tweety)] C)) "defeated, so not proved")
@@ -119,7 +111,7 @@
 (tu/deftest-kb the-answer-does-not-depend-on-when-the-defeater-arrived
   (tu/with-terms [bird flies Tweety]
     (testing "defeater last"
-      (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) C)
+      (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) C)
       (v/assert kb (list bird Tweety) C {:strength :monotonic})
       (v/assert kb (list 'not (list flies Tweety)) C {:strength :monotonic})
       (is (empty? (v/prove kb [(list flies Tweety)] C)))
@@ -128,7 +120,7 @@
     (testing "defeater first — same three sentences, same answer"
       (v/assert kb (list 'not (list flies2 Tweety2)) C {:strength :monotonic})
       (v/assert kb (list bird2 Tweety2) C {:strength :monotonic})
-      (v/assert kb (default-rule [(list bird2 '?x)] (list flies2 '?x)) C)
+      (v/assert kb (tu/default-rule [(list bird2 '?x)] (list flies2 '?x)) C)
       (is (empty? (v/prove kb [(list flies2 Tweety2)] C)))
       (is (empty? (v/query kb [(list flies2 Tweety2)] C {:max-depth 3}))))))
 
@@ -141,7 +133,7 @@
   (tu/with-terms [bird flies Tweety CxClash CxCalm]
     (v/assert kb (list 'genlCx CxClash 'CxUniverse) C)
     (v/assert kb (list 'genlCx CxCalm 'CxUniverse) C)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert kb (list bird Tweety) CxClash {:strength :monotonic})
     (v/assert kb (list bird Tweety) CxCalm  {:strength :monotonic})
     (v/assert kb (list 'not (list flies Tweety)) CxClash {:strength :monotonic})

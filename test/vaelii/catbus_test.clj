@@ -77,16 +77,17 @@
       (testing (str "cat " cat-strength ", bus " bus-strength " in CxRealWorld")
         (is (reported? kb (v/handle-of kb (list tu_bus term) 'CxRealWorld)))))))
 
-(tu/deftest-kb ^:red a-default-separation-yields-to-a-fiction-that-states-the-overlap
-  ;; A disjoint is defeasible unless it separates arg types or defining
-  ;; predicate types. CxUniverse states (disjoint animal vehicle) at the default strength,
-  ;; so a fiction that states the overlap monotonically defeats it there instead of
-  ;; holding an irreducible conflict. Today every disjoint is forced-monotonic, so the
-  ;; pair below is a conflict.
+(tu/deftest-kb a-default-separation-yields-to-a-fiction-that-states-the-overlap
+  ;; The five separations are not forced-monotonic. CxUniverse states
+  ;; (disjoint animal vehicle) at the default strength, so a fiction's monotonic denial of
+  ;; it defeats that copy there, and the membership nogood resting on the separation is
+  ;; hidden at the fiction instead of standing as an irreducible conflict. The membership
+  ;; verdict weighs only the two memberships, so the denial is what states the overlap.
   (v/assert kb '(genlCx CxTotoro CxWell) 'CxUniverse)
   (v/assert kb '(context CxTotoro) 'CxUniverse)
   (tu/with-terms [tu_bus Catbus3]
     (v/assert kb (list 'genl tu_bus 'vehicle) 'CxUniverse)
+    (v/assert kb '(not (disjoint animal vehicle)) 'CxTotoro {:strength :monotonic})
     (v/assert kb (list 'cat Catbus3) 'CxTotoro {:strength :monotonic})
     (v/assert kb (list tu_bus Catbus3) 'CxTotoro {:strength :monotonic})
     (let [cat-h (v/handle-of kb (list 'cat Catbus3) 'CxTotoro)
@@ -96,5 +97,9 @@
       (is (not-any? #(or (contains? (:nogood %) cat-h) (contains? (:nogood %) bus-h))
                     (v/conflicts kb))
           "the default separation loses; nothing is left irreducible")
+      (is (not (v/ask? kb '(disjoint animal vehicle) 'CxTotoro))
+          "the denial defeats the CxUniverse copy at the fiction")
       (is (v/ask? kb '(disjoint animal vehicle) 'CxWell)
-          "the defeat is CxTotoro's: CxWell, which holds no catbus, still believes it"))))
+          "the defeat is CxTotoro's: CxWell, which holds no catbus, still believes it")
+      (is (v/ask? kb '(disjoint animal vehicle) 'CxRealWorld)
+          "and CxRealWorld's monotonic copy stands"))))

@@ -100,12 +100,13 @@ one fact. The first generates a forward-only rule:
          (set/forwardOnlyRule (implies (arity ?relation ?arity) (?type ?relation))))
 ```
 
-The second generates the converse as a backward rule, so a query for `(arity R n)` of a
-class member is proved from the membership and nothing is stored:
+The second generates the converse as a lazy-forward rule, so a query for `(arity R n)`
+of a class member, and a forward rule's `(arity ?r ?n)` antecedent, is proved from the
+membership and nothing is stored:
 
 ```clojure
 (implies (relationTypeByArity ?type ?arity)
-         (set/backwardRule (implies (?type ?relation) (arity ?relation ?arity))))
+         (set/lazyForwardRule (implies (?type ?relation) (arity ?relation ?arity))))
 ```
 
 **Why.**
@@ -118,7 +119,7 @@ class member is proved from the membership and nothing is stored:
   `implies`, which no goal asks for, so a backward generator would fire in neither
   engine, and `set/backwardRule` on a generating level is refused `:not-indexable`.
 - In the example, `set/forwardRule` on the first generated rule would give it a backward
-  half, and that half and the backward converse would form a backward cycle between
+  half, and that half and the converse would form a backward cycle between
   `arity` and the class. `set/forwardOnlyRule` keeps the first rule out of backward
   proofs.
 

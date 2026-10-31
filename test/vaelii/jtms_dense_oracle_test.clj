@@ -459,6 +459,16 @@
                    (jtms/sweep! t [2])
                    [(jtms/in? t 2) (jtms/known-datum? t 2)]))))))
 
+(deftest a-block-on-a-justification-the-network-does-not-hold-is-not-kept
+  (is (= #{10}
+         (both (fn [t]
+                 (jtms/add-premise t 1 :default)
+                 (jtms/ensure-node t 2 1)
+                 (jtms/add-justification t (jtms/->just 10 'r [1] 2 {} :monotonic)))
+               (fn [t]
+                 (jtms/set-blocked t #{10 11})
+                 (jtms/blocked t))))))
+
 (deftest supersession-subtracts-from-reported-belief-only
   (testing "a superseded datum leaves the fixpoint alone but stops being believed"
     (is (= [false true]

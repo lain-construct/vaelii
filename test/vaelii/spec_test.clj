@@ -85,9 +85,9 @@
                       (comp (filter (comp opts? val)) (map key) (remove specced))
                       (ns-publics 'vaelii.core))]
     (is (= '#{abduce add-evaluatable argue assert-many bulk-assert-facts! check clear-caches
-              compare-tacticians conflicts contradictions edit! edit-with-consequences! export!
-              export-text! fork import!
-              kb-quality load-foreign! preview query-status search-tree}
+              compare-tacticians conflicts contradictions digests edit! edit-with-consequences!
+              export! export-text! fork import!
+              kb-quality load-foreign! load-text! preview query-status search-tree}
            gap)
         "the opts-taking publics `public-syms` does not reach — named in its docstring")))
 

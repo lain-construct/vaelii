@@ -121,10 +121,11 @@
   "An `OverlayRecordStore`: `overlay` (writable) over `base` (frozen), with `meta` holding
   the record-level bookkeeping.  `own-index` is the fork's own index half, read for
   whether the fork has rebuilt its index (`okv/index-cleared?`), or nil when the fork's
-  index is not an overlay."
-  [overlay base meta own-index]
+  index is not an overlay.  `base-opts` are the opts `base` was opened from, or nil."
+  [overlay base meta own-index base-opts]
   (ostore/overlay-record-store overlay (frozen/frozen-records base) meta
-                               (boolean (some-> own-index kv-backend-of okv/index-cleared?))))
+                               (boolean (some-> own-index kv-backend-of okv/index-cleared?))
+                               base-opts))
 
 (defn mount-index
   "A `KvIndexStore` over an `OverlayKv`: `overlay`'s backend (writable) over `base`'s

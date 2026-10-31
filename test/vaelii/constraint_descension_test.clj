@@ -21,6 +21,7 @@
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.kb :as kb]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -30,24 +31,6 @@
   of every entry-point-parity pair binds it."
   [& body]
   `(binding [argument/*assertive-arg-types?* true] ~@body))
-
-(defn- ex-type
-  "The `:type` a write thunk meets: the ex-info it throws, or the argument conviction its
-  fact is held inert under (`tu/write-type`), or nil.  Named rather
-  than `(thrown? ExceptionInfo …)`: a descension collapsing into a naming or arity
-  refusal is exactly the regression a bare `thrown?` stays green through."
-  [f]
-  (tu/write-type tu/*kb* f))
-
-(defn- orderings
-  "Every arrival order of `xs`.  The multi-order cases below run over all of them rather
-  than over a hand-picked few: which sentence of an incoherent set a refusal lands on is
-  exactly what the order decides, so a subset would be choosing the answer."
-  [xs]
-  (if (< (count xs) 2)
-    [(vec xs)]
-    (for [x xs, tail (orderings (remove #{x} xs))]
-      (into [x] tail))))
 
 (defn- a-type [kb t ctx] (v/assert kb (list 'genl t 'thing) ctx))
 
@@ -76,9 +59,9 @@
      (v/assert kb (list rock TheRock1) 'CxUniverse)
      (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-     (is (= :arg-type (ex-type #(v/assert kb (list parentOf TheRock1 Mary) 'CxUniverse)))
+     (is (= :arg-type (tu/kb-write-type #(v/assert kb (list parentOf TheRock1 Mary) 'CxUniverse)))
          "the declaration's own predicate")
-     (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)))
+     (is (= :arg-type (tu/kb-write-type #(v/assert kb (list fatherOf TheRock1 Mary) 'CxUniverse)))
          "and the sub-predicate, whose tuples are the same tuples")
      (testing "the conviction names the predicate the constraint was declared of"
        (is (re-find (re-pattern (str "declared of " parentOf))
@@ -99,9 +82,9 @@
      (v/assert kb (list 'disjoint machine_t vehicle_t) 'CxUniverse)
      (v/assert kb (list 'genl subPartType partType) 'CxUniverse)
      (v/assert kb (list 'genlArg partType 1 machine_t) 'CxUniverse)
-     (is (= :arg-genl (ex-type #(v/assert kb (list partType vehicle_t Rex) 'CxUniverse)))
+     (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list partType vehicle_t Rex) 'CxUniverse)))
          "a kind the taxonomy separates from the declared type")
-     (is (= :arg-genl (ex-type #(v/assert kb (list subPartType vehicle_t Rex) 'CxUniverse)))
+     (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list subPartType vehicle_t Rex) 'CxUniverse)))
          "and the same kind under the sub-predicate"))))
 
 (tu/deftest-kb interArg-descends-by-riding-the-same-reader
@@ -116,8 +99,8 @@
      (v/assert kb (list 'interArg eats 1 carnivore 2 meat) 'CxUniverse)
      (v/assert kb (list carnivore Rex) 'CxUniverse)
      (v/assert kb (list plant Chunk) 'CxUniverse)
-     (is (= :inter-arg-type (ex-type #(v/assert kb (list eats Rex Chunk) 'CxUniverse))))
-     (is (= :inter-arg-type (ex-type #(v/assert kb (list gnawsOn Rex Chunk) 'CxUniverse))))
+     (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list eats Rex Chunk) 'CxUniverse))))
+     (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list gnawsOn Rex Chunk) 'CxUniverse))))
      (testing "and the trigger still has to be established under either spelling"
        (tu/with-terms [Nobody]
          (is (v/assert kb (list gnawsOn Nobody Chunk) 'CxUniverse)
@@ -138,7 +121,7 @@
         (testing "the direct mint rests on the fact and the declaration"
           (let [sup (first (:support (tu/why-root kb (v/handle-of kb (list person Fred)
                                                                   'CxUniverse))))]
-            (is (= 'arg (:informant sup)))
+            (is (= 'arg (kb/mint-kind kb (:informant sup))))
             (is (= #{ph dh} (set (map :handle (:because sup)))))))
         (testing "the descended one rests on the genl edge as well — or retraction strands it"
           (let [sup (first (:support (tu/why-root kb (v/handle-of kb (list person Ann)
@@ -181,7 +164,7 @@
      (v/assert kb (list 'genl fatherOf parentOf) CxRight)
      (is (v/assert kb (list fatherOf TheRock1 Mary) CxLeft)
          "no visible edge, so no constraint descends")
-     (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock1 Mary) CxRight)))
+     (is (= :arg-type (tu/kb-write-type #(v/assert kb (list fatherOf TheRock1 Mary) CxRight)))
          "and where the edge is visible the constraint is"))))
 
 ;; ---- the three arrival orders ------------------------------------------
@@ -211,8 +194,8 @@
        (testing "and the next such claim is held alike"
          (tu/with-terms [TheRock2]
            (v/assert kb (list rock TheRock2) 'CxUniverse)
-           (is (= :arg-type (ex-type #(v/assert kb (list fatherOf TheRock2 Mary)
-                                                'CxUniverse))))))))))
+           (is (= :arg-type (tu/kb-write-type #(v/assert kb (list fatherOf TheRock2 Mary)
+                                                         'CxUniverse))))))))))
 
 (tu/deftest-kb every-arrival-order-of-the-three-ingredients-mints-the-same-type
   ;; Storage may differ by arrival order — that is the documented contract for a
@@ -370,7 +353,7 @@
   ;; admits, the KB stores all four, believes the tuple, and reports the one pair.
   (let [readings
         (into #{}
-              (for [order (orderings [:edge :super-declaration :sub-declaration :tuple])]
+              (for [order (tu/orders [:edge :super-declaration :sub-declaration :tuple])]
                 (tu/with-neutral-kb [kb tu/isolated-fresh]
                   (tu/with-terms [parentOf fatherOf A B C]
                     (let [s {:edge              (list 'genl fatherOf parentOf)
@@ -741,7 +724,7 @@
   (let [readings
         (into #{}
               (for [strength [:default :monotonic]
-                    order    (orderings [:declaration :edge :tuple])]
+                    order    (tu/orders [:declaration :edge :tuple])]
                 (tu/with-neutral-kb [kb tu/isolated-fresh]
                   (tu/with-terms [parentOf fatherOf A B C]
                     (let [tuple (list fatherOf A B C)
@@ -761,7 +744,7 @@
   ;; tuple is inert at both.
   (let [readings
         (into #{}
-              (for [order (orderings [:declaration :edge :tuple])]
+              (for [order (tu/orders [:declaration :edge :tuple])]
                 (tu/with-neutral-kb [kb tu/isolated-fresh]
                   (tu/with-terms [pairOf CxLower CxUpper CxAside A B C]
                     (v/assert kb (list 'genlCx CxUpper 'CxUniverse) 'CxUniverse)
@@ -806,7 +789,7 @@
     (tu/with-terms [subP superP A B]
       (let [readings
             (into []
-                  (for [order (orderings [:facts :declaration :edge])]
+                  (for [order (tu/orders [:facts :declaration :edge])]
                     (tu/with-neutral-kb [k tu/isolated-fresh]
                       (let [step {:facts       #(doseq [s (facts subP A B)]
                                                   (v/assert k s 'CxUniverse))

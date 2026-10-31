@@ -73,53 +73,41 @@ failed. The boundary of the inner reading:
   vantage, like every definitional check: a context below the one they are written in
   inherits them, a sibling is not refused by them.
 
-### A unary predicate declares a position only when its `genl` parent does not imply it
+### A unary predicate carries no `arg` declaration
 
-An `arg` declaration on a unary predicate and a `genl` edge above it can say the same
-thing, and which of the two is right turns on where the parent sits relative to the type
-the declaration names.
+A unary predicate's `genl` edges conclude its argument's types, so a unary predicate
+declares no argument position, and its argument's type is `thing`.
+`(genl instance_relation_predicate binary_predicate)` concludes `(binary_predicate P)` from
+`(instance_relation_predicate P)`. An `(arg instance_relation_predicate 1 binary_predicate)`
+beside that edge would duplicate the `genl` hierarchy and add a second justification for
+each `(binary_predicate P)` the edge concludes. Unary predicates give types; other
+predicates require types. The stable-constraints rule of
+[no silent side effects](oe-principles.md#no-silent-side-effects) applies to predicates of
+arity 2 and up.
 
-`fixed_arity` carries `(arg fixed_arity 1 relation)`, and the `(genl fixed_arity relation)`
-edge that `(partition relation fixed_arity variable_arity)` installs names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
-nothing is disjoint from `relation` for a number, so the declaration's value conviction
-is the only conviction there is: with it `assert` stores `(fixed_arity 5)` inert and
-`try-assert` refuses it, and without it the fact is believed. `variable_arity`
-and the function marks are in the same position and keep theirs.
+`ontology_test/every-position-of-a-shipped-arity-above-one-is-declared` reads every
+`resources/kb/*.txt` file and fails on an `arg` declaration of a predicate whose stated
+arity is 1.
 
-`instance_relation_predicate` is the other case. Its parent is `binary_predicate`, which
-sits **below** `predicate`, so `(arg instance_relation_predicate 1 predicate)` would
-restate in a weaker form what the edge already concludes, and under the constraint-only
-reading it would turn that conclusion into a precondition: `(instance_relation_predicate
-pairOf)` after `(arity pairOf 2)`, which places `pairOf` under `relation` and not under
-`predicate`, would be refused for a kind the sentence itself states. So the six marks whose
-own `genl` parent supplies the declared type declare no position:
-`instance_relation_predicate`, `type_relation_predicate`, `equivalence_relation`,
-`injection`, `surjection` and `bijection`.
+#### What a unary predicate's argument meets
 
-| argument | what happens |
+The `genl` edges place the argument, and the taxonomy's disjointness refuses a wrong kind:
+
+| argument of `instance_relation_predicate` | what happens |
 |---|---|
-| a number | `:arg-type`, through the `(arg fixed_arity 1 relation)` floor the mark inherits |
-| a term reaching only `thing` | stored; the floor derives `relation` and the mark's edges place it under `predicate` |
-| a `function` | stored, with `instance_relation_predicate` and `function` a placed clash |
+| a term reaching only `thing` | stored; the mark's edges place it under `binary_predicate`, `predicate` and `relation` |
 | a relation whose kind is not yet stated | stored, and the mark supplies the kind |
+| a `function` F | `try-assert` refuses it `:disjoint`, through the `(disjoint predicate function)` the partition of `relation` derives; `assert` stores it, and the settle weighs it against `(function F)` |
+
+The arity policy reads the same way. With `(variable_arity P)` stored, `(binary_predicate P)`
+derives `(fixed_arity P)` through its edges, and `(partition relation fixed_arity
+variable_arity)` separates the two, so the two memberships are one contradiction, stored as
+a clash in either arrival order.
 
 `arity_vocabulary_test/a-predicate-only-classification-is-order-independent-of-the-arity`
-compares the two orders on the whole closure rather than on an acceptance, and
-`an-arity-alone-leaves-the-relation-kind-open` asserts the rows of the table.
-
-### The policy classes declare one position and their specializations declare none
-
-`fixed_arity` and `variable_arity` each carry `(arg C 1 relation)`. Nothing below them
-carries one. The parent's declaration descends the predicate hierarchy, so
-`(fixed_arity_predicate Fred)` with `Fred` a person derives `(relation Fred)`, a clash
-with `person`, while a narrower `(arg fixed_arity_predicate 1 predicate)` would derive the
-wrong thing: a relation whose only stated type is `variable_arity` would be derived a
-`predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would carry a
-second derived type where the contradiction is the arity policy. The two are one
-contradiction and are stored as a clash in either order. A relation classified into the
-wrong kind is caught by `(disjoint predicate function)` through the `genl` edges, a
-disjointness derived from `(partition relation function truth_valued_relation)` rather
-than stated.
+compares the two orders of the arity and the mark on the whole closure rather than on an
+acceptance, and `an-arity-alone-leaves-the-relation-kind-open` asserts the rows of the
+table.
 
 ## The covering constraints: typing a variable-arity tail
 
@@ -387,6 +375,13 @@ a taxonomy cycle is dropped and reported in `(violations kb)`, since the derivat
 after the triggering sentex is stored and inside a fixpoint, neither of which may abort
 halfway.
 
+`special/inadmissible` takes a `constraint-arm`: `checks/constraint-violation` by default,
+`checks/derivation-violation` for an argument-type mint, and nil for the assert path's
+first-level mints. `checks/entailment-check` ran `constraint-problem` and `cascade-clash`
+over those before the trigger was stored, and storing memberships cannot turn a passing
+`args`, `disjoint` or `arity` check into a failing one, since each convicts on an absent
+type. Every other caller, and the cascade's deeper levels, pay the full check.
+
 ### A rule whose variable no term can fill is held inert
 
 `assert` stores a rule that `checks/variable-clash-problem` convicts and holds it in the
@@ -406,7 +401,7 @@ and the separation
 (v/assert kb '(implies (comment ?x ?string) (genl ?x ?string)) 'CxUniverse)
 (v/why-not kb '(implies (comment ?x ?string) (genl ?x ?string)) 'CxUniverse)
 ;; {:reason :inert :conviction {:type :arg-variable :variable ?string
-;;                              :expected [string unary_predicate] …} …}
+;;                              :expected [string predicate] …} …}
 ```
 
 `violations` lists the rule as `:inert-rule`, with the conviction under `:detail`. `check`
@@ -452,6 +447,7 @@ The **check computes it; the post-store slot materializes it.**
 |---|---|
 | `checks/constraint-entailments` | reads the declarations, returns `{:assert :because :position :kind}` maps — **writes nothing** |
 | `checks/entailment-check` | walks the cascade of prospective mints at the entry point and refuses the first the KB could not admit — **writes nothing** |
+| `kv/mint-rules`, `kb/mint-rule-table` | the inert rule each declaring kind's mints are justified under, and the handles the KB stores them at ([below](#the-entailment-as-a-justified-datum)) |
 | `special/deduce-arg-types` | materializes them, beside `deduce-lifts`, in `assert-entry/assert-one` and `chain/place-conclusion` |
 | `special/deduce-below` | the declarations stated below the fact's context, at the placements of each pair |
 | `special/entail-existing` | the retroactive direction: a declaration arriving over facts already stored |
@@ -485,11 +481,43 @@ per-fact cost.
   exception re-check trigger exactly as a rule conclusion does;
 * `jtms/->just` with antecedents **`[source-handle decl-handle & route-edge-handles]`**
   — the `genl` edges the declaration descends through and the `genlCx` edges the
-  context sees it through — and the declaring predicate as the informant, guarded by
-  `has-justification?`;
+  context sees it through — and the declaring kind's inert rule as the informant,
+  guarded by `has-justification?`;
 * depth one past the deepest of them;
 * strength `:monotonic` conferred — the entailment adds no defeasibility of its own, so
   `conferred-class` caps it at the weaker of the fact and the declaration.
+
+The informant is the handle of a stored `set/inertRule`, one per declaring kind
+(`kv/mint-rules`; `core.txt` states the eleven of them in CxUniverse). Each rule
+states its kind's entailment over a variable-arity fact pattern, for `arg`:
+
+```clojure
+(set/inertRule (implies (and (arg ?relation ?position ?type) (?relation . ?args)
+                             (argN ?term ?position (?relation . ?args)))
+                        (?type ?term)))
+```
+
+Neither engine runs these rules ([inference.md](inference.md), "documentation with a
+handle"). The engine computes each mint in code from all four directions below, and the
+rule handle is what `why` names beside the fact and the declaration. The handle is also
+what the mint readers key on: `kb/mint-informant?` asks whether an informant is one
+of these rules, whose handles the index holds in `[:mint-rules]`
+([indexing.md](indexing.md#10-the-mint-family)), and `special/firing-informant?` keeps a mint out of the readers of a rule
+firing (the guard, the witness-route re-chain, the exception re-check). The
+forced-monotonic conviction holds no mint void (`checks/force-sentexes!`). An arity-class
+membership keeps `declaredType` as its informant, and a justification a store holds
+under the declaring predicate's symbol counts as a mint of that kind.
+
+**A KB without the rules stores each with its first declaration of that kind.** The
+integration of a stored declaration (`special/store-declared-mint-rule!`, from
+`integrate-sentex`, `integrate-twin` and `derived-sentex-added`) stores the kind's rule in
+CxUniverse at `:monotonic` when the KB lacks it, under either reading of the
+declarations, and `entail-arg-type` does the same at a mint whose declaration arrived past
+those choke points (an import, a bulk load). So a bare KB mints as the starter does, the
+rule is stored in every arrival order of the same content, and a KB that loads `core.txt`
+holds the same eleven sentexes at the same content. A KB with no entailing declaration
+stores none. `retract!` and `edit!` refuse to remove one of these rules (`:mint-rule`):
+the mints of its kind rest on it, and the next mint would store it again.
 
 That is what makes it retractable. Drop the fact or drop the declaration and the type
 goes, through machinery that already exists; defeat the fact and the type goes OUT with
@@ -820,10 +848,23 @@ justifications; `recover` and a fork read it and rebuild nothing for it
 
 Two conditions keep the withdrawal from eating what holds it up: the record has to be the
 entailment's own (no premise support, every justification an argument declaration's), and
-some subsuming record must not rest on the mint. Every subsumer is asked, so a minted
+some subsuming record must not rest on the mint: the subsumer stays IN with the mint
+forced OUT (`jtms/region-in` over its support), so a subsumer that is also a premise, or
+has a derivation that does not reach the mint, withdraws it
+(`arg_type_regression_test`). Every subsumer is asked, so a minted
 `(animal Muffet)` that `(awake Muffet)` subsumes while resting on it is withdrawn by
 `(dog Muffet)`, as the mint drawn after `(dog Muffet)` is withheld
 (`argtype_entail_test/a-subsumer-resting-on-the-mint-does-not-keep-it`).
+
+The withdrawal **blocks** the mint's justifications and does not retract them: the supporters
+are still present and still entail the mint, so a dependency-directed retraction
+(`jtms/retract!`) finds it groundable and keeps it.  Blocking is what `exceptWhen` does to a
+firing it excepts, and the sweep that follows collects the record as it collects an excepted
+conclusion.  It blocks every justification of the record, since a record survives on any one
+of them and the number of facts that happen to entail it would otherwise decide whether it
+stays.  A record is asked once per settle however many passes relabel it; no mint is missed by
+that, since a mint stored after a pass examined its subsumer never reaches the store,
+`entail-arg-type` asking the same question of every mint it is about to write.
 
 **Nothing records a withheld mint.** It comes back when the record that displaced it
 leaves belief or the store — retracted, defeated or swept — and the settle finds it by
@@ -950,8 +991,8 @@ handle, and draw each fact as `deduce-placed` draws one arriving now
 drawn once, nearly every entailment a fact draws is already stored with that fact's
 justification, and `entail-arg-type` would write nothing for it and cascade nothing. The
 pass passes such a mint over before its admission checks, as `rederive-mints` does
-(`special/unchanged-mint?`): one stored in that context with a support from the same
-declaring predicate over the same antecedents, or one not stored that a believed record
+(`special/unchanged-mint?`): one stored in that context with a support under the same
+kind's rule over the same antecedents, or one not stored that a believed record
 still subsumes, which would be withheld again. The checks are a mint's cost: beside ten covers a fact
 costs 25 µs passed over and 1.0 ms asked (`lein perf`'s `record-pass-over-recorded-facts`).
 The pass reports no violation of a mint already stored with that support, so a
@@ -992,7 +1033,10 @@ over.
 reads one fact's mints make before they write: the admission checks (`inadmissible`, each
 arm of `checks/constraint-problem` naming itself), the withheld test (`subsumed-mint`),
 the entailments and the declarations below. Only those reads run under it
-(`special/within-fact`, `budget/check-unit!`), and the writes that can draw mints of their
+(`special/within-fact`, `budget/check-unit!`), the defeat walk a membership read makes
+among them included: each defeat the walk opens and each support it reads checks the
+budget (`exc/opened`, `exc/support-read`), and a walk stopped part-way empties its read's
+memo. The writes that can draw mints of their
 own — a restatement at a merged term, a dropped route — run outside it, so the signal lands
 before a mint is stored or after it is justified. A fact past its budget is recorded with
 `:phase`, the part of the checks that ran out, and with the mints it brought IN before it

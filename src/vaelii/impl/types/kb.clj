@@ -44,5 +44,7 @@
 ;; into, or nil.  A field, because every public write reads it to decide whether to record.
 ;; `engine-space` is the private in-RAM space the engine allocated for this KB's own
 ;; stores (`vaelii.impl.memory/engine-space`), which `core/close!` drops, or nil.
-(defrecord KB [records index reasoning provers solver naming feed dir
+;; `reasoners` is `{:names <atom of a set> :at <locus or nil>}`: the shipped reasoners the
+;; KB registered by name, and where its store records them (`vaelii.impl.kb/reasoners-of`).
+(defrecord KB [records index reasoning provers reasoners solver naming feed dir
                snapshot-dir index-space unrecovered oplog engine-space])

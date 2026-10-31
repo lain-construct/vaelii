@@ -13,19 +13,11 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
-(defn- spatial-kb
-  "Register the RCC-8 prover on the shared KB, and hand back a teardown that removes it
-  again — the fixture guards sentexes, not the prover registry."
-  [kb]
-  (let [before @(:provers kb)]
-    (v/add-prover kb (space/spatial-prover))
-    (fn [] (reset! (:provers kb) before))))
-
 (defmacro ^:private with-spatial
-  "Run `body` with the RCC-8 prover registered, restoring the registry afterwards."
+  "Run `body` with the RCC-8 prover registered.  `tu/neutral` restores the registry after
+  the test."
   [kb & body]
-  `(let [undo# (spatial-kb ~kb)]
-     (try ~@body (finally (undo#)))))
+  `(do (v/add-prover ~kb (space/spatial-prover)) ~@body))
 
 (defn- nest!
   "Assert a containment chain, returning the handles in order."
@@ -172,6 +164,27 @@
           (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx))
               "blocked, not destroyed — the same revival an excepted conclusion gets"))))))
 
+(tu/deftest-kb a-firing-over-a-stored-calculus-fact-is-withdrawn-when-its-node-is-blocked
+  ;; the antecedent matches the stored fact itself, not an entailment: the settle blocks
+  ;; the firing, and no later join may place it again while the node stays blocked
+  (tu/with-terms [RegA RegB contained CxStoredClash]
+    (with-spatial kb
+      (v/assert kb (list 'genlCx CxStoredClash 'CxWell) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'arg contained 1 'thing) 'CxUniverse {:strength :monotonic})
+      (v/assert-rule kb [(list 'nonTangentialProperPart '?x '?y)] (list contained '?x)
+                     CxStoredClash {:direction :forward})
+      (v/assert kb (list 'nonTangentialProperPart RegA RegB) CxStoredClash
+                {:strength :monotonic})
+      (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx)) "believed while consistent")
+      (let [clash (v/assert kb (list 'spatiallyDisconnected RegA RegB) CxStoredClash
+                            {:strength :monotonic})]
+        (is (false? (:consistent? (v/qualitative-network kb :rcc8 CxStoredClash))))
+        (is (empty? (v/sentexes-matching kb (list contained RegA) '?ctx))
+            "withdrawn though the stored fact it matched is still believed")
+        (v/retract! kb clash)
+        (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx))
+            "and placed again once the network is satisfiable")))))
+
 (tu/deftest-kb a-network-unsatisfiable-only-where-two-contexts-meet-withdraws-the-firing-there
   ;; Each side's network is satisfiable; only the context seeing both composes A ⊂ B ⊂ D
   ;; against A disconnected from D.  The settle asks the contexts where the facts meet, so
@@ -251,3 +264,52 @@
         (is (= small big)
             (str "the read count is a function of what changed, not of what is stored — "
                  "4 regions cost " small " builds and 16 cost " big))))))
+
+(tu/deftest-kb a-settle-over-calculus-facts-reads-no-network-and-still-files-an-unsatisfiable-one
+  ;; docs/qcn.md, "The settle asks every write": past the first settle, a fact of the
+  ;; calculus closes the recorded pass again from its own constraint
+  (tu/with-terms [CxSettled]
+    (with-spatial kb
+      (v/assert kb (list 'genlCx CxSettled 'CxWell) 'CxUniverse {:strength :monotonic})
+      (let [rs    (into [] (repeatedly 10 #(tu/tmp-ind "Rq")))
+            filed #(filterv (fn [e] (and (= :qualitative-inconsistency (:violation e))
+                                         (= CxSettled (:context e))))
+                            (v/violations kb))
+            clash (list 'spatiallyDisconnected (first rs) (peek rs))]
+        (nest! kb CxSettled (subvec rs 0 2))
+        (is (zero? (networks-built #(nest! kb CxSettled (subvec rs 1))))
+            "eight writes, one fact each, read no network")
+        (let [e (try (v/try-assert kb clash CxSettled {:strength :monotonic}) nil
+                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :unsatisfiable-network (:violation e)) "try-assert refuses the closing fact")
+          (is (empty? (filed))))
+        (v/assert kb clash CxSettled {:strength :monotonic})
+        (is (= 1 (count (filed))) "the write files the entry")
+        (is (false? (:consistent? (v/qualitative-network kb :rcc8 CxSettled))))))))
+
+(tu/deftest-kb an-assert-after-a-refused-try-assert-or-a-preview-of-it-files-the-unsatisfiable-entry
+  (doseq [taken-back [:try-assert :preview]]
+    (tu/with-terms [RegA RegB RegC CxRefused]
+      (with-spatial kb
+        (v/assert kb (list 'genlCx CxRefused 'CxWell) 'CxUniverse {:strength :monotonic})
+        (nest! kb CxRefused [RegA RegB RegC])
+        (let [clash  (list 'spatiallyDisconnected RegA RegC)
+              filed  #(filterv (fn [e] (and (= :qualitative-inconsistency (:violation e))
+                                            (= CxRefused (:context e))))
+                               (v/violations kb))
+              events (atom [])
+              t      (v/watch kb #(swap! events conj %))]
+          (try
+            (case taken-back
+              :try-assert (is (= :unsatisfiable-network
+                                 (try (v/try-assert kb clash CxRefused {:strength :monotonic}) nil
+                                      (catch clojure.lang.ExceptionInfo e (:violation (ex-data e))))))
+              :preview    (is (some #(= :qualitative-inconsistency (:violation %))
+                                    (:violations (v/preview kb {:add [[clash CxRefused {:strength :monotonic}]]})))
+                              "the preview reports the entry"))
+            (is (empty? (filed)) (str taken-back ": the write taken back files nothing"))
+            (v/assert kb clash CxRefused {:strength :monotonic})
+            (is (= 1 (count (filed))) (str taken-back ": the plain write files the entry"))
+            (is (= (filed) (filterv #(= CxRefused (:context %)) (mapcat :unsatisfiable @events)))
+                (str taken-back ": and a listener receives it"))
+            (finally (v/unwatch kb t))))))))

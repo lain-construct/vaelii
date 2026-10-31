@@ -57,12 +57,14 @@
   premise.  The development browser runs it for the starter (docs/catalog.md)."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
             [vaelii.impl.io.text :as text]
             [vaelii.impl.kb :as kbi]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]))
@@ -230,13 +232,10 @@
     :remove  `{:context :form :handles}` premises in an exact context the engine does not
              ship, each naming only terms of its `vocabulary`
 
-  A premise the engine ships at a higher strength is an `:add` alone: asserting it raises
-  the held one.  One it ships at a lower strength is a `:remove` and an `:add`.  A rule's
-  direction is read the same way: a rule held backward and shipped forward is an `:add`
-  alone, which raises the one record to forward in place, and one held forward and
-  shipped backward is a `:remove` and an `:add`.
-
-  `shipped` defaults to a fresh `(premises)`."
+  A premise the engine ships at a higher strength is an `:add` alone; at a lower strength
+  it is a `:remove` and an `:add`.  A rule held backward and shipped forward is an `:add`
+  alone, which raises the one record in place; held forward and shipped backward it is a
+  `:remove` and an `:add`.  `shipped` defaults to a fresh `(premises)`."
   ([kb] (plan kb (premises)))
   ([kb shipped]
    (let [shipped (map #(update % :form canonical-form) shipped)
@@ -335,16 +334,18 @@
     (cond-> [sentence context] o (conj o))))
 
 (defn- batch!
-  "Assert `entries`, then retract `handles`, as one `v/edit!`: one settle.  The edit is
-  all-or-nothing, so an entry it refuses rolls the batch back; that entry is set aside
-  with its refusal's `:type` and message and the batch runs again without it.  Returns
-  the entries set aside."
+  "Assert `entries`, then retract `handles` and each entry's `:replaces` handles, as one
+  `v/edit!`: one settle.  The edit is all-or-nothing, so an entry it refuses rolls the
+  batch back; that entry is set aside with its refusal's `:type` and message, its
+  `:replaces` kept, and the batch runs again without it.  Returns the entries set aside."
   [kb entries handles]
   (with-open [rep (progress/start ::batch "sync: run the batch edit, once per refused entry" nil)]
     (loop [entries (vec entries) aside []]
       (if (and (empty? entries) (empty? handles))
         aside
-        (let [refused (try (v/edit! kb {:add (mapv edit-entry entries) :remove handles})
+        (let [refused (try (v/edit! kb {:add    (mapv edit-entry entries)
+                                        :remove (into [] (distinct)
+                                                      (concat handles (mapcat :replaces entries)))})
                            nil
                            (catch clojure.lang.ExceptionInfo ex
                              (let [{:keys [rolled-back in index] :as data} (ex-data ex)]
@@ -377,20 +378,16 @@
 
     {:added n :removed n :refused [{:context :form :type :message} …]}
 
-  **A retraction goes first** only when an addition lands on a record it retracts: a
-  strength the engine lowered, whose weaker form would otherwise be asserted onto the
-  premise and then retracted with it, or an `exceptWhen` restated around a rule the KB
-  keeps.  Those are their own `edit!` before the batch.
+  **A retraction goes first**, as its own `edit!` before the batch, only when an addition
+  lands on a record it retracts: a strength the engine lowered, or an `exceptWhen`
+  restated around a rule the KB keeps.
 
   **An addition the batch refuses is set aside**, the batch rolled back and run without
   it, so the rest lands in one settle.  The ones set aside are asserted after it,
-  retrying while a round makes progress (`add!`): the batch's refusal can be an order the
-  batch could not fix, or content its own retractions then took away.  What still refuses
-  is `:refused`.  Each refusal costs the batch one rollback.
+  retrying while a round makes progress (`add!`); what still refuses is `:refused`.
 
   `kb` must accept writes (`v/write-hazards` empty).  `ships` is `(premises)`, passed by a
-  caller that syncs more than one KB or prices the sync apart from the scratch load.
-  `sync-each!` makes the same changes one at a time, reporting each."
+  caller that syncs more than one KB.  `sync-each!` makes the same changes one at a time."
   ([kb] (sync! kb (premises)))
   ([kb ships]
    (let [{:keys [before adds after]} (ordered (plan kb ships))
@@ -412,20 +409,17 @@
 
     {:done i :total n :op {:op :add|:remove|:forward :context :form}}
 
-  and once more with `:done n` at the end, so a reader always knows how far it has got.
-  The order is `sync!`'s: the retractions an addition lands on, the additions, the other
-  retractions.  An addition `edit!` refuses is set aside and retried after the rest while
-  a round makes progress (`add!`), and costs no rollback of anything else.  A `report`
-  that throws stops the sync between two changes, each of which has settled, so a rerun's
-  plan is what is left.
+  and once more with `:done n` at the end.  The order is `sync!`'s.  An addition `edit!`
+  refuses is set aside and retried after the rest while a round makes progress (`add!`).
+  A `report` that throws stops the sync between two changes, each of which has settled, so
+  a rerun's plan is what is left.
 
   **A forward rule is added backward, and turned forward last.**  Each addition that runs
-  a rule forward (`backward-form`) is asserted with `set/backwardRule` in its place, so
-  the content lands with no new rule firing over it.  Once every other change has
-  settled, each is an `:op :forward` change of its own: the shipped form asserted over
-  the backward rule, which raises the one record to forward in place.  A sync stopped
-  between the two stages leaves the rule held backward, which a rerun's plan reads as an
-  `:add` alone (`plan`), so the rerun turns it forward there.
+  a rule forward (`backward-form`) is asserted with `set/backwardRule`, so the content
+  lands with no new rule firing over it.  Once every other change has settled, each is an
+  `:op :forward` change of its own: the shipped form asserted over the backward rule,
+  which raises the one record in place.  A sync stopped between the stages leaves the
+  rule backward, which `plan` lists on a rerun as an `:add` alone.
 
   Returns what `sync!` returns, with `:forwarded n`."
   ([kb report] (sync-each! kb (premises) report))
@@ -471,6 +465,49 @@
       :removed   (+ (count before) (count after))
       :forwarded (:forwarded stage2)
       :refused   (into refused (:refused stage2))})))
+
+(defn rename!
+  "Rewrite `kb`'s premises to the spellings `renames` (`seed/release-renames`) gives.  A
+  premise naming a renamed symbol or a merged context, or stored in a merged context, is
+  retracted and its rewrite asserted, in one `v/edit!` (`batch!`); a refused rewrite keeps
+  its premise.  A premise naming a re-meant or retired symbol is reported as
+  `{:symbol :note :premises [{:context :form} …]}` and not changed.  With none of these
+  symbols, nothing is read.  Returns
+  `{:rewritten n :refused [{:context :form :type :message} …] :re-meanings […] :retired […]}`."
+  ([kb] (rename! kb (seed/release-renames)))
+  ([kb {:keys [renames context-merges re-meanings retired]}]
+   (let [smap     (merge renames context-merges)
+         named    (into (set (keys smap)) (concat (keys re-meanings) retired))
+         recs     (:records kb)
+         touched? (fn [r]
+                    (let [s (:sentence r)]
+                      (or (nil? s) (and (seq? s) (= sx/except-wrapper (first s)))
+                          (contains? context-merges (:context r))
+                          (boolean (some named (terms s))))))
+         entries  (when (seq named)
+                    (first (text/premise-entries
+                            kb (into [] (comp (keep #(p/get-sentex recs %)) (filter touched?))
+                                     (p/premise-ids recs)))))
+         moved    (fn [{:keys [context form]}]
+                    {:context (get context-merges context context)
+                     :form    (walk/postwalk-replace smap form)})
+         changed  (into [] (keep (fn [e]
+                                   (let [m (moved e)]
+                                     (when (not= m (select-keys e [:context :form]))
+                                       (assoc m :replaces (:handles e))))))
+                        entries)
+         aside    (batch! kb changed [])
+         report   (fn [syms]
+                    (vec (for [sym (sort syms)
+                               :let [ps (filterv #(contains? (terms (:form %)) sym)
+                                                 (map moved entries))]
+                               :when (seq ps)]
+                           (cond-> {:symbol sym :premises ps}
+                             (re-meanings sym) (assoc :note (re-meanings sym))))))]
+     {:rewritten   (- (count changed) (count aside))
+      :refused     (mapv #(dissoc % :replaces) aside)
+      :re-meanings (report (keys re-meanings))
+      :retired     (report retired)})))
 
 ;; ---- writing back ---------------------------------------------------------
 
@@ -551,9 +588,9 @@
       term it is about that a file defines (`subject-terms`), or appended to the
       context's first file when none is.
 
-  Every other line stays, comments and order included.  `files-of` maps a context to its
-  files and defaults to `context-files`.  Returns `{:written n :skipped [entry …]}`, a
-  skipped entry being a removal no file states or one in a context with no file."
+  Every other line stays.  `files-of` maps a context to its files and defaults to
+  `context-files`.  Returns `{:written n :skipped [entry …]}`, a skipped entry being a
+  removal no file states or one in a context with no file."
   ([kb changes] (write-back! kb changes context-files))
   ([kb {:keys [add remove]} files-of]
    (let [spans-of (memoize (fn [f] (text/form-spans f)))
@@ -582,12 +619,12 @@
                                   (concat
                                    (for [{:keys [line into]} rems :when line]
                                      {:file (:file line) :start (:start line) :end (:end line)
-                                      :text (some-> into :form pr-str)})
+                                      :text (some-> into :form nm/print-key)})
                                    (for [a adds :when (not (taken a))
                                          :let [[s _] (text/peel-form (:form a))
                                                [f l] (or (some at (subject-terms s))
                                                          [(first files) :end])]]
-                                     {:file f :after l :text (pr-str (:form a))})))}))
+                                     {:file f :after l :text (nm/print-key (:form a))})))}))
          edits    (mapcat :edits plan)]
      (doseq [[f es] (group-by :file edits)]
        (edit-file! f es))

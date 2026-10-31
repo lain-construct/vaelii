@@ -26,16 +26,9 @@
             [vaelii.impl.rules :as vr]
             [vaelii.impl.types.snapshot :as snapshot-types]
             [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+  (:import (java.io File)))
 
 ;;; ── scaffolding ───────────────────────────────────────────────────────
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-snap-" nm "-") (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d] (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- terms []
   (tu/with-terms [bird penguin animal flies feathered parentOf grandparentOf
@@ -125,7 +118,7 @@
   ;; Portability is the whole reason for the protocol: the file sink and the memory sink carry
   ;; the same projection, so both install to the index a rebuild produces.  This is the
   ;; sink-level echo of `index_dump_test`'s "every backend exports the same entries".
-  (let [dir (temp-dir "cross")]
+  (let [dir (tu/temp-dir "vaelii-snap-" "cross" "-")]
     (try
       (tu/with-cleared-kb [kb tu/fresh]
         (let [t           (terms)
@@ -142,7 +135,7 @@
               (is (= :replayed (:index (snap/load-index! source (:index kb) fingerprint))))
               (is (= oracle (entries-of kb))
                   (str "the " label " sink installed a different index than a rebuild"))))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;;; ── one image format, not two ──────────────────────────────────────────
 
@@ -153,7 +146,7 @@
   ;; index stream reads back as the very seq a fresh `save-index!` writes — a guard against a
   ;; later edit re-forking the copy this refactor removed.  Framed `:none` on both sides so
   ;; the comparison is of the sections themselves, not of a codec.
-  (let [dir (temp-dir "one-format")]
+  (let [dir (tu/temp-dir "vaelii-snap-" "one-format" "-")]
     (try
       (tu/with-cleared-kb [kb tu/fresh]
         (let [t           (terms)
@@ -171,7 +164,7 @@
             (is (= proj (vec (snapshot-types/read-section
                               (snap/file-source (.getPath (File. dir "image")))
                               snap/index-section)))))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;;; ── every way the image is doubted, it is discarded ────────────────────
 
@@ -184,7 +177,7 @@
           "a sink that never committed offers no image"))))
 
 (deftest a-file-image-missing-its-manifest-is-absent
-  (let [dir (temp-dir "no-manifest")]
+  (let [dir (tu/temp-dir "vaelii-snap-" "no-manifest" "-")]
     (try
       (tu/with-cleared-kb [kb tu/fresh]
         (build! kb (terms))
@@ -195,7 +188,7 @@
           (is (= {:index :rebuild :reason :absent}
                  (snap/load-index! (snap/file-source (.getPath dir)) (:index kb) fingerprint))
               "sections with no manifest read as no image")))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-layout-this-build-does-not-key-in-is-discarded
   ;; The sharpest class: an index in another layout would read as *empty* rather than as
@@ -239,7 +232,7 @@
 (deftest a-truncated-section-is-discarded-and-installs-nothing-of-itself
   ;; A torn nippy chunk is indistinguishable from a clean EOF, so truncation shows only as a frame count
   ;; below what the manifest recorded — caught while installing, not in `decision`.
-  (let [dir (temp-dir "truncated")]
+  (let [dir (tu/temp-dir "vaelii-snap-" "truncated" "-")]
     (try
       (tu/with-cleared-kb [kb tu/fresh]
         (let [t           (terms)
@@ -259,7 +252,7 @@
             (v/reindex kb)
             (is (pos? (count (v/sentexes-matching kb (list (:bird t) '?x) (:ctx t))))
                 "a rebuild after a discarded image left the KB unqueryable"))))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-frame-that-is-not-a-key-value-pair-is-refused-rather-than-installed
   ;; An index image is several entries per record, so the install checks a batch rather
@@ -301,7 +294,7 @@
   ;; whole `chunk` and never approaches the corpus.  Were the writer buffering everything,
   ;; this would climb toward `n`.  Asserted on the shared framing the file sink writes
   ;; through.
-  (let [dir     (temp-dir "constant")
+  (let [dir     (tu/temp-dir "vaelii-snap-" "constant" "-")
         chunk   4
         n       40
         flushed (volatile! 0)
@@ -321,14 +314,14 @@
             "the writer's footprint tracks the corpus, not the chunk")
         (is (= n (count (vec (frames/read-chunked-seq f :none))))
             "and the file round-trips to the whole corpus"))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-reader-dropped-early-releases-its-file
   ;; The chunked reader is a lazy seq over an open file, and a consumer that stops
   ;; before the end — an install refusing a frame, a `take` — cannot be seen by the seq.
   ;; `close-frames!` closes the stream on request; a failure inside the seq closes it
   ;; before the throw travels; and the file is released when the seq is dropped.
-  (let [dir (temp-dir "release")]
+  (let [dir (tu/temp-dir "vaelii-snap-" "release" "-")]
     (try
       (let [^File f (File. dir "section.nippy.stream")
             n      40]
@@ -358,7 +351,7 @@
               (is (= [0 "v0"] (first s)) "the first chunk thaws")
               (is (thrown? Exception (dorun (drop 4 s))) "the second does not")
               (frames/close-frames! s)))))                   ; closed under the failure; a no-op
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (defn- closer-over-a-walked-seq
   "A `frames/closer` over a chunked reader of `f` whose first two chunks have been read, and
@@ -371,7 +364,7 @@
 (deftest a-closer-holds-the-stream-and-not-the-frames
   ;; A consumer holds the closer for its whole walk (`with-open`), so a closer holding the
   ;; seq keeps every frame the walk has passed until the walk ends.
-  (let [dir (temp-dir "closer")]
+  (let [dir (tu/temp-dir "vaelii-snap-" "closer" "-")]
     (try
       (let [^File f (File. dir "section.nippy.stream")]
         (frames/write-frames! f (map (fn [i] [i (str "v" i)]) (range 40))
@@ -385,7 +378,7 @@
                                  :else              false))]
           (is collected? "the walked frames are collectable while the closer is held")
           (.close c)))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;;; ── the record hash across builds ─────────────────────────────────────
 

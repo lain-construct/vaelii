@@ -169,6 +169,14 @@ own content refused would otherwise leave holding handles the rollback took away
 ([exceptions.md](exceptions.md), "A refused firing is remembered as bindings"). An entry
 the batch consumed comes back through the rollback's own re-chain.
 
+The calculi's report markers (`observe/newly-seen?`) go back with the ledger
+(`observe/restore-seen!`). A calculus files an unsatisfiable network once per KB and
+context, and the marker records that it did, so a marker the batch left would keep the next
+write that makes the same network from filing its entry
+(`qcn_chain_test/an-assert-after-a-refused-try-assert-or-a-preview-of-it-files-the-unsatisfiable-entry`).
+The markers go back whole, a reader thread's included, so a network a reader reported while
+the batch ran can be reported a second time.
+
 A constraint or lift entry records the `genl` and `genlCx` generations it was decided
 under, and `settle` re-asks an entry whose generations moved. A batch that adds or removes
 an edge moves them, and the rollback's removal moves them again, since a generation only

@@ -11,10 +11,9 @@
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (dist/distance-prover)))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (dist/distance-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

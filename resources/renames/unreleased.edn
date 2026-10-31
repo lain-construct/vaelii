@@ -1,0 +1,15 @@
+;; What the Unreleased release renames, merges, re-means and retires, as data
+;; (docs/catalog.md, "A release's renames").  The release cut renames this file to
+;; `<version>.edn`, and `lein lint`'s E22 holds it to the changelog's Breaking
+;; entries, the shipped KB and the API goldens.
+;;
+;; The four top-level keys are KB vocabulary, which `upgrade --sync`
+;; (`vaelii.host.sync/rename!`) rewrites in stored premises (`:renames`,
+;; `:context-merges`) or reports (`:re-meanings`, `:retired`).  `:api` holds the
+;; same kinds for the public API, koinii's vars and the daemon's ops, which a
+;; caller's code rewrites.
+{:renames        {}
+ :context-merges {}
+ :re-meanings    {}
+ :retired        #{}
+ :api            {}}

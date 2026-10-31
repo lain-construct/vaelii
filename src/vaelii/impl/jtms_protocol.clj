@@ -2,164 +2,40 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns ^{:clojure.tools.namespace.repl/load false :clojure.tools.namespace.repl/unload false}
  vaelii.impl.jtms-protocol
-  "The representation boundary of the truth-maintenance system: the `Tms` protocol
-  alone, with no implementation.
-
-  It lives in its own namespace, apart from `vaelii.impl.jtms` (the reference
-  network) and `vaelii.impl.dense-jtms` (the dense one), for two reasons.  Both
-  implementations depend on it, and the reference depends on nothing of the dense one, so
-  the boundary is the one thing they share; the dense network also calls two helpers of
-  the reference namespace (`graph-just`, `dissoc-all`).  And it is large — forty-odd methods, each documented — which
-  makes the generated protocol map big enough that re-evaluating the form (as
-  cloverage does, form by form, to instrument a namespace) overflows the JVM's
-  64 KB per-method bytecode limit; isolated here, the protocol is loaded but not
-  instrumented while the whole of `vaelii.impl.jtms` still is (scripts/coverage.sh).
-
-  A held namespace (`vaelii.impl.types.prover` states what that means): it defines the `Tms` protocol and requires no vaelii namespace, so the development browser's reloader never re-evaluates it, and an edit to it takes a restart.")
+  "A **held namespace** (`vaelii.impl.types.prover` states what that means): the `Tms`
+  protocol alone, no implementation, in its own file apart from `vaelii.impl.jtms` and
+  `vaelii.impl.dense-jtms`. Its forty-odd methods make the generated protocol map large
+  enough that re-evaluating the form, as cloverage does to instrument a namespace,
+  overflows the JVM's 64 KB per-method limit; isolated here, the protocol is loaded and not
+  instrumented while `vaelii.impl.jtms` still is (scripts/coverage.sh). It requires no vaelii
+  namespace, so the development browser's reloader never re-evaluates it and an edit takes a
+  restart.")
 
 (defprotocol Tms
-  "What a truth-maintenance network must answer, independent of how it stores the
-  graph.  Two implementations ship: `RefTms` in `vaelii.impl.jtms` — an atom over one
-  persistent map, the reference — and `vaelii.impl.dense-jtms`, which holds the same
-  graph in bitmaps and primitive-keyed maps.  Selected per KB (`open-kb`'s `:tms` opt),
-  dense by default since 0.9.0, and proven to answer identically by `jtms_dense_oracle_test`.
+  "What a truth-maintenance network must answer, independent of how it stores the graph.
+  `RefTms` (`vaelii.impl.jtms`) and `vaelii.impl.dense-jtms` implement it, selected by
+  `open-kb`'s `:tms`. Both run the same least-fixpoint relabel over the same affected region;
+  they differ in where a node's premise flag, depth and adjacency live. The obligations an
+  implementation owes, each with its enforcing test, are in docs/nmtms.md, What a second
+  network owes.
 
-  The boundary is at the *representation*, not at the algorithm: both implementations
-  run the same least-fixpoint relabel over the same affected region, because that is
-  the semantics, not an implementation detail.  What differs is where a node's
-  premise flag, depth and adjacency live.
-
-  ## What the network computes
-
-  One function, and every method below either supplies an argument to it, reads a
-  result of it, or edits its domain:
+  The network computes one function:
 
       label(graph, attributes, blocked) -> (in, classes)
       believed                           = in - superseded - held
 
-  `graph` is the nodes and justifications.  `attributes` are the per-element strengths
-  the class fixpoint reads, and the four **forced** sets the stored content decides
-  (docs/nmtms.md, \"The forced-monotonic set\"): `:mono`, premises whose class is
-  `:monotonic` whatever strength they carry; `:out`, datums never IN; `:void`,
-  justifications that support nothing; and `:held`, datums the fixpoint labels as usual
-  that a believed read subtracts, as it subtracts `superseded`.  The caller decides each membership from the
-  stored content and writes it with the element, as it writes a strength.  `blocked` and
-  `superseded` are two sets the **caller** computes and replaces whole every settle — the
-  network is pure and holds no KB, so it can run neither query that decides them.  `in`
-  and `classes` are what a relabel writes.  No contradiction forces a datum OUT: a
-  contradiction is decided at each reader, above this boundary, so the network holds
-  support labels only, and an `:out` member is the one datum the fixpoint never adds.
+  `graph` is the nodes and justifications. `attributes` are the per-element strengths the
+  class fixpoint reads and the four forced sets the caller decides from stored content
+  (docs/nmtms.md, \"The forced-monotonic set\"): `:mono`, `:out`, `:void` and `:held`.
+  `blocked` and `superseded` are caller-computed sets replaced whole every settle, because
+  the network holds no KB. `blocked` enters inside `valid?` and moves `in`; `superseded` is
+  subtracted at the read and moves nothing. A reader's verdict and a visibility `except` are
+  applied per reading context by `vaelii.impl.resolution`, not on this protocol.
 
-  The two overrides enter belief at two different points, and a method that confuses
-  them is wrong in a way no label comparison catches:
-
-  | override | enters at | moves |
-  |---|---|---|
-  | `blocked` | inside `valid?`, so a blocked justification supports nothing | `in` |
-  | `superseded` | subtracted at the read, after the fixpoint | nothing — the datum stays in `in` so its rewritten twin keeps its justification |
-
-  `vaelii.impl.jtms` states each at length under *the state*.
-
-  ## The seven roles
-
-  `roles` below assigns every method exactly one, and `jtms_protocol_test` fails on a
-  method in none or in two.  The roles are a division of **what a method touches**, not
-  of what it may be implemented without: every mutation relabels, so every role's
-  mutators write the output role's state, and no partition of these methods is closed
-  under writes.
-
-  | role | what it holds | what supplies it |
-  |---|---|---|
-  | `:graph` | nodes, justifications, depth, adjacency | `-ensure-node`, the two `-add-*`, `-retract`, `-sweep`, `-drop-justification` |
-  | `:attribute` | a premise's and a justification's strength, and the forced sets | written with the element, and by `-restrength-informant` and `-set-forced` |
-  | `:blocked` | the blocked justification-id set | the caller's exception query |
-  | `:superseded` | the `datum -> reason` map | the caller's equality closure |
-  | `:output` | `in`, `classes` | every relabel |
-  | `:touched` | the touched sets | every relabel |
-  | `:hold` | the labels a settle has moved, as they were when it began | the settle |
-
-  **A third place belief is decided is not on this protocol.**  A reader's verdict and a
-  visibility `except` are applied per reading context by `vaelii.impl.resolution`, over
-  `vaelii.impl.jtms/grounded-in-region` — which is built on the reads here and is
-  therefore not a method at all, so both representations answer it without implementing
-  anything.  The network's labels do not move for either, and `-believed?` answers the
-  same before and after one.
-
-  ## What an implementation owes
-
-  Four obligations.  Miss one and a network is *wrong*, not slow — belief is the last
-  thing in the engine that may drift silently, since a bad label does not throw, it
-  just answers a query differently.  Each names the regression test that enforces it,
-  because an obligation with no test is a comment.
-
-  1. **The same fixpoint over the same region.**  Binds `:output`, and through it
-     `:blocked`, the fixpoint's override argument.  A datum is believed when it is a
-     premise or has a valid justification (all antecedents believed); the label is
-     recomputed over the forward consequence closure of
-     whatever changed, with the rest held fixed as boundary.  That is the *semantics*
-     of belief here (docs/nmtms.md), not a strategy an implementation may improve on:
-     the region fixpoint is equal to the global one because a least fixpoint with the
-     boundary fixed is unique, and uniqueness is also the whole of why locality costs
-     no order independence.  An implementation may move where the graph lives; it may
-     not move what is believed.  Enforced by: `jtms_dense_oracle_test`, which compares the
-     entire `-snapshot` after **every** step of a randomized operation stream — not a
-     sampled read, because a divergence in a class or a block is invisible to
-     `-believed?` until a later operation reads it.
-
-  2. **A mutation is atomic to a concurrent reader.**  Binds every role.  A reader
-     sees the state wholly
-     before or wholly after a relabel, never half of one — the single-writer contract
-     owes the incidental reader that much (a web browser over a REPL's KB,
-     docs/storage.md).  *How* is not the obligation and the two differ: the reference
-     by compare-and-set on its state atom, the dense network by taking its
-     `StampedLock` for writing.  Enforced by: `jtms_atomicity_test`, whose atomicity half runs
-     against both networks for exactly this reason.  **While a hold is open**
-     (`-hold`), a thread other than its owner reads the `:output`, `:blocked` and
-     `:superseded` roles as they stood when the hold began, so a settle's
-     run of relabels reaches such a reader as one step when the hold closes.  The reference keeps
-     its state map from that moment; the dense network records each label the first
-     relabel after it moves, which costs the region that relabel walks.  Enforced
-     by: `kb_concurrency_test`, on both networks.
-
-  3. **The flips are inside the published set, and the touched set inside the region.**
-     Binds `:touched`.  `-touched` is not diagnostics: `preview`, the consequence report and the change
-     feed all read it instead of diffing the believed set, which would be O(KB) per
-     write (docs/preview.md, docs/feed.md).  A touched set that missed a flip serves a stale
-     report; one that outran its own region would say the operation was not local after
-     all.  The containment is deliberately one-way — the touched set is a **superset** of
-     the flip set (defenses.md) — so this obligation is containment and never equality.
-     Enforced by: the oracle test checks both containments on both networks after
-     every step, and `jtms_locality_test` measures the published touched set across
-     graph sizes on both — a region widened back to the whole graph answers identically, so a
-     comparison of labels alone would pass it.
-
-  4. **No store, by construction.**  Binds every role, and its second half binds
-     `:attribute` in particular.  Every method here takes the network plus integers
-     and plain values.  Nothing crossing the boundary can carry a record store, an index or a KB,
-     and no implementation may acquire one.  Two things rest on that and neither is
-     optional.  A node holds **no reference to the sentex it labels** — the network is
-     always resident, so a strong reference would keep every record reachable in RAM and defeat a
-     paging backend entirely (measured: the nodes reached 50% of the record store).
-     And `-premise-strength`, which the class fixpoint reads per in-region node, is a
-     *memory* read on every representation, which is what makes locality a claim about all of them rather than
-     about the one whose reads happen to be free — on a disk store that read would be a
-     lock and a slot decode, on a server store a round trip, per in-region node per
-     worklist pop.  Enforced by: the structure of this protocol, plus both implementations' `ns`
-     forms, which name no store.  A store-backed network would break the structural
-     guarantee and inherit an obligation nothing here enforces: it would owe a
-     read-counting one of its own.
-
-  One claim is deliberately **not** on that list, because nothing at this boundary can hold
-  it: the cost of the in-region work itself.  Obligation 3 says a small region was asked
-  for and obligation 4 says nothing was paid per boundary node, and neither says the
-  small region was *cheap* — a structure whose every write rebuilds a whole container
-  satisfies both and still grows with the KB, at a scale no unit test reaches
-  (docs/defenses.md argues it under *Locality is a claim about every representation*).
-  It is held by `lein bench-jtms` and by review.  It is written down here anyway,
-  because an implementation that is never told about a claim cannot be held to it.
-
-  Every method is named with a leading `-`; the plain names (`in?`, `add-premise`, …)
-  are the public functions in `vaelii.impl.jtms`, which dispatch here.  Callers use those."
+  `roles` assigns every method one of seven roles (`:graph` `:attribute` `:blocked`
+  `:superseded` `:output` `:touched` `:hold`), and `jtms_protocol_test` fails on a method in
+  none or in two. Every method is named with a leading `-`; the plain names (`in?`,
+  `add-premise`, …) are the public functions in `vaelii.impl.jtms`, which dispatch here."
   ;; ---- :graph — the nodes and justifications the fixpoint runs over ----------
   (-node?            [tms datum] "Is there a node for `datum`?")
   (-datums           [tms]       "Seq of every datum with a node.")
@@ -212,10 +88,10 @@
   (-blocked          [tms]       "The blocked justification-id set.")
   (-set-blocked      [tms jids]  "Replace the blocked set and relabel what moved.
     Blocking enters through `valid?`, so an excepted conclusion goes OUT and is swept
-    rather than retained.  The caller evaluates the
-    exceptions and hands `jids` in — the network holds no KB and cannot run the query —
-    so the cost here is the region seeded by the justifications whose blocked status
-    changed, never the cost of deciding which those are.")
+    rather than retained.  An id with no justification is not kept.  The caller
+    evaluates the exceptions and hands `jids` in — the network holds no KB and cannot run
+    the query — so the cost here is the region seeded by the justifications whose blocked
+    status changed, never the cost of deciding which those are.")
 
   ;; ---- :superseded — reported belief subtracted after the fixpoint -------------
   (-superseded       [tms]       "The `datum -> reason` supersession map.")
@@ -266,17 +142,11 @@
   (-held             [tms]       "The hold open on this network, or nil."))
 
 (def roles
-  "Which role each `Tms` method is in, as `{role #{method-name}}` — the protocol
-  docstring's *The seven roles* written as data, so a test holds it rather than review.
-
-  It is a partition of what a method **touches**, and the protocol docstring says why it
-  cannot be a partition of what a network may be implemented without: every mutation
-  relabels, so every role's mutators write `:output`'s state.  A method that reads across
-  roles says so in its own docstring — `-believed?` and `-defeat-class` are the two, and
-  each names the reason.
-
-  `jtms_protocol_test` fails on a method in no role, a method in two, and a name here
-  that the protocol does not define."
+  "Which role each `Tms` method is in, as `{role #{method-name}}`: the protocol docstring's
+  seven roles as data. A partition of what a method touches, not of what an implementation
+  may omit, since every mutation relabels. `-believed?` and `-defeat-class` read across
+  roles and say so in their own docstrings. `jtms_protocol_test` fails on a method in no
+  role, a method in two, and a name here that the protocol does not define."
   '{:graph      #{-node? -datums -any-node? -depth -premise? -supports -dependents
                   -justification -justifications -ensure-node -add-premise
                   -suspend-premise -add-justification -retract -sweep -drop-justification

@@ -21,19 +21,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- ex-type
-  "The `:type` a write thunk meets: the ex-info it throws, or the argument conviction its
-  fact is held inert under (`tu/write-type`), or nil.
-
-  The paths below throw five distinguishable types — `:arg-genl` for the subtype
-  constraint, `:arg-type` for the instance one, `:arity` and `:arg-position` for the
-  declarations, `:functional` for a second arity value — and a bare
-  `(thrown? ExceptionInfo …)` passes for every one of them alike.  An `genlArg` check
-  collapsing into a naming refusal is exactly the regression a file full of those would
-  stay green through, so each refusal here names the one it expects."
-  [f]
-  (tu/write-type tu/*kb* f))
-
 (defn- type-relation
   "A type-level relation over kinds of `root`, plus the kinds themselves.
   Returns `[rel sub other root]`."
@@ -55,7 +42,7 @@
      (testing "the constraint type itself satisfies it — genl is reflexive"
        (is (v/assert kb (list rel root (tu/tmp-type)) 'CxUniverse)))
      (testing "a type the taxonomy separates from the constraint type does not"
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel other (tu/tmp-type)) 'CxUniverse))))))))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel other (tu/tmp-type)) 'CxUniverse))))))))
 
 (tu/deftest-kb genlArg-wants-a-subtype-where-arg-wants-an-instance
   ;; the whole point of having both: the same type symbol passes one and fails the other
@@ -80,7 +67,7 @@
      (testing "the kind satisfies genlArg"
        (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
      (testing "and fails arg, which wants one of its instances"
-       (is (= :arg-type (ex-type #(v/assert kb (list instRel sub (tu/tmp-ind)) 'CxUniverse)))))
+       (is (= :arg-type (tu/kb-write-type #(v/assert kb (list instRel sub (tu/tmp-ind)) 'CxUniverse)))))
      (testing "an instance of the kind is what arg wanted"
        (let [x (tu/tmp-ind)]
          (v/assert kb (list sub x) 'CxUniverse)
@@ -91,14 +78,14 @@
     (testing "open-world: a term with no place in the hierarchy yet cannot violate"
       (is (v/assert kb (list rel (tu/tmp-type) (tu/tmp-type)) 'CxUniverse)))
     (testing "an individual can never acquire genl edges, so it is convicted not excused"
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel (tu/tmp-ind) (tu/tmp-type)) 'CxUniverse)))))))
+      (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel (tu/tmp-ind) (tu/tmp-type)) 'CxUniverse)))))))
 
 (tu/deftest-kb genlArg-is-well-formedness-checked-like-arg
   (let [rel (tu/tmp-pred)]
     (testing "the type slot is a type, not an individual"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'genlArg rel 1 (tu/tmp-ind)) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'genlArg rel 1 (tu/tmp-ind)) 'CxUniverse)))))
     (testing "the position is a positive integer"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'genlArg rel 0 'thing) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'genlArg rel 0 'thing) 'CxUniverse)))))
     (testing "the message names genlArg, not arg"
       (is (re-find #"genlArg"
                    (:message (first (v/check kb (list 'genlArg rel 0 'thing)
@@ -129,7 +116,7 @@
     (testing "one past the declared arity would never fire: try-assert refuses it, assert stores it"
       (doseq [kind '[arg genlArg]]
         (is (= :arg-position (tu/try-violation kb (list kind rel 5 'thing) 'CxUniverse)))
-        (is (nil? (ex-type #(v/assert kb (list kind rel 5 'thing) 'CxUniverse))))))
+        (is (nil? (tu/kb-write-type #(v/assert kb (list kind rel 5 'thing) 'CxUniverse))))))
     (testing "open-world: an undeclared predicate takes any position"
       (is (v/assert kb (list 'arg (tu/tmp-pred) 9 'thing) 'CxUniverse)))))
 
@@ -159,9 +146,9 @@
          (v/assert kb (list 'genl a_plant 'thing) 'CxUniverse)
          (v/assert kb (list 'disjoint a_plant an_animal) 'CxUniverse)
          (v/assert kb (list a_collection a_plant) 'CxUniverse)
-         (is (= :arg-genl (ex-type #(v/assert kb (list rel a_plant (tu/tmp-ind)) 'CxUniverse)))
+         (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel a_plant (tu/tmp-ind)) 'CxUniverse)))
              "a collection, but a kind disjoint from animal — genlArg convicts"))
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel Rex (tu/tmp-ind)) 'CxUniverse)))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel Rex (tu/tmp-ind)) 'CxUniverse)))
            "an individual can never be a subtype, so it is convicted rather than excused")))))
 
 (tu/deftest-kb the-constraint-must-agree-with-the-declared-relation-kind
@@ -348,7 +335,7 @@
        (v/assert kb (list a_type C) 'CxUniverse)
        (v/assert kb (list b_type Odd) 'CxUniverse)          ; a b_type, disjoint from a_type
        (is (v/assert kb (list chainOf A B C) 'CxUniverse))
-       (is (= :arg-type (ex-type #(v/assert kb (list chainOf A B Odd) 'CxUniverse)))
+       (is (= :arg-type (tu/kb-write-type #(v/assert kb (list chainOf A B Odd) 'CxUniverse)))
            "argument 3 is enforced where the tuple has one, which is what makes the
              declaration worth admitting")))))
 
@@ -396,11 +383,11 @@
      (testing "globally in the hierarchy, invisibly from ctx: open world excuses"
        (is (v/assert kb (list rel reified (tu/tmp-type)) ctx)))
      (testing "a plain individual with no edges anywhere is still convicted"
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel plain (tu/tmp-type)) ctx)))))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel plain (tu/tmp-type)) ctx)))))
      (testing "a visible separation from the declared type still convicts"
        (v/assert kb (list 'genl kind 'thing) ctx)
        (v/assert kb (list 'disjoint kind root) ctx)
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel kind (tu/tmp-type)) ctx)))))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel kind (tu/tmp-type)) ctx)))))
      (tax/del-genl! (reasoning/taxonomy kb) reified root 999901))))
 
 ;; ---- a literal is typed by what it is ------------------------------------
@@ -417,7 +404,7 @@
     (v/assert kb (list 'unary_predicate p) 'CxUniverse)
     (v/assert kb (list 'arg p 1 t) 'CxUniverse)
     (testing "a string is not a t, and nobody had to assert a membership to say so"
-      (is (= :arg-type (ex-type #(v/assert kb (list p "Bob") 'CxUniverse)))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list p "Bob") 'CxUniverse)))))
     (testing "a symbol nothing types is exempt — open-world, and unchanged"
       (is (v/assert kb (list p (tu/tmp-ind)) 'CxUniverse)))
     (testing "and a literal the type does reach is admitted"
@@ -440,7 +427,7 @@
       (is (v/assert kb (list p "Bob") 'CxUniverse)))
     (testing "and every other kind is convicted rather than waved through"
       (doseq [x [5 5.5 :kw true \a]]
-        (is (= :arg-type (ex-type #(v/assert kb (list p x) 'CxUniverse)))
+        (is (= :arg-type (tu/kb-write-type #(v/assert kb (list p x) 'CxUniverse)))
             (str (pr-str x) " is not a string"))))
     (testing "a compound has no kind to be convicted by, and this one's function
              declares no result either"
@@ -489,7 +476,7 @@
       (is (v/assert kb (list wantsDog (list f 5 'Meter)) 'CxUniverse)))
     (v/assert kb (list 'result f msr) 'CxUniverse)
     (testing "the declaration is what makes the demand bite"
-      (is (= :arg-type (ex-type #(v/assert kb (list wantsDog (list f 6 'Meter)) 'CxUniverse)))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list wantsDog (list f 6 'Meter)) 'CxUniverse)))))
     (testing "and the same application satisfies a demand its result does reach"
       (is (v/assert kb (list wantsMsr (list f 7 'Meter)) 'CxUniverse)))
     (testing "the declaration arriving last reaches back over nothing, as the family does"
@@ -540,11 +527,11 @@
     (v/assert kb (list 'unary_predicate sub) 'CxUniverse)
     (v/assert kb (list 'genlArg sub 1 other) 'CxUniverse)
     (testing "the instance demand convicts on result"
-      (is (= :arg-type (ex-type #(v/assert kb (list inst (list isaFn 1)) 'CxUniverse))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list inst (list isaFn 1)) 'CxUniverse))))
       (is (v/assert kb (list inst (list genlFn 1)) 'CxUniverse)
           "and is exempt where the function declares only a genlResult"))
     (testing "the subtype demand convicts on genlResult"
-      (is (= :arg-genl (ex-type #(v/assert kb (list sub (list genlFn 2)) 'CxUniverse))))
+      (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list sub (list genlFn 2)) 'CxUniverse))))
       (is (v/assert kb (list sub (list isaFn 2)) 'CxUniverse)
           "and is exempt where the function declares only a result"))))
 
@@ -600,7 +587,7 @@
     (v/assert kb (list 'genlCx sibling 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'result f msr) seen)
     (testing "the context the declaration is written in is refused by it"
-      (is (= :arg-type (ex-type #(v/assert kb (list wants (list f 1)) seen)))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list wants (list f 1)) seen)))))
     (testing "the sibling that cannot see it is not"
       (is (v/assert kb (list wants (list f 2)) sibling)))))
 
@@ -624,4 +611,4 @@
      (v/assert kb (list 'result f msr) 'CxUniverse)
      (v/assert kb (list 'unary_predicate wants) 'CxUniverse)
      (v/assert kb (list 'arg wants 1 dog) 'CxUniverse)
-     (is (= :arg-type (ex-type #(v/assert kb (list wants (list f x)) 'CxUniverse)))))))
+     (is (= :arg-type (tu/kb-write-type #(v/assert kb (list wants (list f x)) 'CxUniverse)))))))

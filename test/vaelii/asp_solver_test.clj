@@ -73,13 +73,16 @@
   ;; the property names the executable; a blank one is unset, so the environment
   ;; variable or the default `clasp` answers as it would with no property set
   (let [read  #(#'clasp/configured-binary)
-        unset (do (System/clearProperty "vaelii.clasp.bin") (read))]
+        prior (System/getProperty "vaelii.clasp.bin")]
     (try
-      (System/setProperty "vaelii.clasp.bin" " /opt/clingo/bin/clingo ")
-      (is (= "/opt/clingo/bin/clingo" (read)))
-      (System/setProperty "vaelii.clasp.bin" "  ")
-      (is (= unset (read)))
-      (finally (System/clearProperty "vaelii.clasp.bin")))))
+      (System/clearProperty "vaelii.clasp.bin")
+      (let [unset (read)]
+        (System/setProperty "vaelii.clasp.bin" " /opt/clingo/bin/clingo ")
+        (is (= "/opt/clingo/bin/clingo" (read)))
+        (System/setProperty "vaelii.clasp.bin" "  ")
+        (is (= unset (read))))
+      (finally (if prior (System/setProperty "vaelii.clasp.bin" prior)
+                   (System/clearProperty "vaelii.clasp.bin"))))))
 
 (defn- exits-within?
   "Has process `pid` exited, or does it exit within `ms`?  A killed grandchild is

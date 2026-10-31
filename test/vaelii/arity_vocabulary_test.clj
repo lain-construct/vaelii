@@ -231,6 +231,55 @@
         (is (= strength (:strength (v/sentex kb h)))
             "and the membership keeps its written strength")))))
 
+(defn- concluded?
+  "Is `s` stored and believed in CxUniverse?"
+  [kb s]
+  (boolean (when-let [h (v/handle-of kb s 'CxUniverse)] (v/in? kb h))))
+
+(defn- guarded-on-arity
+  "A forward rule concluding `(marked ?r)` from `(markArg ?r ?p)` guarded on
+  `(arity ?r ?n) (greaterThan ?n 1)`."
+  [markArg marked]
+  (list 'set/forwardRule
+        (list 'implies (list 'and (list markArg '?r '?p) '(arity ?r ?n) '(greaterThan ?n 1))
+              (list marked '?r))))
+
+(tu/deftest-kb a-forward-rule-reads-the-arity-a-class-membership-proves
+  (doseq [class-first? [true false]]
+    (tu/with-terms [salaryAt markArg marked_relation]
+      (let [class (list 'ternary_predicate salaryAt)]
+        (when class-first? (v/assert kb class 'CxUniverse))
+        (v/assert kb (guarded-on-arity markArg marked_relation) 'CxUniverse)
+        (v/assert kb (list markArg salaryAt 3) 'CxUniverse)
+        (when-not class-first? (v/assert kb class 'CxUniverse))
+        (is (true? (concluded? kb (list marked_relation salaryAt)))
+            (str "class first: " class-first?))
+        (is (empty? (v/sentexes-matching kb (list 'arity salaryAt '?n) 'CxUniverse))
+            "and no arity is stored")))))
+
+(tu/deftest-kb retracting-the-class-membership-withdraws-what-the-arity-concluded
+  (tu/with-terms [salaryAt markArg marked_relation]
+    (let [class (v/assert kb (list 'ternary_predicate salaryAt) 'CxUniverse)]
+      (v/assert kb (guarded-on-arity markArg marked_relation) 'CxUniverse)
+      (v/assert kb (list markArg salaryAt 3) 'CxUniverse)
+      (is (true? (concluded? kb (list marked_relation salaryAt))))
+      (v/retract! kb class)
+      (is (false? (concluded? kb (list marked_relation salaryAt)))))))
+
+(tu/deftest-kb the-lazy-converse-beside-the-forward-class-rule-stores-no-arity
+  (tu/with-terms [pairOf]
+    (let [h (v/assert kb (list 'binary pairOf) 'CxUniverse)]
+      (is (empty? (v/sentexes-matching kb (list 'arity pairOf '?n) 'CxUniverse)))
+      (is (= [{'?n 2}] (v/query kb (list 'arity pairOf '?n) 'CxUniverse {:max-depth 3})))
+      (is (= #{h} (set (map :id (v/sentexes-matching kb (list 'binary pairOf) 'CxUniverse))))))))
+
+(tu/deftest-kb a-class-member-stores-no-floor-its-class-already-entails
+  (tu/with-terms [salaryAt]
+    (v/assert kb (list 'ternary_predicate salaryAt) 'CxUniverse)
+    (doseq [floor '[fixed_arity at_least_binary at_least_ternary]]
+      (is (empty? (v/sentexes-matching kb (list floor salaryAt) 'CxUniverse)) (str floor))
+      (is (v/ask? kb (list floor salaryAt) 'CxUniverse) (str floor)))))
+
 (tu/deftest-kb exact-arity-and-variable-floors-are-distinct
   (testing "an exact declaration is fixed, not an overloaded floor"
     (is (v/ask? kb '(fixed_arity interArg) 'CxUniverse))
@@ -311,12 +360,12 @@
   ;; the entailing reading: the derivation is the subject
   (tu/with-entailing
     ;; The clash between an exact class and the variable policy is one contradiction, so
-    ;; the write order must not decide which violation names it.  A NARROWING arg
-    ;; declaration below the policy classes — (arg fixed_arity_predicate 1 predicate) —
-    ;; is what makes it: a relation whose only stated type is variable_arity reaches
-    ;; relation and not predicate, so the exact class would be convicted for the
-    ;; argument's type rather than for the policy it contradicts.  CxUniverse declares the
-    ;; position on fixed_arity and variable_arity alone for that reason.
+    ;; the write order must not decide which violation names it.  An arg declaration on
+    ;; a policy class — (arg fixed_arity_predicate 1 predicate) — would break that: a
+    ;; relation whose only stated type is variable_arity reaches relation and not
+    ;; predicate, so the exact class would be convicted for the argument's type rather
+    ;; than for the policy it contradicts.  No unary predicate declares its position
+    ;; (docs/argtypes.md), so the genl edges alone decide.
     (doseq [[first-class second-class] '[[variable_arity binary_predicate]
                                          [binary_predicate variable_arity]
                                          [variable_arity_predicate unary_predicate]
@@ -819,9 +868,10 @@
                                           (list 'implies (list p_in '?x) (list q_out '?x)))
                                  'CxUniverse)
                        (doseq [r rels] (v/assert kb (list rel_kind r) 'CxUniverse m))
-                       (with-redefs [chain/sync-arity-classes! (fn [kb hs]
+                       (with-redefs [chain/sync-arity-classes! (fn [kb hs & defer?]
                                                                  (reset! in? true)
-                                                                 (try (sync kb hs) (finally (reset! in? false))))
+                                                                 (try (apply sync kb hs defer?)
+                                                                      (finally (reset! in? false))))
                                      reads/watched-rules-on   (fn [idx pred]
                                                                 (when @in? (swap! calls inc))
                                                                 (on idx pred))]
@@ -1125,10 +1175,10 @@
     ;; shape either kind can have.  The converse the generator generates stops at the
     ;; relation-wide `binary` for exactly that reason (docs/taxonomy.md).
     ;;
-    ;; Leaving the kind open is what lets a later classification decide it.  The
-    ;; `(arg fixed_arity 1 relation)` floor the marks inherit derives `relation` of what it
-    ;; types, and `(disjoint predicate function)`, which the partition of `relation`
-    ;; derives, stores a wrong kind as a clash; neither asks about arrival order.
+    ;; Leaving the kind open lets a later classification decide it.  A mark's `genl`
+    ;; edges derive `relation` of what it classifies, and `(disjoint predicate function)`,
+    ;; which the partition of `relation` derives, stores a wrong kind as a clash; neither
+    ;; asks about arrival order.
     (tu/with-terms [pairOf someThing someFn]
       (v/assert kb (list 'arity pairOf 2) 'CxUniverse)
       (testing "the arity places the relation without deciding its kind"
@@ -1143,7 +1193,7 @@
         (is (v/isa? kb pairOf 'predicate))
         (is (v/isa? kb pairOf 'binary_predicate))
         (is (not (v/isa? kb pairOf 'function))))
-      (testing "a term outside the relation hierarchy is placed in it, by the inherited floor"
+      (testing "a term outside the relation hierarchy is placed in it, by the mark's genl edges"
         (v/assert kb (list 'thing someThing) 'CxUniverse)
         (v/assert kb (list 'instance_relation_predicate someThing) 'CxUniverse)
         (is (v/isa? kb someThing 'relation))

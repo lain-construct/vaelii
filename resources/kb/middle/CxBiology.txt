@@ -82,7 +82,8 @@
 ;; Travelling follows from flying through the genl hierarchy of event kinds, and no rule
 ;; concludes it.  (transitiveInArg hasCapability 2 genl) with (genl flying travelling)
 ;; answers (hasCapability ?x travelling) at retrieval for anything believed to fly, and
-;; stores no record.  When a penguin's flight is defeated, the retrieval has no believed
+;; stores no record.  argue names the flight, the edge and the declaration as the
+;; answer's supports.  When a penguin's flight is defeated, the retrieval has no believed
 ;; flight to reach from, so travelling is unanswerable until the flight is believed again.
 
 ;; And the negative, which is not the same statement as the blocked default: the rule

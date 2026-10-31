@@ -41,12 +41,8 @@ relation's value position (the declaration is life.txt's):
 ```clojure composed
 (dog Muffet)
 (livesIn Tweety Antarctica)
-(arg birthYearOf 2 integer)
+(arg birthDate 2 uninterrupted_time)
 ```
-
-*In development:* `birthYearOf` as a predicate of its own, and not as a reading of a full
-birth date, is in development. The examples in this handbook use the shipped
-`birthYearOf`.
 
 **Why.**
 
@@ -158,12 +154,12 @@ true of. A property that takes a value is a binary predicate whose second argume
 typed by the value's kind.
 
 **Example.** life.txt places each biology property under the kind it can hold of, and
-types the value of a measured property:
+types the value of a property that takes one:
 
 ```clojure
 (genl asleep animal)
 (genl alive organism)
-(arg birthYearOf 2 integer)
+(arg birthDate 2 uninterrupted_time)
 ```
 
 **Why.**

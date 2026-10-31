@@ -19,6 +19,7 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.kb :as kb]
             [vaelii.test-util :as tu]))
 
 (defn- refusal
@@ -106,6 +107,35 @@
           (is (= h (v/handle-of kb '(dog Muffet) 'CxUniverse)) "the index half reads the base")
           (is (= '(dog Muffet) (:sentence (v/sentex kb h))) "the record half reads the base"))
         (finally (v/clear! base))))))
+
+(defn- under-neutral
+  "Run `body` on `kb` under `tu/neutral`, and answer the failures it reported."
+  [kb body]
+  (->> (binding [tu/*kb* kb] (recorded #((tu/neutral) body)))
+       (filter (comp #{:fail :error} :type))))
+
+(deftest neutral-restores-the-provers-and-reasoner-names-a-test-registered
+  (doseq [storage [tu/*storage* {:backend :overlay}]]
+    (binding [tu/*storage* storage]
+      (testing (str (pr-str storage) ": the overlay arm's fork space records no reasoner set"
+                    " (nil), and `fresh` on any other storage records #{}")
+        (let [kb     (tu/fresh)
+              state  #(vector @(:provers kb) (kb/reasoners-of kb)
+                              (#'kb/reasoners-at (:at (:reasoners kb))))
+              before (state)
+              during (atom nil)
+              fails  (under-neutral kb #(do (v/add-reasoner kb :rcc8) (reset! during (state))))]
+          (is (every? true? (map not= (take 2 before) (take 2 @during)))
+              "the test registered a prover and recorded a reasoner name")
+          (is (= before (state)))
+          (is (empty? fails)))))))
+
+(deftest neutral-fails-a-test-that-leaves-a-listener-and-drops-it
+  (let [kb    (tu/fresh)
+        fails (under-neutral kb #(v/watch kb (fn [_] nil)))]
+    (is (= 1 (count fails)))
+    (is (re-find #"listener" (str (:message (first fails)))))
+    (is (empty? (v/watchers kb)))))
 
 ;; ---- the sweep list, against the table the scripts read -----------------
 

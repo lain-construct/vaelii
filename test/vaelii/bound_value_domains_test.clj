@@ -25,11 +25,6 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
-(defn- refusal
-  "The `ex-data` of the `ExceptionInfo` `f` throws, or nil when it did not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (defn- bad-value?
   "Is the refusal a value refusal — `:unknown-option` with `:mismatch :bad-value`?"
   [d]
@@ -47,30 +42,30 @@
         (testing "prove / provable? refuse a bad :max-ms and a bad :max-depth"
           (doseq [opts [{:max-ms "x"} {:max-ms :soon} {:max-depth -1} {:max-depth "x"}
                         {:max-depth 1.5}]]
-            (is (bad-value? (refusal #(v/prove kb g CxBVD opts))) (pr-str opts))
-            (is (bad-value? (refusal #(v/provable? kb g CxBVD opts))) (pr-str opts))))
+            (is (bad-value? (tu/refusal-data #(v/prove kb g CxBVD opts))) (pr-str opts))
+            (is (bad-value? (tu/refusal-data #(v/provable? kb g CxBVD opts))) (pr-str opts))))
         (testing "ask / ask? refuse a bad :max-ms (their one bound)"
           (doseq [opts [{:max-ms "x"} {:max-ms -1}]]
-            (is (bad-value? (refusal #(v/ask kb g CxBVD opts))) (pr-str opts))
-            (is (bad-value? (refusal #(v/ask? kb g CxBVD opts))) (pr-str opts))))
+            (is (bad-value? (tu/refusal-data #(v/ask kb g CxBVD opts))) (pr-str opts))
+            (is (bad-value? (tu/refusal-data #(v/ask? kb g CxBVD opts))) (pr-str opts))))
         (testing "query / query? refuse a bad :max-depth"
-          (is (bad-value? (refusal #(v/query kb g CxBVD {:max-depth "x"}))))
-          (is (bad-value? (refusal #(v/query? kb g CxBVD {:max-depth -2})))))
+          (is (bad-value? (tu/refusal-data #(v/query kb g CxBVD {:max-depth "x"}))))
+          (is (bad-value? (tu/refusal-data #(v/query? kb g CxBVD {:max-depth -2})))))
         (testing "search-tree and compare-tacticians refuse :max-ms and :node-budget too"
           (doseq [f [v/search-tree v/compare-tacticians]
                   opts [{:max-depth 2 :max-ms "x"} {:max-depth 2 :node-budget "x"}
                         {:max-depth 2 :node-budget -1} {:max-depth 2 :node-budget 1.5}]]
-            (is (bad-value? (refusal #(f kb g CxBVD opts))) (pr-str [f opts]))))
+            (is (bad-value? (tu/refusal-data #(f kb g CxBVD opts))) (pr-str [f opts]))))
         (testing "the refusal names the option and the value it was given"
-          (let [d (refusal #(v/search-tree kb g CxBVD {:max-depth 2 :node-budget "x"}))]
+          (let [d (tu/refusal-data #(v/search-tree kb g CxBVD {:max-depth 2 :node-budget "x"}))]
             (is (= :node-budget (:option d)))
             (is (= "x" (:value d)))))
         (testing "a bound of 0 is a real question, not a bad value"
           ;; prove's :max-ms 0 is a deadline of now, so the search exhausts it — a
           ;; :budget-exhausted refusal, which is not the value refusal under test
-          (is (not (bad-value? (refusal #(v/prove kb g CxBVD {:max-ms 0})))))
+          (is (not (bad-value? (tu/refusal-data #(v/prove kb g CxBVD {:max-ms 0})))))
           ;; query's :max-depth 0 is the facts-only read, and returns without refusing
-          (is (nil? (refusal #(doall (v/query kb g CxBVD {:max-depth 0})))))
+          (is (nil? (tu/refusal-data #(doall (v/query kb g CxBVD {:max-depth 0})))))
           (is (= :complete (:status (v/search-tree kb g CxBVD
                                                    {:max-depth 2 :node-budget 5000
                                                     :max-ms 5000})))))))))
@@ -82,17 +77,17 @@
       (let [g (list dog '?x)]
         (testing "ask-within and prove-within refuse a bad :max-ms / :max-results"
           (doseq [opts [{:max-ms "x"} {:max-results "x"} {:max-results -1}]]
-            (is (bad-value? (refusal #(v/ask-within kb g CxBVD opts))) (pr-str opts))
-            (is (bad-value? (refusal #(v/prove-within kb g CxBVD opts))) (pr-str opts))))
+            (is (bad-value? (tu/refusal-data #(v/ask-within kb g CxBVD opts))) (pr-str opts))
+            (is (bad-value? (tu/refusal-data #(v/prove-within kb g CxBVD opts))) (pr-str opts))))
         (testing "prove-within refuses a bad :max-depth / :max-term-growth"
-          (is (bad-value? (refusal #(v/prove-within kb g CxBVD {:max-depth "x"}))))
-          (is (bad-value? (refusal #(v/prove-within kb g CxBVD {:max-term-growth "x"})))))
+          (is (bad-value? (tu/refusal-data #(v/prove-within kb g CxBVD {:max-depth "x"}))))
+          (is (bad-value? (tu/refusal-data #(v/prove-within kb g CxBVD {:max-term-growth "x"})))))
         (testing "prove-within's node-engine arm refuses it before the depth is cast"
           ;; `inference-engine?` takes `(long max-depth)`, so a string depth is a bare cast
           ;; unless the budget's value check has run first
           (binding [v/*query-engine* :inference]
-            (is (bad-value? (refusal #(v/prove-within kb g CxBVD {:max-depth 2 :max-ms "x"}))))
-            (is (bad-value? (refusal #(v/prove-within kb g CxBVD {:max-depth "x"}))))))
+            (is (bad-value? (tu/refusal-data #(v/prove-within kb g CxBVD {:max-depth 2 :max-ms "x"}))))
+            (is (bad-value? (tu/refusal-data #(v/prove-within kb g CxBVD {:max-depth "x"}))))))
         (testing "a :max-results of 0 is legal — realize nothing, resume continues"
           (let [r (v/prove-within kb g CxBVD {:max-results 0})]
             (is (= :capped (:status r)))
@@ -107,12 +102,12 @@
       (v/assert kb (list dog Muffet) CxBVD)
       (let [g (list dog '?x)]
         (testing "ask-within refuses :max-depth and :max-term-growth — no rule expansion"
-          (is (= :unknown-option (:type (refusal #(v/ask-within kb g CxBVD {:max-depth 1})))))
+          (is (= :unknown-option (:type (tu/refusal-data #(v/ask-within kb g CxBVD {:max-depth 1})))))
           (is (= :unknown-option
-                 (:type (refusal #(v/ask-within kb g CxBVD {:max-term-growth 1}))))))
+                 (:type (tu/refusal-data #(v/ask-within kb g CxBVD {:max-term-growth 1}))))))
         (testing "prove-within refuses :max-cost — an ask concept prove ignores"
           (is (= :unknown-option
-                 (:type (refusal #(v/prove-within kb g CxBVD {:max-cost :lookup}))))))
+                 (:type (tu/refusal-data #(v/prove-within kb g CxBVD {:max-cost :lookup}))))))
         (testing "and the two key sets are the split of the union resume still holds"
           (is (= budget/budget-keys (into budget/ask-budget-keys budget/prove-budget-keys)))
           (is (not (contains? budget/ask-budget-keys :max-depth)))
@@ -134,15 +129,15 @@
         (doseq [opts [{:max-depth "x"} {:max-derivations "x"} {:max-derivations -1}
                       {:max-term-depth "x"} {:max-term-depth -1} {:on-progress 5} {:on-progress :nope} {:progress-every-ms "x"}
                       {:max-ms "x"} {:max-ms -1} {:stop? true}]]
-          (is (bad-value? (refusal #(v/forward-chain kb opts))) (pr-str opts))))
+          (is (bad-value? (tu/refusal-data #(v/forward-chain kb opts))) (pr-str opts))))
       (testing "assert refuses the same chain bounds it hands the fixpoint, without a rule
                 needing to fire"
         (doseq [opts [{:max-depth "x"} {:max-derivations "x"} {:max-term-depth "x"}
                       {:on-progress 5} {:progress-every-ms "x"}]]
-          (is (bad-value? (refusal #(v/assert kb (list dog 'Rex) CxBVD opts))) (pr-str opts))))
+          (is (bad-value? (tu/refusal-data #(v/assert kb (list dog 'Rex) CxBVD opts))) (pr-str opts))))
       (testing "assert-rule inherits it through assert"
-        (is (bad-value? (refusal #(v/assert-rule kb [(list dog '?x)] (list dog '?x) CxBVD
-                                                 {:max-depth "x"})))))
+        (is (bad-value? (tu/refusal-data #(v/assert-rule kb [(list dog '?x)] (list dog '?x) CxBVD
+                                                         {:max-depth "x"})))))
       (testing "a :progress-every-ms of 0 is legal — report at every opportunity"
         (is (map? (v/forward-chain kb {:progress-every-ms 0 :on-progress (fn [_])})))))))
 
@@ -151,16 +146,16 @@
     (tu/with-terms [dog Muffet CxBVD]
       (v/assert kb (list dog Muffet) CxBVD)
       (doseq [opts [{:max-hypotheses "x"} {:max-hypotheses -1} {:max-depth "x"}]]
-        (is (bad-value? (refusal #(v/abduce kb (list dog '?x) CxBVD opts))) (pr-str opts))))))
+        (is (bad-value? (tu/refusal-data #(v/abduce kb (list dog '?x) CxBVD opts))) (pr-str opts))))))
 
 (deftest kb-quality-refuses-a-non-fn-on-progress
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [dog Muffet CxBVD]
       (v/assert kb (list dog Muffet) CxBVD)
-      (is (bad-value? (refusal #(v/kb-quality kb {:on-progress 5}))))
-      (is (bad-value? (refusal #(v/kb-quality kb {:on-progress :nope}))))
+      (is (bad-value? (tu/refusal-data #(v/kb-quality kb {:on-progress 5}))))
+      (is (bad-value? (tu/refusal-data #(v/kb-quality kb {:on-progress :nope}))))
       (testing ":limit stays a positive integer, refused by its own check"
-        (is (= :unknown-option (:type (refusal #(v/kb-quality kb {:limit 0})))))))))
+        (is (= :unknown-option (:type (tu/refusal-data #(v/kb-quality kb {:limit 0})))))))))
 
 (deftest the-extent-readers-refuse-a-non-boolean-believed?
   ;; The migration case: `{:believed? \"yes\"}` reads as truthy, so it silently answers the
@@ -171,8 +166,8 @@
       (doseq [f [#(v/sentexes-in-context kb CxBVD %)
                  #(v/sentexes-with-functor kb dog %)
                  #(v/sentexes-with-arg kb 1 Muffet %)]]
-        (is (bad-value? (refusal (fn [] (doall (f {:believed? "yes"}))))))
-        (is (bad-value? (refusal (fn [] (doall (f {:believed? 1}))))))
+        (is (bad-value? (tu/refusal-data (fn [] (doall (f {:believed? "yes"}))))))
+        (is (bad-value? (tu/refusal-data (fn [] (doall (f {:believed? 1}))))))
         (testing "true, false and nil are all accepted"
           (is (seq? (f {:believed? true})))
           (is (seq? (f {:believed? false})))
@@ -181,8 +176,8 @@
 (deftest clear-caches-refuses-a-non-boolean-counters?
   ;; The other migration case.
   (tu/with-neutral-kb [kb tu/fresh]
-    (is (bad-value? (refusal #(v/clear-caches kb {:counters? "yes"}))))
-    (is (bad-value? (refusal #(v/clear-caches kb {:counters? 1}))))
+    (is (bad-value? (tu/refusal-data #(v/clear-caches kb {:counters? "yes"}))))
+    (is (bad-value? (tu/refusal-data #(v/clear-caches kb {:counters? 1}))))
     (testing "true and false are both accepted"
       (is (map? (v/clear-caches kb {:counters? false})))
       (is (map? (v/clear-caches kb {:counters? true}))))))
@@ -192,8 +187,8 @@
 (deftest add-evaluatable-refuses-a-key-off-its-key-set
   (tu/with-neutral-kb [kb tu/fresh]
     (testing "a key provers/evaluatable does not read is refused"
-      (let [d (refusal #(v/add-evaluatable kb 'evenSum (fn [a b] (even? (+ a b)))
-                                           {:bogus 1}))]
+      (let [d (tu/refusal-data #(v/add-evaluatable kb 'evenSum (fn [a b] (even? (+ a b)))
+                                                   {:bogus 1}))]
         (is (= :unknown-option (:type d)))
         (is (= [:bogus] (:unknown d)))))
     (testing "the four keys it does read still register"
@@ -209,9 +204,9 @@
   (let [known :literal-matches]
     (try
       (testing "a bad id or a bad limit is still refused by name"
-        (is (= :unknown-option (:type (refusal #(v/set-cache-limit "not-a-keyword" 5)))))
-        (is (= :unknown-option (:type (refusal #(v/set-cache-limit known -1)))))
-        (is (= :unknown-option (:type (refusal #(v/set-cache-limit known 1.5))))))
+        (is (= :unknown-option (:type (tu/refusal-data #(v/set-cache-limit "not-a-keyword" 5)))))
+        (is (= :unknown-option (:type (tu/refusal-data #(v/set-cache-limit known -1)))))
+        (is (= :unknown-option (:type (tu/refusal-data #(v/set-cache-limit known 1.5))))))
       (testing "an id naming no registered cache is recorded, not refused"
         (is (not (caches/registered? :no-such-cache)))
         ;; the warning is the daemon doing its job; a test run does not print it
@@ -254,9 +249,9 @@
         ;; the rule is deliberately not range-restricted (?y is unbound), so the old order
         ;; would have caught that first
         (is (= :unrecovered-kb
-               (:type (refusal #(v/assert-rule kb '[(dog ?x)] '(cat ?y) 'CxUniverse))))))
+               (:type (tu/refusal-data #(v/assert-rule kb '[(dog ?x)] '(cat ?y) 'CxUniverse))))))
       (finally (tu/clear-kb! kb))))
   (testing "and on a writable KB the range check still fires — it was not removed"
     (tu/with-neutral-kb [kb tu/fresh]
       (is (= :not-range-restricted
-             (:type (refusal #(v/assert-rule kb '[(dog ?x)] '(cat ?y) 'CxUniverse))))))))
+             (:type (tu/refusal-data #(v/assert-rule kb '[(dog ?x)] '(cat ?y) 'CxUniverse))))))))

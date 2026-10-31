@@ -70,22 +70,19 @@
    wire "[[conn]]",
    writer-order :var},
   vaelii.koinii.deref
-  {->SentexRef "[[tag payload]]",
-   commit-id "[[kb]]",
+  {commit-id "[[kb]]",
    dereference "[[kb marker]]",
    inclusion-proof "[[kb locator]]",
    locate "[[kb sentence context]]",
-   locator-index "[[kb]]",
    locator-of "[[kb handle]]",
    marker "[[kb handle]]",
    publish! "[[kb dir] [kb dir opts]]",
    pull! "[[kb dir] [kb dir opts]]",
-   resolve-by-locator "[[kb locator] [kb locator index]]",
    state-root "[[kb]]",
    verify-inclusion "[[locator proof root]]",
    why-marker "[[kb marker]]"},
   vaelii.koinii.dispute
-  {dispute-id "[[entry]]",
+  {dispute-id "[[kb entry]]",
    dispute-key "[[id]]",
    dispute-state "[[kb id]]",
    dispute-term "[[id]]",
@@ -116,6 +113,7 @@
    load-registry "[[kb]]",
    load-seed-context "[[kb context]]",
    place-agent-context "[[write! parent agent-id roots]]",
+   rebase! "[[kb dir opts]]",
    register-agent "[[kb principal agent-id display-name trust]]",
    registered-agents "[[kb]]",
    registry-context :var,
@@ -169,6 +167,7 @@
   :koinii/no-such-stance
   :koinii/no-wire-feed
   :koinii/not-a-channel
+  :koinii/not-a-side
   :koinii/not-own-statement
   :koinii/registry-forbidden
   :koinii/registry-not-functional

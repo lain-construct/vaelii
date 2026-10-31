@@ -12,6 +12,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.predicates :as pr]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.reads :as reads]
@@ -295,28 +296,35 @@
 
 ;; ---- the path-consistency pass, memoized on the network value -----------
 
+(defn- inconsistency-entry
+  "The `:qualitative-inconsistency` entry for the unsatisfiable network `net` of `calc`
+  in `context`: the calculus, the context, the nodes, the pairs unsatisfiable as written
+  and the unsatisfiable sources a narrowing read."
+  [kb calc context net]
+  (let [bad  (unsatisfiable-as-written kb calc context)
+        srcs (reported-sources kb calc context)]
+    {:violation :qualitative-inconsistency
+     :calculus  (:name calc)
+     :context   context
+     :sentence  nil
+     :detail    (cond-> {:message (str "the " (name (:name calc))
+                                       " network visible from " context
+                                       " is unsatisfiable, so no goal naming a"
+                                       " node of an unsatisfiable component is"
+                                       " answered there")
+                         ;; a node may be a NAT and a pair always is a vector,
+                         ;; so both are keyed through the guarded printer
+                         :nodes (nm/by-print-key (nodes net))}
+                  (seq bad)  (assoc :pairs (nm/by-print-key bad))
+                  (seq srcs) (assoc :sources srcs))}))
+
 (defn- report-inconsistency!
   "Append an unsatisfiable network to the KB's violations ledger and log it at :warn,
   once per network per KB and context (`observe/newly-seen?`).  See docs/qcn.md,
   \"Reporting an impossible network\"."
   [kb calc context net]
   (when (reasoning/violations kb)
-    (let [bad   (unsatisfiable-as-written kb calc context)
-          srcs  (reported-sources kb calc context)
-          entry {:violation :qualitative-inconsistency
-                 :calculus  (:name calc)
-                 :context   context
-                 :sentence  nil
-                 :detail    (cond-> {:message (str "the " (name (:name calc))
-                                                   " network visible from " context
-                                                   " is unsatisfiable, so no goal naming a"
-                                                   " node of an unsatisfiable component is"
-                                                   " answered there")
-                                     ;; a node may be a NAT and a pair always is a vector,
-                                     ;; so both are keyed through the guarded printer
-                                     :nodes (nm/by-print-key (nodes net))}
-                              (seq bad)  (assoc :pairs (nm/by-print-key bad))
-                              (seq srcs) (assoc :sources srcs))}]
+    (let [entry (inconsistency-entry kb calc context net)]
       (trove/log! {:level :warn :id ::qualitative-inconsistency :data entry})
       (violations/report-without-run kb entry))))
 
@@ -800,6 +808,223 @@
         (not-empty (filterv (fn [c] (let [tp (:trigger-predicates c)] (some #(contains? tp %) ups)))
                             cs))))))
 
+;; ---- what a write moved --------------------------------------------------
+;; docs/qcn.md, "Reporting an impossible network".
+
+(defn calculi-moved-by
+  "The registered calculi a believed sentex among `handles` moves, in registration order:
+  those its body's functor triggers (`calculi-triggered-by`), those a `genl` edge's
+  supertype triggers, and every one for a `genlCx` edge, which puts two contexts' facts in
+  one reader.  A rule moves none.  `[]` when no calculus is registered, before any
+  handle is read."
+  [kb handles]
+  (let [cs (registered-calculi kb)]
+    (if (empty? cs)
+      []
+      (let [tms   (reasoning/tms kb)
+            moved (into #{}
+                        (comp (filter #(jtms/in? tms %))
+                              (keep #(p/get-sentex (:records kb) %))
+                              (remove :antecedent)
+                              (mapcat (fn [s]
+                                        (let [b (sx/underlying-body (sx/sentence-of s))
+                                              f (when (sequential? b) (first b))]
+                                          (cond
+                                            (not (symbol? f)) nil
+                                            (= 'genlCx f)     cs
+                                            (= 'genl f)       (calculi-triggered-by kb (nth b 2 nil))
+                                            :else             (calculi-triggered-by kb f))))))
+                        handles)]
+        (filterv moved cs)))))
+
+(defn- engine-read?
+  "Is `f` a functor of core.txt's vocabulary that the engine reads (`pr/entry`), other than
+  a type, whose membership names no pair, and an inert term?"
+  [f]
+  (let [e (pr/entry f)]
+    (boolean (and (:shape e) (not (contains? (:facets e) :inert))))))
+
+(defn- region-facts
+  "The constraints the settle region `region` adds to the networks of `calc`, as
+  `[{:context ctx :rels #{base relation} :a node :b node}]`, or nil when a member may move
+  a network in some other way.  A member moves none when it is a rule, a fact on no
+  predicate `calc` triggers, or a fact of `calc` naming a term that is no node.  nil for a
+  member that is OUT or gone, a sentence on a functor `engine-read?` holds of (a `genl` or
+  `genlCx` edge, an `except`, a defeat, an equality edge), a fact on a sub-predicate or a narrowing's
+  source, and for every region of a calculus with a narrowing."
+  [kb {:keys [algebra denotation predicates narrowing node?] :as calc} region]
+  (when-not narrowing
+    (let [tms      (reasoning/tms kb)
+          universe (:universe algebra)]
+      (reduce
+       (fn [acc h]
+         (let [s (when (jtms/in? tms h) (p/get-sentex (:records kb) h))
+               b (when s (sx/underlying-body (sx/sentence-of s)))
+               f (when (sequential? b) (first b))]
+           (cond
+             (nil? s)                            (reduced nil)
+             (:antecedent s)                     acc
+             (not (symbol? f))                   (reduced nil)
+             (contains? predicates f)
+             (let [[_ a c] b]
+               (if (and (= 3 (count b)) (node? a) (node? c))
+                 (conj acc {:context (:context s) :a a :b c
+                            :rels    (if (sx/negative? s)
+                                       (set/difference universe (denotation f))
+                                       (denotation f))})
+                 acc))
+             (engine-read? f)                    (reduced nil)
+             (some #(identical? calc %) (calculi-triggered-by kb f)) (reduced nil)
+             :else                               acc)))
+       [] region))))
+
+(defn- settled
+  "The settle's record of `calc`: `{:calculus :clock :governing #{ctx} :closed {ctx
+  pass}}`, `:closed` the pass over each governing context's network, a closed network or
+  `:inconsistent`.  nil when none is held for this calculus value."
+  [kb calc]
+  (let [st (some-> (reasoning/qcn-joined kb) deref (get-in [::settled (:name calc)]))]
+    (when (identical? calc (:calculus st)) st)))
+
+(defn- current-settled
+  "`settled` while the change clock has not moved since the settle recorded it, else nil."
+  [kb calc]
+  (let [st (settled kb calc)]
+    (when (and st (== (observe/change-clock) (long (:clock st)))) st)))
+
+(defn- read-pass
+  "`tighten` of the network of `calc` at `context` as read, which files the ledger entry of
+  an unsatisfiable one."
+  [kb calc context]
+  (tighten kb calc context (network kb calc context) nil))
+
+(defn- settle-whole
+  "The settle's record of `calc` read from the KB: every governing context's network,
+  read and tightened."
+  [kb calc]
+  (let [gov (governing-contexts kb calc)]
+    {:governing gov
+     :closed    (into {} (map (fn [ctx] [ctx (read-pass kb calc ctx)])) gov)}))
+
+(defn- settle-facts
+  "The settle's record of `calc` after `facts` (`region-facts`) arrive over the record
+  `st`.  A governing context whose network a fact reaches is closed again from its
+  recorded pass with the facts' constraints intersected in (`qcn/path-consistent-from`),
+  and one a fact adds to the governing contexts is read whole.  A context that closes
+  `:inconsistent` is read and tightened, which files its ledger entry and replaces a
+  recorded pass a withdrawal the region cannot show left too tight."
+  [kb {:keys [algebra] :as calc} st facts]
+  (let [tx  (reasoning/taxonomy kb)
+        gov (:governing st)
+        gov (if (every? #(contains? gov (:context %)) facts)
+              gov
+              (tax/meet-closure tx (into gov (map :context) facts)))
+        universe (:universe algebra)
+        converse (:converse algebra)]
+    {:governing gov
+     :closed
+     (into {}
+           (map (fn [ctx]
+                  (let [prior (get (:closed st) ctx ::absent)
+                        up    (tax/context-up tx ctx)
+                        delta (reduce (fn [d {:keys [context rels a b]}]
+                                        (if (contains? up context)
+                                          (narrow d universe converse rels a b)
+                                          d))
+                                      {} facts)]
+                    [ctx (cond
+                           (= ::absent prior)       (read-pass kb calc ctx)
+                           (empty? delta)           prior
+                           (= :inconsistent prior)  (read-pass kb calc ctx)
+                           :else
+                           (let [r (qcn/path-consistent-from delta prior nil algebra)]
+                             (if (map? r) r (read-pass kb calc ctx))))])))
+           gov)}))
+
+(defn settles?
+  "Does the settle owe `report-moved!` a call: a calculus is registered, or a record of
+  one is held?  False on a KB with neither, so its settle reads no region for it."
+  [kb]
+  (boolean (when-let [a (reasoning/qcn-joined kb)]
+             (or (seq (registered-calculi kb)) (contains? @a ::settled)))))
+
+(defn report-moved!
+  "Ask every governing context of each calculus the settle region moves whether its
+  network is unsatisfiable, so `tighten` files the ledger entry of a newly unsatisfiable
+  one, and record each answer for the next settle and for `unsatisfiable-write`.
+  `region` is the relabelled handles, `extra` the members no relabel recorded.  A region
+  whose every member `region-facts` reads closes the recorded passes again from the
+  facts' constraints, with no network read; any other region reads each governing
+  context's network whole for a calculus it moves (`calculi-moved-by`), and drops the
+  record of one it does not.  The record of a calculus no longer registered is dropped.
+  See docs/qcn.md, \"The settle asks every write\".  Returns nil."
+  [kb region extra]
+  (when (settles? kb)
+    (let [moved (set (calculi-moved-by kb (into region extra)))
+          now   (fn [calc st] (when st (assoc st :calculus calc :clock (observe/change-clock))))
+          recs  (reduce
+                 (fn [m calc]
+                   (let [st    (settled kb calc)
+                         facts (when (and st (empty? extra)) (region-facts kb calc region))
+                         st'   (cond
+                                 facts                  (if (seq facts) (settle-facts kb calc st facts) st)
+                                 (contains? moved calc) (settle-whole kb calc)
+                                 :else                  nil)]
+                     (if st' (assoc m (:name calc) (now calc st')) m)))
+                 {} (registered-calculi kb))]
+      (swap! (reasoning/qcn-joined kb) assoc ::settled recs)))
+  nil)
+
+(defn forget-settled
+  "Drop the settle's record of every calculus, for a settle whose region does not name
+  every move (a rebuild's)."
+  [kb]
+  (some-> (reasoning/qcn-joined kb) (swap! dissoc ::settled))
+  nil)
+
+(defn- governing
+  "The governing contexts of `calc` the settle recorded, while current, else read."
+  [kb calc]
+  (or (:governing (current-settled kb calc)) (governing-contexts kb calc)))
+
+(defn- settled-satisfiable?
+  "Did the settle record a satisfiable network for `calc` at `context`, with no mutation
+  since?"
+  [kb calc context]
+  (map? (get (:closed (current-settled kb calc)) context)))
+
+(defn fed-inconsistencies
+  "The `:qualitative-inconsistency` entries a feed event over the believed `handles`
+  carries: one per governing context of each calculus they move whose network is
+  unsatisfiable, once per network per KB and context (`observe/newly-seen?` under its own
+  key, apart from the ledger's).  In content order of the context."
+  [kb handles]
+  (vec (for [calc (calculi-moved-by kb handles)
+             ctx  (nm/sort-by-content-key identity (governing kb calc))
+             :when (not (settled-satisfiable? kb calc ctx))
+             :let [net (network kb calc ctx)]
+             :when (and (= :inconsistent (tighten kb calc ctx net nil))
+                        (observe/newly-seen? (reasoning/qcn kb) [(:name calc) ctx ::fed] net))]
+         (inconsistency-entry kb calc ctx net))))
+
+(defn unsatisfiable-write
+  "The first unsatisfiable component, at a governing context of a calculus `handles`
+  move, whose blamed handles (`unsatisfiable-components`' `:culprits`) include one of
+  `handles`: `{:calculus :context :nodes :pairs :culprits}`, or nil.  Calculi in
+  registration order, contexts and components in content order.  A component no handle
+  of `handles` is blamed for was unsatisfiable without them.  A context the settle
+  recorded as satisfiable, with no mutation since, is not read."
+  [kb handles]
+  (let [hs (set handles)]
+    (first (for [calc (calculi-moved-by kb hs)
+                 ctx  (nm/sort-by-content-key identity (governing kb calc))
+                 :when (and (not (settled-satisfiable? kb calc ctx))
+                            (inconsistent? calc kb ctx))
+                 comp (nm/sort-by-content-key #(nm/print-key (nm/by-print-key (:nodes %))) compare
+                                              (unsatisfiable-components calc kb ctx))
+                 :when (some hs (:culprits comp))]
+             (assoc comp :calculus (:name calc) :context ctx)))))
+
 (defn solve-with-support
   "Entailed solutions for the positive literal `goal` in `context`, each paired with the
   handles it rests on: a seq of `[bindings #{handle}]`.  A solution with empty support,
@@ -863,10 +1088,11 @@
   :trim     (fn [_ target] (trim-calculus-cache :support-cache target))})
 
 (caches/register-derived
- {:id :R4 :label "QCN join baselines" :kind :cache :keyed-by :context :reads [:R3]
+ {:id :R4 :label "QCN join baselines and settled passes" :kind :cache :keyed-by :context
+  :reads [:R3 :M1 :records]
   :holds-content? false
   :retired-by {:cleared :W} :computed :write :imaged? false :at [[:qcn-joined]]
-  :note "one re-join baseline per calculus and reader context, compared by identity; never trimmed"})
+  :note "one re-join baseline per calculus and reader context, compared by identity, and the settle's pass per calculus and governing context (`report-moved!`), dropped by a rebuild's settle; never trimmed"})
 
 (caches/register-derived
  {:id :K4 :label "Path-consistency and support passes" :cache :path-consistency

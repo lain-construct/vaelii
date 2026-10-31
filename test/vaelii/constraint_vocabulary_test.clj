@@ -25,6 +25,7 @@
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -222,7 +223,7 @@
         (let [w (tu/why-root kb (v/handle-of kb (list meat Chunk) 'CxUniverse))
               j (first (:support w))]
           (is (= 1 (count (:support w))) "one justification, not one per settle")
-          (is (= 'interArg (:informant j)))
+          (is (= 'interArg (kb/mint-kind kb (:informant j))))
           (is (= #{(list eats Rex Chunk)
                    (list 'interArg eats 1 carnivore 2 meat)
                    (list carnivore Rex)}

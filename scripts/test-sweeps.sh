@@ -45,8 +45,8 @@
 #
 # WHY THIS IS A SCRIPT AND NOT A CI JOB.  It is both, and the local one is the
 # required run.  `deep.yml` runs these seven and the nine backends on a runner, which is
-# 240 job-minutes against a 2,000-minute monthly allowance — eight runs a month,
-# for a matrix a release wants once.  The same coverage here costs wall time and
+# 840 to 1,760 job-minutes against a 2,000-minute monthly allowance — one or two runs a
+# month, for a matrix a release wants once.  The same coverage here costs wall time and
 # no money, so the CI job is the confirmation and this is what you run before a
 # cut.  `lein gate` covers neither: it is one backend and every switch at its
 # default, which is what keeps it a check you run before every landing.

@@ -27,16 +27,13 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
-
 (defn- except-rule
   "The form docs/exceptions.md writes: an exception query wrapping a defeasible
   rule.  `exceptWhen` is split off at the assert layer and stored as a separate
   belief-following `(exceptWhen <query> (sentexHandle H))` meta-sentex naming the
   rule H it qualifies, rather than folded into the rule record."
   [exception antes conseq]
-  (list 'exceptWhen exception (default-rule antes conseq)))
+  (list 'exceptWhen exception (tu/default-rule antes conseq)))
 
 ;; ---- 1. blocking ---------------------------------------------------------
 ;; DECISION (Semantics): "`exceptWhen` **blocks**.  When the exception holds for a
@@ -72,7 +69,7 @@
                               [(list bird '?b)] (list flies '?b))
               CxBird)
     (let [bh (v/assert kb (list bird Tweety) CxBird)
-          rh (v/handle-of kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
+          rh (v/handle-of kb (tu/default-rule [(list bird '?b)] (list flies '?b)) CxBird)
           h  (v/handle-of kb (list flies Tweety) CxBird)]
       (testing "the conclusion is stored, believed, and derived (not a premise)"
         (is (some? h))
@@ -119,7 +116,7 @@
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
               CxBird)
-    (v/assert kb (default-rule [(list flies '?b)] (list airborne '?b)) CxBird)
+    (v/assert kb (tu/default-rule [(list flies '?b)] (list airborne '?b)) CxBird)
     (v/assert kb (list bird Opus) CxBird)
     (let [fh (v/handle-of kb (list flies Opus)    CxBird)
           ah (v/handle-of kb (list airborne Opus) CxBird)]
@@ -396,8 +393,8 @@
 
 (tu/deftest-kb two-unexcepted-rules-concluding-opposites-remain-a-dilemma
   (tu/with-terms [quaker republican pacifist Nixon CxPol]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))              CxPol)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x)))  CxPol)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))              CxPol)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x)))  CxPol)
     (v/assert kb (list quaker Nixon)     CxPol)
     (v/assert kb (list republican Nixon) CxPol)
     (let [pos (v/handle-of kb (list pacifist Nixon)              CxPol)
@@ -445,7 +442,7 @@
 
 (tu/deftest-kb an-exception-stated-below-the-placement-context-does-not-block
   (tu/with-terms [bird penguin flies Opus CxGen CxSpec CxSide]
-    (let [rule (v/assert kb (default-rule [(list bird '?b)] (list flies '?b)) CxGen)]
+    (let [rule (v/assert kb (tu/default-rule [(list bird '?b)] (list flies '?b)) CxGen)]
       (v/assert kb (list 'genlCx CxSpec CxGen) 'CxUniverse)
       (v/assert kb (list bird Opus) CxGen)
       (v/assert kb (list penguin Opus) CxGen)
@@ -492,7 +489,7 @@
 (tu/deftest-kb an-exception-amends-the-rule-in-place-sharing-one-handle
   (tu/with-terms [bird penguin flies Opus CxBird]
     (let [rule-form (vr/rule-sentence [(list bird '?b)] (list flies '?b))
-          plain (v/assert kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
+          plain (v/assert kb (tu/default-rule [(list bird '?b)] (list flies '?b)) CxBird)
           exc   (v/assert kb (except-rule (list penguin '?b)
                                           [(list bird '?b)] (list flies '?b))
                           CxBird)]
@@ -516,8 +513,8 @@
 
 (tu/deftest-kb two-exceptions-naming-different-rule-variables-are-two-exceptions
   (tu/with-terms [bird parentOf flies sick Opus Pa CxBird]
-    (let [rule (v/assert kb (default-rule [(list bird '?y) (list parentOf '?x '?y)]
-                                          (list flies '?y))
+    (let [rule (v/assert kb (tu/default-rule [(list bird '?y) (list parentOf '?x '?y)]
+                                             (list flies '?y))
                          CxBird)
           on-x (v/assert kb (list 'exceptWhen (list sick '?x) (sx/sentex-handle rule)) CxBird)
           on-y (v/assert kb (list 'exceptWhen (list sick '?y) (sx/sentex-handle rule)) CxBird)]
@@ -541,7 +538,7 @@
 
 (tu/deftest-kb a-ground-exception-and-a-variable-one-are-two-exceptions
   (tu/with-terms [bird flies sick Opus Tux CxBird]
-    (let [rule   (v/assert kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
+    (let [rule   (v/assert kb (tu/default-rule [(list bird '?b)] (list flies '?b)) CxBird)
           ground (v/assert kb (list 'exceptWhen (list sick Opus) (sx/sentex-handle rule)) CxBird)
           open   (v/assert kb (list 'exceptWhen (list sick '?b) (sx/sentex-handle rule)) CxBird)]
       (testing "the ground exception does not absorb the open one — its key is a wildcard's match"

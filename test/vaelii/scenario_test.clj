@@ -20,12 +20,11 @@
             [vaelii.impl.space :as sp]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test carrying two calculi's vocabularies, since what is being tested is
+;; One KB per namespace carrying two calculi's vocabularies, since what is being tested is
 ;; that the search knows about neither.  No prover is registered: a scenario is read off the
 ;; network directly, so it needs no query engine.
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

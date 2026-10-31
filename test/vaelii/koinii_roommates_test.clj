@@ -38,8 +38,8 @@
             [vaelii.test-util :as tu])
   (:import [org.eclipse.jetty.server Server]))
 
-(defn- household-kb []
-  (tu/load-dumped! (tu/fresh) :koinii/speech-acts
+(defn- household-kb [kb]
+  (tu/load-dumped! kb :koinii/speech-acts
                    #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
 ;; Majority resolution requires the :proof-tier identity policy and counts only attested
@@ -54,7 +54,8 @@
                                        {:policy :proof-tier :verify-fn (fn [a c] (= a c))})
                    stance claim-h))
 
-(use-fixtures :each (tu/neutral-fresh household-kb) with-proof-tier)
+(use-fixtures :once (tu/loaded household-kb))
+(use-fixtures :each (tu/neutral) with-proof-tier)
 
 (def ^:private proposal (list 'shouldAdopt 'Apartment 'Dog))
 

@@ -11,6 +11,7 @@
   (:require [vaelii.impl.budget :as budget]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.except :as exc]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
@@ -176,11 +177,7 @@
                      (res/matches-visible
                       kb (if along? (list rel '?rv n) (list rel n '?rv)) context)))]
     (binding [res/*cut-every-fan?* true]
-      (loop [seen #{x}, frontier [x]]
-        (if-let [n (peek frontier)]
-          (let [fresh (remove seen (step n))]
-            (recur (into seen fresh) (into (pop frontier) fresh)))
-          seen)))))
+      (graph/reach-all [x] step))))
 
 (def ^:private bounded-reach-limit
   "The most terms a `genl` reach is walked for and held as a set.  Past it a membership
@@ -1172,6 +1169,26 @@
                         (tax/uncovered tx (fn [a] [(::rank a) (tax/context-floor tx (::ctxs a))])
                                        alts))))))
           []))))
+
+(defn answer-readings
+  "The handles each reading of a goal `answers?` holds rests on, as vectors: for a
+  positive goal the `:handles` of `supports-for`, and for a `(not …)` one each surviving
+  stated denial off the goal's tuple with its `claim-reading`.  Empty for a goal the
+  prover does not answer, or one the KB states at its own tuple.  See docs/inherit.md,
+  \"Reading it back\"."
+  [kb goal context]
+  (with-memo
+    (when-let [[holds lit] (goal-verdict goal)]
+      (if (= :for holds)
+        (mapv :handles (supports-for kb lit context))
+        (let [args (vec (nm/args lit))]
+          (into []
+                (keep (fn [c]
+                        (when (and (= :against (:polarity c)) (not (:separated? c))
+                                   (not= args (:tuple c)))
+                          (when-let [hs (claim-reading kb lit c context)]
+                            (into [] (distinct) (cons (:handle c) hs))))))
+                (surviving kb lit context)))))))
 
 (defn- strongest-claim
   "Of the surviving claims `sv` bearing on the tuple `args`, the one whose
@@ -2350,12 +2367,13 @@
   "`[goals stated]` for the rule firing `j`: the antecedent literals of its rule that no
   antecedent of `j` states, instantiated from its conclusion and the stated antecedents,
   and the antecedent handles that state a literal.  nil when `j`'s informant is not a rule
-  or a goal is left open."
+  or a goal is left open.  An inert rule (no engines) fires nowhere, so a justification
+  under one, an argument-type mint, is not a firing and has no goals."
   [kb j]
   (let [recs (:records kb)
         rsx  (when (integer? (:informant j)) (p/get-sentex recs (:informant j)))
         conc (some-> (p/get-sentex recs (:consequence j)) :sentence)]
-    (when-let [lits (and conc (seq (:antecedent rsx)))]
+    (when-let [lits (and conc (seq (:engines rsx)) (seq (:antecedent rsx)))]
       (let [antes (into [] (keep (fn [h] (when-let [x (p/get-sentex recs h)] [h (:sentence x)])))
                         (:antecedents j))
             [b open stated]

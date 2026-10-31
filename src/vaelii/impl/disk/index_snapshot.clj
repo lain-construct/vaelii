@@ -1,111 +1,37 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.disk.index-snapshot
-  "A **mapped snapshot** of the columnar index, which pages its cold tail to disk
-  instead of holding all of it in heap.
+  "A **mapped snapshot** of the columnar index: the compacted index is written to disk once
+  and mapped back on open, so the fact-scaled postings live in the page cache instead of
+  the heap. The index is derived state, so any doubt about a snapshot discards it and runs
+  `reindex`. See docs/storage.md, the image
+  section under `:disk-snapshot`.
 
-  `:disk-columnar` keeps durable records and rebuilds the derived index on every open.
-  That rebuild is O(records) — measured at 5.6 s for 313k, ~30 min at 100M — and the
-  rebuilt structure is then wholly resident, which is the wall the scale plan names.
-  This writes the compacted index to disk once and maps it back, so an open reads bytes
-  and the fact-scaled postings live in the page cache rather than the heap.
-
-  ## The design is a snapshot, not a store
-
-  The index is **derived state**: `reindex` rebuilds every entry from the records.  That
-  is what makes this cheap — no write-ahead log, no op log, no crash-consistent mutation
-  protocol, no bucket directory.  It needs a *snapshot* that can be thrown away and
-  rebuilt whenever it is in doubt, and \"in doubt\" resolves to `reindex` in every case.
-
-  It is also why there is no directory to page.  A flat-map index keys every trie node by
-  a boxed vector of its whole path prefix, so an out-of-core design over it has to page
-  the keys themselves; the columnar trie has no keys at all — a node's identity is its
-  `int` id and its position in the parallel arrays *is* the directory.  `columnar/compact!`
-  already produces exactly the arrays this writes.
-
-  ## What is written
-
-  Under `<dir>/index/`, four things:
+  Under `<dir>/index/`:
 
   * `trie.csr` — the trie's six CSR sections (`fcounts` `foffsets` `fedge-tok`
-    `fedge-tgt` `fleaf-off` `fhandles`), each a raw little-endian `int` run behind a
-    header naming the counts.
-  * `roots.csr` — **every** root family (the context roots, the predicate extent, the
-    argument roots, the term, rule and exception indexes) as the same CSR shape over
-    `dense-roots`' packed `long` keys: sorted keys, an offset column, one shared handle
-    run (an argument node's run holds context token ids).  Plus the scope table the count
-    tries' leaves decode through — one `(predicate, position)` pair, `(predicate, position,
-    context)` triple or `(context, 0, context)` context scope per entry, as three columns
-    with -1 for a pair's context, indexed by the scope id their packed keys carry
-    (`dense-roots`' `argfam-id`).  The
-    table is vocabulary-scaled and rides this file because this file's key column is its
-    only reader: written in one pass, discarded as one unit, so the two cannot drift.
-  * `roots-fallback.nippy` — everything the routed families do not claim: the counters
-    keyed by a predicate, functor, rule key or kind, which are vocabulary-scaled.  It is
-    still index truth — the predicate extent's count is what the planner prices a scan
-    by — so its entry count and byte length ride the meta and are checked on open like
-    the CSR sections' lengths, and its load is strict (`read-fallback`).
-  * `tokens.log` — the durable token dictionary the `int` edges cite, in
-    `vaelii.impl.disk.tokens`' format (append-only, id = append position, content-keyed,
-    first-writer-wins, never reused).  That module is reused rather than a second
-    dictionary format minted: persisting the trie's `int` edges is precisely the format
-    `vaelii.impl.tokens` names as its durable variant.
+    `fedge-tgt` `fleaf-off` `fhandles`), each a raw little-endian `int` run behind a header
+    naming the counts.
+  * `roots.csr` — every root family as CSR over `dense-roots`' packed `long` keys (sorted
+    keys, an offset column, one shared handle run), plus the scope table the count tries'
+    leaves decode through: one `(predicate, position)` pair, `(predicate, position,
+    context)` triple or `(context, 0, context)` scope per entry, as three columns with -1
+    for a pair's context, indexed by `dense-roots`' `argfam-id`.
+  * `roots-fallback.nippy` — the vocabulary-scaled counters no routed family claims. Its
+    entry count and byte length ride the meta and are checked on open (`read-fallback`).
+  * `tokens.log` — the token dictionary the `int` edges cite, in `vaelii.impl.disk.tokens`'
+    format.
 
-  **One file per structure**, not one per section.  A structure is mapped or discarded as
-  a unit, so per-section files would multiply the crash window by six for nothing; the
-  section table in the header already names the offsets `map` needs.
+  Resident on open: the CSR skeleton (`fcounts` `foffsets` `fedge-tok` `fedge-tgt`), the
+  roots' key and offset columns, the scope table, the token dictionary and the fallback
+  blob. Mapped: `fleaf-off`, `fhandles` and the roots' handle run.
 
-  ## The residency split
-
-  `scale-100m.md`'s rule is *never page the walk* — the worst measured index pathology was
-  the leading-variable trie fan, 18,512 lookups for one query, and a disk seek is worse
-  than the round trip that pathology was made of.  So the load is deliberately asymmetric:
-
-  * **resident** — the CSR skeleton (`fcounts` `foffsets` `fedge-tok` `fedge-tgt`), the
-    roots' key and offset columns, the scope table, the token dictionary, and the
-    fallback blob.  Every one of them is path- or vocabulary-scaled.
-  * **mapped** — `fleaf-off` / `fhandles` and the roots' handle run.  Each posting is
-    touched only when its own term is queried.  Cold by construction.
-
-  **No handle family is an exception to that split.**  The resident half is where the
-  index's *shape* lives and the mapped half is where its mass lives, and the line between
-  them is the line between what the vocabulary sizes and what the facts do.
-
-  With `mmap` the OS page cache is the residency policy, which is the point — but only
-  because the skeleton stays hot.
-
-  ## Validity is the whole design
-
-  The failure to fear is a stale snapshot that passes its check: one can be perfectly
-  self-consistent and describe a KB that no longer exists.  So the snapshot carries a
-  fingerprint of the **records**, not of its own bytes, and the fingerprint is checked on
-  **every** open — never behind a flag.  Three things must agree or the snapshot is discarded and `reindex` runs:
-  the format and `kv/index-layout-version`, the byte-order tag (the sections are always
-  little-endian, so this guards a future format that changes the order, not this machine's
-  architecture), and `record-store/slot-fingerprint`.  The
-  decision carries a reason from `import`'s vocabulary — `:absent` `:layout-changed`
-  `:records-differ` `:entries-truncated` `:unsupported-platform` — because a rebuild
-  nobody can explain is a rebuild nobody notices.
-
-  ## The platform
-
-  The commit is an atomic rename over a file this process has mapped, which Windows does
-  not permit, so `:index :snapshot` is **refused** there (`enabled?`) and an image
-  found on disk is discarded as `:unsupported-platform` rather than read and never
-  refreshed.  Nothing else in the durable store is implicated: the logs are appends and
-  the slots are positional writes.
-
-  A commit is one atomic step: the sections are written to temps and fsynced, the meta is
-  **deleted**, the temps are renamed into place, and the meta is written last.  Its
-  presence is the commit point, so a crash anywhere leaves no meta, and no meta means
-  reindex.
-
-  ## What it measured
-
-  1.72–1.84× off the index's resident heap and a 1.5× faster open, on a corpus whose
-  vocabulary is fixed — and resident heap that still grows with the facts, because the
-  token dictionary is fact-scaled and the CSR skeleton is path-scaled.  The acceptance
-  property it was built for does **not** hold, which is why it is off by default."
+  The meta records the format, `kv/index-layout-version`, a byte-order tag and
+  `record-store/slot-fingerprint`; all must agree on every open, else the open discards the
+  snapshot with a reason (`:absent` `:layout-changed` `:records-differ` `:entries-truncated`
+  `:unsupported-platform`). A commit writes the sections to temps and fsyncs them, deletes
+  the meta, renames the temps into place and writes the meta last, so a crash leaves no meta.
+  The commit renames over a mapped file, which Windows refuses: `enabled?` is false there."
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.impl.columnar :as col]
@@ -155,17 +81,9 @@
   (str (System/getProperty "os.name")))
 
 (defn- publishable-platform?
-  "Can an image be *published* here?  The question is the rename, not the map: a
-  read-only `FileChannel.map` works everywhere, and what Windows does not permit is
-  `Files/move` with `REPLACE_EXISTING` over a target that is currently mapped — which is
-  how `rename!` below commits every section.  The JVM offers no portable unmap, so there
-  is no way to hold the guarantee there.
-
-  Windows is the refused case and everything else is admitted: the evidence is one
-  operating system's file-locking model, so \"not Windows\" is all that evidence supports.
-  The durable store itself is untouched by this — its logs and slots are ordinary
-  appends and positional writes, and refusing them here would turn a working platform
-  into a refused one on the strength of an off-by-default feature."
+  "Can an image be published here? True except on Windows, where `Files/move` with
+  `REPLACE_EXISTING` fails over a mapped target. The durable store is unaffected. See
+  docs/storage.md, \"The image\"."
   []
   (not (str/starts-with? (str/lower-case (os-name)) "windows")))
 
@@ -242,19 +160,10 @@
   nil)
 
 (defn note-attempt!
-  "Restart `dir`'s interval floor without moving its drift baseline — what a refresh does
-  as it begins.
-
-  The baseline belongs to an image that is actually on disk, so only a completed save
-  moves it (`note-image!`).  The *clock* is a different claim — how recently a refresh was
-  attempted — and it has to advance whether or not one landed: a save that throws, and a
-  save that declines (`:unchanged`, `:empty`), both leave the drift exactly where it was,
-  so a cadence recorded only on success reads due again on the very next write.  That turns
-  a broken directory into an image-sized write per assert.  Recorded here, it retries once
-  a floor, which is the cadence the floor exists to impose.
-
-  A no-op for a directory with no cadence state: `due?` cannot fire without one, so
-  minting a baseline here would be inventing an image nothing wrote."
+  "Restart `dir`'s interval floor without moving its drift baseline. A refresh calls this as
+  it begins: only a completed save moves the baseline (`note-image!`), while the clock
+  advances whether the save lands, throws or declines (`:unchanged`, `:empty`). A no-op
+  for a directory with no cadence state."
   [dir]
   (let [k (state-key dir)]
     (swap! image-state
@@ -264,21 +173,10 @@
   nil)
 
 (defn note-no-image!
-  "Start `dir`'s cadence clock with **no** image on disk — what an open does before it
-  knows whether one is there.  A `load!` that maps overwrites this with the real count;
-  one that rebuilds leaves it standing, which is the truth: nothing usable is on disk.
-
-  Without this a directory that has never held an image would have no baseline, so
-  `drift` would answer 0.0 forever and a writer that ran for weeks and was killed would
-  reopen onto nothing — which is the failure the cadence exists to close, and the one a
-  fresh directory is most exposed to.
-
-  **It starts a clock and never resets one.**  Every KB constructed over a directory runs
-  this, and they share one index — so a second `open-kb` over a directory whose image is
-  current would otherwise reset the baseline to zero, `drift` would read 1.0 against an
-  image that is exactly right, and the first write past the interval floor would rewrite
-  a whole CSR for nothing.  A close is what drops the state (`forget-image!`), which is
-  the point at which what is on disk stops being knowable from in here."
+  "Start `dir`'s cadence clock with no image on disk. A `load!` that maps overwrites the
+  count; one that rebuilds leaves it. It starts a clock and never resets one: a second
+  `open-kb` over a directory whose image is current keeps the baseline. `forget-image!`
+  drops the state at close."
   [dir]
   (let [k (state-key dir)]
     (swap! image-state
@@ -311,33 +209,10 @@
   (drift-of (get @image-state (state-key dir)) roots-now))
 
 (defn due?
-  "Has `dir`'s image drifted past `vaelii.index.snapshot-drift`, with the compaction
-  interval floor elapsed since the last one?
-
-  The floor is `vaelii.disk.compact-min-interval-ms`, shared with the record store's
-  compaction rather than given a knob of its own: both answer the same question — how
-  often may a background rewrite of a derived structure interrupt this KB — and two knobs
-  would be two answers to it.
-
-  **`vaelii.disk.auto-compact=false` turns the mid-life refresh off**, leaving the image to
-  the close and to the JVM-shutdown hook.  Same knob as the record store's background and
-  opportunistic compaction, on the same argument the shared floor rests on: a refresh *is*
-  an opportunistic compaction of a derived structure — `save!` calls `columnar/compact!` —
-  so an operator who has said not to do those must not still be paying one per drift
-  threshold, on the writer's thread, with nothing saying so.  The caller that wants the
-  switch is the batch that fills a whole KB in one run and closes cleanly: it needs exactly
-  one image, at the end.
-
-  **The drift ratio cannot say that, and `0` is the trap.**  As a *threshold* zero means
-  \"any drift at all\", so it is the most eager setting in the range and rewrites the image
-  on every write past the floor — 400 asserts under `0` and a floor of `0` measured 401
-  images.  It is the pathology the threshold exists to bound, not the off switch.
-
-  **One state read, one `state-key`.**  This is asked per write on a `:disk-snapshot` KB
-  and `state-key` resolves a canonical path, so the switch is read first — an off switch
-  that still paid a `realpath` per write would not be off for the writer that asked for it
-  — and the entry is then read once, with the drift computed off it rather than reaching
-  for the same key again through `drift`."
+  "Has `dir`'s image drifted past `vaelii.index.snapshot-drift`, with the interval floor
+  `vaelii.disk.compact-min-interval-ms` elapsed since the last attempt? False when
+  `vaelii.disk.auto-compact=false`, which is read before `state-key` resolves a path. A
+  drift threshold of 0 means any drift, not off. See docs/storage.md, \"The cadence\"."
   [dir roots-now]
   (and (config/disk-auto-compact?)
        (let [{:keys [at] :as st} (get @image-state (state-key dir))]
@@ -530,28 +405,14 @@
 
 (defn save!
   "Write a mapped snapshot of `store` (a columnar `IndexStore`) under `dir/index`, with
-  `(fingerprint-fn)` as its records fingerprint.  Returns `{:index :saved …}`, or `{:index
+  `(fingerprint-fn)` as its records fingerprint. Returns `{:index :saved …}` or `{:index
   :skipped :reason r}`.
 
-  The fingerprint arrives as a thunk rather than as a record store: what an image is valid
-  against is a *fingerprint of the records*, and which store computed it is none of this
-  namespace's business — `record-store/slot-fingerprint` is what the disk KB passes.
-  A thunk, so `load!` can decline before paying for it.
-
-  Compacts the trie first — the CSR arrays `compact!` produces *are* the on-disk layout,
-  so there is no serialization step, only a write.  An empty index saves nothing and
-  drops any meta that survives, since a stale one describing a wiped KB is the one thing
-  worse than none.
-
-  **A failed save costs the new image, never the one already there.**  Every section is
-  written to a `.tmp` beside its target and the meta — the commit mark — is dropped only
-  once all of them are complete, so a throw anywhere before that leaves the previous
-  image whole and readable, **and takes the temps it had written with it**: a section is
-  the size of the index, and one left behind by a save that never committed is a file
-  nothing reads and nothing else deletes.  The fingerprint is taken *first*, before a byte
-  moves, because it is the one input that lives in another component: on the shutdown
-  path that component can already be closed, and taking it late would trade a working
-  image for none."
+  `fingerprint-fn` is a thunk so `load!` can decline before paying for it; it is called
+  first, before any byte moves. The save compacts the trie, then writes every section to a
+  `.tmp`, drops the meta, renames the temps into place and writes the meta last. A throw
+  before the meta drop leaves the previous image readable and deletes the temps. An empty
+  index saves nothing and drops any surviving meta."
   [dir store fingerprint-fn]
   (let [root (snapshot-root dir)]
     (f/ensure-dir! root)
@@ -664,15 +525,9 @@
 (defn- file-len ^long [^String path] (let [f (File. path)] (if (.exists f) (.length f) -1)))
 
 (defn- decision
-  "Why this open cannot map the snapshot, or nil when it can.  Every mismatch class is its
-  own reason, so the log says what changed rather than that something did.
-
-  Ordered by what a reader needs told first, not by what is cheapest to ask: the record
-  fingerprint runs ahead of the three truncation tests, and it is the expensive one — a
-  sequential scan of the sentexes idx, where a truncation test is a `File.length`.  A
-  truncated image therefore pays that scan before being rejected.  It adds no work that
-  matters, since every rejection falls through to a rebuild that reads the records
-  anyway, and the ordering buys a diagnosis that names the store rather than the file."
+  "Why this open cannot map the snapshot, or nil when it can. Each mismatch class is its own
+  reason. The record fingerprint runs ahead of the three truncation tests, so a truncated
+  image pays the slot scan before rejection."
   [root m fingerprint-fn]
   (let [{:keys [nodes edges leaves]} (:trie m)
         {kn :keys hn :handles}       (:roots m)]
@@ -771,32 +626,12 @@
           :n       k})))))
 
 (defn- load-dictionary!
-  "Rebuild the in-RAM dictionary from the durable log, **in id order**, so an in-RAM id is
-  the durable id the mapped edges cite.  O(dictionary), which this namespace's own header
-  is careful to say is **fact-scaled** rather than vocabulary-scaled: a token is often a
-  whole compound term, the term index keys one per record, and the taxonomy's supporter
-  family interns one per taxonomy key.  Nor is it the only
-  per-entry cost of an open — `load-trie!` copies the node and edge skeletons into heap,
-  named in the header for what it is.
-
-  The two dictionaries must agree on equality, and this is where a disagreement would
-  show.  Both key `tokens/Key`, which defers to `hasheq`/`equiv`, so `2` and `(int 2)`
-  are one token in each — and the log holds numbers and whole compound terms as well as
-  symbols, since every trie token is interned through it.  The count check is what makes
-  the agreement a fact rather than an assumption: a mismatch means the id order has
-  shifted and every mapped edge cites the wrong entry, silently, so it throws into
-  `load!`'s catch and the index is rebuilt from the records instead.
-
-  **A log that already holds such a pair is repaired here rather than diagnosed forever.**
-  Written by a build whose forward map keyed on Java equality, it holds `2` and `(int 2)`
-  as two frames; every reload collapses them, every open reads the mismatch, and the
-  rebuilt index is snapshotted against the same unrepairable log — so the next open pays
-  for it again, and the one after that. `repair-duplicates!` rewrites the log without the
-  pair, which moves every id past it: legal exactly here, because this log's ids are cited
-  by the mapped edges and nothing else, and the commit marker is dropped **first** so a
-  crash between the two leaves no image describing a numbering the log no longer uses.
-  The throw then names the cause and says the repair happened, where `:torn-snapshot`
-  named the wrong one."
+  "Rebuild the in-RAM dictionary from the durable log in id order, so an in-RAM id is the
+  durable id the mapped edges cite. O(dictionary), which is fact-scaled. A count mismatch
+  (a log holding `2` and `(int 2)` as two frames, which both dictionaries key as one token)
+  throws into `load!`'s catch after `repair-duplicates!` drops the commit marker first and
+  rewrites the log without the pair. That renumbering is legal only for this log, whose ids
+  only the mapped edges cite. See docs/storage.md, \"The image\"."
   [dict ^String root]
   (let [tl (dtok/open-token-log root)]
     (try
@@ -860,21 +695,12 @@
     v))
 
 (defn load!
-  "Map `dir/index` into `store`, or say why it cannot be.  Returns `{:index :mapped …}` or
-  `{:index :rebuild :reason r}` with `r` one of `:absent` `:layout-changed` `:byte-order`
-  `:unsupported-platform` `:records-differ` `:entries-truncated` `:duplicate-tokens`
-  `:unreadable`.
-
-  The caller reindexes on any `:rebuild` — which is always legal, because the index is
-  derived state and this is a cache of it.
-
-  `:duplicate-tokens` is the one rebuild that also **repairs** as it declines
-  (`load-dictionary!`), and so the one a reader should not expect twice over one
-  directory.
-
+  "Map `dir/index` into `store`. Returns `{:index :mapped …}` or `{:index :rebuild :reason r}`
+  with `r` one of `:absent` `:layout-changed` `:byte-order` `:unsupported-platform`
+  `:records-differ` `:entries-truncated` `:duplicate-tokens` `:unreadable`. The caller
+  reindexes on any `:rebuild`. `:duplicate-tokens` also repairs the log (`load-dictionary!`).
   A `VirtualMachineError` in a failed map's cause chain (`safe/vm-error`) empties `store`
-  and is rethrown as itself, not answered `:unreadable`: the heap ran out, and a rebuild
-  from the records needs more heap than the map."
+  and is rethrown as itself."
   [dir store fingerprint-fn]
   (let [root (snapshot-root dir)
         m    (f/read-nippy-file (meta-path root) nil)]

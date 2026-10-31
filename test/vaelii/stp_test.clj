@@ -16,6 +16,8 @@
   (:import [vaelii.impl.stp TemporalDistanceProver]))
 
 ;; A fresh KB per test with the upper layer and the opt-in prover registered.
+;; The KB is built per test because a test registers a prover of its own, which a KB
+;; shared across tests would keep.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core!)

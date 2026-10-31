@@ -323,12 +323,15 @@
 
 (defn- different-cycle-rules
   "The unstratified pair: the negative half reads `different` and concludes `qP`, the
-  positive half concludes an equality from `qP`.  `equality` is what closes the ring —
-  `sameAs` directly, or a predicate a `genl` edge later puts underneath it."
-  [aP qP equality]
-  [(list 'implies (list 'and (list aP '?x '?y) (list 'different '?x '?y))
-         (list qP '?x '?y))
-   (list 'implies (list qP '?x '?y) (list equality '?x '?y))])
+  positive half forward-chains an equality from `qP`, so its conclusions are stored and
+  merge.  `equality` is what closes the ring — `sameAs` directly, or a predicate a `genl`
+  edge later puts underneath it.  With `:backward` the positive half is backward-only."
+  ([aP qP equality] (different-cycle-rules aP qP equality :forward))
+  ([aP qP equality direction]
+   [(list 'implies (list 'and (list aP '?x '?y) (list 'different '?x '?y))
+          (list qP '?x '?y))
+    (list (if (= :backward direction) 'set/backwardRule 'set/forwardRule)
+          (list 'implies (list qP '?x '?y) (list equality '?x '?y)))]))
 
 (deftest a-different-antecedent-closes-a-cycle-in-either-arrival-order
   (testing "the positive half arrives last — the negative edge is a stored rule's"
@@ -362,6 +365,36 @@
           (is (empty? (v/sentexes-matching kb edge '?ctx))))
         (testing "an edge that closes no cycle still lands, so the refusal is the cycle"
           (is (some? (v/assert kb (list 'genl zSame unrelated) CxThe))))))))
+
+(deftest a-backward-only-equality-rule-closes-no-cycle-round-a-different-antecedent
+  ;; `different` reads the stored merges, and a backward-only rule stores no conclusion,
+  ;; so the pair is stratified in either arrival order and under the `genl` edge too
+  (doseq [order [:neg-first :pos-first :edge-last]]
+    (tu/with-neutral-kb [kb kb-with-starter]
+      (tu/with-terms [aP qP zSame CxThe]
+        (let [[neg pos] (different-cycle-rules aP qP zSame :backward)
+              edge      (list 'genl zSame 'sameAs)
+              sentences (case order
+                          :neg-first [edge neg pos]
+                          :pos-first [edge pos neg]
+                          :edge-last [neg pos edge])]
+          (is (= [nil nil nil] (mapv #(assert-type kb % CxThe) sentences))
+              (str order)))))))
+
+(deftest a-rule-reading-different-beside-the-starters-time-slice-equality-is-stored
+  ;; the starter's `(equals (CxTimeFn (CxTimeFn ?c ?t1) ?t2) …)` rule reads `time` and is
+  ;; backward-only; a forward rule reading `different` and concluding a kind of
+  ;; `uninterrupted` reaches it through the `time`/`uninterrupted` intersection rule, and
+  ;; reaches core.txt's inert mint rule concluding `genl` through `subtimeOf`
+  (tu/with-neutral-kb [kb kb-with-starter]
+    (tu/with-terms [odd_receipt receipt sameKey CxThe]
+      (v/assert kb (list 'genl odd_receipt 'uninterrupted) CxThe)
+      (is (nil? (assert-type kb (list 'set/forwardRule
+                                      (list 'implies
+                                            (list 'and (list receipt '?a) (list receipt '?b)
+                                                  (list sameKey '?a '?b) (list 'different '?a '?b))
+                                            (list odd_receipt '?a)))
+                             CxThe))))))
 
 (deftest an-exceptWhen-naming-a-handle-is-checked-as-assert-checks-it
   ;; `(exceptWhen Q (sentexHandle H))` amends a stored rule, so `check` answers from the

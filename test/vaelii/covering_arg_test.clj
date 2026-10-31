@@ -24,12 +24,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- ex-type
-  "The `:type` a write thunk meets: its refusal, or the argument conviction its fact is
-  held inert under (`tu/write-type`)."
-  [f]
-  (tu/write-type tu/*kb* f))
-
 (defn- check-message
   "The message of the first check violation `v/check` reports for a sentence, or of the
   argument conviction `assert` holds it inert under (`tu/write-conviction`), or nil."
@@ -78,7 +72,7 @@
     (v/assert kb (list dog a) 'CxUniverse)
     (v/assert kb (list dog b) 'CxUniverse)
     (testing "a literal whose kind is not the type, sitting past the declared minimum"
-      (is (= :arg-type (ex-type #(v/assert kb (list rel a b "notAnAnimal") 'CxUniverse))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel a b "notAnAnimal") 'CxUniverse))))
       (is (re-find #"\(argAndRest from 1, position 3 of "
                    (check-message kb (list rel a b "notAnAnimal") 'CxUniverse))
           "the refusal names the covering form, not arg: the twin args stores"))
@@ -105,7 +99,7 @@
       (is (v/assert kb (list rel name a b) 'CxUniverse))
       (is (v/assert kb (list rel "aStringHead" a b) 'CxUniverse)))
     (testing "and the tail from position 2 is still typed"
-      (is (= :arg-type (ex-type #(v/assert kb (list rel name a "bad") 'CxUniverse))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel name a "bad") 'CxUniverse))))
       (is (re-find #"argAndRest" (check-message kb (list rel name a "bad") 'CxUniverse))))))
 
 (tu/deftest-kb args-states-what-argAndRest-at-one-states
@@ -114,7 +108,7 @@
     (v/assert kb (list 'argAndRest rel 1 animal) 'CxUniverse)
     (v/assert kb (list dog a) 'CxUniverse)
     (testing "start 1 types position 1 too, exactly as args does"
-      (is (= :arg-type (ex-type #(v/assert kb (list rel "badHead" a) 'CxUniverse)))))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel "badHead" a) 'CxUniverse)))))))
 
 ;; ---- the *Genl forms discriminate kind from instance -----------------------
 
@@ -128,9 +122,9 @@
      (testing "a subtype of the type, and the type itself, satisfy the subtype demand"
        (is (v/assert kb (list rel dog animal) 'CxUniverse)))
      (testing "a type the taxonomy separates from the declared type is convicted"
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel dog other) 'CxUniverse)))))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel dog other) 'CxUniverse)))))
      (testing "an individual can never be a subtype, so it is convicted not excused"
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel dog (tu/tmp-ind)) 'CxUniverse))))))))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel dog (tu/tmp-ind)) 'CxUniverse))))))))
 
 (tu/deftest-kb argAndRestGenl-types-the-tail-as-a-kind
   ;; the constraint-only reading: the refusal is the subject
@@ -141,7 +135,7 @@
      (v/assert kb (list 'argAndRestGenl rel 2 animal) 'CxUniverse)
      (testing "the prefix is free and the tail names a kind"
        (is (v/assert kb (list rel name dog dog) 'CxUniverse))
-       (is (= :arg-genl (ex-type #(v/assert kb (list rel name dog other) 'CxUniverse))))))))
+       (is (= :arg-genl (tu/kb-write-type #(v/assert kb (list rel name dog other) 'CxUniverse))))))))
 
 ;; ---- conjunction with the singular forms -----------------------------------
 
@@ -168,10 +162,10 @@
     ;; constraint-only ones.
     (tu/without-entailing
      (testing "each still convicts on its own — the singular at position 1"
-       (is (= :arg-type (ex-type #(v/assert kb (list rel PlainDog RedDog) 'CxUniverse)))
+       (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel PlainDog RedDog) 'CxUniverse)))
            "a dog, disjoint from red — the singular arg convicts"))
      (testing "and the covering across the whole tail"
-       (is (= :arg-type (ex-type #(v/assert kb (list rel RedDog PlainRed) 'CxUniverse)))
+       (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel RedDog PlainRed) 'CxUniverse)))
            "a stone, disjoint from animal, at position 2 — the covering argAndRest convicts")))))
 
 (tu/deftest-kb the-entailing-reading-derives-every-tail-membership-in-either-order
@@ -210,7 +204,7 @@
     (v/assert kb (list dog a) 'CxUniverse)
     (testing "the sub's tuple is held to the super's covering constraint"
       (is (v/assert kb (list sub a a) 'CxUniverse))
-      (is (= :arg-type (ex-type #(v/assert kb (list sub a "bad") 'CxUniverse)))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list sub a "bad") 'CxUniverse)))))
     ;; other-ind exists only to keep the arity legal in later readings
     (is other-ind)))
 
@@ -228,21 +222,21 @@
       (is (tu/stored-in-clash? kb (list rel A B (tu/tmp-ind)) 'CxUniverse)))
     (testing "and within the arity the covering constraint still types the positions"
       (is (v/assert kb (list rel A B) 'CxUniverse))
-      (is (= :arg-type (ex-type #(v/assert kb (list rel A "bad") 'CxUniverse)))))))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel A "bad") 'CxUniverse)))))))
 
 ;; ---- the declaration's own well-formedness ---------------------------------
 
 (tu/deftest-kb the-covering-declaration-is-well-formedness-checked
   (let [rel (tu/tmp-pred)]
     (testing "the type slot is a type, not an individual"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'args rel (tu/tmp-ind)) 'CxUniverse))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argAndRest rel 2 (tu/tmp-ind)) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'args rel (tu/tmp-ind)) 'CxUniverse))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'argAndRest rel 2 (tu/tmp-ind)) 'CxUniverse)))))
     (testing "the start position is a positive integer"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argAndRest rel 0 'thing) 'CxUniverse))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argAndRestGenl rel -1 'thing) 'CxUniverse))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'argAndRest rel 'notAnInt 'thing) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'argAndRest rel 0 'thing) 'CxUniverse))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'argAndRestGenl rel -1 'thing) 'CxUniverse))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'argAndRest rel 'notAnInt 'thing) 'CxUniverse)))))
     (testing "the subject is a relation, named or denoted, not a number"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'args 5 'thing) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'args 5 'thing) 'CxUniverse)))))
     (testing "the message names the covering form"
       (is (re-find #"argAndRest"
                    (:message (first (v/check kb (list 'argAndRest rel 0 'thing) 'CxUniverse))))))))
@@ -286,7 +280,7 @@
     (v/assert kb (list dog a) 'CxUniverse)
     (args-sugar kb)
     (let [h (v/assert kb (list 'args rel animal) 'CxUniverse)]
-      (is (= :arg-type (ex-type #(v/assert kb (list rel a "bad") 'CxUniverse)))
+      (is (= :arg-type (tu/kb-write-type #(v/assert kb (list rel a "bad") 'CxUniverse)))
           "convicted while the declaration stands")
       (testing "and released when it is retracted, prop cache and all"
         (v/retract! kb h)

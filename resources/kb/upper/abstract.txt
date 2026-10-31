@@ -6,6 +6,7 @@
 ;; largerThan/partType. Loaded into CxUniverse with the rest of kb/upper/.
 
 (comment body_part "A part an organism grew. It stays a body part once transplanted into another organism or shed from its own.")
+(unary_predicate body_part)
 (positiveExampleComment body_part "a wing")
 (positiveExampleComment body_part "a heart")
 (positiveExampleComment body_part "a leaf")
@@ -54,11 +55,14 @@
 (orthogonal biological container)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
+(unary_predicate building)
 
 (comment clothing "An artifact worn on the body.")
+(unary_predicate clothing)
 (genl clothing made)
 
 (comment container "A made thing whose function is to hold other objects in its interior. Every container is made and hollow.")
+(unary_predicate container)
 (positiveExampleComment container "a cup")
 (positiveExampleComment container "a box")
 (positiveExampleComment container "a bag")
@@ -69,6 +73,7 @@
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 
 (comment electronic_device "A mechanism built around an electronic circuit: the circuit and the parts that carry it make up the whole object. An organism with an implanted circuit contains an electronic device but is not one. Defined by how it is built, not by what it does, so it is rigid: a dead phone or an unplugged board is still one.")
+(unary_predicate electronic_device)
 (positiveExampleComment electronic_device "a phone")
 (positiveExampleComment electronic_device "a router")
 (positiveExampleComment electronic_device "a computer")
@@ -81,14 +86,17 @@
 (comment (orthogonal electronic_device machine) "A fan-cooled desktop computer is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
 
 (comment feather "A light keratin body part covering a bird.")
+(unary_predicate feather)
 (genl feather body_part)
 
 (comment fin "A flat body part a fish steers and propels itself with.")
+(unary_predicate fin)
 (genl fin body_part)
 
 (comment food "A physical object eaten by an animal for nourishment.")
 
 (comment formation "A natural tangible whose form came from physical processes, neither grown nor made.")
+(unary_predicate formation)
 (positiveExampleComment formation "a rock")
 (positiveExampleComment formation "a crystal")
 (positiveExampleComment formation "a river")
@@ -100,9 +108,11 @@
 (separating tangible formation biological)
 
 (comment fur "The hair covering a mammal.")
+(unary_predicate fur)
 (genl fur body_part)
 
 (comment furniture "An artifact for use in a room.")
+(unary_predicate furniture)
 (positiveExampleComment furniture "a chair")
 (positiveExampleComment furniture "a table")
 (positiveExampleComment furniture "a bed")
@@ -112,6 +122,7 @@
 (genl glass_stuff substance)
 
 (comment hollow "Has, at that time, an interior space that other things can occupy. A thing can stop being hollow and still exist: a box crushed flat stops being hollow, and a hand is hollow only while it is cupped. What a thing is shaped like, not what it is for, and a container is one kind of made hollow thing. Spatiotemporal rather than tangible, since a cave is a space in rock and is made of nothing.")
+(unary_predicate hollow)
 (positiveExampleComment hollow "a cup")
 (positiveExampleComment hollow "a box")
 (positiveExampleComment hollow "a building")
@@ -146,9 +157,11 @@
 (set/monotonic (transitiveInArgInverse largerThan 2 genl))
 
 (comment leaf "A flat green body part a plant photosynthesizes with.")
+(unary_predicate leaf)
 (genl leaf body_part)
 
 (comment leg "A body part an animal stands and walks on.")
+(unary_predicate leg)
 (genl leg body_part)
 
 (comment liquid "A substance that flows and takes the structure of its container.")
@@ -163,6 +176,7 @@
 (set/monotonic (transitive locatedIn))
 
 (comment machine "A mechanism with parts that move relative to each other, driven by an energy source. Defined by its parts, not its use, so a stopped clock is still one.")
+(unary_predicate machine)
 (positiveExampleComment machine "a wind-up clock")
 (positiveExampleComment machine "a car engine")
 (positiveExampleComment machine "a hand-cranked pencil sharpener")
@@ -184,6 +198,7 @@
 (partition tangible made natural)
 
 (comment mechanism "A physical object whose parts, in their arrangement, set up a characteristic causal operation: mechanical coupling, electronic circuitry, or both. Defined by its construction, not its use or whether it is running, so a stopped clock or an unplugged board is still one. Most mechanisms are made, but not all: a juvenile Issus planthopper grows interlocking gears on its hind legs.")
+(unary_predicate mechanism)
 (positiveExampleComment mechanism "a wind-up clock")
 (positiveExampleComment mechanism "a phone")
 (positiveExampleComment mechanism "a fan-cooled desktop computer")
@@ -306,9 +321,11 @@
 (typeToInstancePred partType tangiblePartOf)
 
 (comment petal "A coloured body part of a flower.")
+(unary_predicate petal)
 (genl petal body_part)
 
 (comment root "The body part a plant anchors itself and draws water with.")
+(unary_predicate root)
 (genl root body_part)
 
 (comment stone "A hard mineral substance.")
@@ -356,6 +373,7 @@
 ;; event.
 
 (comment spatial_event "An event located in some space.")
+(unary_predicate spatial_event)
 (positiveExampleComment spatial_event "a battle")
 (positiveExampleComment spatial_event "a smelting")
 (positiveExampleComment spatial_event "a sawing")
@@ -414,9 +432,11 @@
 ;; --- causal_event / acausal_event: events by whether they can cause ------------
 ;; defined via intersection; its rules derive the genls and membership.
 (comment causal_event "An event that is a cause: the intersection of causal and event.")
+(unary_predicate causal_event)
 (intersection causal_event causal event)
 
 (comment acausal_event "An event that is not a cause: the intersection of acausal and event.")
+(unary_predicate acausal_event)
 (positiveExampleComment acausal_event "the act of observing")
 (positiveExampleComment acausal_event "the receiving of a message")
 (intersection acausal_event acausal event)
@@ -425,9 +445,11 @@
 ;; life.txt's hasCapability and capabilityType take an event kind as their second argument:
 ;; (hasCapability Tweety flying) says Tweety can be the doer of a flying event.
 (comment travelling "A causal event of getting from one place to another under the doer's own power. flying is a kind of travelling; another way of travelling is stated as its own event kind below travelling.")
+(unary_predicate travelling)
 (genl travelling causal_event)
 
 (comment flying "A travelling event through the air under the doer's own power. A kind of travelling, so whatever can fly can travel without that being stated twice.")
+(unary_predicate flying)
 (genl flying travelling)
 
 ;; --- causes: a causal thing brings a situation about ---------------------------
@@ -551,9 +573,11 @@
 (set/forwardRule (implies (and (tangibleOutput ?e ?x) (doneBy ?e ?d) (made ?d)) (made ?x)))
 
 (comment vehicle "An artifact for transporting people or goods.")
+(unary_predicate vehicle)
 (genl vehicle made)
 
 (comment wing "A body part an animal flies with, such as a bird's, a bat's or an insect's.")
+(unary_predicate wing)
 (genl wing body_part)
 (set/monotonic (disjoint wing fur))
 (comment (disjoint wing fur) "A bat's wing has fur on it: the fur is part of the wing, and nothing is both a wing and fur.")
@@ -588,7 +612,7 @@
 (set/monotonic (disjoint mechanism organism))
 (set/monotonic (disjoint mechanism substance))
 ;; animal and vehicle are disjoint at the default strength rather than monotonic: a
-;; fiction below CxWell may except the default and hold a term that is both. CxRealWorld
+;; fiction below CxWell may deny the default monotonic and hold a term that is both. CxRealWorld
 ;; restates the same separation monotonic, so the real world can never hold the overlap.
 (disjoint animal vehicle)
 (set/monotonic (disjoint building furniture))

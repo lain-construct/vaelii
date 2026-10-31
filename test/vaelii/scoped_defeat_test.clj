@@ -15,11 +15,6 @@
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-(defn- permutations [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (permutations (remove #{x} xs))] (cons x more))))
-
 (defn- types! [kb & ts]
   (doseq [t ts] (v/assert kb (list 'genl t 'thing) 'CxUniverse)))
 
@@ -580,7 +575,7 @@
                    :disjoint (v/assert kb (list 'disjoint dog cat) 'CxUniverse)))
                (vec (for [s [(list cat Rex) (list meows Rex)] c [CxA CxD]]
                       (v/ask? kb s c))))))
-         (permutations [:rule :cat :dog :disjoint]))]
+         (tu/orders [:rule :cat :dog :disjoint]))]
     (is (= #{[true false true false]} (set outcomes)))))
 
 ;; ---- the vantage decides a pair its writers could not see ----------------
@@ -619,7 +614,7 @@
                               (v/ask? kb (list cat Rex) CxD)
                               (v/ask? kb (list dog Rex) CxD)
                               (mapv :violation (v/violations kb))]))))))
-              (permutations [:cat :dog :disjoint]))]
+              (tu/orders [:cat :dog :disjoint]))]
     (is (= #{[true false true []]} outcomes)
         "every order reaches one belief outcome: the loser is defeated at the vantage
          and believed above it, and the ledger has nothing to say about a pair
@@ -650,7 +645,7 @@
                               (v/ask? kb (list cat Rex) CxE)
                               (v/ask? kb (list dog Rex) CxE)
                               (mapv :violation (v/violations kb))]))))))
-              (permutations [:cat :dog :disjoint]))]
+              (tu/orders [:cat :dog :disjoint]))]
     (is (= #{[true false true []]} outcomes)
         "CxB keeps the claim it wrote, CxE reads the monotonic winner, and nothing
          is refused")))
@@ -776,7 +771,7 @@
   ;; finds no clash.
   (doseq [cat-strength [:monotonic :default]]
     (testing (str "(cat Kit) is " cat-strength)
-      (doseq [order (permutations [:denial :chi :cat])]
+      (doseq [order (tu/orders [:denial :chi :cat])]
         (testing (pr-str (vec order))
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [CxA CxB chi_t dog_t cat_t Kit]
@@ -929,7 +924,7 @@
 
 (deftest a-reader-below-a-vantage-that-reads-the-clash-released-believes-the-loser
   (doseq [[place expected] release-table
-          order (permutations [:denial :chi :cat])]
+          order (tu/orders [:denial :chi :cat])]
     (with-release-kb
       (fn [kb ts]
         (let [steps (release-steps kb ts place)]
@@ -1002,10 +997,10 @@
 ;; the 24 orders, which places each nogood first at least once.
 
 (deftest a-defeat-two-nogoods-share-is-in-force-through-either-one
-  (shared-defeat-orders-agree (take-nth 4 (permutations [:cat :dog :not :disjoint]))))
+  (shared-defeat-orders-agree (take-nth 4 (tu/orders [:cat :dog :not :disjoint]))))
 
 (deftest ^:slow a-defeat-two-nogoods-share-is-in-force-through-either-one-in-every-order
-  (shared-defeat-orders-agree (permutations [:cat :dog :not :disjoint])))
+  (shared-defeat-orders-agree (tu/orders [:cat :dog :not :disjoint])))
 
 (deftest a-sibling-exception-releases-the-pair-at-the-readers-that-see-it
   ;;   CxUniverse  (genl t1 col) (genl t2 col) (sibling_disjoint col)
@@ -1103,10 +1098,10 @@
 (deftest a-separation-only-a-lower-context-sees-is-decided-there
   ;; Every order of the four ingredients the lattice turns on, with the vocabulary and
   ;; the wiring first; the slow twin moves the wiring too.
-  (deep-orders-agree (map #(into [:types :edges] %) (permutations [:a :b :decl :reveal]))))
+  (deep-orders-agree (map #(into [:types :edges] %) (tu/orders [:a :b :decl :reveal]))))
 
 (deftest ^:slow a-separation-only-a-lower-context-sees-is-decided-there-in-every-order
-  (deep-orders-agree (map #(into [:types] %) (permutations [:edges :a :b :decl :reveal]))))
+  (deep-orders-agree (map #(into [:types] %) (tu/orders [:edges :a :b :decl :reveal]))))
 
 (deftest a-separation-only-a-lower-context-sees-leaves-a-dilemma-there-alone
   ;; Both memberships default: CxV cannot rank them, so the pair is a dilemma for CxV
@@ -1180,7 +1175,7 @@
   ;;     └─ CxZ0 … CxZ3 see CxW
   ;; The ground sits inside the members' common descendants rather than beside them, so
   ;; the reader that first sees it is the context holding it.
-  (doseq [order (permutations [:a :b :decl])]
+  (doseq [order (tu/orders [:a :b :decl])]
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [CxA CxB CxW CxX CxY CxZ0 CxZ1 CxZ2 CxZ3 t1 t2 Pip]
         (types! kb t1 t2)
@@ -1253,11 +1248,11 @@
     (is (= chain-decided (chain-run tu/fresh order (constantly {}))) (pr-str order))))
 
 (deftest a-chain-whose-steps-sit-in-three-contexts-is-decided-where-all-three-are-seen
-  (chain-orders-agree (map #(into [:edges] %) (permutations [:mark :ab :bc :ac]))))
+  (chain-orders-agree (map #(into [:edges] %) (tu/orders [:mark :ab :bc :ac]))))
 
 (deftest ^:slow a-chain-whose-steps-sit-in-three-contexts-is-decided-in-every-order
   ;; the wiring moves too; the predicate's arity declaration rides with it
-  (chain-orders-agree (permutations [:edges :mark :ab :bc :ac])))
+  (chain-orders-agree (tu/orders [:edges :mark :ab :bc :ac])))
 
 (deftest a-chain-whose-steps-sit-in-three-contexts-reads-as-one-context-reads-it
   ;; The three tuples in one context: what that context believes is what CxW believes of

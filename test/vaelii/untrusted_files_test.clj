@@ -26,19 +26,11 @@
             [vaelii.impl.io.import :as import]
             [vaelii.impl.io.thaw :as safe]
             [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+  (:import (java.io File)))
 
 ;; ---- scaffolding ---------------------------------------------------------
 
 (defrecord Probe [a])
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-untrusted-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d] (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- ex-data-of
   "The `ex-data` of the `ExceptionInfo` `f` throws, or `::none`."
@@ -130,7 +122,7 @@
   ;; The entry point where a dump is actually read: `read-chunked-seq` over a stream file whose
   ;; second frame names a class.  The first frame is ordinary, so the refusal is the
   ;; frame's and not the file's.
-  (let [d (temp-dir "stream")]
+  (let [d (tu/temp-dir "vaelii-untrusted-" "stream" "-")]
     (try
       (let [f (str (.getPath d) "/hostile.nippy.stream")]
         (frames/write-frames! f [{:handle 1} (->Probe 2)]
@@ -138,14 +130,14 @@
         (let [e (ex-data-of #(doall (frames/read-chunked-seq f :none)))]
           (is (= :disallowed-class (:type e)))
           (is (= "vaelii.untrusted_files_test.Probe" (:class e)))))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (deftest what-a-dump-and-a-store-carry-is-nothing-the-entry-point-refuses
   ;; The allowlist is empty because the formats state no class — the export's own
   ;; non-negotiable rule, and the disk codec's positional frames.  This is that claim
   ;; exercised rather than restated: a KB out to a dump and back, and a durable store
   ;; closed and reopened, with the entry point armed throughout.
-  (let [d (temp-dir "roundtrip")]
+  (let [d (tu/temp-dir "vaelii-untrusted-" "roundtrip" "-")]
     (try
       (let [store (str (.getPath d) "/store")
             dump  (str (.getPath d) "/dump")]
@@ -166,7 +158,7 @@
         (let [into-kb (v/open-kb {:space [::untrusted 1] :recover? false})]
           (is (= 4 (:sentexes (v/import! into-kb dump)))
               "and so does the dump")))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 ;; ---- the expected nippy version behind the attachment points -----------
 
@@ -222,7 +214,7 @@
      (spit path (str head pad)))))
 
 (deftest a-manifest-over-the-bound-is-refused-by-name
-  (let [d (temp-dir "manifest")]
+  (let [d (tu/temp-dir "vaelii-untrusted-" "manifest" "-")]
     (try
       (let [small (.getPath (io/file d "small.edn"))
             big   (.getPath (io/file d "meta.edn"))]
@@ -239,11 +231,11 @@
           (is (= :manifest-too-large (:type (ex-data-of #(import/read-meta (.getPath d)))))))
         (testing "so is discovery, which reads the manifest of every directory it walks"
           (is (= :manifest-too-large (:type (ex-data-of #(catalog/classify d)))))))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (deftest a-store-sentinel-over-the-bound-is-refused-at-open-kb
   ;; The padded form states a supported version, so the size is the only thing refused.
-  (let [d   (temp-dir "sentinel")
+  (let [d   (tu/temp-dir "vaelii-untrusted-" "sentinel" "-")
         fmt (io/file d "records" "format.edn")]
     (try
       (.mkdirs (.getParentFile fmt))
@@ -252,14 +244,14 @@
         (is (= :manifest-too-large (:type e)))
         (is (= (.getCanonicalFile fmt) (.getCanonicalFile (io/file (str (:file e)))))))
       (finally (try (backend/close-dir! (.getPath d)) (catch Throwable _ nil))
-               (rm-rf! d)))))
+               (tu/rm-rf! d)))))
 
 (deftest an-index-sentinel-over-the-bound-is-read-under-the-bound
   ;; Both sentinels state a value the reader would accept, padded past the bound.  The
   ;; layout version is a cache's, so past the bound it proves nothing and reads `:stale`
   ;; (a rebuild), as a torn one does; the records identity decides which store an index
   ;; answers for, so it is refused by name.
-  (let [d (temp-dir "index-sentinels")]
+  (let [d (tu/temp-dir "vaelii-untrusted-" "index-sentinels" "-")]
     (try
       (write-manifest! (.getPath (io/file d "layout.edn")) (+ dfiles/manifest-bytes 4096)
                        "{:index-layout 7}")
@@ -268,10 +260,10 @@
       (is (= :stale (dfiles/index-layout-decision (.getPath d) 7 true)))
       (is (= :manifest-too-large
              (:type (ex-data-of #(dfiles/records-identity (.getPath d))))))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (deftest a-manifest-cut-mid-form-is-refused-by-name
-  (let [d (temp-dir "manifest-cut")]
+  (let [d (tu/temp-dir "vaelii-untrusted-" "manifest-cut" "-")]
     (try
       (let [cut (.getPath (io/file d "meta.edn"))]
         (spit cut "{:format :vaelii/export :format-version")
@@ -279,22 +271,22 @@
           (let [e (ex-data-of #(import/read-edn-manifest cut))]
             (is (= :malformed-manifest (:type e)))
             (is (= cut (:file e))))))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (deftest a-malformed-manifest-is-still-not-a-kb-rather-than-an-error
   ;; The bound is the one thing discovery treats as an error.  Garbage under the right
   ;; filename stays what it was: a directory that is not a source.
-  (let [d (temp-dir "malformed")]
+  (let [d (tu/temp-dir "vaelii-untrusted-" "malformed" "-")]
     (try
       (spit (str (.getPath d) "/meta.edn") "{:format :vaelii/export ")
       (is (nil? (catalog/classify d))
           "an unreadable manifest makes the directory not a KB, and says so by absence")
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (deftest a-text-kb-form-that-does-not-read-is-refused-by-file-and-line
   ;; `kb-diff` sends a refusal's message over the wire, so the message names the file
   ;; and the line and quotes nothing the file holds (`zzSecret` stands for that content).
-  (let [d (temp-dir "text")
+  (let [d (tu/temp-dir "vaelii-untrusted-" "text" "-")
         f (io/file d "CxA.txt")]
     (try
       (doseq [[label line] [["an unknown tag" "(weighs Fido #zzSecret \"x\")"]
@@ -306,7 +298,7 @@
                        (catch clojure.lang.ExceptionInfo e e))]
             (is (= {:type :unreadable :file (.getPath f) :line 4} (ex-data e)))
             (is (not (str/includes? (str (ex-message e)) "zzSecret"))))))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (deftest every-thaw-in-the-engine-goes-through-the-entry-point
   ;; The reasoning image's two sections were thawed with bare nippy, so a class named

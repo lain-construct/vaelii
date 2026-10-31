@@ -313,4 +313,73 @@ separates and constrains nothing, so it convicts nothing here either.
 
     lein cli quality --dir /path/to/kb        # the report, as a document
 
-That is the only consumer in the tree, and it is what keeps the pair exercised.
+The browser's `/quality` page is the other consumer: it runs `kb-quality` as a job and
+renders the map, one region per reading in `quality-report`'s order
+([web.md](web.md#the-health-report)).
+
+## The result map
+
+`kb-quality` answers one map of seven keys, each a distribution rather than a number.
+Data, not a printer: `quality-report` renders this same map, so nothing prints a figure the
+data does not hold. Listed sets hold at most `:limit` entries (default 25), and the counts
+beside them are the headline. `:on-progress` is called with `{:phase :done :total}` as each
+phase advances and may throw to cancel; the reading is of current state, so a half-finished
+one is discarded. An unknown option is refused (`:unknown-option`).
+
+```
+:rules     {:total n :never [{:handle :sentence :context} …] :never-count n
+            :all-defeated […] :all-defeated-count n :fired n :firings n :truncated? b}
+           ; :firings is every recorded firing in the KB, the defeated ones included —
+           ; not the live rules' share of them
+:extents   {:predicates n :with-extent n :stored n :gini d :buckets {k n}
+            :heaviest [[pred n] …]}
+:chains    {:functors n :components n :cyclic n :largest n :rules n
+            :depths {depth n} :at-least {depth fraction}}
+:taxonomy  {:names n :edged n :root term :rooted n :islands n}
+:declarations {:total n :stranded-count n :truncated? b
+               :stranded [{:handle :sentence :context :predicate :position
+                           :arity :via :message} …]
+               :typed-thing-count n
+               :typed-thing [{:handle :sentence :context :facts} …]}
+           ; argument constraints naming a position their predicate does not have.
+           ; :message is the one the check itself wrote, so this map and
+           ; `try-assert`'s refusal say the same thing in the same words.  :typed-thing lists the
+           ; declarations typing a position `thing`, which mint nothing, each with
+           ; its predicate's stored extent
+:subsumption {:total n :subsumed-count n :truncated? b
+              :subsumed [{:subsumed h2 :by h1 :substitution σ :context C
+                          :sentence :by-sentence} …]}
+           ; rules another stored rule already covers — h1 fires wherever h2 does and
+           ; concludes at least as much, under σ
+:clashes  {:total n :pair-count n :truncated? b
+           :pairs [{:rules [h1 h2] :kind :negation|:disjoint|:functional|:asymmetric
+                    :unifier σ :context C :excepted b :sentences [s1 s2]} …]}
+           ; rule pairs that would contradict each other if both fired. :excepted
+           ; marks the intended shape — one of the two carries an `exceptWhen`
+           ; naming the other's case, so the clash is already stated
+```
+
+`:firings` counts every recorded firing in the KB, the defeated ones included, not the live
+rules' share of them. The `:declarations` `:message` is the one the check itself wrote, so
+this map and `try-assert`'s refusal say the same thing. `:typed-thing` lists the
+declarations typing a position `thing`, which mint nothing, each with its predicate's stored
+extent. `:subsumption` lists rules another stored rule already covers, and `:clashes` lists
+rule pairs that would contradict each other if both fired, with `:excepted` marking a pair
+where one carries an `exceptWhen` naming the other's case.
+
+`:taxonomy`, `:declarations` and `:clashes` count the findings behind `kb-integrity`'s
+`:taxonomy-island`, `:stranded-declaration`, `:rule-clash` and `:rule-clash-review`
+categories, which are where a caller wanting a verdict reads them
+([integrity.md](integrity.md)). A stranded declaration constrains nothing, refuses nothing
+and mints nothing, so it is a sweep question and not a `violations` entry; a wrong-length
+fact is a nogood the settle places ([taxonomy.md](taxonomy.md)). `:subsumption` and
+`:clashes` are static analysis of the rules: no inference runs, no fact is consulted, and
+belief is read of the declarations they consult (`genl`, `disjoint`, `functional`,
+`asymmetric`) rather than of the rules, so a rule the KB currently disbelieves still counts.
+
+Rules are enumerated from the rule index, so a rule the index cannot key by any predicate
+(an `:inert` one written with a variable functor throughout) is outside the census. Cost is
+O(terms + rules + firings + genl edges + declarations x super-predicates + candidate rule
+pairs): the vocabulary and the rule set, walked once each, never the KB. A write landing
+mid-report can leave a count and a list disagreeing by one, since the read takes no
+snapshot.

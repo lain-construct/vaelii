@@ -35,9 +35,6 @@
   [s]
   (contains? '#{contradicts defeat} (first s)))
 
-(defn- except-rule [exception antes conseq]
-  (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
-
 ;; ---- 1. the property everything rests on ---------------------------------
 
 (tu/deftest-kb a-preview-leaves-the-kb-byte-identical
@@ -209,7 +206,7 @@
 
 (tu/deftest-kb previewing-the-fact-that-triggers-an-exception-reports-the-block
   (tu/with-terms [bird penguin flies Opus CxStory]
-    (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+    (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
               CxStory)
     (v/assert kb (list bird Opus) CxStory)
     (let [ch     (v/handle-of kb (list flies Opus) CxStory)
@@ -226,7 +223,7 @@
 
 (tu/deftest-kb previewing-a-removal-that-releases-an-exception-reports-the-revival
   (tu/with-terms [bird penguin flies Opus CxStory]
-    (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+    (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
               CxStory)
     (v/assert kb (list bird Opus) CxStory)
     (let [ph     (v/assert kb (list penguin Opus) CxStory {:strength :monotonic})
@@ -584,7 +581,7 @@
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-blocks-a-conclusion
   (tu/with-terms [bird penguin flies Opus CxStory]
-    (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+    (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
               CxStory)
     (v/assert kb (list bird Opus) CxStory)
     (let [batch {:add [[(list penguin Opus) CxStory]]}]
@@ -599,7 +596,7 @@
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-releases-an-exception
   (tu/with-terms [bird penguin flies Opus CxStory]
-    (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+    (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
               CxStory)
     (v/assert kb (list bird Opus) CxStory)
     (let [ph    (v/assert kb (list penguin Opus) CxStory)
@@ -616,7 +613,7 @@
   ;; is read in CxStory, or in CxLow below it
   (doseq [low? [false true]]
     (tu/with-terms [bird penguin flies Opus CxStory CxLow]
-      (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b)) CxStory)
+      (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b)) CxStory)
       (v/assert kb (list bird Opus) CxStory {:strength :monotonic})
       (v/assert kb (list 'genlCx CxLow CxStory) 'CxUniverse {:strength :monotonic})
       (let [ph    (v/assert kb (list penguin Opus) CxStory)
@@ -691,9 +688,9 @@
               touched (atom 0)
               real   @#'clashes/reports-over
               opened clashes/opened
-              r      (with-redefs [clashes/reports-over (fn [kb hs]
+              r      (with-redefs [clashes/reports-over (fn [kb hs defeats?]
                                                           (swap! read + (count hs))
-                                                          (real kb hs))
+                                                          (real kb hs defeats?))
                                    clashes/opened       (fn [kb w]
                                                           (reset! touched (count w))
                                                           (opened kb w))]

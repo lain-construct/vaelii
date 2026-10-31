@@ -1103,6 +1103,9 @@
   ;; beside `(fruit …)` and stores the clash (docs/argtypes.md)
   (tu/without-entailing
    (tu/with-terms [FruitFn AppleTree Pear Orchard fruit beast keeperOf bears grownIn tagged]
+     ;; the shared KB's ledger holds other tests' entries, and the last checks read the
+     ;; entries this test's writes filed
+     (v/clear-violations! kb)
      (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
      (v/assert kb (list 'genl fruit 'thing) 'CxUniverse)
      (v/assert kb (list 'genl beast 'thing) 'CxUniverse)
@@ -1129,13 +1132,6 @@
 
 ;; ---- an open application read through its corresponding predicate --------
 
-(defn- orders
-  "Every ordering of `xs`."
-  [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (orders (remove #{x} xs))] (cons x more))))
-
 (defn- answers
   "`goal`'s answers in `ctx` (CxUniverse) under `engine`, projected onto `vars`, as a set."
   ([kb engine goal vars] (answers kb engine goal vars 'CxUniverse))
@@ -1156,7 +1152,7 @@
   ;; and the fact the mint names.  Every engine reads the respelled rules alike.  The
   ;; backward rule's consequent stays as written, so no goal over the application or its
   ;; constant reaches it, and an open goal binds the application as written.
-  (doseq [order (orders [:mark :corr :rules :fact])]
+  (doseq [order (tu/orders [:mark :corr :rules :fact])]
     (tu/with-terms [FruitFn AppleTree Orchard Ann bears grownIn tagged ripe sweet fruitOf favoriteFood]
       (let [steps {:mark  [(list 'reifiable_function FruitFn)]
                    :corr  [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
@@ -1194,7 +1190,7 @@
   ;; the firing mints both applications before it stores the equality, as `assert` of
   ;; the same sentence does, so the equals check reads each as the constant it becomes
   (doseq [corr? [false true]
-          order (orders (cond-> [:mark :rule :fact] corr? (conj :corr)))]
+          order (tu/orders (cond-> [:mark :rule :fact] corr? (conj :corr)))]
     (tu/with-terms [PairFn Ann Bob Cal Dee linkedQuad pairOf CxA]
       (let [mono  {:strength :monotonic}
             steps {:mark [(list 'reifiable_function PairFn) 'CxUniverse]
@@ -1204,6 +1200,9 @@
                                       (list 'equals (list PairFn '?a '?b) (list PairFn '?c '?d))))
                           CxA]
                    :fact [(list linkedQuad Ann Bob Cal Dee) CxA]}]
+        ;; the shared KB's ledger holds other tests' entries, and the last check reads
+        ;; the entries this order's writes filed
+        (v/clear-violations! kb)
         (doseq [s [(list 'binary_function PairFn) (list 'arity linkedQuad 4)
                    (list 'forced_monotonic_predicate linkedQuad) (list 'genlCx CxA 'CxUniverse)]]
           (v/assert kb s 'CxUniverse mono))
@@ -1277,7 +1276,7 @@
   ;; the three goals answer alike whether the value is the constant the mint names or a
   ;; term the KB states, whichever of the mark, the correspondence and the facts arrive first
   (doseq [value [:minted :stated]
-          order (orders [:mark :corr :facts])]
+          order (tu/orders [:mark :corr :facts])]
     (tu/with-terms [FruitFn AppleTree Gala Ann favoriteFood fruitOf]
       (let [steps {:mark  [(list 'reifiable_function FruitFn)]
                    :corr  [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
@@ -1333,7 +1332,7 @@
                                          (catch clojure.lang.ExceptionInfo e e)))))))))
 
 (tu/deftest-kb a-rule-is-stored-once-per-believed-correspondence-in-every-order
-  (doseq [order (orders [:fruit :produces :rule :facts])]
+  (doseq [order (tu/orders [:fruit :produces :rule :facts])]
     (tu/with-terms [FruitFn AppleTree PearTree Gala Bosc tagged ripe fruitOf producesFruit]
       (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
       (let [steps {:fruit    [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
@@ -1413,7 +1412,7 @@
   ;; the declaration's context once the edge is in, a rule in CxUniverse, and a rule whose
   ;; context meets the declaration's only in CxBoth; then the edge leaves
   (doseq [variant (keys meet-variants)
-          order   (orders [:corr :rule :facts :edge])]
+          order   (tu/orders [:corr :rule :facts :edge])]
     (tu/with-terms [FruitFn AppleTree Gala Ann tagged ripe fruitOf favoriteFood CxSide CxLow CxBoth]
       (let [{:keys [hs row]} (meet-run! kb variant order {:FruitFn FruitFn :AppleTree AppleTree :Gala Gala
                                                           :Ann Ann :tagged tagged :ripe ripe :fruitOf fruitOf
@@ -1474,7 +1473,7 @@
   ;; firing stores the asserted spelling, and with no correspondence only the rule whose
   ;; application sits outside a proposition is held
   (doseq [corr? [true false]
-          order (orders (cond-> [:rules :facts] corr? (conj :corr)))]
+          order (tu/orders (cond-> [:rules :facts] corr? (conj :corr)))]
     (tu/with-terms [FruitFn Ann Bob Apple Pear likes fanOf admires tagged fruitOf]
       (let [bob   (list 'believes Bob (list likes Bob (list FruitFn Pear)))
             steps {:corr  [(list 'functionCorrespondingPredicate FruitFn fruitOf)]
@@ -1514,7 +1513,7 @@
   ;; the declaration types holdsIn's second position `sentence` directly, or `note` that a
   ;; `genl` edge puts under it; the last removal holds the rules again
   (doseq [via   [:direct :genl]
-          order (orders (cond-> [:arg :rules :fact] (= via :genl) (conj :genl)))]
+          order (tu/orders (cond-> [:arg :rules :fact] (= via :genl) (conj :genl)))]
     (tu/with-terms [Doc Rex dog note holdsIn heardOf toldOf]
       (let [steps {:arg   [(list 'arg holdsIn 2 (if (= via :genl) note 'sentence))]
                    :genl  [(list 'genl note 'sentence)]
@@ -1660,7 +1659,7 @@
         (str other))))
 
 (deftest a-value-in-a-context-retires-the-placeholder-there-alone-in-every-order
-  (doseq [order (orders [:decl :fact :use :edge])]
+  (doseq [order (tu/orders [:decl :fact :use :edge])]
     (is (= {:story true :universe false :placeholder 1}
            (on-own-kb
             (fn [kb]
@@ -1716,7 +1715,7 @@
 (deftest a-default-value-reads-the-same-in-every-order
   (tu/with-terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
     (let [terms [MomFn momOf Muffet Mary Tom Ann likes fond warm CxStory]
-          runs  (for [order (orders [:decl :fact :use :rules])]
+          runs  (for [order (tu/orders [:decl :fact :use :rules])]
                   (on-own-kb (fn [kb]
                                (default-value-kb! kb terms order)
                                {:content  (believed-content kb)
@@ -1793,7 +1792,7 @@
   whose handle it names."
   [rival]
   (filterv #(or (= :deny rival) (< (.indexOf ^java.util.List % :jane) (.indexOf ^java.util.List % :exc)))
-           (map vec (orders [:decl :mary :jane rival :use]))))
+           (map vec (tu/orders [:decl :mary :jane rival :use]))))
 
 (defn- rival-value-runs
   "`{:content :copies}` after each of `orders` on a KB of its own: the believed set
@@ -1829,7 +1828,7 @@
   (tu/with-terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
     (let [terms [MomFn momOf Muffet Mary Jane Tom likes CxStory]
           copy  (list likes Tom Mary)
-          runs  (for [order (map vec (orders [:decl :mary :use :exc-use]))
+          runs  (for [order (map vec (tu/orders [:decl :mary :use :exc-use]))
                       :when (< (.indexOf ^java.util.List order :use) (.indexOf ^java.util.List order :exc-use))]
                   (on-own-kb (fn [kb]
                                (let [hs   (rival-value-kb kb terms order)
@@ -1944,7 +1943,7 @@
 
 (deftest two-rewriteof-targets-mint-the-expression-in-every-order
   ;; CxD sees CxA and CxB (both state Mary) and CxC (states Jane)
-  (doseq [order (orders '[CxA CxB CxC])]
+  (doseq [order (tu/orders '[CxA CxB CxC])]
     (is (true? (on-own-kb
                 (fn [kb]
                   (v/assert kb '(reifiable_function MotherFn) 'CxUniverse)
@@ -1981,13 +1980,13 @@
                              [(rewriteOf Mary (MotherFn Muffet)) CxUniverse]
                              [(likes Tom (MotherFn Muffet)) CxNew]] CxNew]]
           :let  [fresh (rewrite-reads steps reader)]
-          order (orders steps)]
+          order (tu/orders steps)]
     (is (= {:application true :target true} fresh))
     (is (= fresh (rewrite-reads order reader)) (pr-str order))))
 
 (deftest a-collision-a-merge-joins-in-a-context-is-repaired-there-in-every-order
   ;; `[asked in CxQ, asked in CxQ, asked in CxUniverse, repair equalities in CxQ]`
-  (doseq [order (orders [:apple :malus :merge :edge])]
+  (doseq [order (tu/orders [:apple :malus :merge :edge])]
     (is (= [true true false 1]
            (on-own-kb
             (fn [kb]

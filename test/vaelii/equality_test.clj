@@ -46,13 +46,6 @@
   (concat (keep :sentence (vals (:nodes w)))
           (keep :rule (mapcat :support (vals (:nodes w))))))
 
-(defn- permutations [coll]
-  (if (<= (count coll) 1)
-    (list (seq coll))
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 ;; ---- 1. the three relations and one closure ------------------------------
 
 (tu/deftest-kb rewrite-of-deprecates-its-second-argument-whatever-the-spelling
@@ -134,7 +127,7 @@
                                    (let [k (tu/isolated-fresh)]
                                      (doseq [op ordering] (op k))
                                      (observe k))))
-                        (permutations ops))]
+                        (tu/permutations ops))]
       (is (= 1 (count results))
           (str "the representative moved with assertion order — "
                (count results) " distinct outcomes across 24 orderings: "
@@ -240,11 +233,11 @@
 (deftest a-rule-naming-a-retired-spelling-fires-under-the-representative-in-every-order
   (testing "the merge standing: the rule's twin fires on the fact's twin"
     (is (= #{#{'(knows Tom Pref)}}
-           (into #{} (map retired-spelling-rule-reading) (permutations [:rule :fact :merge])))))
+           (into #{} (map retired-spelling-rule-reading) (tu/permutations [:rule :fact :merge])))))
   (testing "the merge retracted: the KB that never had it"
     (is (= #{#{'(knows Tom Dep)}}
            (into #{} (map #(retired-spelling-rule-reading (concat % [:unmerge])))
-                 (permutations [:rule :fact :merge]))
+                 (tu/permutations [:rule :fact :merge]))
            #{(retired-spelling-rule-reading [:rule :fact])}))))
 
 (tu/deftest-kb merging-two-spellings-of-one-fact-yields-one-handle-with-two-supports
@@ -297,10 +290,10 @@
 (deftest a-firing-that-climbed-a-merged-type-s-edge-holds-in-every-arrival-order
   (doseq [upper [:mammal :mammalia]]
     (is (= #{true} (into #{} (map #(climbed-reading upper %))
-                         (permutations [:ground :e1 :e2 :merge])))
+                         (tu/permutations [:ground :e1 :e2 :merge])))
         (str upper)))
   (is (= #{true} (into #{} (map #(climbed-reading :mammalia (concat [:merge :except] % [:unexcept])))
-                       (permutations [:ground :e1 :e2])))
+                       (tu/permutations [:ground :e1 :e2])))
       "the except leaves"))
 
 ;; ---- 3. congruence -------------------------------------------------------
@@ -814,7 +807,7 @@
   (doseq [tail [[] [:unmerge]]]
     (is (= #{#{'(aliasOf Lo Lo) '(sameAs Lo Hi) '(sameAs Lo Lo)}}
            (into #{} (map #(stated-and-derived-merge-reading (concat % tail)))
-                 (permutations [:fact :rule :merge])))
+                 (tu/permutations [:fact :rule :merge])))
         (pr-str tail))))
 
 ;; ---- 8. disjointness -----------------------------------------------------
@@ -1227,7 +1220,7 @@
         (is (<= (:asks tally) 4) "the guard is asked of the two firings naming a merged term")
         (is (= (into [false] (repeat 7 true)) believed)))
       (is (= #{(into [false] (repeat 7 true))}
-             (set (map #(:believed (reading % false)) (permutations [:rule :facts :merges]))))
+             (set (map #(:believed (reading % false)) (tu/permutations [:rule :facts :merges]))))
           "every arrival order believes the same firings"))))
 
 (def ^:private undone {:unmerge :merge :unac :ac :unindet :indet :unedge :edge})
@@ -1273,7 +1266,7 @@
           [["a merge in a context the placement does not see" :other [true true false false]]
            ["a merge at the placement" :main [false false false false]]]]
     (testing label
-      (let [orders (permutations [:rule :fact :merge])]
+      (let [orders (tu/permutations [:rule :fact :merge])]
         (is (= #{expected} (set (map #(different-guard-reading :main there %) orders))))
         (testing "and retracting the merge gives the reading of a load without it"
           (is (= #{(different-guard-reading :main there [:rule :fact])}
@@ -1286,7 +1279,7 @@
   (doseq [[label flip unflip] [["a merge" :merge :unmerge]
                                ["an indeterminate_term membership" :indet :unindet]]]
     (testing label
-      (let [orders (permutations [:rule :fact flip :edge])]
+      (let [orders (tu/permutations [:rule :fact flip :edge])]
         (is (= #{[true true false false]}
                (set (map #(different-guard-reading :main :other %) orders))))
         (testing "and retracting the flip or the edge gives the reading of a load without it"
@@ -1316,15 +1309,15 @@
                (set (map #(different-guard-reading :main :other (concat % undo)) orders))))))))
 
 (deftest ^:slow a-restatement-is-withdrawn-with-a-link-it-rests-on-in-every-order
-  (restatement-link-rows permutations))
+  (restatement-link-rows tu/permutations))
 
 (deftest a-restatement-is-withdrawn-with-a-link-it-rests-on-with-the-rule-and-fact-first
   ;; the sampled twin of the sweep above: the merges and the edge in every order
-  (restatement-link-rows (fn [ops] (map #(concat (take 2 ops) %) (permutations (drop 2 ops))))))
+  (restatement-link-rows (fn [ops] (map #(concat (take 2 ops) %) (tu/permutations (drop 2 ops))))))
 
 (deftest the-predall-indeterminacy-example-agrees-in-every-order
   ;; docs/predall.md, "A `different` guard is re-checked, not supported".
-  (let [orders (permutations [:rule :fact :indet])]
+  (let [orders (tu/permutations [:rule :fact :indet])]
     (is (= #{[false false false false]}
            (set (map #(different-guard-reading :universe :universe %) orders))))
     (is (= #{[true true true true]}

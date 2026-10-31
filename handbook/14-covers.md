@@ -123,7 +123,8 @@ two answers pick the spelling.
 ## A cover states the edges it rests on
 
 **Practice.** Do not write `(genl Part Whole)` beside a cover that names the part. Where a
-file states the edge anyway, a `;;` note says which exception of **state it once** applies.
+file states the edge anyway, an `(acknowledgedFinding :derivable-stated-edge (genl Part
+Whole) "reason")` record says which exception of **state it once** applies.
 
 **Example.** The header of `organism.txt` says that `(separating organism animal plant)`
 states both `genl` edges and the separation, so no `(genl plant organism)` or `(disjoint
@@ -146,7 +147,9 @@ whole, and a part the closure already places above the whole. Each is refused as
 cover and the `disjoint` together as a hard clash.
 
 **Audit.** Run `kb-integrity` with `:categories #{:derivable-stated-edge}`. A stated
-`genl` that a cover also installs is reported with `:also-stated-by` naming the cover.
+`genl` that a cover also installs is reported with `:also-stated-by` naming the cover, and
+with `:acknowledged` when a record names its exception. A finding with no `:acknowledged`
+is an edge to drop or to acknowledge.
 
 ## partitionedByType
 

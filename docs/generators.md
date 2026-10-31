@@ -125,14 +125,17 @@ level further out fills it.
 
 The wrapper rides **inside** the consequent, where substitution never touches it, and
 sets the direction of the rule that gets stored: `set/forwardRule`,
-`set/forwardOnlyRule`, `set/backwardRule`, `set/inertRule`. `set/defaultRule` rides there too and makes the
+`set/forwardOnlyRule`, `set/backwardRule`, `set/lazyForwardRule`, `set/inertRule`. `set/defaultRule` rides there too and makes the
 generated rule defeasible rather than setting its direction. That is the only place
 either can be written for a rule nobody types out. A generated rule with no direction
 wrapper is **backward** like any other bare rule, so a generator whose generated rule is
 meant to materialize facts writes `set/forwardRule` or `set/forwardOnlyRule` inside the
 consequent — the shipped `predAllInstance` generator writes the first, and
-`relationTypeByArity` the second, since the converse it generates beside it is backward
-and the two would otherwise be a backward cycle.
+`relationTypeByArity` the second, since the converse it generates beside it is
+lazy-forward and the two would otherwise be a backward cycle. The lazy-forward converse
+`(binary ?r) ⇒ (arity ?r 2)` lets a forward rule guarded on `(arity ?r ?n)` fire for a
+relation its exact-arity class declares, and stores no arity
+([inference.md](inference.md#a-lazy-forward-rule)).
 
 The **generator itself defaults to forward**, even bare. Its conclusion is a rule, and no
 backward goal asks for one — `res/concluding-rule-handles` reads a goal's predicate, and a
@@ -233,17 +236,20 @@ skolemize, since the generated rule's free variables are its own ([skolem.md](sk
 one level further and stops; a cycle generates forever. That is why the refusal is on the
 cycle and the nesting is left to the author.
 
-**A generator cycle** is a generator whose **innermost** conclusion is a predicate some
-generator reads in an antecedent it generates from — itself included. The innermost, because
-that is the only level that concludes a fact: the levels above it conclude rules, filed
-under `implies`, which no fact carries and no goal asks for. It is refused outright
-rather than depth-capped
-([why](defenses.md#a-generator-cycle-is-refused-not-depth-capped)) — the call
+**A generator cycle** is a path of feeds that returns to the generator it starts from. One
+generator feeds another when its **innermost** conclusion is a predicate the other reads in
+an antecedent it generates from; a generator that feeds itself is a cycle of one. The
+innermost, because that is the only level that concludes a fact: the levels above it
+conclude rules, filed under `implies`, which no fact carries and no goal asks for. A
+variable functor names no predicate, so a generator concluding one feeds nothing and a
+generator reading one is fed by nothing. A feed with no path back is a finite chain:
+core.txt's `partitionedByType` generator concludes `genl`, and a generator reading `genl`
+to conclude a predicate no generator reads passes. A cycle is refused outright rather than
+depth-capped ([why](defenses.md#a-generator-cycle-is-refused-not-depth-capped)) — the call
 [exceptions.md](exceptions.md) makes for a cycle through negation, for the same reason.
-The check runs in both directions at every
-generator's assert — the arriving one may generate what a stored one reads, or read what a
-stored one generates — because checking only one would admit the cycle whenever the two
-were asserted in the other order.
+Each generator's assert walks the feeds from the arriving generator over every stored one.
+Every stored generator passed the same walk, so a cycle the arrival closes runs through the
+arrival, and the refusal falls on whichever member of the loop arrives last.
 
 ## What this is not
 

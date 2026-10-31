@@ -117,11 +117,10 @@ remain true.
 
 **Why not the other ways.** Removing the separation and fixing the one witness that
 prompted the removal leaves every other reopened pair `:unknown` with no decision.
-Weakening a separation to `:default` does not reopen any pair, because `disjoint` is
-forced-monotonic and holds at either strength ([ch. 24](24-strength.md)).
-
-*In development:* `disjoint` as a forced-monotonic predicate is in development
-([ch. 24](24-strength.md#the-forced-monotonic-set)).
+Weakening a separation to `:default` reopens no pair at the contexts that believe it, and
+it lets a context that denies the separation `:monotonic` defeat it there
+([ch. 24](24-strength.md#catbus-principle)). The weakening is a decision about fiction,
+not a removal.
 
 **Audit.** The change states the `:disjoint` and `:unknown` pair counts before and after,
 and names the lost pairs it does not restate.

@@ -197,16 +197,17 @@
         (p/put-sentex (:records kb) s')
         (when moved?
           (p/index-sentex (:index kb) s' h)
+          (kb/note-lazy-rule-moved! kb s')
           ;; the engines decide whether a `(?p …)` consequent concludes any predicate
           (rules/forget-stratification))
         (when (not= (boolean def?) (boolean (:defeasible stored)))
           (special/restrength-firings! kb h)
           ;; a rule's defeasibility decides whether it is a forced-monotonic rule
           (checks/force-sentexes! kb [s']))
-        ;; newly forward-capable: it has never been joined over the facts already stored
+        ;; newly forward-capable or lazy-forward: no join over the stored facts has read it
         (when (and (:chain? opts true)
-                   (rules/forward-sentex? s')
-                   (not (rules/forward-sentex? stored)))
+                   (or (and (rules/forward-sentex? s') (not (rules/forward-sentex? stored)))
+                       (and (rules/lazy-sentex? s') (not (rules/lazy-sentex? stored)))))
           (chain/chain-all kb [h] opts))
         (settle/settle-write kb (:chain? opts true))))))
 
@@ -431,6 +432,99 @@
     special/universal-context
     context))
 
+(defn- exceptWhen-handle
+  "The handle of the meta-sentex the `exceptWhen` halves `exc` and `inner`
+  (`rules/split-exceptWhen`) store in `context`, or nil: the rule found as `assert`
+  stores it, and the exception aligned to it as `assert` aligns it (`aligned-exception`).
+  nil for a rule `assert` stores as several, whose exceptions are one meta-sentex each."
+  [kb exc inner context]
+  (let [[h vm] (if (sx/sentex-handle? inner)
+                 (let [h (sx/handle-id inner)] [h (:varmap (p/get-sentex (:records kb) h))])
+                 (let [[form more] (rules/expand-rule inner)]
+                   (when-not more
+                     (when-let [h (kb/find-sentex-handle kb form context)]
+                       [h (:varmap (res/kb-sentex kb (rules/inner-rule form) context))]))))]
+    (when vm
+      (kb/find-sentex-handle kb (sx/exceptWhen-meta (aligned-exception exc vm) h) context))))
+
+(defn stored-handle
+  "The handle of the sentex `assert` would find `sentence` stored as in `context`, or nil;
+  it writes nothing.  A fact is read at its `storage-context` and a rule at its one stored
+  form, and an `(exceptWhen <query> <rule>)` answers the exception's meta-sentex."
+  [kb sentence context]
+  (let [s           (first (sx/peel-exception-strength sentence))
+        context     (storage-context kb (nm/functor (rules/inner-rule s)) context)
+        [exc inner] (rules/split-exceptWhen s)]
+    (if exc
+      (exceptWhen-handle kb exc inner context)
+      (kb/find-sentex-handle kb s context))))
+
+(defn- unresolved-reference
+  [sentence reference context why]
+  (ex-info (str "the reference " (pr-str reference) " in " (pr-str sentence) " names "
+                why " — a reference is resolved at assert and never stored, so assert the"
+                " sentence it names first")
+           {:type :unresolved-reference :sentence sentence :reference reference
+            :context context}))
+
+(defn- resolve-walk
+  "`resolve-references`' walk over `sentence`'s arguments, descending into a function term
+  (`res/reference-term?`) at a position that is no reference.  At `exceptWhen`'s rule
+  position only an `(ist Cx S)` is a reference: a bare rule there is the inline form
+  `assert` splits.  `resolve` is `resolve-reference`."
+  [kb sentence context refs resolve]
+  (let [compound? #(and (sequential? %) (seq %) (not (sx/sentex-handle? %)))
+        walk?     (and (sequential? sentence) (some compound? (rest sentence)))
+        ps        (or (when walk? (res/reference-positions kb (first sentence))) #{})
+        inline?   (= sx/except-wrapper (first sentence))
+        arg       (fn [i a]
+                    (cond
+                      (and (ps i) (compound? a) (or (not inline?) (ist-parts a)))
+                      (resolve kb sentence a context refs)
+                      (and (pos? i) (res/reference-term? a))
+                      (resolve-walk kb a context refs resolve)
+                      :else a))
+        args      (when walk? (into [] (map-indexed arg) sentence))]
+    (if (and args (not-every? true? (map identical? args sentence)))
+      (apply list args)
+      sentence)))
+
+(defn resolve-reference
+  "The `(sentexHandle H)` of the stored sentex the reference `a` in `sentence` names:
+  `(ist Cx S)` names `S` in `Cx`, and a bare `S` names it in `context`.  A reference inside
+  `S` is resolved first, each conj'd onto the volatile `refs` before `a` is, as
+  `{:reference a :context ctx :handle h}`.  Throws `:unresolved-reference` when no stored
+  sentex is `S`, and when `S` is a rule `assert` stores as several."
+  [kb sentence a context refs]
+  (let [[ctx s] (or (ist-parts a) [context a])
+        ctx     (nat/maybe-reify-context kb ctx false)
+        s       (resolve-walk kb (first (sx/peel-strength s nil)) ctx refs resolve-reference)]
+    (when (and (rules/rule-sentence? (rules/inner-rule s)) (next (rules/expand-rule s)))
+      (throw (unresolved-reference sentence a ctx
+                                   (str "a rule assert stores as " (count (rules/expand-rule s))
+                                        " rules, one per conjunct or alternative"))))
+    (if-let [h (stored-handle kb s ctx)]
+      (do (vswap! refs conj {:reference a :context ctx :handle h})
+          (sx/sentex-handle h))
+      (throw (unresolved-reference sentence a ctx (str "no sentex stored in " ctx))))))
+
+(defn references
+  "The references `sentence` holds in `context`, as `{:reference a :context ctx :handle h}`
+  in the order `resolve-references` resolves them, a reference inside `S` before `S`; it
+  writes nothing, and throws as `resolve-references` throws."
+  [kb sentence context]
+  (let [refs (volatile! [])]
+    (resolve-walk kb sentence context refs resolve-reference)
+    @refs))
+
+(defn resolve-references
+  "`sentence` with each reference at a `res/reference-positions` position replaced by the
+  `(sentexHandle H)` `resolve-reference` finds for it; a handle term stays.  Throws as
+  `resolve-reference` throws.  See docs/canonicalization.md, \"A reference to a stored
+  sentex\"."
+  [kb sentence context]
+  (resolve-walk kb sentence context (volatile! []) resolve-reference))
+
 ;; `(ist Ctx S)` handed to `assert` recurses into `assert` with the inner sentence
 ;; (`assert-one` below), and `assert` is defined after it — a genuine forward
 ;; reference, and the only one here: query and settle live below this namespace, in
@@ -482,7 +576,7 @@
     ;;
     ;; A *forced* universal predicate (e.g. genlCx) has its extent placed in
     ;; CxUniverse by force — no justification, the fact simply lives there.
-    (let [sentence (rules/inner-rule sentence)
+    (let [sentence (resolve-references kb (rules/inner-rule sentence) context)
           pred     (nm/functor sentence)
           context  (storage-context kb pred context)
           strength (get opts :strength :default)]
@@ -646,7 +740,7 @@
                 ;; ...and the class membership a metatype route derives, from this
                 ;; membership, or from the memberships this `genl` edge or class rise
                 ;; brings onto a route (`chain/arity-classes-moved!`)
-                cls   (chain/arity-classes-moved! kb [s] false)
+                cls   (chain/arity-classes-moved! kb [s] false chain/*rollback-scope*)
                 mig   (update mig :violations into
                               (concat (:violations lift) (:violations args)
                                       (:violations back) (:violations down)

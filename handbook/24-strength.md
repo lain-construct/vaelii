@@ -59,12 +59,12 @@ known-true sentences, and at least one of them is false.
 passes on the strength of its antecedents. Use `set/defaultRule` when the rule itself is
 the defeasible step.
 
-**Example.** `CxKinship.txt` states parenthood from fatherhood as a bare rule, so a
-`:monotonic` `fatherOf` fact concludes a `:monotonic` `parentOf` and a `:default` one
-concludes a `:default` `parentOf`:
+**Example.** `CxKinship.txt` states grandparenthood from two parenthood facts as a bare
+rule, so two `:monotonic` `parentOf` facts conclude a `:monotonic` `grandparentOf`, and a
+`:default` one among them concludes a `:default` `grandparentOf`:
 
 ```clojure
-(set/forwardRule (implies (and (fatherOf ?child ?father)) (parentOf ?father ?child)))
+(set/forwardRule (implies (and (parentOf ?x ?y) (parentOf ?y ?z)) (grandparentOf ?x ?z)))
 ```
 
 **Why.**
@@ -95,8 +95,8 @@ strength for one of their sentences. A forced-monotonic sentence written `:defau
 stored at `:default`, and the strength does not let it lose a nogood.
 
 **Example.** `core.txt` declares the set in the `comment` on `forced_monotonic_predicate`,
-which lists `genlCx`, the relation marks, the function classes, the definitional
-declarations, the arity bindings and policies, the term kinds, the argument declarations,
+which lists `genlCx`, the relation marks, the function classes, `orthogonal`, the arity
+bindings and policies, the term kinds, the argument declarations,
 the correspondence premises, `except`, `exceptWhen` and the equality relations, and states:
 
 ```clojure
@@ -108,11 +108,11 @@ the correspondence premises, `except`, `exceptWhen` and the equality relations, 
 - *Engine.* A forced-monotonic sentence is never the loser of a nogood, and a denial of it
   loses to it at either strength. It goes OUT only by retraction.
 - *Engine.* The separations, `disjoint`, `covering`, `partition`, `sibling_disjoint` and
-  `siblingDisjointException`, are in the set as grounds of the membership family. A
-  membership nogood's members are the memberships and denials alone; the separation is
-  read through and is never a member, so its strength never decides the verdict. The
-  denial a separation answers reads a believed separation as `:monotonic` whatever
-  strength it was written at.
+  `siblingDisjointException`, are not in the set. A separation keeps its written strength
+  and is a ground of the membership nogood, never a member, so the verdict weighs the
+  memberships alone. A stronger denial defeats a separation at the denial's context and
+  below, and every membership nogood resting on it is hidden there
+  ([catbus principle](#catbus-principle)).
 - *Engine.* A forced-monotonic sentence keeps its written strength as a cap on what is
   derived from it. A firing of a rule whose antecedent is a `:default` declaration is
   `:default`. A `genlCx` edge is the one exception and confers `:monotonic` at any
@@ -128,21 +128,14 @@ remove it everywhere, retract it.
 author means the strength as a record of the claim, and does not expect a nogood to defeat
 the sentence.
 
-*In development:* the separations' place in the forced-monotonic set is in development.
-The engine holds the five forced-monotonic: `core.txt` declares each with
-`forced_monotonic_predicate`, and the membership family's `:grounds` name them in code, so
-removing the declaration moves nothing. `catbus_test`'s
-`a-default-separation-yields-to-a-fiction-that-states-the-overlap` states the defeasible
-reading and is marked `^:red`. This section and [catbus principle](#catbus-principle)
-describe the engine as it runs.
-
 ## catbus principle
 *Monotonic until a real fiction needs the overlap*
 
 **Practice.** State a separation `:monotonic` in `CxUniverse` unless an existing fictional
 work shows a member of both types. One such work is enough: state the `CxUniverse`
-separation at `:default`, and restate it `:monotonic` in `CxRealWorld`, which fiction
-contexts do not see. A hypothetical example is not enough.
+separation at `:default`, restate it `:monotonic` in `CxRealWorld`, which fiction contexts
+do not see, and deny it `:monotonic` in the fiction's context. A hypothetical example is
+not enough.
 
 **Example.** The Catbus in *My Neighbor Totoro* is both a cat and a bus. `abstract.txt`
 states the one separation it breaks at `:default`, between two that are `:monotonic`:
@@ -154,32 +147,37 @@ states the one separation it breaks at `:default`, between two that are `:monoto
 ```
 
 The note above the first reads "animal and vehicle are disjoint at the default strength
-rather than monotonic: a fiction below CxWell may except the default and hold a term that
-is both." `CxRealWorld.txt` states `(set/monotonic (disjoint animal vehicle))`.
+rather than monotonic: a fiction below CxWell may deny the default monotonic and hold a
+term that is both." `CxRealWorld.txt` states `(set/monotonic (disjoint animal vehicle))`.
+The fiction's context states the overlap:
+
+```clojure composed
+;; in CxTotoro, a context under CxWell beside CxRealWorld
+(set/monotonic (not (disjoint animal vehicle)))
+(set/monotonic (cat Catbus))
+(set/monotonic (bus Catbus))
+```
 
 **Why.**
 
 - *Logical.* The default strength says the separation holds of the real world and of
   ordinary cases and that a fiction may break it. The `CxRealWorld` copy says the real
   world never does.
-- *Engine.* `catbus_test` places a fiction under `CxWell` and asserts a term as both a cat
-  and a bus at `:default`. The two memberships are a dilemma: both stay believed and
-  `contradictions` reports the pair. In `CxRealWorld`, a `:monotonic` cat membership beside
-  a `:default` bus membership is a nogood with a unique weakest member, and the bus
-  membership loses.
-- *Engine.* The separation's own strength decides neither outcome. `disjoint` is
-  forced-monotonic, so a `:default` separation is never defeated, and the membership
-  nogood's verdict reads only the members' strengths. An `except` stated in the fiction
-  hides the `CxUniverse` separation there at either strength. The `CxRealWorld` copy holds
-  the separation for the real world when an `except` of the `CxUniverse` copy is stated in
-  a context `CxRealWorld` sees, such as `CxWell`. The default strength also caps at
-  `:default` a firing whose antecedent is the separation.
+- *Engine.* The fiction's `:monotonic` denial and the `:default` `CxUniverse` separation
+  are a nogood, and the separation loses at the fiction's context and below. The
+  membership nogood over the catbus rests on the separation, so it is hidden there:
+  `catbus_test` asserts both memberships `:monotonic` in the fiction, both stay believed,
+  and `conflicts` does not report them. `CxRealWorld` does not see the fiction,
+  and its `:monotonic` copy is never defeated, so the separation stays believed there.
+- *Engine.* A fiction that states both memberships and no denial leaves the separation
+  standing, and the membership verdict reads the members' strengths alone: two `:default`
+  memberships are a dilemma that `contradictions` reports, and in `CxRealWorld` a
+  `:monotonic` cat membership beside a `:default` bus membership defeats the bus
+  membership. The default strength also caps at `:default` a firing whose antecedent is
+  the separation.
 - *Maintenance.* The strength and the restatement record, in the KB, which separations a
   known fiction breaks. A reader of `abstract.txt` sees the decision and its reason beside
   the sentence.
-
-*In development:* the separation's strength deciding the fiction case is in development
-([the forced-monotonic set](#the-forced-monotonic-set)).
 
 **Why not the other ways.** A hypothetical member of two types exists for nearly every
 separation, so accepting one would weaken every separation in the KB. A fiction placed

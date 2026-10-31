@@ -14,6 +14,8 @@
             [vaelii.core :as v]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.clashes :as clashes]
+            [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.oplog :as oplog]
@@ -22,14 +24,7 @@
             [vaelii.impl.solve :as solve]
             [vaelii.test-util :as tu])
   (:import [java.io File RandomAccessFile]
-           [java.nio.file CopyOption Files StandardCopyOption]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-seal-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
+           [java.nio.file CopyOption Files StandardCopyOption]))
 
 (defn- copy-dir!
   "Copy `from` into `to` as the files stand: the contents a crash leaves of a directory
@@ -90,7 +85,7 @@
   copy.  `(edit dir)` runs on the copy before the open."
   ([src check] (restore-copy src identity check))
   ([src edit check]
-   (let [dir (tmpdir)]
+   (let [dir (tu/tmpdir "vaelii-seal-")]
      (try
        (copy-dir! src dir)
        (edit dir)
@@ -98,11 +93,11 @@
              r  (seal/restore! kb)]
          (try (check r)
               (finally (v/close! (or (:kb r) kb)))))
-       (finally (rm-rf! dir))))))
+       (finally (tu/rm-rf! dir))))))
 
 (deftest a-restore-replays-to-the-belief-a-recover-computes
   (tu/with-snapshot-platform
-    (let [a (tmpdir) c (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") c (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))]
           (try
@@ -117,11 +112,11 @@
                                       "the restored KB believes what a recover of its records believes")))
                 (finally (v/close! kb-c))))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a) (rm-rf! c))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! c))))))
 
 (deftest a-replayed-write-that-differs-from-the-store-declines
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))]
           (try
@@ -138,11 +133,11 @@
                             (is (= :diverged (first (:reason r))))
                             (is (false? (:clean? r)) "replayed state is in the KB")))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-frame-lost-after-its-records-reached-the-disk-declines
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))]
           (try
@@ -154,7 +149,7 @@
                             (is (= :extra-records (:reason r))
                                 "the last assert's records sit above every handle the replay allocated")))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-frame-that-fails-rather-than-refuses-stops-the-restore
   (tu/with-snapshot-platform
@@ -162,12 +157,12 @@
     ;; that throws something else did not refuse: skipped, it restored a KB missing the
     ;; write — here the retraction, so `(animal Plato)` came back believed — and answered
     ;; `:restored true`.
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))]
           (try
             (write-world! lkb)
-            (let [dir (tmpdir)]
+            (let [dir (tu/tmpdir "vaelii-seal-")]
               (try
                 (copy-dir! a dir)
                 (let [kb (open dir {:recover? false})]
@@ -176,13 +171,13 @@
                                  (with-redefs [v/retract! (fn [& _] (throw (OutOfMemoryError. "witness")))]
                                    (seal/restore! kb))))
                     (finally (v/close! kb))))
-                (finally (rm-rf! dir))))
+                (finally (tu/rm-rf! dir))))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest an-unusable-log-declines
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))]
           (try
@@ -193,7 +188,7 @@
                               (is (= [:unusable [:config :set-solver]] (:reason r)))
                               (is (:clean? r))))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-replayed-write-runs-to-its-end-over-a-nearly-full-heap
   ;; The log after the seal holds the rows' writes: one `forward-chain` frame over three
@@ -210,7 +205,7 @@
                                                        'CxUniverse)
             1 0]]]
     (tu/with-snapshot-platform
-      (let [a (tmpdir)]
+      (let [a (tu/tmpdir "vaelii-seal-")]
         (try
           (let [lkb (seal/attach! (open a))]
             (try
@@ -230,7 +225,7 @@
                                               '[animal mortal]))
                                       (name how)))))
               (finally (v/close! lkb))))
-          (finally (rm-rf! a)))))))
+          (finally (tu/rm-rf! a)))))))
 
 (deftest a-log-with-a-damaged-frame-inside-it-declines
   (tu/with-snapshot-platform
@@ -239,7 +234,7 @@
     ;; retractions were lost, the replay rewrote both records, and the restore answered
     ;; `:restored true` with `(animal Plato)` believed.  A retraction allocates no handle,
     ;; so the extra-records check has nothing to find.
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))]
           (try
@@ -264,11 +259,11 @@
                               (is (= [:unusable [:damaged-frame @offset]] (:reason r)))
                               (is (:clean? r)))))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-seal-class-operation-seals-when-it-returns
   (tu/with-snapshot-platform
-    (let [a (tmpdir) txt (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") txt (tu/tmpdir "vaelii-seal-")]
       (try
         (spit (io/file txt "CxUniverse.txt") "(animal Socrates)\n(animal Plato)\n")
         (let [lkb (seal/attach! (open a))
@@ -280,11 +275,11 @@
             (is (nil? (oplog/unusable (:oplog lkb))) "the seal starts the log again")
             (is (empty? (oplog/read-frames (:oplog lkb))))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a) (rm-rf! txt))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! txt))))))
 
 (deftest a-kb-whose-network-does-not-cover-its-records-is-not-sealed
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))
               g   (:generation (seal/read-seal a))]
@@ -297,14 +292,14 @@
                 "the refused seal leaves the mark the operation made")
             (is (= g (:generation (seal/read-seal a))) "and starts no generation")
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-seal-class-operation-fsyncs-its-unusable-mark-before-it-writes-a-record
   ;; a machine crash that keeps the records' deletes and loses an unsynced mark leaves a
   ;; usable log over records its seal does not describe.  The events are this thread's
   ;; and this log's, so a durability tick's fsync is not counted.
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb    (seal/attach! (open a))
               raf    (:raf (:oplog lkb))
@@ -323,11 +318,11 @@
               (v/clear! lkb))
             (is (= [:mark :fsync :write] (take 3 (dedupe @events))))
             (finally (v/close! lkb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest closing-the-directory-seals-it
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (seal/attach! (open a))
               g   (:generation (seal/read-seal a))
@@ -341,7 +336,71 @@
               (is (zero? (long (:frames r))) "every write is in the images the close wrote")
               (is (v/in? (:kb r) h))
               (finally (v/close! (or (:kb r) kb))))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
+
+(defn- log-registered?
+  "Does the durability daemon hold the operation log under `dir`?"
+  [dir]
+  (boolean (some #(= (str "oplog " (log-path dir)) (:label %)) (vals @@#'dur/registry))))
+
+(defn- boom [& _] (throw (ex-info "boom" {})))
+
+(deftest an-attach-that-throws-after-the-log-opens-closes-the-log
+  (tu/with-snapshot-platform
+    (let [a  (tu/tmpdir "vaelii-seal-")
+          kb (open a)]
+      (try
+        (let [thrown (try (with-redefs [seal/seal! boom] (seal/attach! kb)) nil
+                          (catch clojure.lang.ExceptionInfo e (ex-message e)))]
+          (is (= ["boom" false] [thrown (log-registered? (:snapshot-dir kb))])))
+        (finally (v/close! kb) (tu/rm-rf! a))))))
+
+(deftest an-attach-whose-log-close-throws-rethrows-its-own-throw-with-the-close-s-suppressed
+  (tu/with-snapshot-platform
+    (let [a      (tu/tmpdir "vaelii-seal-")
+          kb     (open a)
+          close! oplog/close-log!]
+      (try
+        (let [^Throwable e (try (with-redefs [seal/seal!       boom
+                                              oplog/close-log! (fn [log]
+                                                                 (close! log)
+                                                                 (throw (java.io.IOException. "disk full")))]
+                                  (seal/attach! kb))
+                                nil
+                                (catch Throwable e e))]
+          (is (= ["boom" ["disk full"] false]
+                 [(ex-message e) (mapv ex-message (.getSuppressed e)) (log-registered? (:snapshot-dir kb))])))
+        (finally (v/close! kb) (tu/rm-rf! a))))))
+
+(deftest a-log-close-whose-fsync-throws-still-closes-and-latches-the-log
+  (let [a     (tu/tmpdir "vaelii-seal-")
+        log   (oplog/open-log a 1)
+        force f/force!]
+    (try
+      (let [thrown (try (with-redefs [f/force! (fn [raf meta?]
+                                                 (if (identical? raf (:raf log))
+                                                   (throw (java.io.IOException. "disk full"))
+                                                   (force raf meta?)))]
+                          (oplog/close-log! log))
+                        nil
+                        (catch java.io.IOException e (ex-message e)))]
+        (is (= ["disk full" :closed false false]
+               [thrown (:reason @(:fault log)) (.. ^RandomAccessFile (:raf log) getChannel isOpen)
+                (log-registered? a)])))
+      (finally (tu/rm-rf! a)))))
+
+(deftest a-close-whose-directory-close-throws-still-closes-the-operation-log
+  (tu/with-snapshot-platform
+    (let [a          (tu/tmpdir "vaelii-seal-")
+          lkb        (seal/attach! (open a))
+          close-dir! disk/close-dir!]
+      (try
+        (let [thrown (try (with-redefs [disk/close-dir! (fn [& args] (apply close-dir! args) (boom))]
+                            (v/close! lkb))
+                          nil
+                          (catch clojure.lang.ExceptionInfo e (ex-message e)))]
+          (is (= ["boom" false] [thrown (log-registered? (:snapshot-dir lkb))])))
+        (finally (tu/rm-rf! a))))))
 
 ;; ---- open-kb with :oplog? ---------------------------------------------------
 
@@ -369,7 +428,7 @@
 
 (deftest an-open-with-an-oplog-restores-what-a-crash-left
   (tu/with-snapshot-platform
-    (let [a (tmpdir) c (tmpdir) d (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") c (tu/tmpdir "vaelii-seal-") d (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (open a {:oplog? true})]
           (try
@@ -390,14 +449,14 @@
                 "the restored KB answers each read as a rebuild from the same records answers it")
             (is (number? (v/assert restored '(animal Thales) 'CxUniverse)) "and takes writes")
             (finally (v/close! restored) (v/close! rebuilt))))
-        (finally (rm-rf! a) (rm-rf! c) (rm-rf! d))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! c) (tu/rm-rf! d))))))
 
 (deftest a-restore-replays-a-preview-s-writes-and-rollback-and-none-of-its-reads
   ;; the preview's frame is replayed so the handles it allocated stay allocated and the
   ;; records a crash inside it left are taken back; its answer went to the caller, so the
   ;; replay takes neither the reading before it nor the dilemma reports
   (tu/with-snapshot-platform
-    (let [a (tmpdir) c (tmpdir) d (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") c (tu/tmpdir "vaelii-seal-") d (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (open a {:oplog? true})]
           (try
@@ -418,11 +477,55 @@
             (is (= {} @reads))
             (is (= (reading rebuilt) (reading restored)))
             (finally (v/close! restored) (v/close! rebuilt))))
-        (finally (rm-rf! a) (rm-rf! c) (rm-rf! d))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! c) (tu/rm-rf! d))))))
+
+(deftest a-restore-replays-a-batch-that-owes-a-lazy-reader-its-re-join
+  (tu/with-snapshot-platform
+    (let [a (tu/tmpdir "vaelii-seal-")]
+      (try
+        (let [lkb (seal/attach! (open a))]
+          (try
+            (v/with-deferred-settle lkb
+              (v/assert lkb '(set/lazyForwardRule (implies (and (dog ?x)) (hasVoice ?x Bark)))
+                        'CxUniverse)
+              (v/assert lkb '(set/forwardRule (implies (and (hasVoice ?x ?v)) (vocal ?x))) 'CxUniverse)
+              (v/assert lkb '(dog Rex) 'CxUniverse)
+              (v/assert lkb '(cat Tom) 'CxUniverse))
+            (is (v/ask? lkb '(vocal Rex) 'CxUniverse))
+            (restore-copy a (fn [r]
+                              (is (= [true 5] [(:restored r) (:frames r)]) (pr-str (:reason r)))
+                              (when (:restored r)
+                                (is (= (belief lkb) (belief (:kb r)))))))
+            (finally (v/close! lkb))))
+        (finally (tu/rm-rf! a))))))
+
+(deftest a-restore-runs-no-re-join-a-batch-that-threw-owed-at-the-next-batch-s-settle
+  ;; a batch that throws records no `:settle` frame, and its owed re-joins run nowhere
+  (tu/with-snapshot-platform
+    (let [a (tu/tmpdir "vaelii-seal-")]
+      (try
+        (let [lkb (seal/attach! (open a))]
+          (try
+            (is (thrown? clojure.lang.ExceptionInfo
+                         (v/with-deferred-settle lkb
+                           (v/assert lkb '(set/lazyForwardRule (implies (and (dog ?x)) (hasVoice ?x Bark)))
+                                     'CxUniverse)
+                           (v/assert lkb '(set/forwardRule (implies (and (hasVoice ?x ?v)) (vocal ?x)))
+                                     'CxUniverse)
+                           (v/assert lkb '(dog Rex) 'CxUniverse)
+                           (throw (ex-info "the batch stops" {})))))
+            (v/with-deferred-settle lkb (v/assert lkb '(cat Tom) 'CxUniverse))
+            (is (nil? (v/handle-of lkb '(vocal Rex) 'CxUniverse)))
+            (restore-copy a (fn [r]
+                              (is (= [true 5] [(:restored r) (:frames r)]) (pr-str (:reason r)))
+                              (when (:restored r)
+                                (is (= (belief lkb) (belief (:kb r)))))))
+            (finally (v/close! lkb))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest an-open-whose-restore-declines-rebuilds-from-the-records-and-seals
   (tu/with-snapshot-platform
-    (let [a (tmpdir) c (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") c (tu/tmpdir "vaelii-seal-")]
       (try
         (let [lkb (open a {:oplog? true})]
           (try
@@ -438,11 +541,11 @@
             (is (= (inc (long g)) (:generation (seal/read-seal c))) "and sealed again")
             (is (nil? (oplog/unusable (:oplog kb))) "so the log starts usable")
             (finally (v/close! kb))))
-        (finally (rm-rf! a) (rm-rf! c))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! c))))))
 
 (deftest a-clean-close-reopens-by-restoring-no-operation
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (let [h (let [lkb (open a {:oplog? :tick})]
                   (try (v/assert lkb '(animal Zeno) 'CxUniverse)
@@ -453,7 +556,7 @@
             (is (= :tick (oplog/fsync-mode (:oplog kb))))
             (is (v/in? kb h))
             (finally (v/close! kb))))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-write-without-the-log-retires-the-seal
   ;; the unlogged KB's writes reach the records and no log, so a restore from the seal
@@ -461,7 +564,7 @@
   ;; and a non-snapshot disk backend over the same records writes no image.
   (tu/with-snapshot-platform
     (doseq [unlogged [nil {:backend :disk-dense} {:backend :disk-columnar}]]
-      (let [a (tmpdir)]
+      (let [a (tu/tmpdir "vaelii-seal-")]
         (try
           (let [kb (open a {:oplog? true})]
             (v/assert kb '(animal Plato) 'CxUniverse)
@@ -480,13 +583,13 @@
                 (is (< (long g) (long (:generation (seal/read-seal a))))
                     "the new seal's generation is above the retired one")
                 (finally (v/close! kb)))))
-          (finally (rm-rf! a)))))))
+          (finally (tu/rm-rf! a)))))))
 
 (deftest retiring-the-seal-fsyncs-its-directory-before-returning
   ;; a power loss that keeps the records write and loses the rename leaves the seal in
   ;; place over records it does not describe
   (tu/with-snapshot-platform
-    (let [a (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-")]
       (try
         (v/close! (open a {:oplog? true}))
         (let [synced (atom [])
@@ -495,7 +598,7 @@
             (seal/retire-unlogged! {:snapshot-dir a}))
           (is (nil? (seal/read-seal a)))
           (is (some #{(str a "/oplog")} @synced)))
-        (finally (rm-rf! a))))))
+        (finally (tu/rm-rf! a))))))
 
 (deftest a-records-write-the-seal-did-not-see-declines-the-restore
   ;; a writer with no path to the seal, such as a second `:pg` KB over the same schema,
@@ -508,7 +611,7 @@
                                           [true '(animal Plato) false]
                                           [true '(mortal Plato) true]]
             :let [row (pr-str [frame? retracted])]]
-      (let [a (tmpdir) c (tmpdir)]
+      (let [a (tu/tmpdir "vaelii-seal-") c (tu/tmpdir "vaelii-seal-")]
         (try
           (let [kb (open a {:oplog? true})]
             (v/assert kb '(set/forwardRule (implies (and (animal ?x)) (mortal ?x))) 'CxUniverse)
@@ -532,14 +635,14 @@
                 (is (contains? (set (p/premise-ids (oplog/inner-records (:records kb)))) h)
                     (str row " a re-assert stores a premise record")))
               (finally (v/close! kb))))
-          (finally (rm-rf! a) (rm-rf! c)))))))
+          (finally (tu/rm-rf! a) (tu/rm-rf! c)))))))
 
 (defn- manifest-source [dir]
   (:source (edn/read-string (slurp (io/file dir "reasoning" "manifest.edn")))))
 
 (deftest a-restore-under-trust-keeps-an-image-of-other-engine-source
   (tu/with-snapshot-platform
-    (let [a (tmpdir) c (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") c (tu/tmpdir "vaelii-seal-")]
       (try
         (v/close! (open a {:oplog? true}))
         (let [m (io/file a "reasoning" "manifest.edn")]
@@ -564,11 +667,11 @@
             (is (v/ask? kb '(mortal Zeno) 'CxUniverse))
             (finally (v/close! kb))))
         (is (not= "stale" (manifest-source c)) "the :auto open re-derived belief and sealed it")
-        (finally (rm-rf! a) (rm-rf! c))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! c))))))
 
 (deftest seal-starts-a-generation-and-declines-while-a-settle-is-pending
   (tu/with-snapshot-platform
-    (let [a (tmpdir) b (tmpdir)]
+    (let [a (tu/tmpdir "vaelii-seal-") b (tu/tmpdir "vaelii-seal-")]
       (try
         (let [kb (open a {:oplog? true})
               g  (:generation (seal/read-seal a))]
@@ -588,7 +691,7 @@
         (let [kb (open b)]
           (try (is (= {:sealed false :reason :not-applicable} (v/seal kb)) "a KB with no log")
                (finally (v/close! kb))))
-        (finally (rm-rf! a) (rm-rf! b))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! b))))))
 
 (deftest oplog-is-read-on-a-snapshot-kb-that-recovers
   (is (= :each (kb/oplog-mode {:backend :pg-snapshot :oplog? true})))
@@ -598,10 +701,10 @@
                            [{:backend :disk-snapshot :oplog? true :recover? false} :conflict]
                            [{:backend :disk-snapshot :oplog? true :recover? :background}
                             :conflict]]]
-    (let [dir (tmpdir)
+    (let [dir (tu/tmpdir "vaelii-seal-")
           e   (try (v/open-kb (assoc opts :dir dir)) nil
                    (catch clojure.lang.ExceptionInfo e e)
-                   (finally (rm-rf! dir)))]
+                   (finally (tu/rm-rf! dir)))]
       (is (= {:type :unknown-option :mismatch mismatch}
              (select-keys (ex-data e) [:type :mismatch]))
           (pr-str opts)))))

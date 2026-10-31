@@ -19,7 +19,8 @@
             [vaelii.impl.vocabulary :as vocab]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (tu/deftest-kb every-term-the-grammar-declares-is-classified
   ;; The durable half.  A functor added to core.txt without anybody deciding whether

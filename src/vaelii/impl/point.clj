@@ -8,6 +8,7 @@
   docs/time.md and docs/qcn.md."
   (:require [clojure.set :as set]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
@@ -36,13 +37,10 @@
    :equal  {:before #{:before} :equal #{:equal}  :after #{:after}}
    :after  {:before all-relations :equal #{:after} :after #{:after}}})
 
-(defn compose
-  "The composition of two relation sets: the union of the table entries over every
-  member pair."
-  [s1 s2]
-  (into #{}
-        (mapcat (fn [a] (mapcat (fn [b] (get-in point-composition [a b])) s2)))
-        s1))
+(def compose
+  "The composition of two relation sets: the union of the `point-composition` entries over every
+  member pair (`qcn/compose-by`)."
+  (qcn/compose-by point-composition))
 
 (def point-algebra
   "The point algebra as a `vaelii.impl.qcn` relation algebra."

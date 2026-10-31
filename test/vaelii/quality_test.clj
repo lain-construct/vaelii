@@ -23,9 +23,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
-
 (defn- handles [entries] (set (map :handle entries)))
 
 ;; ---- which rules never fire ----------------------------------------------
@@ -35,7 +32,7 @@
                   Robin Tweety Waddles]
     (let [fires   (v/assert-rule kb [(list bird '?x)] (list has_wings '?x) 'CxUniverse {:direction :forward})
           never   (v/assert-rule kb [(list ghost '?x)] (list glows '?x) 'CxUniverse {:direction :forward})
-          beaten  (v/assert kb (default-rule [(list penguin '?x)] (list flies '?x))
+          beaten  (v/assert kb (tu/default-rule [(list penguin '?x)] (list flies '?x))
                             'CxUniverse)
           undone  (v/assert-rule kb [(list sings '?x)] (list hasBeak '?x) 'CxUniverse {:direction :forward})
           sang    (v/assert kb (list sings Robin) 'CxUniverse)]
@@ -545,7 +542,7 @@
 (defn- wrapped [w antes conseq] (list w (vr/rule-sentence antes conseq)))
 
 (defn- except-rule [exception antes conseq]
-  (list 'exceptWhen exception (default-rule antes conseq)))
+  (list 'exceptWhen exception (tu/default-rule antes conseq)))
 
 (defn- covered [kb] (:subsumption (v/kb-quality kb)))
 
@@ -602,16 +599,16 @@
   ;; one stands, so a default that fires wherever a strict rule does still leaves the
   ;; strict rule doing something.  The control is the same pair with both defeasible.
   (tu/with-terms [bird_kind healthy flies]
-    (v/assert kb (default-rule [(list bird_kind '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird_kind '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert-rule kb [(list bird_kind '?x) (list healthy '?x)] (list flies '?x)
                    'CxUniverse {:direction :forward})
     (is (zero? (:subsumed-count (covered kb)))
         "the covering rule is a default and the covered one is not")
     (tu/with-terms [swims]
-      (let [general (v/assert kb (default-rule [(list bird_kind '?x)] (list swims '?x))
+      (let [general (v/assert kb (tu/default-rule [(list bird_kind '?x)] (list swims '?x))
                               'CxUniverse)
-            narrow  (v/assert kb (default-rule [(list bird_kind '?x) (list healthy '?x)]
-                                               (list swims '?x))
+            narrow  (v/assert kb (tu/default-rule [(list bird_kind '?x) (list healthy '?x)]
+                                                  (list swims '?x))
                               'CxUniverse)]
         (is (contains? (covered-pairs kb) [general narrow])
             "both defeasible, and the general one covers")))))
@@ -646,7 +643,7 @@
     (v/assert kb (except-rule (list penguin_kind '?x) [(list bird_kind '?x)]
                               (list flies '?x))
               'CxUniverse)
-    (v/assert kb (default-rule [(list bird_kind '?x) (list healthy '?x)] (list flies '?x))
+    (v/assert kb (tu/default-rule [(list bird_kind '?x) (list healthy '?x)] (list flies '?x))
               'CxUniverse)
     (is (zero? (:subsumed-count (covered kb))))
     (testing "and the same exception on both sides covers again — the covered rule

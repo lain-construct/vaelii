@@ -19,17 +19,14 @@
 
 (def ^:private asp? (solver/available?))
 
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
-
 (defn- nixon-diamond
   "The canonical rebutting dilemma on gensym'd terms: two equally-specific defaults
   concluding `(pacifist N)` and `(not (pacifist N))`.  Returns the terms and both handles."
   [kb]
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon  (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/assert kb (list quaker nixon)     'CxUniverse)
     (v/assert kb (list republican nixon) 'CxUniverse)
     {:quaker quaker :pacifist pacifist :nixon nixon
@@ -50,8 +47,8 @@
   [kb]
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         ethical (tu/tmp-pred) opposes (tu/tmp-pred) nixon (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/assert kb (bare-rule [(list pacifist '?x)]             (list ethical '?x)) 'CxUniverse)
     (v/assert kb (bare-rule [(list 'not (list pacifist '?x))] (list ethical '?x)) 'CxUniverse)
     (v/assert kb (bare-rule [(list pacifist '?x)]             (list opposes '?x)) 'CxUniverse)
@@ -287,8 +284,8 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (v/add-reasoner kb :brave-cautious)
       (let [q (tu/tmp-pred) r (tu/tmp-pred) pac (tu/tmp-pred) weird (tu/tmp-pred) n (tu/tmp-ind)]
-        (v/assert kb (default-rule [(list q '?x)] (list pac '?x))             'CxUniverse)
-        (v/assert kb (default-rule [(list r '?x)] (list 'not (list pac '?x))) 'CxUniverse)
+        (v/assert kb (tu/default-rule [(list q '?x)] (list pac '?x))             'CxUniverse)
+        (v/assert kb (tu/default-rule [(list r '?x)] (list 'not (list pac '?x))) 'CxUniverse)
         (v/assert kb (bare-rule [(list pac '?x) (list 'not (list pac '?x))] (list weird '?x)) 'CxUniverse)
         (v/assert kb (list q n) 'CxUniverse)
         (v/assert kb (list r n) 'CxUniverse)
@@ -312,7 +309,7 @@
   [kb]
   (let [pa (tu/tmp-pred) pb (tu/tmp-pred) pc (tu/tmp-pred) x (tu/tmp-ind)]
     (doseq [[p q] [[pa pb] [pb pa] [pc pb] [pb pc]]]
-      (v/assert kb (default-rule [(list p x)] (list 'not (list q x))) 'CxUniverse))
+      (v/assert kb (tu/default-rule [(list p x)] (list 'not (list q x))) 'CxUniverse))
     (v/assert kb (list pa x) 'CxUniverse)
     (v/assert kb (list pb x) 'CxUniverse)
     (v/assert kb (list pc x) 'CxUniverse)
@@ -367,8 +364,8 @@
       (v/add-reasoner kb :brave-cautious)
       (let [mk (fn []
                  (let [q (tu/tmp-pred) r (tu/tmp-pred) p (tu/tmp-pred) e (tu/tmp-pred) i (tu/tmp-ind)]
-                   (v/assert kb (default-rule [(list q '?x)] (list p '?x))             'CxUniverse)
-                   (v/assert kb (default-rule [(list r '?x)] (list 'not (list p '?x))) 'CxUniverse)
+                   (v/assert kb (tu/default-rule [(list q '?x)] (list p '?x))             'CxUniverse)
+                   (v/assert kb (tu/default-rule [(list r '?x)] (list 'not (list p '?x))) 'CxUniverse)
                    (v/assert kb (bare-rule [(list p '?x)]             (list e '?x)) 'CxUniverse)
                    (v/assert kb (bare-rule [(list 'not (list p '?x))] (list e '?x)) 'CxUniverse)
                    (v/assert kb (list q i) 'CxUniverse)

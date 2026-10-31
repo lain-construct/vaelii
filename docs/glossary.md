@@ -252,6 +252,14 @@ relations}}` over a set of nodes — a value, not a store, read out of the
 believed facts visible from a context. `core/qualitative-network` is the public
 reading of one. See [qcn.md](qcn.md).
 
+**Content digest** ![kb](../.github/badges/cat-kb.svg): A checksum of a sentex's content:
+`"sha256:"` and 64 lowercase hex characters, a SHA-256 over its context, sign and canonical
+sentence, with each `(sentexHandle n)` inside digested as the record `n` names. Two KBs
+holding one sentex compute one digest for it at whatever handles they hold it.
+`core/digest` computes one, and a delta carries the digest of each reference it holds. No
+index is keyed by a digest, so a digest finds no sentex. See
+[storage.md](storage.md#content-digests).
+
 **Context** ![kb](../.github/badges/cat-kb.svg): The theory a sentex holds
 in — every sentex is in exactly one. Contexts form a `genlCx` hierarchy: a
 sub-context *sees* its supers. Names start with `Cx`, then CapitalCamelCase. See
@@ -320,6 +328,12 @@ in content order.
 `assert` refuses `defeat` in any literal (`:derived-only`). Contrast **`except`**, which removes `H` from visibility and
 sweeps the firings resting on `H` placed at or below it. See [nmtms.md](nmtms.md).
 
+**Defeat report** ![tms](../.github/badges/cat-tms.svg): The report of a placed nogood
+whose placements defeat one member: a clash report with `:verdict :defeat`, `:placed-in`,
+`:loser` and `:winners`. `(conflicts kb {:defeats? true})`, the change feed's `:defeats`
+and `argue`'s `:defeated-by` read it. Contrast a represented dilemma, which no placement
+decides (**Contradiction**). See [nmtms.md](nmtms.md#observation-beats-expectation).
+
 **Defeat-class** ![tms](../.github/badges/cat-tms.svg): The strength tier an IN
 node sits at — exactly two, `:monotonic` > `:default`. A nogood is resolved by
 defeating its strictly weakest member. See [nmtms.md](nmtms.md).
@@ -348,6 +362,11 @@ predicates, which no stored fact can fire the rule on, is instead evaluated at q
 by `DefnSufficientProver`. Open-world: condition *absence* concludes nothing, though a
 necessary that is positively violated proves `(not (Coll a))` at query time. See
 [defns.md](defns.md).
+
+**Delta** ![kb](../.github/badges/cat-kb.svg): A text KB holding what a fork wrote over
+its base, each named handle written as a reference with its content digest:
+`(export-text! fork dir {:delta? true})` writes one and `(load-text! kb dir {:merge? true})` reads one into
+another KB. See [overlay.md](overlay.md#a-delta).
 
 **Denotational term** ![kb](../.github/badges/cat-kb.svg): The logic sense of *term* —
 an expression that denotes an entity: a symbol, a value such as a number or a string, or
@@ -385,11 +404,12 @@ closure, keeping the unique-name assumption. Variable-arity, ground-only, and
 not assertible. See [equality.md](equality.md).
 
 **Direction** ![kb](../.github/badges/cat-kb.svg): Whether a rule chains
-`:forward`, `:backward`, `:both`, `:forward-only`, or `:inert` — the values the `set/*Rule`
-wrappers and the `:direction` opt spell. `:forward` and `:both` are one class — forward +
+`:forward`, `:backward`, `:both`, `:forward-only`, `:lazy-forward` or `:inert` — the values
+the `set/*Rule` wrappers and the `:direction` opt spell. `:forward` and `:both` are one class — forward +
 backward — so a `set/forwardRule` rule answers backward goals too; `:forward-only`
 (`set/forwardOnlyRule`) forward-chains but never backchains, the direction for a rule a
-backward walk would cycle on, a tests-only mode the ontology avoids. The record holds the
+backward walk would cycle on; `:lazy-forward` (`set/lazyForwardRule`) backchains and
+fires on no datum, and a forward join proves what it concludes. The record holds the
 engines a direction names, in its `:engines` field (`#{:forward :backward}` for
 `:forward`, `#{}` for `:inert`); a bare `implies` needs no wrapper and holds
 `#{:backward}`, the tractable default, since forward chaining materializes a conclusion
@@ -397,8 +417,9 @@ per match. The chainers read the field. See [inference.md](inference.md).
 
 **`disjoint` / `disjoint_metatype`** ![kb](../.github/badges/cat-kb.svg): Declare
 types share no instance, closed under genl. A metatype's members are pairwise
-disjoint by being consulted, not by storing the clique. Belief-following. See
-[taxonomy.md](taxonomy.md).
+disjoint by being consulted, not by storing the clique. Belief-following. A declaration
+keeps its written strength, and a `:monotonic` denial defeats a `:default` one at the
+denial's vantage. See [taxonomy.md](taxonomy.md).
 
 ## E
 
@@ -583,8 +604,9 @@ cannot derive says so on its own docstring. See [predicates.md](predicates.md).
 
 **Handle** ![backend](../.github/badges/cat-backend.svg): The integer id a stored
 sentex or justification is referenced by, allocated in assertion order. Belief
-tie-breaks never key on it, or arrival order would leak in. See
-[storage.md](storage.md).
+tie-breaks never key on it, or arrival order would leak in. A handle names a sentex in
+one KB only; between KBs a sentex is named by its stored content and digest
+([overlay.md](overlay.md#a-handle-stays-in-its-kb)). See [storage.md](storage.md).
 
 **Held namespace** ![backend](../.github/badges/cat-backend.svg): A namespace whose ns
 symbol carries `:clojure.tools.namespace.repl/load false`. It defines protocols, records or
@@ -1047,6 +1069,15 @@ image** is one written to a directory. See [storage.md](storage.md#the-reasoning
 and JTMS from the durable stores after a restart, ending in a `settle` so belief
 is applied consistently either side of a restart. See [storage.md](storage.md).
 
+**Reference** ![kb](../.github/badges/cat-kb.svg): The sentence of a stored sentex,
+written at a position a `quotedArg` or `quotedArgAndRest` declaration types
+`sentex_handle_term`, or at one of a `target_following_predicate` that `(arg P n sentence)`
+declares, as `(ist Cx S)` or a bare
+`S` in the writing context. `assert` stores the sentex's
+`(sentexHandle H)` in its place and refuses a reference no stored sentex answers
+(`:unresolved-reference`). See
+[canonicalization.md](canonicalization.md#a-reference-to-a-stored-sentex).
+
 **Refusal** ![kb](../.github/badges/cat-kb.svg): An `ex-info` thrown instead of accepting —
 at an entry point, or at a namespace load, carrying a `:type` keyword the caller
 discriminates on.
@@ -1189,7 +1220,7 @@ belief-following, and raising contradictions through the same JTMS/ASP path as
 types from the separation marks — a `sibling_disjoint` parent, a `disjoint_metatype`, a
 `partition` or `separating` declaration — pair-local and read at the reader. A stated
 `disjoint` is no mark, so a `disjoint` over the pair or over a supertype of each
-contradicts it. Symmetric and forced monotonic. `core.txt` states
+contradicts it. Symmetric. `core.txt` states
 `(genl siblingDisjointException orthogonal)`: an exception states an `orthogonal` pair, and
 a `genl` edge between its two types is a clash of the orthogonal it entails. The exemption
 is the exception's alone; an `orthogonal` exempts nothing. See

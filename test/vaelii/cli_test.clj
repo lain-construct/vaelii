@@ -13,6 +13,8 @@
             [vaelii.cli :as pcli]
             [vaelii.core :as v]
             [vaelii.host.cli :as cli]
+            [vaelii.host.seed :as seed]
+            [vaelii.host.starter :as starter]
             [vaelii.host.sync :as sync]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.import :as imp]
@@ -23,13 +25,6 @@
            [java.nio.file.attribute FileAttribute]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-cli-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (deftest parse-opts-splits-positionals-and-flags
   (testing "--k v pairs and bare --flags, positionals kept in order"
@@ -77,13 +72,13 @@
            [(list dog Muffet)])))
   (let [refusal (fn [f opts] (try (f opts) nil
                                   (catch clojure.lang.ExceptionInfo e (ex-data e))))
-        d       (temp-dir "shim")]
+        d       (tu/temp-dir "vaelii-cli-" "shim" "-")]
     (try
       (doseq [opts [{:memory true :dir "kb"} {:dir (str d "/no-parent/kb")}]]
         (is (some? (refusal cli/open-kb-from opts)))
         (is (= (refusal cli/open-kb-from opts) (refusal pcli/open-kb-from opts))
             (pr-str opts)))
-      (finally (rm-rf! d)))))
+      (finally (tu/rm-rf! d)))))
 
 (tu/deftest-kb a-command-word-the-table-does-not-know-is-refused-with-the-table
   ;; The refusal is for a typo at the shell.  Dispatched as nothing it would exit 0
@@ -217,7 +212,7 @@
   ;; The text KB format — the file name is the context, so `load` takes no context
   ;; argument and one file's forms all land in one place.
   (tu/with-terms [dog cat Muffet Felix CxLoad]
-    (let [d (temp-dir "load")
+    (let [d (tu/temp-dir "vaelii-cli-" "load" "-")
           f (io/file d (str CxLoad ".txt"))]
       (try
         (spit f (str ";; a comment, which the reader skips\n"
@@ -229,14 +224,14 @@
           (is (= [(str CxLoad ".txt")] (:files r))))
         (is (seq (v/sentexes-matching kb (list dog Muffet) CxLoad)))
         (is (seq (v/sentexes-matching kb (list cat Felix) CxLoad)))
-        (finally (rm-rf! d))))))
+        (finally (tu/rm-rf! d))))))
 
 (tu/deftest-kb load-reads-a-directory-of-context-files
   ;; A whole text KB is a directory of `Cx<Name>.txt`, and `load` reads it in one
   ;; order-insensitive pass — so a context resting on another's content loads whichever
   ;; file name sorts first.
   (tu/with-terms [dog cat Muffet Felix CxOne CxTwo]
-    (let [d (temp-dir "loaddir")]
+    (let [d (tu/temp-dir "vaelii-cli-" "loaddir" "-")]
       (try
         (spit (io/file d (str CxOne ".txt")) (str (pr-str (list dog Muffet)) "\n"))
         (spit (io/file d (str CxTwo ".txt")) (str (pr-str (list cat Felix)) "\n"))
@@ -246,13 +241,13 @@
           (is (= 2 (:contexts r))))
         (is (seq (v/sentexes-matching kb (list dog Muffet) CxOne)))
         (is (seq (v/sentexes-matching kb (list cat Felix) CxTwo)))
-        (finally (rm-rf! d))))))
+        (finally (tu/rm-rf! d))))))
 
 (tu/deftest-kb export-format-text-writes-a-text-kb-that-load-reads-back
   (tu/with-terms [dog cat Muffet Felix CxRound]
-    (let [d (temp-dir "text")]
+    (let [d (tu/temp-dir "vaelii-cli-" "text" "-")]
       (try
-        (rm-rf! d)
+        (tu/rm-rf! d)
         (v/assert kb (list 'genlCx CxRound 'CxUniverse) 'CxUniverse)
         (v/assert kb (list dog Muffet) CxRound)
         (v/assert kb (list cat Felix) CxRound {:strength :monotonic})
@@ -265,7 +260,7 @@
                        nil
                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
             (is (= :unknown-option (:type e)))))
-        (finally (rm-rf! d))))))
+        (finally (tu/rm-rf! d))))))
 
 (deftest a-flag-missing-its-value-is-refused-not-bound-nil
   ;; `--strength` at the end of a line would otherwise bind nil, and the assert lands
@@ -314,7 +309,7 @@
             (is (= ['(genl dog animal)]
                    (mapv v/sentence-of (v/sentexes-matching kb '(genl dog ?x) 'CxUniverse))))
             (finally (v/close! kb))))
-        (finally (rm-rf! (io/file dir)))))))
+        (finally (tu/rm-rf! (io/file dir)))))))
 
 (deftest upgrade-rebuilds-a-stale-reasoning-image-and-leaves-a-current-one
   (tu/with-snapshot-platform
@@ -335,14 +330,14 @@
             (is (not= "stale" (:source (edn/read-string (slurp manifest)))))
             (is (= :current (:reasoning (cli/upgrade! dir)))
                 "the rewritten image is current for the next upgrade")))
-        (finally (rm-rf! (io/file dir)))))
+        (finally (tu/rm-rf! (io/file dir)))))
     (testing "a directory holding no store is refused, and no store is created in it"
       (let [dir (str (Files/createTempDirectory "vaelii-cli-empty" (make-array FileAttribute 0)))]
         (try
           (let [e (is (thrown? clojure.lang.ExceptionInfo (cli/upgrade! dir)))]
             (is (= :unknown-source (:type (ex-data e))))
             (is (empty? (.list (io/file dir)))))
-          (finally (rm-rf! (io/file dir))))))))
+          (finally (tu/rm-rf! (io/file dir))))))))
 
 (deftest upgrade-trusts-a-rewritten-source-or-verifies-it-by-a-recover
   (tu/with-snapshot-platform
@@ -361,7 +356,7 @@
             (is (= :rebuilt (:reasoning r)))
             (is (= {:labels :same :against "stale"} (select-keys (:verify r) [:labels :against])))
             (is (not (.exists (io/file dir "reasoning.prev"))) "the old image is deleted once compared")))
-        (finally (rm-rf! (io/file dir)))))))
+        (finally (tu/rm-rf! (io/file dir)))))))
 
 (deftest the-first-verify-of-a-freshly-built-store-reads-the-labels-the-build-wrote
   ;; an inert record, as the upper ontology's `set/inert` lines store, is in the store
@@ -373,7 +368,7 @@
           (v/assert-inert kb '(dog Spot) 'CxUniverse)
           (v/close! kb))
         (is (= :same (:labels (:verify (cli/upgrade! dir {:verify true})))))
-        (finally (rm-rf! (io/file dir)))))))
+        (finally (tu/rm-rf! (io/file dir)))))))
 
 (deftest upgrade-under-trust-keeps-an-image-of-other-source-and-rebuilds-a-moved-one
   (tu/with-snapshot-platform
@@ -392,7 +387,7 @@
                (select-keys (ex-data (is (thrown? clojure.lang.ExceptionInfo
                                                   (cli/upgrade! dir {:trust true :verify true}))))
                             [:type :mismatch])))
-        (finally (rm-rf! (io/file dir)))))))
+        (finally (tu/rm-rf! (io/file dir)))))))
 
 ;; the upper ontology states `dropped` and does not state `stale`, and both name only
 ;; shipped terms, so `sync/plan` over a store holding `stale` and lacking `dropped` is one
@@ -465,7 +460,29 @@
               (is (= {:added 1 :removed 1} (select-keys (:sync r) [:added :removed])))
               (is (= {:add 0 :remove 0} (plan-size b)))
               (is (not (.exists (io/file b "reasoning.prev")))))))
-        (finally (rm-rf! (io/file a)) (rm-rf! (io/file b)))))))
+        (finally (tu/rm-rf! (io/file a)) (tu/rm-rf! (io/file b)))))))
+
+(deftest upgrade-rewrites-what-a-release-renamed-only-under-sync
+  (tu/with-snapshot-platform
+    (let [dir     (snapshot-store!)
+          renames {:renames '{Rex Rexford} :context-merges {} :retired #{}
+                   :re-meanings '{animal "a reading of animal changed"}}]
+      (try
+        (with-redefs [sync/premises        (constantly [])
+                      seed/release-renames (constantly renames)]
+          (is (not (contains? (cli/upgrade! dir) :renames)))
+          (let [r (binding [*err* (java.io.StringWriter.)] (cli/upgrade! dir {:sync true}))]
+            (is (= 1 (get-in r [:renames :rewritten])))
+            (is (= '[animal] (map :symbol (get-in r [:renames :re-meanings]))))))
+        (let [kb (v/open-kb {:backend :disk-snapshot :dir dir})]
+          (try
+            (testing "the store holds the new spelling after the close"
+              (is (some? (v/handle-of kb '(dog Rexford) 'CxUniverse)))
+              (is (nil? (v/handle-of kb '(dog Rex) 'CxUniverse))))
+            (is (some? (v/handle-of kb '(genl dog animal) 'CxUniverse))
+                "a re-meaning is reported and left as it is")
+            (finally (v/close! kb))))
+        (finally (tu/rm-rf! (io/file dir)))))))
 
 (deftest compare-images-reads-a-belief-change-off-the-labels
   (tu/with-snapshot-platform
@@ -479,7 +496,7 @@
                (ri/compare-images (io/file a "reasoning") (io/file a "reasoning"))))
         (is (= :differs (:labels (ri/compare-images (io/file a "reasoning") (io/file b "reasoning"))))
             "a store with one more believed sentex believes a different set")
-        (finally (rm-rf! (io/file a)) (rm-rf! (io/file b)))))))
+        (finally (tu/rm-rf! (io/file a)) (tu/rm-rf! (io/file b)))))))
 
 (tu/deftest-kb the-repl-loop-survives-a-stack-overflowing-line
   ;; A deeply nested EDN line raises StackOverflowError out of `read-forms` — past
@@ -641,7 +658,7 @@
   ;; `export --format texr` left a records dump and read from the outside exactly like
   ;; `--format text`.  `--variant` and `--compression` are refused by the writer; this is
   ;; the flag the writer never sees.
-  (let [root (temp-dir "format")
+  (let [root (tu/temp-dir "vaelii-cli-" "format" "-")
         dest (io/file root "out")]
     (try
       (tu/with-terms [dog Muffet CxFormat]
@@ -659,7 +676,7 @@
                                   {:format "text"})))
           (is (map? (cli/dispatch kb "export" [(.getPath (io/file root "dump"))]
                                   {:compression "none"})))))
-      (finally (rm-rf! root)))))
+      (finally (tu/rm-rf! root)))))
 
 (deftest the-engines-own-log-lines-are-kept-out-of-the-data-stream
   ;; A refusal is not the only thing that must stay off stdout: the engine logs through
@@ -694,7 +711,7 @@
   ;; `-main` printed `(.getMessage e)` alone, so the `:type` the daemon puts on the wire
   ;; and the browser renders as a chip never reached the shell: a script telling a naming
   ;; refusal from a clash had to match English prose, and every refusal exits 1.
-  (let [root (temp-dir "refusal")
+  (let [root (tu/temp-dir "vaelii-cli-" "refusal" "-")
         dir  (str (io/file root "kb"))]
     (try
       (testing "a flag the driver does not know"
@@ -718,13 +735,13 @@
         (is (= "error: [:internal-error] boom" (cli/refusal-line (RuntimeException. "boom"))))
         (is (= "error: [:internal-error] java.lang.StackOverflowError"
                (cli/refusal-line (StackOverflowError.)))))
-      (finally (backend/close-dir! dir) (rm-rf! root)))))
+      (finally (backend/close-dir! dir) (tu/rm-rf! root)))))
 
 (deftest a-dir-under-a-missing-parent-is-refused-and-nothing-is-created
   ;; The store creates every missing component of the path it opens, so a mistyped
   ;; `--dir` answered a read with `[]` at exit 0 and left an empty store behind to answer
   ;; the same way next time.
-  (let [root    (temp-dir "missing-parent")
+  (let [root    (tu/temp-dir "vaelii-cli-" "missing-parent" "-")
         typo    (io/file root "nowhere" "kb")
         fresh   (io/file root "fresh")]
     (try
@@ -746,14 +763,33 @@
         (let [r (run-captured "match" "(dog ?x)" "CxWell" "--dir" (str fresh))]
           (is (= 0 (:status r)) (:err r))
           (is (.isDirectory fresh))))
-      (finally (backend/close-dir! (str fresh)) (rm-rf! root)))))
+      (finally (backend/close-dir! (str fresh)) (tu/rm-rf! root)))))
+
+(deftest a-run-releases-the-dir-it-opened-whether-the-command-answers-or-is-refused
+  (let [root (tu/temp-dir "vaelii-cli-" "release" "-")
+        dir  (str (io/file root "kb"))]
+    (try
+      (doseq [[argv status] [[["assert" "(dog Muffet)" "CxWell" "--dir" dir] 0]
+                             [["assert" "(warmBlooded Muffet)" "CxWell" "--dir" dir] 1]]]
+        (let [r (apply run-captured argv)]
+          (is (= [status #{}] [(:status r) (backend/opened dir)]) (pr-str argv (:err r)))))
+      (finally (backend/close-dir! dir) (tu/rm-rf! root)))))
+
+(deftest a-run-whose-starter-load-throws-releases-the-dir-it-opened
+  (let [root (tu/temp-dir "vaelii-cli-" "starter" "-")
+        dir  (str (io/file root "kb"))]
+    (try
+      (with-redefs [starter/load-into (fn [_] (throw (ex-info "the starter did not load" {})))]
+        (let [r (run-captured "assert" "(dog Muffet)" "CxWell" "--starter" "--dir" dir)]
+          (is (= [true #{}] [(pos? (long (:status r))) (backend/opened dir)]) (:err r))))
+      (finally (backend/close-dir! dir) (tu/rm-rf! root)))))
 
 (deftest diff-opens-no-kb-so-a-held-dir-does-not-refuse-it
   ;; `diff` reads two text KBs into KBs of their own and never the run's, but `-main`
   ;; opened the `--dir` KB first — taking its single-writer lock — so beside a daemon
   ;; owning that directory the comparison was refused with the lock message.  The open is
   ;; stood in for by one that refuses as a held lock does; `multi_jvm_test` holds a real one.
-  (let [root (temp-dir "diff")
+  (let [root (tu/temp-dir "vaelii-cli-" "diff" "-")
         a    (io/file root "a")
         b    (io/file root "b")]
     (try
@@ -766,4 +802,4 @@
           (is (= 0 (:status r)) (:err r))
           (is (= '[(dog Rex)] (map :sentence (:added (edn/read-string (:out r)))))
               "the answer is the comparison of the two text KBs")))
-      (finally (rm-rf! root)))))
+      (finally (tu/rm-rf! root)))))

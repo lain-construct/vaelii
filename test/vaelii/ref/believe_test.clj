@@ -432,13 +432,12 @@
 ;; ---- the forced-monotonic set -----------------------------------------------
 
 (deftest a-forced-monotonic-member-keeps-its-strength-and-its-denial-loses-to-it
-  ;; D7, D10, D11: each mark, declaration and predicate genl edge written :default keeps
-  ;; its strength, and a :monotonic denial of one is an ordinary write that loses to it;
-  ;; a genl edge between types may be :default and may be denied
+  ;; D7, D10, D11: each mark and predicate genl edge written :default keeps its strength,
+  ;; and a :monotonic denial of one is an ordinary write that loses to it; a genl edge
+  ;; between types and a separation may be :default and may be denied
   (let [forced  '[(irreflexive likes) (anti_symmetric likes) (asymmetric likes)
                   (functional likes) (functionalInArg likes 2) (anti_transitive likes)
-                  (disjoint dog cat)
-                  (covering vehicle car boat) (genl tangiblePartOf nearTo)]
+                  (genl tangiblePartOf nearTo)]
         n       (count forced)
         refused (fn [triple] (unsupported? #(w/check-world (world triple))))
         stored  (fn [triple] (mapv :strength (:writes (w/check-world (world triple)))))
@@ -455,6 +454,13 @@
            [(stored ['(genl dog animal) 'CxA :default])
             (stored ['(not (genl dog animal)) 'CxA :default])
             (inert ['(not (genl dog animal)) 'CxA :default])]))
+    (is (= [[:default] [true true]]
+           [(stored ['(disjoint dog cat) 'CxA :default])
+            (mapv #(contains? (:out (b/view (world [% 'CxA :default] [(list 'not %) 'CxA :monotonic])
+                                            'CxA []))
+                              %)
+                  '[(disjoint dog cat) (covering vehicle car boat)])])
+        "a :monotonic denial defeats a :default separation")
     (is (refused ['(transitiveInArgInverse likes 1 tangiblePartOf) 'CxA :monotonic])
         "a transitiveInArgInverse over a relation other than genl")))
 
@@ -599,10 +605,10 @@
                                                (flies ?b)))))))))
 
 (deftest a-rule-concluding-a-forced-monotonic-predicate-is-inert
-  ;; D17: a declaration, a mark and a predicate genl edge as a consequent parse as
-  ;; inert, and the world check sets such a rule aside rather than refusing it
-  (let [forms '[(set/forwardRule (implies (dog ?x) (disjoint ?x cat)))
-                (set/forwardRule (implies (dog ?x) (not (disjoint ?x cat))))
+  ;; D17: a mark, its denial and a predicate genl edge as a consequent parse as inert,
+  ;; and the world check sets such a rule aside rather than refusing it
+  (let [forms '[(set/forwardRule (implies (likes ?x ?y) (irreflexive likes)))
+                (set/forwardRule (implies (likes ?x ?y) (not (anti_symmetric likes))))
                 (set/forwardRule (implies (likes ?x ?y) (functional likes)))
                 (set/forwardRule (implies (dog ?x) (genl tangiblePartOf nearTo)))]]
     (is (= [true true true true] (mapv #(:inert? (w/parse-rule %)) forms)))
@@ -621,6 +627,7 @@
                                                      (barks ?x)))
          :symmetric       '(symmetric marriedTo)
          :partition       '(partition animal dog cat)
+         :separation-conclusion '(set/forwardRule (implies (dog ?x) (disjoint ?x cat)))
          :except          '(except Foo)
          :equality        '(sameAs Fido Rex)
          :open-fact       '(dog ?x)

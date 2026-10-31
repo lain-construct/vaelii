@@ -127,7 +127,10 @@ Binary on purpose: the required filler type is never restated in the declaration
 `argAndRestGenl` / `argsGenl` reaches, derives a subtype constraint instead, and
 multiple constraints compose conjunctively). A declaration over a predicate with no visible slot typing is a
 **declaration-contract gap** the audit reports explicitly, never a silently unconstrained
-audit.
+audit. The gap reads the denotation-typing declarations only (`arg` / `argAndRest` / `args`,
+their type-level twins, and a `type_relation_predicate` membership, which requires the filler
+to be visibly a type at every position); a slot typed solely by `quotedArg`, the mention
+twin, still reads as untyped.
 
 Nothing fires on assert. The requirement is checked when a caller asks:
 
@@ -187,8 +190,10 @@ only the quantified side — the domain off `(arg P 1 D)` for totality, the rang
 so the sweep above reports it with no extra entry point, and retracting the mark or either
 `arg` declaration withdraws it.
 
-The cost is one read per member of the quantified collection, plus one membership read per
-candidate filler. This is a sweep to run at a checkpoint, not a check to run per write.
+The cost is the contract derivation once per call (two declaration reads per constraining
+predicate, plus one membership read), then one read per member of the quantified collection
+and one read per derived constraint per candidate filler, the subtype arms walking the `genl`
+closure rather than probing membership. This is a sweep to run at a checkpoint, not a check to run per write.
 
 ## indeterminate_term: what makes a filler determinate
 

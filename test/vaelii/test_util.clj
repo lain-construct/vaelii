@@ -42,8 +42,10 @@
             [vaelii.impl.config :as config]
             [vaelii.impl.decide.argument :as argument]
             [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.disk.index-snapshot :as index-snapshot]
             [vaelii.impl.except :as exc]
+            [vaelii.impl.io.import :as io-import]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.memory :as mem]
@@ -51,11 +53,14 @@
             [vaelii.impl.observe :as observe]
             [vaelii.impl.overlay.mount :as mount]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.provers :as provers]
+            [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.special :as special]
             [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.io File]
            [java.lang.management ManagementFactory ThreadInfo]
+           [java.lang.ref SoftReference]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]
            [java.util.concurrent ExecutionException FutureTask]))
@@ -255,6 +260,25 @@
   (try (let [h (f)] (when (integer? h) (-> (v/why-not kb h) :conviction :type)))
        (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
+(defn refusal-data
+  "The `ex-data` of the `ExceptionInfo` `f` throws, or nil when it does not throw."
+  [f]
+  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(defn assert-refusal-data
+  "`refusal-data` of `(v/assert kb sentence context)`."
+  [kb sentence context]
+  (refusal-data #(v/assert kb sentence context)))
+
+(defn refusal-type
+  "The `:type` of the `ExceptionInfo` `f` throws, or `default` (nil unless given) when it
+  does not throw.  A test names the expected `:type` and does not use a bare `thrown?`,
+  which passes for every refusal alike: a check collapsing into a naming or arity refusal
+  stays green under it."
+  ([f] (refusal-type f nil))
+  ([f default]
+   (try (f) default (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))
+
 (defn try-violation
   "The clash kind `try-assert` refuses `sentence` in `context` with: the `:violation` of a
   `:definitional-clash`, else the refusal's `:type`.  Nil when `try-assert` stores the
@@ -343,6 +367,20 @@
 ;; failing-set-identical, exactly as the storage backends must be — and it is a root
 ;; binding rather than a fixture because it has to cover a lazily realized seq that
 ;; outlives whatever thread frame set it up.
+(defn instrumented?
+  "True under `scripts/coverage.sh`.  Cloverage's `cover` call runs on every form, so a
+  budget in allocated bytes measures the instrumentation and not the code."
+  []
+  (some? (find-ns 'cloverage.coverage)))
+
+(defn load-budget-ms
+  "How long a test waits on an asynchronous KB load or export: 120 s, and 1200 s under
+  `scripts/coverage.sh`, where 203 tests of `ontology-test` and `order-independence-test`
+  take 1361 s against 133 s.  A wait ends when the work does, so a long budget costs a
+  passing test nothing."
+  []
+  (if (instrumented?) 1200000 120000))
+
 (defn query-engine-override
   "The engine `VAELII_QUERY_ENGINE` names, or nil.  Read by tests that assert a
   DFS-specific artifact and must stand aside when the sweep is running.
@@ -513,7 +551,9 @@
   fork over `overlay-base-space` whose own half is the slot's current fork space, taken on
   the first call; on every other storage it is space `s`."
   [s]
-  (let [common {:recover? false :tms tms-kind}]
+  ;; `:reasoners :stored`: a test that registered a reasoner left it recorded in the slot's
+  ;; store, and `fresh` forgets it after the open (`forget-reasoners!`)
+  (let [common {:recover? false :tms tms-kind :reasoners :stored}]
     (if (overlay?)
       (let [own (or (@fork-spaces s)
                     ((swap! fork-spaces update s #(or % (fork-space))) s))]
@@ -524,9 +564,11 @@
 
 (defn clear-kb!
   "Wipe the stores under a KB the fixtures hand back over and over.  `v/clear!` without
-  the durability daemon's flush, plus the one piece of in-memory state a wipe must take
-  with it: the refusal record is keyed by rule handle and retired when the rule departs,
-  so nothing else drops the entries of rules this call just deleted."
+  the durability daemon's flush, plus the in-memory state a wipe must take with it: the
+  refusal record is keyed by rule handle and retired when the rule departs, so nothing
+  else drops the entries of rules this call just deleted, the mint rules' table
+  (`kb/mint-rule-table`) holds none, and the store holds no lazy-forward rule
+  (`kb/stores-lazy-rule?`)."
   [kb]
   (p/clear-records! (:records kb))
   (p/clear-index!   (:index kb))
@@ -539,7 +581,16 @@
   (kb/note-hazards! kb {:no-belief false :no-index false})
   (some-> (reasoning/refused kb) (reset! {}))
   ;; the owed record names a position among the deleted records, as `v/clear!` drops it
-  (argpass/clear-owed! kb))
+  (argpass/clear-owed! kb)
+  ;; the mint rules' handles: the wipe deleted every one, as `v/clear!` records
+  (kb/forget-mint-rules! kb true)
+  (kb/forget-lazy-rules! kb true))
+
+(defn- forget-reasoners!
+  "Unregister every prover from `kb` but the defaults, and record no reasoner in its store."
+  [kb]
+  (reset! (:provers kb) provers/default-provers)
+  (kb/record-reasoners! kb #{}))
 
 (defn drop-space!
   "Forget every RAM store held under `space`: its records, its index on any RAM backend and
@@ -569,7 +620,7 @@
       (some-> old drop-fork-space!)
       (v/open-kb (merge (slot-opts s) opts)))
     (let [opts (merge (slot-opts s) opts)
-          open #(doto (v/open-kb opts) (clear-kb!))]
+          open #(doto (v/open-kb opts) (clear-kb!) (forget-reasoners!))]
       (try (open)
            (catch clojure.lang.ExceptionInfo e
              (when-not (= :store-unusable (:type (ex-data e))) (throw e))
@@ -707,12 +758,56 @@
    :space [::starter block-top]
    :recover? false :tms tms-kind})
 
-(defn- temp-dump-dir
-  "A new, empty directory under `java.io.tmpdir` whose name starts with `prefix`.
-  `Files/createTempDirectory` creates it atomically under a name no existing entry has,
-  so two test JVMs building a dump at the same moment get two directories."
-  ^File [prefix]
-  (.toFile (Files/createTempDirectory prefix (make-array FileAttribute 0))))
+(defn permutations
+  "Every ordering of `coll`, as a lazy seq of seqs, in index order: the first element
+  takes each position in turn, then the rest are permuted.  Repeated elements are
+  permuted by position, so n! results.  A test whose answer depends on which sentence of an
+  incoherent set a refusal lands on sweeps all of them and not a hand-picked subset, which
+  would choose the answer."
+  [coll]
+  (if (< (count coll) 2)
+    (list coll)
+    (for [i (range (count coll))
+          p (permutations (concat (take i coll) (drop (inc i) coll)))]
+      (cons (nth coll i) p))))
+
+(defn orders
+  "Every ordering of `coll` as a vector, built by taking each element in turn and ordering
+  the rest with that element's value removed.  A repeated value therefore yields fewer
+  than n! results, which `permutations` does not."
+  [coll]
+  (if (< (count coll) 2)
+    [(vec coll)]
+    (for [x coll, tail (orders (remove #{x} coll))]
+      (into [x] tail))))
+
+(defn pick
+  "An element of `coll` chosen by `rng`, a `java.util.Random`."
+  [^java.util.Random rng coll]
+  (nth coll (.nextInt rng (count coll))))
+
+(defn temp-dir
+  "A new, empty directory under `java.io.tmpdir`, as a `File`, whose name is `(apply str
+  parts)`.  `Files/createTempDirectory` creates it atomically under a name no existing
+  entry has, so two test JVMs get two directories."
+  ^File [& parts]
+  (.toFile (Files/createTempDirectory (apply str parts) (make-array FileAttribute 0))))
+
+(defn tmpdir
+  "`temp-dir` with `prefix`, as a path string."
+  ^String [prefix]
+  (str (temp-dir prefix)))
+
+(defn rm-rf!
+  "Delete `dir` (a path or a `File`) and everything under it, deepest entry first."
+  [dir]
+  (doseq [^File f (reverse (file-seq (io/file dir)))] (.delete f)))
+
+(defn with-tmp
+  "Call `(f dir)` on a fresh temp directory path, deleting it afterwards."
+  [f]
+  (let [dir (tmpdir "vaelii-test-")]
+    (try (f dir) (finally (rm-rf! dir)))))
 
 (defn- build-dump
   "Build a KB on `space` with `load`, export it into a new directory named from `prefix`,
@@ -736,7 +831,7 @@
   dump is built once per JVM by whichever fixture asks first, and a binding that caller
   holds (`without-entailing` around a namespace) would otherwise reach every restore."
   [prefix space load]
-  (let [dir (temp-dump-dir prefix)
+  (let [dir (temp-dir prefix)
         kb  (doto (v/open-kb space) (clear-kb!))
         run (FutureTask. ^Callable (fn [] (load kb)))]
     (.start (Thread. run))
@@ -758,11 +853,38 @@
       (let [k (.getRawRoot #'argument/*assertive-arg-types?*)]
         @(get (swap! dumps update k #(or % (delay (build)))) k)))))
 
+(def ^:private thawed-streams
+  "Each dump stream file `restore!` has read, by path, as a `SoftReference` to its frames.
+  The reference is soft, so the collector takes back a dump's ~36 MB under heap pressure
+  rather than at exit.  `dump-per-root` builds one dump per root value of
+  `argument/*assertive-arg-types?*`.  No restore writes a dump's files, so every restore of
+  one dump shares its frames."
+  (atom {}))
+
+(defn- thawed-once
+  "The stream reader `read` with each file's frames thawed on the first read and answered
+  from `thawed-streams` after it, until the collector clears them."
+  [read]
+  (fn [file compression]
+    (let [k (str file)]
+      (or (some-> ^SoftReference (get @thawed-streams k) .get)
+          (let [frames (into [] (read file compression))]
+            (swap! thawed-streams assoc k (SoftReference. frames))
+            frames)))))
+
+(defn- restore!
+  "Import the dump at `dir` into `kb` with belief, reading each stream file's frames from
+  `thawed-streams` rather than thawing it again, and return `kb`."
+  [kb dir]
+  (binding [io-import/*wrap-reader* thawed-once]
+    (v/import! kb dir {:belief? true}))
+  kb)
+
 (def ^:private starter-dump
   "Answers an export dump of the starter ontology, built **once per JVM** for each root
   argument-type reading (`dump-per-root`) and read back by `load-starter!`.
 
-  `starter/load-into` re-asserts all 3,200+ sentexes through the full write path, and
+  `starter/load-into` re-asserts all 4,900+ sentexes through the full write path, and
   that path is not linear in the ontology's size.  64% of the load is its 28 `genlCx`
   edges: each one sweeps the facts its widened ancestor set newly exposes and re-derives
   the functional equalities over them (`special/equate-under-context-edge`), which for
@@ -786,8 +908,7 @@
   it refuses — calls `starter/load-into` directly and pays for it, since a restored dump
   answers a different question."
   [kb]
-  (v/import! kb (starter-dump) {:belief? true})
-  kb)
+  (restore! kb (starter-dump)))
 
 (def args-sugar-rule
   "core.txt's forward rule storing the `(argAndRest P 1 T)` an `(args P T)` stands for.
@@ -829,8 +950,7 @@
   calls `core-context/load-into` directly and pays for it, since a restored dump answers a
   different question."
   [kb]
-  (v/import! kb (core-context-dump) {:belief? true})
-  kb)
+  (restore! kb (core-context-dump)))
 
 ;; ---- any fixture KB, built once per key and copied ---------------------
 
@@ -858,8 +978,7 @@
         dump  (get (swap! keyed-dumps update key
                           (fn [d] (or d (dump-per-root #(build-dump "vaelii-fixture-" space build)))))
                    key)]
-    (v/import! kb (dump) {:belief? true})
-    kb))
+    (restore! kb (dump))))
 
 (defn load-core-with!
   "Load the upper ontology and then the middle files `theories` names into `kb`, and
@@ -1183,10 +1302,12 @@
   forced-monotonic declaration whose
   retraction `retract!` refuses an author (`checks/forcing-retraction-problem`) is
   retracted too, since a test that loads the upper ontology into a scratch KB owes the
-  baseline.  Dependency-directed retraction sweeps the derived consequences, so the KB
-  returns to its baseline.  Loops to a fixpoint in case teardown order matters."
+  baseline, and so is an inert rule a mint stored (`special/mint-rule-retraction-problem`).
+  Dependency-directed retraction sweeps the derived consequences, so the KB returns to its
+  baseline.  Loops to a fixpoint in case teardown order matters."
   [kb before]
-  (with-redefs [checks/forcing-retraction-problem (constantly nil)]
+  (with-redefs [checks/forcing-retraction-problem    (constantly nil)
+                special/mint-rule-retraction-problem (constantly nil)]
     (loop [guard 0]
       (let [prems (premise-ids kb)
             ;; An inert sentex restored by `import!` is a TMS datum held OUT with no
@@ -1265,7 +1386,12 @@
              (count (set/difference listed stored)) " stale, "
              (count (set/difference stored listed)) " missing: "
              (pr-str (vec (take 8 (set/union (set/difference listed stored)
-                                             (set/difference stored listed)))))))))
+                                             (set/difference stored listed))))))))
+  (let [tms  (reasoning/tms kb)
+        dead (into (sorted-set) (remove #(jtms/justification tms %)) (jtms/blocked tms))]
+    (is (empty? dead)
+        (str "the blocked set names " (count dead) " justification(s) the network does not hold "
+             (pr-str (vec (take 8 dead)))))))
 
 ;; ---- fixtures -----------------------------------------------------------
 
@@ -1274,6 +1400,41 @@
   `with-kb` / `deftest-kb` rather than touching the var, so a test namespace needs
   no `*kb*` of its own."
   nil)
+
+(defn kb-write-type
+  "`write-type` of the write thunk `f` against `*kb*`."
+  [f]
+  (write-type *kb* f))
+
+(defn fwd
+  "The forward rule `antes => conseq`, as a sentence `assert` takes."
+  [antes conseq]
+  (list 'set/forwardRule (vr/rule-sentence antes conseq)))
+
+(defn default-rule
+  "`fwd` as a defeasible rule."
+  [antes conseq]
+  (list 'set/defaultRule (fwd antes conseq)))
+
+(defn except-rule
+  "`(exceptWhen exception <default-rule>)` over `antes => conseq`."
+  [exception antes conseq]
+  (list 'exceptWhen exception (default-rule antes conseq)))
+
+(defn holds-genl
+  "Is `sub` a `genl` of `super` in `ctx`, as a boolean."
+  [sub super ctx]
+  (boolean (v/genl? *kb* sub super ctx)))
+
+(defn holds-sees
+  "Does context `k` see context `y`, as a boolean."
+  [k y]
+  (boolean (v/sees? *kb* k y)))
+
+(defn holds-ask
+  "`(v/ask? *kb* s ctx)` as a boolean."
+  [s ctx]
+  (boolean (v/ask? *kb* s ctx)))
 
 (defmacro with-kb
   "Bind `sym` to the KB under test:
@@ -1325,16 +1486,51 @@
       (try (binding [*kb* kb] (f))
            (finally (clear-kb! kb))))))
 
+(defn- reasoner-state
+  "`[names recorded]`: the reasoner names `kb` holds, and the set its store records, nil
+  when the store records none."
+  [kb]
+  (let [{held :names at :at} (:reasoners kb)]
+    [(some-> held deref) (#'kb/reasoners-at at)]))
+
+(defn- restore-reasoner-state!
+  "Put back the `reasoner-state` `saved`, a store that recorded no set included."
+  [kb [names recorded :as saved]]
+  (when (not= saved (reasoner-state kb))
+    (let [{held :names {:keys [dir space] :as at} :at} (:reasoners kb)]
+      (some-> held (reset! names))
+      (cond (some? recorded) (#'kb/record-reasoners-at! at recorded)
+            dir              (io/delete-file (io/file (str dir) @#'dfiles/reasoners-file) true)
+            at               (swap! @#'mem/space-reasoners dissoc space)))))
+
 (defn neutral
   "An `:each` fixture guarding net-neutrality of the KB bound by a `:once` fixture.
-  Snapshots content, runs the test, retracts the additions, and asserts the KB is
-  back to baseline."
+  Snapshots content, runs the test, retracts the additions and asserts the KB is back to
+  baseline.  It puts back three things no record set holds, also when the check throws:
+  the qualitative join baselines (docs/qcn.md), the registered provers, and the reasoner
+  names the KB holds and its store records.  A later `fork`, `copy` or reasoning-image save
+  registers every recorded name again.  A listener the test left registered fails the test
+  and is dropped."
   []
   (fn [f]
-    (let [kb *kb*
-          before (baseline kb)]
+    (let [kb        *kb*
+          before    (baseline kb)
+          joined    (some-> (reasoning/qcn-joined kb) deref)
+          registry  @(:provers kb)
+          reasoners (reasoner-state kb)
+          listening (set (map :token (v/watchers kb)))]
       (try (f)
-           (finally (assert-neutral! kb before))))))
+           (finally
+             (try
+               (let [left (remove (comp listening :token) (v/watchers kb))]
+                 (is (empty? left) (str "listener(s) left registered after the test: "
+                                        (pr-str left)))
+                 (run! #(v/unwatch kb (:token %)) left))
+               (assert-neutral! kb before)
+               (finally
+                 (some-> (reasoning/qcn-joined kb) (reset! joined))
+                 (reset! (:provers kb) registry)
+                 (restore-reasoner-state! kb reasoners))))))))
 
 (defn neutral-fresh
   "An `:each` fixture that builds a KB with `build-fn` (e.g. `tu/fresh`, or
@@ -1398,7 +1594,7 @@
   KB over the store once the first is closed.  The open rebuilds a derived index before it
   recovers, which `recover` alone does not do."
   [kb reopen? [s ctx] write!]
-  (let [dir  (temp-dump-dir "vaelii-recovered-")
+  (let [dir  (temp-dir "vaelii-recovered-")
         read (fn [k] {:placed (into #{} (comp (mapcat #(v/sentexes-with-functor k %))
                                               (filter #(v/in? k (:id %)))
                                               (map #(handle-free k [(:sentence %) (:context %)])))

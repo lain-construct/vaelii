@@ -6,8 +6,8 @@
 # The browser opens on the starter ontology and loads KB-DIR as a catalog job with belief
 # recovered (VAELII_KB_DIR, docs/web.md); the KB becomes the active one when the load
 # finishes. KB-DIR defaults to checkouts/kb beside this checkout, and a first
-# argument that starts with `--` is a flag, not a KB-DIR. The heap is VAELII_HEAP,
-# default 40g (scripts/lib/start.sh).
+# argument that starts with `--` is a flag, not a KB-DIR. The heap is VAELII_HEAP, else
+# half of physical memory up to 31g (scripts/lib/start.sh).
 { # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
@@ -24,7 +24,8 @@ KB="$(start_kb_dir "$kb_arg")" || exit 1
 cd "$ROOT"
 
 export VAELII_KB_DIR="$KB"
-JVM_OPTS="${JVM_OPTS:-} $(start_jvm_opts)"
+JVM_HEAP_OPTS="$(start_jvm_opts)" || exit 1
+JVM_OPTS="${JVM_OPTS:-} $JVM_HEAP_OPTS"
 export JVM_OPTS
 
 echo "vaelii: browser, loading $KB" >&2

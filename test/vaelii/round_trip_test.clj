@@ -31,17 +31,9 @@
             [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+  (:import (java.io File)))
 
 ;;; ── scaffolding ───────────────────────────────────────────────────────
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-rt-" nm "-") (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- memory-kb
   "A cleared plain `:memory` KB (`tu/plain-memory-space`) whatever backend the suite
@@ -209,8 +201,8 @@
   "Build a KB with `open-source`, export it, import into a KB from `open-target`, and
   run `(f source target summary)`."
   [open-source open-target f]
-  (let [dump (temp-dir "dump")]
-    (rm-rf! dump)                                   ; export! makes its own directory
+  (let [dump (tu/temp-dir "vaelii-rt-" "dump" "-")]
+    (tu/rm-rf! dump)                                   ; export! makes its own directory
     (let [t      (terms)
           source (open-source)
           target (open-target)]
@@ -219,12 +211,12 @@
         (export/export! source dump {:compression :none})
         (let [summary (imp/import-dump target dump)]
           (f source target summary t))
-        (finally (rm-rf! dump))))))
+        (finally (tu/rm-rf! dump))))))
 
 ;;; ── the round trips ───────────────────────────────────────────────────
 
 (deftest memory-out-disk-in
-  (let [store (temp-dir "disk-in")]
+  (let [store (tu/temp-dir "vaelii-rt-" "disk-in" "-")]
     (try
       (tu/with-cleared-kb [_ memory-kb]
         (round-trip!
@@ -240,17 +232,17 @@
              (is (zero? (:dropped-justifications summary)))
              (is (zero? (:dropped-meta-sentexes summary))))
            (compare-kbs! source target))))
-      (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
+      (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store)))))
 
 (deftest disk-out-memory-in
-  (let [store (temp-dir "disk-out")]
+  (let [store (tu/temp-dir "vaelii-rt-" "disk-out" "-")]
     (try
       (tu/with-cleared-kb [_ memory-kb]
         (round-trip!
          (fn [] (disk-kb store))
          (fn [] (memory-kb))
          (fn [source target _summary _t] (compare-kbs! source target))))
-      (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
+      (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store)))))
 
 ;;; ── handles ───────────────────────────────────────────────────────────
 
@@ -270,7 +262,7 @@
   ;; index entry is a posting of handles, so replaying one is possible only over an
   ;; import that keeps them; and a caller holding a handle across an export/import cycle
   ;; is holding a reference rather than a coincidence.
-  (let [store (temp-dir "handles")]
+  (let [store (tu/temp-dir "vaelii-rt-" "handles" "-")]
     (try
       (tu/with-cleared-kb [_ memory-kb]
         (round-trip!
@@ -303,7 +295,7 @@
                    (is (= (select-keys (v/sentex source h) [:sentence :context])
                           (select-keys (v/sentex target h) [:sentence :context]))
                        (str "handle " h " was overwritten by the assert")))))))))
-      (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
+      (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store)))))
 
 (deftest the-public-pair-is-a-round-trip-too
   ;; Every trip above calls `export/export!` and `imp/import-dump` — the implementations,
@@ -316,9 +308,9 @@
   ;; It is a round trip and not a smoke test because the claim `import!`'s docstring
   ;; makes is exactly the claim `compare-kbs!` checks: a dump whose two halves are not
   ;; both public is not a round trip.
-  (let [dump  (temp-dir "public-dump")
-        store (temp-dir "public-store")]
-    (rm-rf! dump)                                   ; export! makes its own directory
+  (let [dump  (tu/temp-dir "vaelii-rt-" "public-dump" "-")
+        store (tu/temp-dir "vaelii-rt-" "public-store" "-")]
+    (tu/rm-rf! dump)                                   ; export! makes its own directory
     (try
       (tu/with-cleared-kb [_ memory-kb]
         (let [t      (terms)
@@ -333,21 +325,21 @@
             (is (= :preserved (:handle-policy summary)))
             (compare-kbs! source target))))
       (finally (backend/close-dir! (.getPath store))
-               (rm-rf! store) (rm-rf! dump)))))
+               (tu/rm-rf! store) (tu/rm-rf! dump)))))
 
 (deftest records-only-reads-our-dialect-too
   ;; The `{:belief? false}` path exists for a corpus past what the JTMS scales to.  It
   ;; shares one fn with the belief path — `field-map->sentence` — so the dialect
   ;; discrimination has to hold there as well: the corpus lands stored and indexed, with
   ;; no TMS behind it.
-  (let [dump (temp-dir "records-only")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "records-only" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [t (terms)]
         (tu/with-cleared-kb [source memory-kb]
           (build! source t)
           (export/export! source dump {:compression :none})
-          (let [store (temp-dir "records-only-store")]
+          (let [store (tu/temp-dir "vaelii-rt-" "records-only-store" "-")]
             (try
               (let [target  (disk-kb store)
                     summary (imp/import-dump target dump {:belief? false})]
@@ -357,8 +349,8 @@
                 (is (= (set (map :id (v/find-sentexes source (:Tweety t))))
                        (set (map :id (v/find-sentexes target (:Tweety t)))))
                     "and the corpus is indexed — findable by any term it mentions"))
-              (finally (backend/close-dir! (.getPath store)) (rm-rf! store))))))
-      (finally (rm-rf! dump)))))
+              (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store))))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest records-only-keeps-the-premises-a-later-recover-believes-from
   ;; `recover` is what turns this corpus into a believing KB, and it believes from the
@@ -367,14 +359,14 @@
   ;; **nothing**, every handle a derivation with no justification to ground it.  So the
   ;; records-only path stores each record of ours the way the belief path stores it,
   ;; minus the TMS it deliberately does not build.
-  (let [dump (temp-dir "records-only-premises")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "records-only-premises" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [t (terms)]
         (tu/with-cleared-kb [source memory-kb]
           (build! source t)
           (export/export! source dump {:compression :none})
-          (let [store (temp-dir "records-only-premises-store")]
+          (let [store (tu/temp-dir "vaelii-rt-" "records-only-premises-store" "-")]
             (try
               (let [target (disk-kb store)]
                 (imp/import-dump target dump {:belief? false})
@@ -392,22 +384,22 @@
                                                 (:ctx t))))
                   (is (v/genl? target (:penguin t) (:bird t))
                       "the taxonomy is rebuilt off believed edges, so it answers too")))
-              (finally (backend/close-dir! (.getPath store)) (rm-rf! store))))))
-      (finally (rm-rf! dump)))))
+              (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store))))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest stored-belief-is-the-belief-load-minus-the-settling
   ;; The claim `{:belief? :stored}` makes, stated as the equality that defines it: a dump
   ;; read `:stored` and then `recover`ed is the same KB as one read `{:belief? true}`.
   ;; Everything before the recover is a write to the store, and the recover reads the
   ;; store — so the only thing deferring it can change is *when*.
-  (let [dump (temp-dir "stored-belief")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "stored-belief" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [t (terms)]
         (tu/with-cleared-kb [source memory-kb]
           (build! source t)
           (export/export! source dump {:compression :none})
-          (let [a (temp-dir "stored-a") b (temp-dir "stored-b")]
+          (let [a (tu/temp-dir "vaelii-rt-" "stored-a" "-") b (tu/temp-dir "vaelii-rt-" "stored-b" "-")]
             (try
               (let [deferred (disk-kb a)
                     eager    (disk-kb b)
@@ -429,9 +421,9 @@
                 (v/recover deferred)
                 (testing "so recovering it later lands where loading it eagerly landed"
                   (compare-kbs! eager deferred)))
-              (finally (backend/close-dir! (.getPath a)) (rm-rf! a)
-                       (backend/close-dir! (.getPath b)) (rm-rf! b))))))
-      (finally (rm-rf! dump)))))
+              (finally (backend/close-dir! (.getPath a)) (tu/rm-rf! a)
+                       (backend/close-dir! (.getPath b)) (tu/rm-rf! b))))))
+      (finally (tu/rm-rf! dump)))))
 
 ;;; ── a frame this build will not construct ─────────────────────────────
 ;;; No live KB can hold one, because the structural checks run inside the constructor
@@ -472,8 +464,8 @@
   ;; stored at all, so it is skipped and counted — and the load finishes either way.
   ;; One refusal taking down a finished pass over millions of good frames is the
   ;; behaviour this replaces.
-  (let [dump (temp-dir "refused-frame")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "refused-frame" "-")]
+    (tu/rm-rf! dump)
     (try
       (let [t (terms)]
         (tu/with-cleared-kb [source memory-kb]
@@ -498,7 +490,7 @@
                   (is (= good (:sentexes s)))
                   (is (= (count (p/justification-ids (:records source))) (:justifications s))
                       "and the rest of the dump landed, belief included")))))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest a-row-assert-refuses-is-skipped-or-counted-on-both-import-paths
   ;; An import builds records without `assert`'s checks, so every sentence `assert` refuses
@@ -613,8 +605,8 @@
       (doseq [{:keys [row sentence context refused stored naming duplicate strength]} rows
               belief (if duplicate [true :stored false] [true false])]
         (testing (str row ", :belief? " belief)
-          (let [dump (temp-dir "assert-refuses")]
-            (rm-rf! dump)
+          (let [dump (tu/temp-dir "vaelii-rt-" "assert-refuses" "-")]
+            (tu/rm-rf! dump)
             (try
               (tu/with-cleared-kb [source memory-kb]
                 (v/assert source (list dog Fido) CxStory)
@@ -650,7 +642,7 @@
                                (map v/sentence-of
                                     (v/sentexes-matching target (list dog '?y) CxStory)))
                             "no open literal answers a goal of its shape"))))))
-              (finally (rm-rf! dump)))))))))
+              (finally (tu/rm-rf! dump)))))))))
 
 (deftest a-rule-frame-assert-expands-imports-as-the-rules-assert-stores
   ;; The fact spliced after the rule takes the next dump id, which is the handle a form
@@ -671,8 +663,8 @@
                          (let [hs (v/assert kb rule CxStory)]
                            (is (= 2 (count hs)))
                            (set (map #(content-of kb %) hs))))
-              dump     (temp-dir "expanded-rule")]
-          (rm-rf! dump)
+              dump     (tu/temp-dir "vaelii-rt-" "expanded-rule" "-")]
+          (tu/rm-rf! dump)
           (try
             (tu/with-cleared-kb [source memory-kb]
               (export/export! source dump {:compression :none})
@@ -690,15 +682,15 @@
                       (doseq [[fact _] fires] (v/assert target fact CxStory))
                       (is (every? #(seq (v/sentexes-matching target (second %) CxStory)) fires)
                           "every imported form fires forward"))))))
-            (finally (rm-rf! dump))))))))
+            (finally (tu/rm-rf! dump))))))))
 
 (deftest a-torn-stream-is-still-torn
   ;; The counterpart, and the reason the truncation check reads the frame count from the
   ;; stream rather than from the store: a skipped frame shortens the store, and if that
   ;; were what the check compared it would read every refusal as a torn file — turning a
   ;; tolerated frame back into a fatal one under a different name.
-  (let [dump (temp-dir "torn")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "torn" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (build! source (terms))
@@ -710,7 +702,7 @@
         (tu/with-cleared-kb [target memory-kb]
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"torn or truncated"
                                 (imp/import-dump target dump {:belief? false})))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest a-torn-justification-stream-is-torn-too
   ;; The sentex stream is not the only one `meta.edn` counts, and it is not the one with
@@ -718,8 +710,8 @@
   ;; exactly as a truncated sentex stream is, and what it costs is *belief* — every
   ;; conclusion whose justification was in the lost tail comes back unsupported, on a KB
   ;; that reports a clean import.  The count is the only witness either stream leaves.
-  (let [dump (temp-dir "torn-just")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "torn-just" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (build! source (terms))
@@ -735,14 +727,14 @@
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"torn or truncated"
                                 (imp/import-dump target dump {:belief? :stored}))
               "the belief path reads it")))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest an-unknown-belief-value-is-refused-by-name
   ;; The option has three values, so a mistyped one is the quiet failure the key check
   ;; already guards against: anything truthy would otherwise mean `true` and run the
   ;; recover the caller asked to defer.
-  (let [dump (temp-dir "belief-value")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "belief-value" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (build! source (terms))
@@ -752,7 +744,7 @@
                                 (imp/import-dump target dump {:belief? :store})))
           (testing "and the refusal lands before anything is written"
             (is (zero? (v/sentex-count target))))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest a-dump-that-carries-an-out-list-is-refused
   ;; A justification frame is a field map, so a dump can carry an `:out` key — a
@@ -769,8 +761,8 @@
   ;; keeps every sentex the dump had, an arbitrary prefix of its justifications, no
   ;; premise marks and no `recover`, and `assert-empty-destination!` refuses the retry
   ;; until somebody clears the store by hand.
-  (let [dump (temp-dir "naf-out")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "naf-out" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [kb memory-kb]
         (build! kb (terms))
@@ -803,7 +795,7 @@
             (let [summary (imp/import-dump kb dump)]
               (is (= before [(:sentexes summary) (:justifications summary)])
                   "the repaired dump imports into the same KB the refusal left behind")))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 ;;; ── a meta-sentex the import drops, and what rested on it ─────────────
 ;;; A **remapped** import rewrites the `(sentexHandle H)` a meta-sentex stores inside its
@@ -887,8 +879,8 @@
   ;; the id map forgets the dump id along with the record, so every reference to it fails
   ;; to resolve and is dropped through the path a dangling reference already has — and no
   ;; justification is left naming a handle the store does not hold.
-  (let [dump (temp-dir "orphaned-meta")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "orphaned-meta" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (build! source (terms))
@@ -913,7 +905,7 @@
             (testing "and the recover the :stored mode defers reads a consistent store"
               (v/recover target)
               (is (empty? (dangling-refs target)))))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (defn- splice-twin-rule-dump!
   "Edit `dir` into two dump rules that are one rule here, each with its own copy of the
@@ -965,10 +957,10 @@
   ;; each names.  The rewrite resolves both to the one rule, and the second is merged
   ;; onto the first rather than stored beside it — so a second round trip, which sees
   ;; the two as one key from the start, has nothing left to collapse.
-  (let [dump  (temp-dir "twin-rule")
-        again (temp-dir "twin-rule-again")]
-    (rm-rf! dump)
-    (rm-rf! again)
+  (let [dump  (tu/temp-dir "vaelii-rt-" "twin-rule" "-")
+        again (tu/temp-dir "vaelii-rt-" "twin-rule-again" "-")]
+    (tu/rm-rf! dump)
+    (tu/rm-rf! again)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (build! source (terms))
@@ -990,7 +982,7 @@
               (let [s2 (imp/import-dump third again {:belief? :stored})]
                 (is (zero? (:collapsed s2)) "the export carries no record twice")
                 (is (= (v/sentex-count target) (v/sentex-count third))))))))
-      (finally (rm-rf! dump) (rm-rf! again)))))
+      (finally (tu/rm-rf! dump) (tu/rm-rf! again)))))
 
 (deftest recover-leaves-out-a-justification-that-rests-on-nothing
   ;; What `recover` does when a store holds one anyway.  It can: the records are a durable
@@ -1041,29 +1033,31 @@
   ;; `classify` keys on `meta.edn`, and ours carries both the keys it looks for — but a
   ;; card that only said "a dump" would leave the operator guessing which dialect (and so
   ;; how much re-canonicalization) a load faces.
-  (let [root (temp-dir "catalog")
+  (let [root (tu/temp-dir "vaelii-rt-" "catalog" "-")
         dump (io/file root "an-export")]
     (try
       (tu/with-cleared-kb [source memory-kb]
         (build! source (terms))
         (export/export! source dump {:compression :none})
         (is (= :dump (catalog/classify dump)))
-        (System/setProperty "vaelii.kb.path" (.getPath root))
-        (try
-          (let [card (first (filter #(= "an-export" (:name %)) (catalog/sources)))]
-            (is (some? card) "discovered on the search path")
-            (is (= :dump (:kind card)))
-            (is (= :vaelii (:dialect card)) "and named as ours")
-            (is (re-find #"our own dialect" (:blurb card)))
-            (is (re-find #"justifications" (:blurb card))
-                "counted in the units this dialect keeps"))
-          (finally (System/clearProperty "vaelii.kb.path"))))
-      (finally (rm-rf! root)))))
+        (let [prior (System/getProperty "vaelii.kb.path")]
+          (System/setProperty "vaelii.kb.path" (.getPath root))
+          (try
+            (let [card (first (filter #(= "an-export" (:name %)) (catalog/sources)))]
+              (is (some? card) "discovered on the search path")
+              (is (= :dump (:kind card)))
+              (is (= :vaelii (:dialect card)) "and named as ours")
+              (is (re-find #"our own dialect" (:blurb card)))
+              (is (re-find #"justifications" (:blurb card))
+                  "counted in the units this dialect keeps"))
+            (finally (if prior (System/setProperty "vaelii.kb.path" prior)
+                         (System/clearProperty "vaelii.kb.path"))))))
+      (finally (tu/rm-rf! root)))))
 
 ;;; ── the claims content comparison alone would not make ────────────────
 
 (deftest what-the-round-trip-has-to-keep-working
-  (let [store (temp-dir "claims")]
+  (let [store (tu/temp-dir "vaelii-rt-" "claims" "-")]
     (try
       (tu/with-cleared-kb [_ memory-kb]
         (round-trip!
@@ -1103,7 +1097,7 @@
              (testing "and the conjunctive rule's derived fact came across believed"
                (is (seq (v/sentexes-matching source (list grandparentOf Ann Cid) ctx)))
                (is (seq (v/sentexes-matching target (list grandparentOf Ann Cid) ctx))))))))
-      (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
+      (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store)))))
 
 ;;; ── a corpus with spelling conventions of its own ─────────────────────
 
@@ -1136,14 +1130,14 @@
   ;; convention* — and comes back spelled the way it went in.  A loader that silently
   ;; repaired `game-theory` to `gameTheory` would round-trip its own invention, and the
   ;; corpus it was given would be gone.
-  (let [dump (temp-dir "foreign-dialect")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "foreign-dialect" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [source lenient-kb]
         (doseq [s foreign-dialect] (v/assert source s 'WellContext))
         (is (= (count foreign-dialect) (v/sentex-count source)))
         (export/export! source dump {:compression :none})
-        (let [store (temp-dir "foreign-dialect-store")]
+        (let [store (tu/temp-dir "vaelii-rt-" "foreign-dialect-store" "-")]
           (try
             (let [target  (disk-kb store)
                   summary (imp/import-dump target dump {:belief? false})]
@@ -1174,8 +1168,8 @@
                   (is (= :strict (:naming strict)))
                   (is (= ['(sense game_theory' game-theory)]
                          (map :sentence (v/find-sentexes strict 'game-theory)))))))
-            (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
-      (finally (rm-rf! dump)))))
+            (finally (backend/close-dir! (.getPath store)) (tu/rm-rf! store)))))
+      (finally (tu/rm-rf! dump)))))
 
 ;;; ── a reader that refuses the file still gives the descriptor back ─────
 
@@ -1195,7 +1189,7 @@
   ;; dump's `meta.edn` says they are — and a stream left holding the descriptor with
   ;; nothing referencing it is one nothing will ever close.  A foreign dump is exactly
   ;; where both arrive, and an importer walking sections pays it once per section.
-  (let [dump (temp-dir "codec")]
+  (let [dump (tu/temp-dir "vaelii-rt-" "codec" "-")]
     (try
       (let [f (io/file dump "plain.bin")]
         (spit f "not compressed, and not nippy either")
@@ -1213,7 +1207,7 @@
             (let [after (open-fds)]
               (is (or (nil? before) (< (- (long after) (long before)) 50))
                   (str "600 refused opens leaked descriptors: " before " -> " after))))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest a-dump-naming-one-handle-twice-is-refused-on-both-record-passes
   ;; A handle is an identity, and both record passes land a dump of ours at the handles it
@@ -1223,8 +1217,8 @@
   ;; number would afterwards name the wrong sentence.  Equal content never reaches the
   ;; check: the canonical form has already collapsed onto one handle, counted as
   ;; `:collapsed`.  What is left is a dump that is genuinely broken, on either path.
-  (let [dump (temp-dir "dup-handle")]
-    (rm-rf! dump)                                   ; export! makes its own directory
+  (let [dump (tu/temp-dir "vaelii-rt-" "dup-handle" "-")]
+    (tu/rm-rf! dump)                                   ; export! makes its own directory
     (try
       (tu/with-cleared-kb [source memory-kb]
         (tu/with-terms [dog cat Muffet Tom CxDup]
@@ -1247,7 +1241,7 @@
                            (catch clojure.lang.ExceptionInfo e (ex-data e)))]
                 (is (= :duplicate-handle (:type d)))
                 (is (= clashing (:handle d)) "naming the handle the dump claimed twice"))))))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 ;;; ── a refusal met after the first write ───────────────────────────────
 ;;; Four refusals of a dump's content are decided by a frame in the middle of the sentex
@@ -1299,9 +1293,9 @@
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (deftest a-dump-refused-for-its-own-content-mid-stream-leaves-the-destination-empty
-  (let [good (temp-dir "mid-good")
-        bad  (temp-dir "mid-bad")]
-    (rm-rf! good)
+  (let [good (tu/temp-dir "vaelii-rt-" "mid-good" "-")
+        bad  (tu/temp-dir "vaelii-rt-" "mid-bad" "-")]
+    (tu/rm-rf! good)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (tu/with-terms [dog animal Ace Bea Cal Dot CxMid]
@@ -1316,7 +1310,7 @@
             ;; `bad` is `good` with its sentex stream rewritten: `plant` lands after three
             ;; stored frames, two frames to a chunk, so the refusal is met mid-stream
             plant!  (fn [planted]
-                      (rm-rf! bad)
+                      (tu/rm-rf! bad)
                       (.mkdirs bad)
                       (doseq [^File f (.listFiles good) :when (.isFile f)]
                         (io/copy f (io/file bad (.getName f))))
@@ -1371,7 +1365,7 @@
             (finally (foreign/unregister :engine-dump))))
         (testing "on :disk-log, where a reopen reads what the refusal left"
           (plant! (assoc (nth fs 3) :id (:id (first fs))))
-          (let [dir (temp-dir "mid-disk")]
+          (let [dir (tu/temp-dir "vaelii-rt-" "mid-disk" "-")]
             (try
               (let [kb (disk-kb dir)]
                 (try
@@ -1383,15 +1377,15 @@
                       "the reopened store holds no record, so it believes none")
                   (is (= total (:sentexes (imp/import-dump kb good))))
                   (finally (v/close! kb))))
-              (finally (rm-rf! dir))))))
-      (finally (rm-rf! good) (rm-rf! bad)))))
+              (finally (tu/rm-rf! dir))))))
+      (finally (tu/rm-rf! good) (tu/rm-rf! bad)))))
 
 (deftest a-stream-a-foreign-replay-opens-is-closed-when-the-replay-throws
   ;; A frame seq closes its file when it is read to the end or fails inside itself, and a
   ;; foreign reader that throws between frames does neither.  The importer closes every
   ;; stream the `:read-fn` it hands the reader opened.
-  (let [dump (temp-dir "replay-stream")]
-    (rm-rf! dump)
+  (let [dump (tu/temp-dir "vaelii-rt-" "replay-stream" "-")]
+    (tu/rm-rf! dump)
     (try
       (tu/with-cleared-kb [source memory-kb]
         (tu/with-terms [dog Ace CxReplay]
@@ -1408,7 +1402,7 @@
         (finally
           (foreign/unregister :engine-dump)
           (reset! opened-by-replay nil)))
-      (finally (rm-rf! dump)))))
+      (finally (tu/rm-rf! dump)))))
 
 (deftest a-dump-this-build-cannot-read-is-refused-before-the-first-write
   ;; Four checks read `meta.edn` and refuse on it, and each lands before a record is
@@ -1417,7 +1411,7 @@
   ;; named refusal rather than a half-filled store: a dump read up to the point of failure
   ;; leaves a fraction of a KB nobody chose, and nothing downstream can tell it from a
   ;; corpus that really is that small.
-  (let [dump    (temp-dir "meta-checks")
+  (let [dump    (tu/temp-dir "vaelii-rt-" "meta-checks" "-")
         kb      (memory-kb)
         meta!   (fn [m] (spit (io/file dump "meta.edn") (pr-str m)))
         refusal (fn [] (try (imp/import-dump kb dump)
@@ -1442,7 +1436,7 @@
       (testing "and every one of them left the destination exactly as it found it"
         (is (zero? (v/sentex-count kb)))
         (is (empty? (p/sentex-ids (:records kb)))))
-      (finally (rm-rf! dump) (tu/clear-kb! kb)))))
+      (finally (tu/rm-rf! dump) (tu/clear-kb! kb)))))
 
 ;;; ── the on-disk layout has one home ───────────────────────────────────
 

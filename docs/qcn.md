@@ -663,6 +663,47 @@ descriptions `qualitative-network` answers as `:unsatisfiable-sources`.
 Otherwise a KB with an impossible component answers nothing about its nodes and says
 nothing about why.
 
+**The settle asks every write.** A settle whose relabelled region holds a believed fact
+that moves a registered calculus (a fact on a predicate the calculus triggers on, a `genl`
+edge into one, or a `genlCx` edge) asks each governing context of that calculus whether
+its network is unsatisfiable (`qcn-kb/report-moved!`). The entry is therefore filed by the
+write that made the network unsatisfiable, whether or not a rule or a read consults the
+network. A KB with no calculus registered runs no check.
+
+The settle records each governing context's pass, and the next settle closes it again
+from the constraints its region adds (`qcn/path-consistent-from`, seeded at the pairs they
+narrow), with no network read. That holds when every member of the region is a believed
+fact of the calculus, a rule, or a fact on a predicate the calculus does not trigger on
+and the engine does not read (core.txt's types and inert terms excepted). A region holding
+anything else (an OUT member, a `genl` or `genlCx` edge, an `except`, a defeat, an equality
+edge, a fact on a sub-predicate), and every region of a calculus with a narrowing (`:allen`,
+`:point`), reads each governing context's network whole. A pass that closes
+`:inconsistent` is read and tightened whole, which files the entry and replaces a recorded
+pass that a withdrawal the region does not show left too tight. A fact a governing
+context does not see adds nothing to that context's pass. A plain
+listener's feed event carries the entry under `:unsatisfiable`, once per
+network per KB and context under a marker of its own (`qcn-kb/fed-inconsistencies`). A
+standing query's event carries none, since `watch` refuses a goal a calculus answers
+([feed.md](feed.md#what-is-refused)).
+
+**The feed event is the record a caller reads forward.** The ledger is in memory, holds
+its newest 1000 entries, is not persisted and has no cursor. A daemon subscription keeps
+the events in a ring a cursor reads, and its `:lagged` count names the events the ring
+dropped ([feed.md](feed.md#across-the-wire)).
+
+**`try-assert` refuses the write.** After the write stores, chains and settles,
+`try-assert` looks for an unsatisfiable component, at a governing context of a calculus the
+write moved, whose support-carrying pass blames a sentex the write premised newly or a
+conclusion its firings placed (`qcn-kb/unsatisfiable-write`). A context whose recorded
+pass is satisfiable, with no mutation since the settle, is not read. The first such component
+refuses the write as `:definitional-clash` with `:violation :unsatisfiable-network`, and
+the write is taken back. `:clashes-with` names the other blamed facts, and `:detail` the
+calculus, the context, the component's nodes and its pairs unsatisfiable as written. A
+component the pass blames on none of the write's sentexes was unsatisfiable before the
+write, and does not refuse it. `{:refuse-unsatisfiable? false}` skips the check. A
+`genlCx` edge that puts two satisfiable networks into one unsatisfiable reader is stored:
+the blame names facts and never an edge.
+
 It is deliberately **not** a `wff` check. [why not a wff
 check](defenses.md#an-impossible-network-is-reported-off-the-pass-not-thrown-as-a-wff-check)
 

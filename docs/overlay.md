@@ -1,14 +1,17 @@
 # Forks: an overlay over a frozen base
 
 - **Covers:** what a fork is — a private, writable KB layered over a frozen, read-only base
-  — and how reads, writes, counts and tombstones route between the two.
+  — how reads, writes, counts and tombstones route between the two, how a newer dump
+  replaces a fork's base while the fork keeps its writes, and how a fork's writes travel
+  to another KB as a delta.
 - **Not here:** the record/index store protocols and the single-writer lock a base is opened
   through → [storage.md](storage.md); the dense backend internals (postings, the columnar
   trie) a KV decorator wraps → [density.md](density.md).
 - **Assumes:** sentex, context, handle, JTMS → [glossary.md](glossary.md).
 
 `vaelii.impl.overlay.kv`, `vaelii.impl.overlay.store`,
-`vaelii.impl.overlay.frozen`, `vaelii.impl.overlay.mount`; `core/fork`.
+`vaelii.impl.overlay.frozen`, `vaelii.impl.overlay.mount`, `vaelii.impl.overlay.rebase`;
+`core/fork`.
 
 A **fork** is a private, writable KB layered over a shared, read-only **base**. Reads
 resolve fork-first and fall through to the base; writes land only in the fork; **the base
@@ -198,8 +201,9 @@ deliberately, because that is what the caller asked for.
   What none of this sees is a fork justification or except naming a base handle the fork
   wrote no state at: over a reordered base, that names the record now there.
   To carry a refused fork onto the grown base, mount it over the base it was taken
-  against, read its premises, re-assert them by content in a fresh fork over the new
-  base, and re-point each `except` at the new handle of its target.
+  against and import the grown base's dump with `:rebase? true` (below), which
+  re-asserts the fork's premises by content and re-points each `except` at the new
+  handle of its target.
 - **Tombstones.** Deleting an inherited record cannot touch the base, so it is recorded
   and the read path filters it. They are sticky: an inherited record cannot come back
   through fall-through, only by being written into the overlay again (a revival, at the
@@ -263,6 +267,138 @@ allocates: it can only skip a handle, never reuse one, and recovery takes
 loses nothing. There is no read-only way to seed a watermark, and no arrangement under
 which the counter both seeds a fork and stays where it was.
 
+## Replacing the base
+
+`(import! fork dir {:rebase? true})` installs the export dump at `dir` as the fork's base and
+keeps what the fork wrote; `koinii.deref/pull!` passes `:rebase? true`
+([koinii.md](koinii.md#the-other-deployment-shape-independent-seats)). The base must be the
+fork's own, one mounted from `:base` opts. A fork `fork` took over a live KB reads that KB's
+stores and is refused (`:frozen-base`); import into the KB it was forked from instead. A KB
+that is no fork is imported into as without the option: an empty one takes the dump, and a
+non-empty one is refused `:not-empty`.
+
+The rebase is five steps on the writer's thread:
+
+1. **The fork's writes are read by content.** Its premises and inert sentexes become the
+   forms a text KB file writes (`text/premise-entries`), each with its provenance, and a
+   handle at a reference position is written as `(ist Cx S)`, with the named record's
+   digest ([storage.md](storage.md#content-digests)). A base premise the merged KB holds as no
+   premise is kept as its sentence and context, since the fork retracted it. An override
+   equal to the base record it copies, strength included, is the base's and is not kept.
+   A durable fork writes these to its directory before step 2: the forms as a delta text
+   KB under `rebase-delta/` (what `export-text! {:delta? true}` writes), each file fsynced,
+   then the marker `rebase-pending.nippy`, which holds the retracted premises' content keys
+   and each form's provenance and captured record.
+2. **The own half is emptied**: its records, its bookkeeping and its index.
+3. **The dump is imported into the base's stores** through a second KB opened from the
+   base's opts, under `:belief? :stored`: records, justifications, premise marks and index,
+   with no recover. The base records the dump's reasoner set. The fork's handle counter
+   and watermark are then seeded from the new base's `next-id`, as a mount seeds them.
+4. **Belief is rebuilt** over the merged contents on a second KB and installed as a
+   background rebuild installs it, so the change feed receives the handles that moved.
+5. **The fork's writes are asserted again** through `assert`. The forms go through
+   `load-text!`'s order-insensitive rounds, each reference resolved against the merged KB
+   and its digest compared. Each retracted base premise the new base also holds is
+   retracted again. Last, `import!`'s `:on-replayed`, when given, is called with the
+   record each premise of one record was captured from and the handle it is stored at
+   again; `identity/rebase!` passes one that seals a koinii attestation again
+   ([koinii.md](koinii.md#identity-and-the-write-boundary)). An exception it throws
+   propagates from `import!`, and a durable fork keeps the marker for the next open or
+   rebase to finish.
+
+`assert` stores a clash and settles it, so a write the new base contradicts is kept and
+belief decides between the two. The summary's `:rebase` is `{:asserted n :refused [..]
+:unresolved [..] :retracted n :elapsed-ms n}`. `:refused` lists the forms `assert` still
+refused after a round that asserted nothing more, with the refusal's `:type`, and
+`:unresolved` the forms holding a reference no record of the merged KB answers. The
+rebase logs one line (`::rebased`), at `:warn` when either list is non-empty. Each record
+the fork wrote takes a new handle above the new base's range.
+
+Step 5 ends by deleting the marker and the delta. An `open-kb` of a durable fork whose
+directory holds the marker asserts the delta's forms again with their provenance and
+retracts the recorded base premises again, through step 5's code, then deletes the marker
+(`rebase/finish-pending!`). A crash between step 2 and the end of step 5, outside step 3,
+therefore loses none of the fork's writes. After a crash inside step 3 the base is partly
+imported, and the open asserts the writes over that base and deletes the marker whatever
+the result. It drops each form naming a record the partial base lacks, each form refused,
+and each retraction of a base premise the partial base does not hold. The
+`::pending-replayed` line at `:warn` counts the dropped forms, and no line names a dropped
+retraction. Importing the dump again with `:rebase? true` restores the base, and its
+capture reads only the fork's own records, so the dropped writes stay lost. An open whose KB refuses writes (`:recover? false`) keeps the
+marker, and the next rebase finishes it before step 1, calling that rebase's `:on-replayed`
+with each record the marker holds. A fork in RAM writes no delta and
+has nothing to recover after a crash.
+
+A read on another thread during a rebase answers from the fork before the rebase or after
+it. The rebase holds the write side of the fork's rebase lock from the replay of a marker
+an earlier rebase left, or from step 1, to the end of step 5 (`ostore/excluding-readers`).
+Every public read entry point holds the read side for its call (`kb/reading`). Step 1
+therefore waits for every read already running to return, and a read called during the
+rebase waits for step 5 to end. The writer's thread re-enters the lock, so the rebase's own
+reads and writes do not wait. A lazy seq a read returned is realized against the stores as
+they stand when it is realized, as it is beside any write
+([storage.md](storage.md#the-single-writer-contract)), so a seq realized during a rebase
+reads the fork partway through it; `vec` the seq before the rebase to fix the answer. A
+read does not realize its seq before it returns, because an extent reader's `(take n …)`
+fetches n records ([api.md](api.md)). The lock covers reads of this fork only: another fork
+mounted over the same base store reads the new base from step 3 on, which is the base
+changing under a mounted fork (below). `overlay_test` starts a reader at the end of step 2,
+at the end of step 3 and before a marker's writes are replayed, and asserts it answers as
+the fork did before the rebase or after it.
+
+**A read that starts a rebase, or waits on another thread's read, deadlocks.** The read
+side does not upgrade to the write side, so a read whose callback rebases the same fork
+waits for its own read to end. The lock is a non-fair `ReentrantReadWriteLock`, which parks
+a new reader behind a queued writer. A read that waits on a second thread's public read of
+the fork therefore deadlocks against a rebase queued between the two. A `prove` with
+`:portfolio?` holds the read side while its racers run on other threads, so a prover
+registered with `add-prover` that calls `vaelii.core` from a racer parks behind the queued
+rebase, which waits for the `prove` to return. An `:on-replayed` fn runs while the rebase
+holds the write side, so one that waits on another thread's public read of the fork
+deadlocks: that read waits for the rebase to end.
+
+## A delta
+
+`(export-text! fork dir {:delta? true})` writes a text KB holding the fork's own writes:
+the records step 1 above reads, as the forms it reads them as, and `digests.edn`, the
+digest of each reference they hold ([storage.md](storage.md#content-digests)). A copy of a base record that changed nothing is not written,
+and neither is anything the fork concluded, which a KB loading the delta concludes again.
+A text KB has no form for a retraction, so a base premise the fork retracted is counted in
+the summary's `:retractions` and not written. On a KB that is no fork, `:delta?` is
+refused (`:unknown-option`).
+
+`(load-text! kb dir {:merge? true})` reads a delta into a KB that holds content of its own:
+another fork over the same base, or a KB that built the same base at other handles, since
+each reference resolves against the loading KB's records. Each form goes through `assert`, so
+a form the KB's content contradicts is stored and the clash is settled by belief: a
+monotonic observation in the delta defeats the default it contradicts in the loading KB as
+it does in the fork it came from. A form `assert` still refuses after a round that stores
+nothing more, is reported under `:refused` as `{:form :context :type}`, and the rest of the
+delta stays stored. A reference no record answers is `:unresolved-reference`, and one
+answered by a sentex whose digest differs from the recorded one is `:canonical-mismatch`:
+the two KBs canonicalize the sentence differently, as when only the loading KB declares a
+predicate `symmetric`.
+
+## A handle stays in its KB
+
+A handle is allocated in arrival order by one KB, so two forks over one base allocate
+different handles from their first own write, and a handle one seat sends names another
+sentex, or none, on the next. Every exchange between seats names a sentex by its stored
+content, `(ist Cx S)`, with its content digest as a checksum: a delta writes each reference
+so (above), `koinii.deref` finds a marker's record by its sentence and context, and a
+dispute id is a vector of digests ([koinii.md](koinii.md#disputes-and-adjudication)). A
+daemon reply names a sentex as a map holding its handle, sentence and context, and its
+`:digest` on request ([operations.md](operations.md#daemon--vaeliiserve)). The handle stays
+the identity inside a KB: a justification, a JTMS node and an index posting hold it as a
+long, and a handle survives a respelling where the content and its digest do not.
+
+A bare handle in a reply (`assert`'s answer, a justification's antecedents, a clash
+report's `:handles`) carries no content beside it, and a sentence a reply holds keeps each
+`(sentexHandle n)` as stored, so both name the daemon's sentex; the sentence's `:digest`
+digests each target by its content. Two seats whose equality facts differ (`rewriteOf`,
+`sameAs`) canonicalize one fact into two spellings, so the content finds nothing on the
+other seat or the digest check refuses it (`:canonical-mismatch`).
+
 ## Invariants
 
 1. **Base immutability.** No overlay operation writes the base. `overlay_test` compares
@@ -291,7 +427,7 @@ tracks several environments inside one network, and nothing here does. It is als
 distributed system, and not a way around the single writer: a durable base is locked by
 the process that mounts it, and the forks that share it are the ones in that process's
 heap. There is no coherence protocol either — a base that changes under a mounted fork is
-outside the contract. Multi-level stacks (base → fork → fork) are refused rather than
+outside the contract, except under the fork that replaced it (`:rebase?`, above). Multi-level stacks (base → fork → fork) are refused rather than
 half-supported, on both roads in: an `:overlay` half declared `:overlay` is an error
 naming itself, and `core/fork`'s own `:base-stores` — which names no backend to catch —
 is asked directly (`mount/forked?`), so `(fork (fork base))` throws `:stacked-fork`.

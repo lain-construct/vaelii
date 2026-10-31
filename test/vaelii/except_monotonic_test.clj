@@ -26,13 +26,13 @@
   [base]
   (gensym (str base "Tmp")))
 
-;; ---- forced-monotonic target 1: disjoint ---------------------------------------------
+;; ---- a monotonic disjoint, outside the forced-monotonic set --------------------------
 
-(tu/deftest-kb an-except-hides-a-forced-monotonic-disjoint-from-its-subtree-only
+(tu/deftest-kb an-except-hides-a-monotonic-disjoint-from-its-subtree-only
   (tu/with-terms [dog_t cat_t Rex CxParent CxChild]
     (parent-and-child kb CxParent CxChild)
     (let [decl  (list 'disjoint dog_t cat_t)
-          _     (is (checks/forced-monotonic? kb decl) "the target is forced-monotonic")
+          _     (is (not (checks/forced-monotonic? kb decl)) "a separation is not forced-monotonic")
           dh    (v/assert kb decl CxParent mono)
           _dog  (v/assert kb (list dog_t Rex) CxParent mono)
           cat-h (v/assert kb (list cat_t Rex) CxParent)]

@@ -214,6 +214,7 @@ and believed or not.
 | assert a rule | `(v/assert-rule kb [antecedents] consequent context opts)` |
 | `forwardRule` | `set/forwardRule` / `{:direction :forward}` — here that forward-chains **and** answers backward goals (Cyc's forward-only is `set/forwardOnlyRule`) |
 | `backwardRule` — the default | bare `(implies …)`, or `set/backwardRule` / `{:direction :backward}` |
+| `backchainRequired` | `set/lazyForwardRule` / `{:direction :lazy-forward}` — a backward rule whose conclusion a forward rule's antecedent proves in its join, storing nothing ([inference.md](inference.md#a-lazy-forward-rule)) |
 | `:code` direction | `{:direction :inert}`, or `set/inertRule` — believed and indexed, fires neither way |
 | rule variables | `?x` |
 | range restriction | enforced: every consequent variable appears in an antecedent, the one exception being a marked head existential |

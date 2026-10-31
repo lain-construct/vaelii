@@ -97,6 +97,8 @@ The transport an agent coordinates over is the `Medium` protocol, with two imple
   the feed's poll loop **off** the agent's own thread. This matters because an in-process
   feed callback runs *on* the writer's thread ([feed.md](feed.md)); one slow agent would
   stall the writer for everyone. Polling off the agent's thread removes that coupling.
+  A poll that fails ends the loop and unwatches the daemon's subscription, unless the
+  daemon answered `:unknown-subscription`.
 - **`local`** — an in-process KB. `subscribe` is a plain `watch` listener, no cursor
   apparatus. The callback runs on the writing thread, so a slow one still slows the writer —
   fine single-process, wrong across agents.
@@ -169,7 +171,14 @@ The auth **strength** is conditional on policy (decision D4):
   the principal it mints **attests** each write: provenance gets `:attestation`, an
   HMAC-SHA256 over creator, handle, stored sentence and context. `identity/attested-by` reads
   it back, and the MAC fails on any other sentex, including the same sentence re-asserted
-  under a new handle.
+  under a new handle. A rebase gives each fork write a new handle, and the sentence of one
+  naming a base record by handle changes with it. `deref/pull!` rebases through
+  `identity/rebase!`, which seals the MAC again over the new handle and sentence for each
+  write whose attestation verified for its handle before the rebase, under the current key.
+  A stopped rebase leaves its writes in the fork's directory with the record each was
+  captured from, and the next `identity/rebase!` seals them again as it seals its own. The
+  writes an `open-kb` asserts again after a rebase stopped are sealed by no one and read
+  unattested ([overlay.md](overlay.md#replacing-the-base)).
 
 **Proof-tier attestation is in-process only.** `authenticate`, `ingest` and the
 attestation run in the process that holds the KB and the key, and nothing on the wire calls
@@ -384,6 +393,13 @@ the un-ruled. Two of the four states are *derived* from current belief (`:open`,
 and two are *stored* as ordinary assertions (`:notified`, `:stale`) — stored so `why` explains
 them and retracting one reopens the dispute.
 
+**A dispute id names content.** `dispute-id` is the sorted vector of its sides' content
+digests (`v/digests`, [storage.md](storage.md#content-digests)), so two seats holding the
+clash at different handles name it with one value. The stored marks carry it as `(DisputeFn
+"sha256:…" …)`, and the `:adjudication` tag below holds it, so neither holds a handle. A
+dispute id is compared, never looked up: `adjudication/rule` reads a dispute's sides off
+the live clash that carries the id.
+
 ### Adjudication: split by policy
 
 koinii's first answer to a disagreement is **not** to pick a winner. When two agents
@@ -394,7 +410,10 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   for a ground truth people curate. Notification fires **once per dispute**; the stored mark
   is the idempotency key, so a redelivery or a catch-up re-run does not re-push it. A stale
   sweep bounds the accumulation: an aged-out dispute is flagged `:stale` (still live — the
-  clash still coexists) and re-surfaced to a human, never silently dropped.
+  clash still coexists) and re-surfaced to a human, never silently dropped. A dispute's age is the
+  latest `:created` among its sides and everything they rest on, since a derived side has no
+  provenance of its own; reading the sides alone would give an emergent clash (two rules
+  concluding `S` and `¬S`) no age and sweep it at its first tick.
 - **Arbiter escalation** — a designated arbiter's ruling is an ordinary `:monotonic`
   assertion of the upheld side. Its strength defeats the losing `:default` side, so the clash
   clears, `why` explains who ruled, and — the point — **retracting the ruling reopens the
@@ -411,10 +430,12 @@ records the dispute, pushes it to whoever is watching, and manages its life. Thr
   on a single handle twice, and a single-valued tag would leave the earlier dispute
   reading no standing ruling at all — then taking a second one beside the first. The
   dispute id is compared in the sorted spelling `dispute-id` builds, since a caller may
-  hold the pair either way round. An arbiter who is **a party** to the dispute is refused
+  hold its digests in either order. An arbiter who is **a party** to the dispute is refused
   (`:arbiter-is-party`): a ruling lands in the arbiter's own context, so for a party it
   would re-record their own claim or retract it, deleting the disputed sentence rather
-  than settling the clash.
+  than settling the clash. A ruling for a sentence that is neither a side nor a side's
+  negation is refused (`:koinii/not-a-side`). A side respelled since the id was read, as a
+  `symmetric` declaration respells one, has a new digest, so the old id names no side.
 
   Both of those reads follow **belief**, not storage. A defeated sentex stays stored on
   purpose (it can revive), so an unfiltered enumeration of an agent's context sees claims
@@ -563,7 +584,8 @@ Five ideas, each grounded on a primitive that ships:
 - **The locator is content-addressed.** A handle is a number one store minted and does not
   travel; a locator is a self-describing `"sha256:"` digest over a sentex's **canonical
   identity** — its context, polarity, and canonicalized sentence
-  ([canonicalization.md](canonicalization.md)). Two seats holding the same assertion compute
+  ([canonicalization.md](canonicalization.md)), the content digest `vaelii.core/digest`
+  computes ([storage.md](storage.md#content-digests)). Two seats holding the same assertion compute
   the *same* locator, because `import!` re-canonicalizes every record through the reading
   build's own constructor. The digest input is an explicit type-tagged byte encoding, not
   `pr-str`: injective across the value space a sentence holds, and independent of ambient
@@ -604,13 +626,13 @@ Five ideas, each grounded on a primitive that ships:
   with `:target` naming it; the reply's rehash covers every target, so no target's locator
   is trusted either. Attribution is trustworthy only as far as the identity model above makes
   it: a distributed KB inherits the same cooperative-vs-proof-tier question.
-- **Resolution follows belief, exactly as the commit does.** `dereference` and
-  `resolve-by-locator` answer from the *believed* records, not the stored ones, so the two
-  halves of a seat agree about what it holds: a defeated default resolves nowhere, which is
-  the same set `inclusion-proof` will not prove. `dereference`, which is handed the sentence,
-  distinguishes the two absences (`:not-received` vs `:not-believed`); a bare locator cannot,
-  so `resolve-by-locator` reports `:not-received` for both.
-- **Both resolvers fail closed on a malformed payload**, the way `verify-inclusion` does on a
+- **Resolution follows belief, exactly as the commit does.** `dereference` answers from the
+  *believed* records, not the stored ones, so the two halves of a seat agree about what it
+  holds: a defeated default resolves nowhere, which is the same set `inclusion-proof` will
+  not prove. It finds the record by the marker's sentence and context and tells the two
+  absences apart (`:not-received` vs `:not-believed`). A bare locator resolves nothing: a
+  digest is a checksum, and no index is keyed by it ([storage.md](storage.md#content-digests)).
+- **`dereference` fails closed on a malformed payload**, the way `verify-inclusion` does on a
   malformed proof. A marker that is not a map, one whose `:locator` is not the `"sha256:"` +
   64-hex format, one missing `:sentence` or `:context`, and one whose sentence the engine
   declines to be asked about all answer `:reason :malformed` with a `:problem` naming the
@@ -620,6 +642,46 @@ Five ideas, each grounded on a primitive that ships:
   other is sending garbage. Sentence grammar stays the engine's: the resolver asks
   `handle-of` and translates its typed refusal rather than keeping a copy of the grammar
   that would drift from the entry point that decides.
+
+**A seat that writes is a fork over the commits it pulls.** `pull!` into a seat that is not
+a fork needs an empty KB and is refused `:not-empty` otherwise, so such a seat is a replica.
+A seat opened as a fork holds the shared knowledge as its base and its own writes in the
+fork's own half, and each `pull!` installs the commit as the new base and asserts the
+seat's writes again over it ([overlay.md](overlay.md#replacing-the-base)):
+
+```clojure
+(def seat (v/open-kb {:backend :overlay
+                      :base    {:backend :disk-log :dir "/var/lib/seat/base"}
+                      :overlay {:backend :disk-log :dir "/var/lib/seat/own"}}))
+(deref/pull! seat "/srv/commits/shared")         ; the shared knowledge, as the base
+(v/assert seat '(genlCx CxSeatA CxShared))
+(v/assert seat '(usesDatabase EdgeNode SQLite3) 'CxSeatA)
+(deref/pull! seat "/srv/commits/shared")         ; a newer commit, the observation kept
+```
+
+The seat's observations go in a context of its own that sees the shared contexts through
+`genlCx`, so a rule the commit carries applies to them. The two directories are the seat's
+own: the process that opens the seat holds both locks, and the base's lock until the JVM
+exits (`close!` releases the fork's own directory). The next open names the same two
+directories and needs no pull. A seat's retraction of a shared fact is retracted again
+after the pull. A seat's `except` on a shared fact names that fact's handle in the new
+commit. `pull!`'s summary reports under `:rebase` what the seat asserted again and what
+it could not.
+
+**A seat publishes its own writes as a delta.** `(v/export-text! seat dir {:delta? true})`
+writes the fork's own writes as a text KB, each handle a sentence names written as the
+`(ist Cx S)` reference it resolves from, with the named record's digest, and
+`(v/load-text! peer dir {:merge? true})` reads them into a peer that holds the shared
+knowledge at its own handles, reporting what it refuses ([overlay.md](overlay.md#a-delta)).
+A reference the peer canonicalizes otherwise is refused `:canonical-mismatch`. A peer that loads a seat's observation reaches the
+seat's defeat of a shared default, since belief decides between the two in either KB.
+
+**What leaves a seat names content.** A reply, a ballot or a mark written to text names its
+target as `(ist Cx S)`; a dispute id, a locator and a commit id are digests; a marker
+carries its sentence and context. A handle in a daemon reply is that daemon's; a sentex the
+reply names as a map carries its sentence and context, and its digest under `:digests?
+true`. The attestation MAC covers a handle and is checked only in the process that holds
+the key ([overlay.md](overlay.md#a-handle-stays-in-its-kb)).
 
 ## Design decisions
 

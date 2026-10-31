@@ -9,13 +9,18 @@
             [clojure.string :as str]
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.kb :as kb]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
+            [vaelii.impl.rules :as rules]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.prover :as prover-types]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private instance-spellings
   "Every spelling of an instance-level argument constraint, sugar included."
@@ -49,6 +54,18 @@
       (testing "retracting the args declaration takes its twin, and the entry, with it"
         (v/retract! kb h)
         (is (empty? (res/arg-constraints kb herdOf 'CxUniverse)))))))
+
+(tu/deftest-kb the-refusal-record-holds-no-firing-of-a-rule-that-does-not-forward-chain
+  (let [named (fn [] (into #{} (for [[rh es] (dissoc @(reasoning/refused kb) :kinds)
+                                     :when (and (set? es) (not-any? :lift es)
+                                                (not (rules/forward-sentex? (p/get-sentex (:records kb) rh))))]
+                                 rh)))]
+    (is (empty? (named)) "after the core load")
+    (tu/with-terms [herdOf animal_k]
+      (v/assert kb (list 'genl animal_k 'thing) 'CxUniverse)
+      (v/assert kb (list 'variable_arity_predicate herdOf) 'CxUniverse)
+      (v/assert kb (list 'args herdOf animal_k) 'CxUniverse)
+      (is (empty? (named)) "after an args declaration"))))
 
 (tu/deftest-kb the-argnum-chokepoint-answers-an-args-declaration-at-every-position
   (tu/with-terms [herdOf animal_k]
@@ -119,7 +136,7 @@
         (tu/with-entailing
           (v/assert kb (list herdOf Herd1 Rex) 'CxUniverse)
           (let [sups (:support (tu/why-root kb (v/handle-of kb (list animal_k Rex) 'CxUniverse)))]
-            (is (= ['argAndRest] (map :informant sups)))
+            (is (= ['argAndRest] (map #(kb/mint-kind kb (:informant %)) sups)))
             (is (some #{twin} (map :handle (:because (first sups)))))))))))
 
 ;; ---- an inverse carries its partner's argument types ----------------------

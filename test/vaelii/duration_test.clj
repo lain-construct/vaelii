@@ -9,10 +9,9 @@
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.duration DurationProver]))
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (dur/duration-prover)))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (dur/duration-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

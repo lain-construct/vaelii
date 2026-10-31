@@ -24,12 +24,6 @@
   ([kb sentence] (:type (problem kb sentence)))
   ([kb sentence context] (:type (problem kb sentence context))))
 
-(defn- ex-type
-  "The `:type` a write thunk meets: its refusal, or the argument conviction its fact is
-  held inert under (`tu/write-type`)."
-  [f]
-  (tu/write-type tu/*kb* f))
-
 (defn- declare-gap-fn!
   "The #78 repro's declarations: an unreifiable unary function whose input must be an
   integer and whose application is a `thing`, and a unary predicate over things."
@@ -55,8 +49,8 @@
         (is (re-find #"inside \(" (:message p)) "the message says where the input sits")))
     (testing "assert refuses what check predicts"
       (is (= :arg-type
-             (ex-type #(v/assert kb (list inputGapObserver (list InputGapFn "not-an-integer"))
-                                 'CxUniverse)))))
+             (tu/kb-write-type #(v/assert kb (list inputGapObserver (list InputGapFn "not-an-integer"))
+                                          'CxUniverse)))))
     (testing "the well-typed sibling is silent, and stores"
       (is (nil? (problem kb (list inputGapObserver (list InputGapFn 5)))))
       (is (some? (v/assert kb (list inputGapObserver (list InputGapFn 5)) 'CxUniverse))))))
@@ -236,10 +230,10 @@
       (testing "check predicts the refusal"
         (is (= :arg-type (refusal kb bad))))
       (testing "assert refuses it, and mints nothing for the refused application"
-        (is (= :arg-type (ex-type #(v/assert kb bad 'CxUniverse))))
+        (is (= :arg-type (tu/kb-write-type #(v/assert kb bad 'CxUniverse))))
         (is (nil? (minted (list ReifGapFn "x")))))
       (testing "an (ist Ctx S) is S read in Ctx"
-        (is (= :arg-type (ex-type #(v/assert kb (list 'ist CxSeen bad) 'CxUniverse)))))
+        (is (= :arg-type (tu/kb-write-type #(v/assert kb (list 'ist CxSeen bad) 'CxUniverse)))))
       (testing "the well-typed sibling stores, through the constant it mints"
         (is (nil? (problem kb (list inputGapObserver (list ReifGapFn 5)))))
         (is (some? (v/assert kb (list inputGapObserver (list ReifGapFn 5)) 'CxUniverse)))

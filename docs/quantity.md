@@ -107,19 +107,20 @@ and a factor from another would convert into a unit nothing said it converts to,
 `base-unit-of` — which decides the unit a computed answer is *rendered* in — would then
 disagree with the arithmetic that produced it.
 
-**Which unit a reduction renders in** is the same question one step out. An aggregate over
-several measures of one dimension reads `base-unit-of` off one of them, and the values
-reach it in solution order — so on a KB that has broken the direct-to-base contract, two
-units of one dimension naming different bases, the unit the answer came back in would be a
-function of which measure was stored first. `provers/measure-bounds` takes the
-**content-least** unit instead: still arbitrary where the KB is inconsistent, and the same
-answer whatever the arrival order. Where the contract holds, every base agrees and the
-choice never arises.
+**An aggregate** over several measures answers only when every value has one dimension
+and one base unit, the key a comparison requires, and renders in that base
+(`provers/measure-bounds`). On a KB that has broken the direct-to-base contract, two units
+of one dimension naming different bases, a sum over the two has no answer in any arrival
+order.
 
 ## Comparison semantics
 
-Comparisons hold only **within one dimension**. A dimension mismatch (`5 Kilogram` vs
-`5 Meter`) is never equal or comparable — every comparison fails, and none throws.
+Comparisons hold only **within one dimension and one base unit**
+(`provers/measure-with-support`). A dimension mismatch (`5 Kilogram` vs `5 Meter`) is
+never equal or comparable — every comparison fails, and none throws. A unit with a
+`dimensionOf` and no `conversionFactor` is its own base at factor 1, so `(QuantityFn 1
+Foot)` under `(dimensionOf Foot Length)` alone compares with a foot and with no metre. An
+aggregate over measures of two bases has no answer either (`provers/measure-bounds`).
 
 The interval reading is **necessary** (definite): a comparison holds only when it holds
 of every point of each interval. For points (`lo = hi`) it collapses to ordinary number
@@ -135,6 +136,30 @@ comparison:
 
 So `[1,2] < 5` holds, `[1,4] < [3,6]` does not (they overlap), and `[1,2] ≤ 2` holds
 while `[1,2] < 2` does not.
+
+## A functional measure slot
+
+A `functional` slot that holds measures (`weightOf`, `heightOf`) holds one magnitude, not
+one term. `provers/measures-agree?` decides whether two fillers clash: two measures agree
+when they normalize under one `[dimension base-unit]` key and their bounds meet within the
+tolerance. So `(QuantityFn 20 Kilogram)` agrees with `(QuantityFn 20000 Gram)`, with
+`(QuantityIntervalFn 18 22 Kilogram)` and with `(QuantityIntervalFn 20 25 Kilogram)`, and
+clashes with `(QuantityFn 30 Kilogram)` and with `(QuantityFn 20 Meter)`.
+
+The functional check (`checks/functional-problems`) reads the agreement at the writing
+context, so `try-assert` stores an agreeing filler. The settle reads it at each placement
+context of the pair's nogood: a placement where the two agree is excluded
+(`tuple/routes`' `:excluded-at`), so nothing is placed and both facts stay believed. A
+unit-table row that is stored, retracted or relabelled re-places the pairs naming its
+unit (`chain/unit-row-members`), so the table may arrive after the facts
+(`quantity_test/a-unit-row-arriving-or-leaving-moves-a-functional-measure-clash`).
+
+A reader below the placement context that declares a unit a second, different way reads
+that unit as its own dimension, and no placement is made for it there.
+
+The shipped table rows are `set/monotonic` (`measure.txt`'s header): a factor is a
+definition, so a conclusion drawn through one keeps the strength of the facts and the
+rule it rests on.
 
 ## Float policy: an epsilon tolerance
 

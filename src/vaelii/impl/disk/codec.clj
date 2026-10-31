@@ -74,7 +74,7 @@
 
 ;; A rule's `:engines` rides a frame as one small integer, a bit per engine, rather than
 ;; as a set nippy would tag and count.
-(def ^:private engine-bits {:forward 1 :backward 2 :solve 4})
+(def ^:private engine-bits {:forward 1 :backward 2 :solve 4 :lazy 8})
 
 (defn- engines-mask [engines]
   (reduce (fn [m e] (bit-or (long m) (long (engine-bits e)))) 0 engines))

@@ -39,6 +39,8 @@
 
 ;; The fixture of temporal_capability_test.clj: a fresh KB per test with the upper layer,
 ;; the CxChange event calculus and CxRealWorld, and no prover.
+;; The KB is built per test because a test registers reasoners, which a KB shared
+;; across tests would keep.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]]))))

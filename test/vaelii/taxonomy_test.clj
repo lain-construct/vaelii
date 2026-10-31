@@ -9,7 +9,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.reads :as reads]
-            [vaelii.impl.taxonomy :as tax]))
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.test-util :as tu]))
 
 (deftest min-genls-and-max-specs-leave-out-a-neighbour-another-stands-between
   (let [t (tax/create-taxonomy)]
@@ -1276,13 +1277,6 @@
 ;; of a class is the direct test of that, and it is the property most likely to
 ;; break, so it gets an exhaustive one rather than a sampled one.
 
-(defn- permutations [v]
-  (if (empty? v)
-    [[]]
-    (vec (for [i (range (count v))
-               p (permutations (into (subvec v 0 i) (subvec v (inc i))))]
-           (cons (nth v i) p)))))
-
 (defn- build
   "Apply `edits` (each [a b handle preferred]) to a fresh taxonomy."
   [edits]
@@ -1290,13 +1284,17 @@
     (doseq [[a b h p] edits] (tax/add-equality t a b h p))
     t))
 
+;; The representative is a function of the class's content.  Handles follow assertion
+;; order, so a key on them lets arrival order into belief (docs/nmtms.md, the Nixon-diamond
+;; tie-break).  Permuting the edges tests that directly, and it is the property most likely to
+;; break, so the walk is exhaustive and not sampled.
 (deftest representative-is-the-same-under-every-permutation
   (testing "a rewriteOf chain plus plain merges, however the edges arrive"
     (let [edits '[[Bravo Charlie 1 nil]                 ; (sameAs Bravo Charlie)
                   [Alpha Bravo 2 Alpha]                 ; (rewriteOf Alpha Bravo)
                   [Charlie Delta 3 nil]
                   [Delta Aardvark 4 nil]]]              ; sorts before the head
-      (doseq [p (permutations edits)]
+      (doseq [p (tu/permutations edits)]
         (let [t (build p)]
           (is (= 'Alpha (tax/representative t 'Delta))
               (str "permutation " (pr-str (mapv #(vec (take 2 %)) p))))
@@ -1305,13 +1303,13 @@
     (let [edits '[[Zulu Common 1 Zulu]
                   [Mike Common 2 Mike]
                   [Common Xray 3 nil]]]
-      (doseq [p (permutations edits)]
+      (doseq [p (tu/permutations edits)]
         (let [t (build p)]
           (is (= 'Mike (tax/representative t 'Xray))
               (str "permutation " (pr-str (mapv #(vec (take 2 %)) p))))))))
   (testing "the whole partition, not just the rep, is permutation-invariant"
     (let [edits '[[A B 1 nil] [C D 2 nil] [B C 3 nil] [E F 4 E]]]
-      (is (= 1 (count (distinct (for [p (permutations edits)]
+      (is (= 1 (count (distinct (for [p (tu/permutations edits)]
                                   (select-keys (:equality @(build p))
                                                [:class :members :edges])))))))))
 

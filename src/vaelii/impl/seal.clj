@@ -184,17 +184,22 @@
   "`kb` — a `:disk-snapshot` or `:pg-snapshot` KB whose belief and index cover its
   records — recording its writes into a log under its directory, sealed once so the log
   starts at a generation its images describe.  Returns the logged KB.  `opts` is
-  `oplog/open-log`'s."
+  `oplog/open-log`'s.  A throw after the log opens closes the log and rethrows, with a
+  throw from the close suppressed on it."
   ([kb] (attach! kb nil))
   ([kb opts]
    (let [dir (:snapshot-dir kb)
-         log (oplog/open-log dir (inc (long (last-generation dir))) opts)
-         lkb (oplog/attach kb log)]
-     (seal! lkb)
-     ;; installed here and by `restore!`, never by `seal!`: `close-dir!` runs a seal
-     ;; after it has withdrawn the directory's writers, and must not register new ones
-     (install-writers! lkb)
-     lkb)))
+         log (oplog/open-log dir (inc (long (last-generation dir))) opts)]
+     (try
+       (let [lkb (oplog/attach kb log)]
+         (seal! lkb)
+         ;; installed here and by `restore!`, never by `seal!`: `close-dir!` runs a seal
+         ;; after it has withdrawn the directory's writers, and must not register new ones
+         (install-writers! lkb)
+         lkb)
+       (catch Throwable t
+         (try (oplog/close-log! log) (catch Throwable c (.addSuppressed t c)))
+         (throw t))))))
 
 (defn- extra-records?
   "Does `store` hold a sentex or justification at or above `next`?"

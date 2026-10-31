@@ -23,10 +23,12 @@ application renders a preview and a feed with one renderer:
 ```clojure
 {:believed-added   [{:sentence S :context C :handle h :premise? bool
                      :justification {:informant i :rule S :antecedents [S …]}} …]
- :believed-removed [{:sentence S :context C :handle h :reason kw :detail {…}} …]}
+ :believed-removed [{:sentence S :context C :handle h :reason kw :detail {…}} …]
+ :defeats          [{:verdict :defeat :loser {…} :winners [{…}] :placed-in [C …] …} …]}
 ```
 
-A standing query's entries carry `:bindings` as well — which solution moved.
+A standing query's entries carry `:bindings` as well — which solution moved. `:defeats`
+is present only on an event whose settle placed a defeat (below).
 
 ## Why this exists
 
@@ -137,6 +139,26 @@ silence rather than an empty event. And the expensive half of an event — a sup
 justification and a `why-not` apiece — is a `delay`: a KB whose listeners are all standing
 queries filters to its own matches first and never builds the full set.
 
+## A defeat arrives as a report
+
+An event whose settle stored a `(contradicts …)` or a `defeat` of a decided nogood
+carries `:defeats`: the nogood's defeat report, in `conflicts`' `{:defeats? true}` shape
+with its `:grounds`, in content order
+([nmtms.md](nmtms.md#observation-beats-expectation)). `clashes/defeats-placed` reads it
+over every placement of the nogood's `(contradicts …)`, so `:placed-in` names the most
+general contexts deciding it. A plain listener receives every such report. A standing
+query receives a report when its goal matches the loser and its context is a variable or
+sees a context in `:placed-in`, and it is called for that report alone when no entry it
+answers moved.
+
+The report is the only entry naming a loser stated above its placement. An observation
+in a context below a shared default defeats the default there, and the default stays
+believed at its own context, so the region diff, which reads belief at each sentence's
+own context, moves nothing for it. `feed_test/an-observation-that-defeats-a-default-arrives-as-a-defeat-report`
+holds both halves. The reports hold plain maps where `conflicts` holds records, so the
+wire carries `:defeats` in the same event and a peer polling a subscription reads the
+defeat with no second request (`feed_wire_test`).
+
 ## What is refused
 
 Being incomplete is one thing; being quietly wrong is the thing a feed must not be. A
@@ -151,6 +173,11 @@ goal whose truth is a function of something the region does not hold is refused
 | **`thereExists`** | the same — existence over the KB, not a property of one entry |
 | an **evaluable** (`evaluate`, `lessThan`, `different`, the quantity comparisons) | computed and never stored, so no relabel carries it |
 | **`ist`** | a watch already takes its context as an argument, and no stored sentence has that functor |
+| a predicate a **registered calculus** answers, either polarity | the network entails tuples no fact stores, and answers none naming a node of an unsatisfiable component, whose facts stay believed ([qcn.md](qcn.md#unsatisfiability-is-per-component)) |
+
+`add-reasoner` refuses a calculus that answers the goal predicate of a standing watch on the
+KB, under the same `:type :not-watchable`, with the watches under `:watches`; it registers
+none of its names.
 
 Reach for those with `query` on a plain listener: the event says belief moved, and the
 query says what it is now.
@@ -317,6 +344,11 @@ and an in-process listener and a wire subscription over the same KB are handed t
 answer. `feed_wire_test` asserts the equality through a full EDN round trip, since a client
 with none of this repo's classes on its classpath is who the wire is for.
 
+**An entry's handle is the daemon's.** A `:poll` sent with `:digests? true` gives each
+entry its content `:digest`, so a peer that receives the event finds the sentex by its
+`:sentence` and `:context` and checks the digest
+([operations.md](operations.md#daemon--vaeliiserve)).
+
 **A cursor counts events, not handles.** It starts at 0 and advances by one per delivered
 event, so a caller stores one integer and compares nothing. `poll` answers the events past
 the cursor it was handed, plus the cursor to send next time.
@@ -389,7 +421,8 @@ bulk-loading KB it is also the row holding the most heap.
 **The registry is per handler**, beside the monitor: a token names a subscription *on this
 daemon*, so two handlers over one KB are two daemons and neither answers the other's
 token. A daemon owns its KB for its lifetime, so a subscription keeps nothing reachable the handler
-was not already holding.
+was not already holding. A KB can outlive its daemon, so a daemon that stops takes every
+listener its registry holds off the KB once the op inside its monitor has finished.
 
 **A feed ends when its KB's stores do.** `close!` drops every listener registered on the
 KB value it closes, so `watchers` answers empty afterwards: a closed store refuses every
@@ -399,7 +432,9 @@ one registry for the process. When `/kbs/unload` clears or closes a KB, it drops
 subscription whose listener is on that KB (`subscribe/unwatch-kb`), and a poll parked on
 one answers `:unknown-subscription` at once, as it does after `:unwatch`. A `:watch` that
 was waiting for the write monitor while the unload ran is refused **404** `:not-found`,
-so no subscription is registered on a released KB ([operations.md](operations.md)).
+so no subscription is registered on a released KB ([operations.md](operations.md)). A
+browser server that stops drops every subscription in that registry
+(`subscribe/unwatch-all`), without waiting for the write monitor a chaining job holds.
 
 **The one refusal the wire adds is a context with no goal.** `core/watch`'s whole-feed
 arity takes no context at all, so `[nil CxDeploy]` would register an unscoped listener

@@ -114,16 +114,12 @@
 
 (defn- sweep
   "Drop the settled reports older than `finished-ttl-ms`, and those past the newest
-  `max-settled-jobs`.  Runs on `submit` and on every listing read (`jobs`), so an idle
-  registry shrinks too.
+  `max-settled-jobs`.  Runs on `submit` and on every listing read (`jobs`).
 
-  **Only a settled job is ever dropped**, and no age changes that.  Forgetting a job is
-  releasing its writer claim — `writer` and `writes-kb?` are both reads of this map — so
-  dropping one whose thread is still running admits a second writer to a KB the first is
-  still writing, which is the single thing the claim exists to prevent (docs/storage.md,
-  the single-writer contract).  A wedged job therefore keeps its place and keeps counting
-  towards the running badge: a thread that will never return is a true thing to say about
-  this process, and saying it is better than a store two writers took turns on."
+  **Only a settled job is ever dropped.**  Forgetting a job releases its writer claim
+  (`writer` and `writes-kb?` read this map), so dropping a running one admits a second
+  writer to a KB the first is still writing (docs/storage.md, the single-writer
+  contract).  A wedged job keeps its place and keeps counting towards the running badge."
   [s]
   (let [cutoff  (- (now) finished-ttl-ms)
         js      (:jobs s)
@@ -218,25 +214,20 @@
   | key | |
   |---|---|
   | `:label` | what the job is called on screen |
-  | `:kind` | `:load` / `:export` / `:chain` / `:sync` / `:edit` / `:backup` — what a panel filters on |
+  | `:kind` | `:load` / `:export` / `:chain` / `:sync` / `:edit` / `:backup` / `:list` / `:quality` / `:blocks` — what a panel filters on |
   | `:writes` | the KB this job writes, or `true` for one it will open |
   | `:interruptible?` | may its thread be interrupted on cancel?  Only for a job that writes nothing |
   | `:progress` | the first progress reading, before the work has said anything |
   | `:result-url` | where to send a reader when it finishes |
 
-  Any other key is carried through onto the job, which is how the export's destination
-  and the entry's name reach the panel that renders them.
-
-  Throws `{:type :job-busy}` when `:writes` is asked for and another job already holds
-  the writer.  The refusal names the holder rather than queueing behind it: two writers
-  are not serializable, and a queue would make a load's wall-clock reading mean whatever
-  was in front of it."
+  Any other key is carried through onto the job (the export's destination, the entry's
+  name).  Throws `{:type :job-busy}` when `:writes` is asked for and another job already
+  holds the writer; the refusal names the holder and queues nothing."
   [{:keys [label kind writes progress result-url] :as opts} work]
   (let [cancel (atom false)
         ;; the work's own thread, published by the work itself.  `cancel!` interrupts
-        ;; *that* rather than calling `future-cancel`, so the body always reaches its own
-        ;; catch and files its own status — a cancelled future's `deref` throws instead of
-        ;; answering, which would have `wait` return before the job had settled.
+        ;; *that* rather than calling `future-cancel`: a cancelled future's `deref` throws,
+        ;; which would have `wait` return before the job had settled.
         thread (promise)
         ;; the fence around that interrupt.  A `future` runs on a pooled thread, so the
         ;; thread stops being this job's the moment the body unwinds; `released` says so
@@ -279,9 +270,9 @@
                                                    (map? summary)        (assoc :summary summary)
                                                    (:result-url summary) (assoc :result-url (:result-url summary))))
                                         ;; the last reading a finished job took is the phase it
-                                        ;; finished *in*, which gives the impression that it stopped there.
-                                        ;; A failed or cancelled one keeps its last reading, since
-                                        ;; where it got to is the whole of what it has to say
+                                        ;; finished *in*, which looks like a stop there.
+                                        ;; A failed or cancelled one keeps its last reading,
+                                        ;; which is where it got to
                                         (assoc-in [:progress :phase] :done))))
                      (trove/log! {:level :info :id ::done
                                   :msg (str "job " id " (" label ") finished")
@@ -305,12 +296,10 @@
                      ;; `:running` then holds the writer claim for the life of the
                      ;; process, so a job still unsettled here is filed `:failed`.
                      ;;
-                     ;; A `future` runs on a pooled thread, so an interrupt this job was
-                     ;; sent and never blocked long enough to observe would otherwise be
-                     ;; delivered to whatever ran next on it.  Reading the flag clears it,
-                     ;; and saying `released` under the monitor `cancel!` re-reads it
-                     ;; under stops one being sent after this point, where no clearing of
-                     ;; ours could reach it.
+                     ;; An interrupt this job was sent and never observed would be
+                     ;; delivered to whatever ran next on the pooled thread.  Reading the
+                     ;; flag clears it, and `released` under the monitor `cancel!` re-reads
+                     ;; stops one being sent after this point.
                      (locking monitor
                        (when (some-> (get-in @state [:jobs id]) settled? not)
                          (update-job! id #(cond-> % (not (settled? %))
@@ -328,17 +317,12 @@
     id))
 
 (defn- interrupt-jobs-own-thread!
-  "Interrupt the thread job `j`'s work is running on — and **only while that thread is
-  still the job's**.  A `future` runs on a pooled thread, so the moment the body unwinds
-  the thread goes back to the pool and an interrupt aimed at the job lands on whatever
-  runs next: a task nobody cancelled, unwinding on somebody else's request.  `submit`'s
-  `finally` publishes `:released` under `:monitor`, this takes the same monitor, and so
-  the two orders are the only two — the interrupt is delivered while the thread is still
-  the job's, or it is not sent at all.
-
-  The wait for the thread to publish itself is bounded, because a thread that has not
-  published one yet is a job the cooperative flag already covers, and waiting on it
-  forever would hang the request that asked for the cancel."
+  "Interrupt the thread job `j`'s work is running on, **only while that thread is still
+  the job's**.  A `future` runs on a pooled thread, so once the body unwinds an interrupt
+  aimed at the job would land on whatever runs next.  `submit`'s `finally` publishes
+  `:released` under `:monitor` and this takes the same monitor, so the interrupt is
+  delivered while the thread is still the job's, or not sent.  The wait for the thread to
+  publish itself is bounded: a job with no thread yet is covered by the cooperative flag."
   [j]
   (let [monitor  (:monitor j)
         released (:released j)]
@@ -349,10 +333,10 @@
             (some-> ^Thread (deref published 1000 nil) .interrupt))))
       (catch InterruptedException _
         ;; that bounded wait is itself interruptible, and it clears *this* thread's flag on
-        ;; the way out.  Put it back — a caller asking a job to stop is no reason for it to
-        ;; lose an interrupt of its own, and the web handler above this would otherwise see
-        ;; the exception instead of an answer — and read the job as one that never published
-        ;; a thread, which the cooperative flag already covers.
+        ;; the way out.  Put it back, so a caller asking a job to stop keeps an interrupt of
+        ;; its own and the web handler above this sees an answer, not the exception; then
+        ;; read the job as one that never published a thread, which the cooperative flag
+        ;; already covers.
         (.interrupt (Thread/currentThread)))))
   nil)
 
@@ -361,25 +345,18 @@
   ask.  `!` because of what a stopped job leaves behind: a KB holding a prefix of a load
   or of a chaining run, or a directory holding part of a dump.
 
-  **A job that has already settled answers false**, exactly as an id the registry never
-  held does.  The registry keeps a settled job's report for an hour, so *is it still here*
-  and *was there anything to stop* are different questions, and the second is the
-  one a caller acts on: a caller that cannot tell them apart reports a cancellation over a
-  load that finished or a dump already written.  There is nothing to undo either way —
-  asking a finished job to stop changes nothing about it — so the answer is the whole of
-  what this reports.
+  **A job that has already settled answers false**, as an id the registry never held does:
+  the registry keeps a settled job's report for an hour, and the caller acts on *was there
+  anything to stop*, not *is it still here*.
 
-  A job that writes a KB is flagged and **never** interrupted, however long it takes to
-  notice — an interrupt landing mid-cascade on a durable store tears the write it lands
-  in.  A job that writes nothing and says `:interruptible? true` is flagged *and*
-  interrupted, so it unwinds promptly rather than at a report it may not reach.  Both are
-  checked, not one: a job that says it may be interrupted and writes a KB anyway is not
-  interrupted, since the reason is about the store rather than about the promise.
+  A job that writes a KB is flagged and **never** interrupted, since an interrupt landing
+  mid-cascade on a durable store tears the write.  A job that writes nothing and says
+  `:interruptible? true` is flagged *and* interrupted.  A job that says it may be
+  interrupted and writes a KB anyway is not interrupted.
 
-  Every decision here is made from **one** read of the registry, which by the time it is
-  acted on may name a job that has settled — so the interrupt is fenced rather than
-  trusted to that read (`interrupt-jobs-own-thread!`), and this returns an answer rather
-  than an `InterruptedException` when the caller's own thread is interrupted meanwhile."
+  Every decision is made from **one** read of the registry, so the interrupt is fenced
+  (`interrupt-jobs-own-thread!`), and this returns an answer rather than an
+  `InterruptedException` when the caller's own thread is interrupted meanwhile."
   [id]
   (boolean
    (when-let [j (get-in @state [:jobs id])]
@@ -387,8 +364,8 @@
        (reset! (:cancel j) true)
        ;; guarded inside the swap: the job's own thread may file its terminal status
        ;; between the read above and this write, and :cancelling written over :done
-       ;; is a job that never settles — the sweep keeps it, `writer` keeps naming it,
-       ;; and every later writing job is refused against a job that already finished
+       ;; is a job that never settles (the sweep keeps it, `writer` keeps naming it, and
+       ;; every later writing job is refused)
        (update-job! id (fn [j] (cond-> j (not (settled? j)) (assoc :status :cancelling))))
        (when (and (:interruptible? j) (nil? (:writes j)))
          (interrupt-jobs-own-thread! j))
@@ -415,22 +392,14 @@
   "Cancel every job, **wait for each to settle**, and forget the ones that did.  For a
   process shutting down and for tests; nothing in the browser calls it.
 
-  The wait is the point.  Forgetting a job releases its writer claim — `writer` and
-  `writes-kb?` are reads of this map — so a running job dropped here is a writer nobody
-  can see: the next writing job is admitted beside it, and a test fixture clears the KB
-  its thread is still forward-chaining into.  That is exactly the drop `sweep` refuses,
-  and this is held to the same rule.  Cancellation is cooperative, so every job gets up
-  to `reset-wait-ms` to reach a progress report; one that does not is **kept**, logged,
-  and goes on counting as the writer — a thread still running is still writing, and
-  saying so is better than a store two writers took turns on.  The id counter restarts
-  only when nothing is kept, so a kept job's id is never handed out twice.
+  Forgetting a job releases its writer claim, so a running job dropped here is a writer
+  nobody can see (the rule `sweep` holds).  Cancellation is cooperative, so every job gets
+  up to `reset-wait-ms` to reach a progress report; one that does not is **kept**, logged,
+  and goes on counting as the writer.  The id counter restarts only when nothing is kept.
 
-  The bound is **per job**, not a budget shared across them: one wedged job would spend a
-  shared deadline whole and leave every job behind it none, so a job that would have
-  settled in a millisecond is kept, keeps the writer claim, and refuses every later write
-  to that KB for the life of the process.  Cancel is issued to all of them first, so the
-  waits overlap and the wall time is the slowest job's, not the sum — except where jobs
-  genuinely do not settle, and there the reset is reporting a real leak per job."
+  The bound is **per job**, not a budget shared across them, so one wedged job cannot
+  spend the deadline of the jobs behind it.  Cancel is issued to all of them first, so the
+  waits overlap and the wall time is the slowest job's."
   []
   (let [ids (:order @state)]
     (doseq [id ids] (cancel! id))

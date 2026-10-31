@@ -87,36 +87,27 @@
 
 ;; ---- the qualitative re-join --------------------------------------------
 
-(defn- with-spatial
-  "Register the RCC-8 prover, returning a teardown that removes it."
-  [kb]
-  (let [before @(:provers kb)]
-    (v/add-prover kb (space/spatial-prover))
-    (fn [] (reset! (:provers kb) before))))
-
 (tu/deftest-kb a-disbelieved-rule-is-not-fired-by-the-qualitative-rejoin
   (tu/with-terms [qseen qmark trig ra rb rc CxRBQ]
-    (let [undo (with-spatial kb)]
-      (try
-        (v/assert kb (list 'genlCx CxRBQ 'CxWell) 'CxUniverse {:strength :monotonic})
-        (v/assert kb (list 'arity qseen 2) CxRBQ)
-        ;; a generator that generates `(implies (partOfRegion ?x ?y) (qseen ?x))` — an
-        ;; antecedent on a DERIVED spatial relation nothing stores, so the generated rule
-        ;; only ever fires through the qualitative re-join over the pairs that moved.
-        (v/assert kb (list 'implies (list qmark '?rel)
-                           (list 'implies (list '?rel '?x '?y) (list qseen '?x)))
-                  CxRBQ {:direction :forward})
-        (v/assert kb (list 'set/defaultRule
-                           (list 'set/forwardRule (list 'implies (list 'and (list trig '?p)) (list qmark '?p))))
-                  CxRBQ)
-        (v/assert kb (list trig 'partOfRegion) CxRBQ)
-        (is (some? (generated-rule kb CxRBQ)) "the rule was generated")
-        (testing "the mint's support is defeated, then containment moves the calculus"
-          (v/assert kb (list 'not (list qmark 'partOfRegion)) CxRBQ {:strength :monotonic})
-          ;; entails `(partOfRegion ra rc)` and moves the calculus — the arriving `ntpp`
-          ;; fact queues the re-join that finds the tuple no trigger index connects.
-          (v/assert kb (list 'nonTangentialProperPart ra rb) CxRBQ {:strength :monotonic})
-          (v/assert kb (list 'nonTangentialProperPart rb rc) CxRBQ {:strength :monotonic})
-          (is (empty? (arity-reports-for kb qseen))
-              "the qualitative re-join refuses the rule the trigger path would refuse"))
-        (finally (undo))))))
+    (v/add-prover kb (space/spatial-prover))
+    (v/assert kb (list 'genlCx CxRBQ 'CxWell) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'arity qseen 2) CxRBQ)
+    ;; a generator that generates `(implies (partOfRegion ?x ?y) (qseen ?x))` — an
+    ;; antecedent on a DERIVED spatial relation nothing stores, so the generated rule
+    ;; only ever fires through the qualitative re-join over the pairs that moved.
+    (v/assert kb (list 'implies (list qmark '?rel)
+                       (list 'implies (list '?rel '?x '?y) (list qseen '?x)))
+              CxRBQ {:direction :forward})
+    (v/assert kb (list 'set/defaultRule
+                       (list 'set/forwardRule (list 'implies (list 'and (list trig '?p)) (list qmark '?p))))
+              CxRBQ)
+    (v/assert kb (list trig 'partOfRegion) CxRBQ)
+    (is (some? (generated-rule kb CxRBQ)) "the rule was generated")
+    (testing "the mint's support is defeated, then containment moves the calculus"
+      (v/assert kb (list 'not (list qmark 'partOfRegion)) CxRBQ {:strength :monotonic})
+      ;; entails `(partOfRegion ra rc)` and moves the calculus — the arriving `ntpp`
+      ;; fact queues the re-join that finds the tuple no trigger index connects.
+      (v/assert kb (list 'nonTangentialProperPart ra rb) CxRBQ {:strength :monotonic})
+      (v/assert kb (list 'nonTangentialProperPart rb rc) CxRBQ {:strength :monotonic})
+      (is (empty? (arity-reports-for kb qseen))
+          "the qualitative re-join refuses the rule the trigger path would refuse"))))

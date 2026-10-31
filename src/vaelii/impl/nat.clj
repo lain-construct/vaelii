@@ -308,19 +308,20 @@
 
 (defn- entailed-from?
   "Is `sx` a record the argument-type entailment derives from sources `own-source?`
-  accepts alone: not a premise, and every justification an argument declaration's
-  (`tax/arg-declaration-props`) or a `resultArg`'s whose source handle `own-source?`
-  accepts?"
+  accepts alone: not a premise, and every justification a mint (`kb/mint-informant?`,
+  under an argument declaration's or a `resultArg`'s rule) whose source handle
+  `own-source?` accepts?  A symbol informant an argument declaration names
+  (`tax/arg-declaration-props`) counts as a mint too."
   [kb own-source? sx]
   (let [tms (reasoning/tms kb)
         h   (:id sx)
         js  (keep #(jtms/justification tms %) (jtms/supports tms h))]
     (and (not (jtms/premise? tms h))
          (seq js)
-         (every? #(and (symbol? (:informant %))
-                       (or (= 'resultArg (:informant %))
-                           (contains? tax/arg-declaration-props (:informant %)))
-                       (own-source? (first (:antecedents %))))
+         (every? #(let [i (:informant %)]
+                    (and (or (kb/mint-informant? kb i)
+                             (and (symbol? i) (contains? tax/arg-declaration-props i)))
+                         (own-source? (first (:antecedents %)))))
                  js))))
 
 (defn- mapped-expressions

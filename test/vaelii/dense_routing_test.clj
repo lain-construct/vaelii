@@ -42,7 +42,7 @@
       :exception-index (if (= :rules (nth k 1)) [:exception-index :rules] [:exception-index :predicate])
       (:context-root :argument-slot :unary-slot :term-index :term-names :rule-antecedent-keys
                      :opposed-in :opposed-bodies :opposed-functor :opposed-between
-                     :tax-installs :mint-terms :unary-multi
+                     :tax-installs :mint-terms :mint-rules :unary-multi
                      :unary-kept :unary-kept-types :unary-denied :unary-denied-types
                      :shape-lengths :arity-binding-kinds :arity-bound)
       [(nth k 0)]
@@ -82,7 +82,8 @@
           [:opposed :children] [:self-tuple :children] [:term-names] [:argument-slot] [:unary-slot]
           [:rule-antecedent-keys] [:opposed-bodies] [:opposed-functor] [:opposed-between]
           [:tax-support :children] [:tax-installs]
-          [:mint :children] [:mint-in :children] [:mint-terms] [:unary-multi] [:unary-kept]
+          [:mint :children] [:mint-in :children] [:mint-terms] [:mint-rules] [:unary-multi]
+          [:unary-kept]
           [:unary-kept-types] [:unary-denied] [:unary-denied-types] [:shape-lengths]
           [:arity-binding :children] [:arity-binding-kinds] [:arity-bound]
           [:shape-tuple :children]}

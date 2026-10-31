@@ -10,6 +10,7 @@
   departing edge re-joins the rule.  With both ends open the stored edges answer alone."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.reads :as reads]
             [vaelii.order-independence-test :as oi]
             [vaelii.test-util :as tu]))
 
@@ -364,3 +365,179 @@
                       :cover #(v/assert kb (list 'partition whole qa qb) U)}]
             (doseq [k order] ((step k)))
             (is (holds? kb (list qualifies pug qb) U))))))))
+
+(tu/deftest-kb a-disjoint-literal-a-closure-literal-waits-on-reads-the-closure-in-every-order
+  ;; Each literal binds the other's ends and nothing else binds either, so the rule
+  ;; arriving last reads the closure only through a join the stored `disjoint` leads.
+  (doseq [edges [[:near-far] [:near :far]]
+          order (oi/permutations (into [:rule :disjoint] edges))]
+    (testing (str order)
+      (tu/with-terms [lo mid hi clashes]
+        (let [step {:rule     #(v/assert kb (list 'set/forwardRule
+                                                  (list 'implies (list 'and (list 'disjoint '?a '?b)
+                                                                       (list 'genl '?a '?b))
+                                                        (list clashes '?a '?b)))
+                                         U)
+                    :disjoint #(v/assert kb (list 'disjoint lo hi) U)
+                    :near-far #(v/assert kb (list 'genl lo hi) U)
+                    :near     #(v/assert kb (list 'genl lo mid) U)
+                    :far      #(v/assert kb (list 'genl mid hi) U)}]
+          (doseq [k order] ((step k)))
+          (is (= [#{[lo hi]}]
+                 (some->> (v/handle-of kb (list clashes lo hi) U)
+                          (v/supporting-justifications kb)
+                          (map :subsumptions)))
+              "one justification, reading the pair as the closure's"))))))
+
+;; ---- a negated antecedent reads a separation's denial ----------------------
+
+(defn- denial-rule
+  "*A `pet` that is not a `dog` is `stray`* — the negated literal's argument bound by the
+  first antecedent."
+  [pet dog stray]
+  (list 'set/forwardRule
+        (list 'implies (list 'and (list pet '?x) (list 'not (list dog '?x)))
+              (list stray '?x))))
+
+(def ^:private denial-ingredients [:rule :pet :member :edge :disjoint])
+
+(defn- denial-fires-in-orders
+  "Assert each ingredient of a separation-denial firing in each order of `orders`, and
+  check the forward join stores the conclusion the query's denial licenses."
+  [kb orders]
+  (doseq [order orders]
+    (testing (str order)
+      (tu/with-terms [pet dog cat kitten stray Tom]
+        (let [step {:rule     #(v/assert kb (denial-rule pet dog stray) U)
+                    :pet      #(v/assert kb (list pet Tom) U)
+                    :member   #(v/assert kb (list kitten Tom) U)
+                    :edge     #(v/assert kb (list 'genl kitten cat) U {:strength :monotonic})
+                    :disjoint #(v/assert kb (list 'disjoint dog cat) U)}]
+          (doseq [k order] ((step k)))
+          (is (holds? kb (list 'not (list dog Tom)) U))
+          (is (some? (v/handle-of kb (list stray Tom) U)) "the forward join agrees"))))))
+
+(tu/deftest-kb a-negated-antecedent-a-separation-denies-fires-whichever-ingredient-arrived-last
+  ;; each rotation puts a different ingredient last, so each trigger path runs once
+  (denial-fires-in-orders kb (for [i (range (count denial-ingredients))]
+                               (let [[a b] (split-at i denial-ingredients)] (concat b a)))))
+
+(tu/deftest-kb ^:slow a-negated-antecedent-a-separation-denies-fires-in-every-order
+  (denial-fires-in-orders kb (oi/permutations denial-ingredients)))
+
+(tu/deftest-kb a-separation-denial-firing-rests-on-the-membership-the-declaration-and-the-edge
+  (tu/with-terms [pet dog cat kitten stray Tom]
+    (let [decl   (v/assert kb (list 'disjoint dog cat) U)
+          edge   (v/assert kb (list 'genl kitten cat) U {:strength :monotonic})
+          member (v/assert kb (list kitten Tom) U)]
+      (v/assert kb (denial-rule pet dog stray) U)
+      (v/assert kb (list pet Tom) U)
+      (let [named (set (keys (:nodes (v/why kb (v/handle-of kb (list stray Tom) U)))))]
+        (is (every? named [decl edge member])))
+      (doseq [[label h re] [["the membership" member #(v/assert kb (list kitten Tom) U)]
+                            ["the edge" edge #(v/assert kb (list 'genl kitten cat) U
+                                                        {:strength :monotonic})]
+                            ["the declaration" decl #(v/assert kb (list 'disjoint dog cat) U)]]]
+        (testing (str label " going takes the conclusion, and its return restores it")
+          (v/retract! kb h)
+          (is (not (holds? kb (list stray Tom) U)))
+          (re)
+          (is (holds? kb (list stray Tom) U)))))))
+
+(tu/deftest-kb an-edit-of-memberships-reads-the-negated-rule-keys-once
+  (tu/with-terms [pet dog cat kitten stray]
+    (v/assert kb (list 'disjoint dog cat) U)
+    (v/assert kb (list 'genl kitten cat) U {:strength :monotonic})
+    (v/assert kb (denial-rule pet dog stray) U)
+    (let [xs    (map #(symbol (str "Tom" %)) (range 5))
+          reads (atom 0)
+          meet  reads/as-stored-rule-keys-meeting]
+      (with-redefs [reads/as-stored-rule-keys-meeting
+                    (fn [idx within keep?]
+                      (when (and (nil? (within Long/MAX_VALUE)) (keep? [:not dog]))
+                        (swap! reads inc))
+                      (meet idx within keep?))]
+        (v/edit! kb {:add (vec (mapcat (fn [x] [[(list pet x) U] [(list kitten x) U]]) xs))}))
+      (is (= 1 @reads))
+      (is (every? #(holds? kb (list stray %) U) xs)))))
+
+(tu/deftest-kb a-separation-denial-through-a-default-edge-fires-nothing
+  ;; A `:default` edge does not contrapose, on either side of the separation
+  ;; (docs/taxonomy.md, "A separation answers a denial").
+  (doseq [side [:member :denied]]
+    (testing (name side)
+      (tu/with-terms [pet dog cat kitten stray Tom]
+        (let [[sub super] (if (= :member side) [kitten cat] [kitten dog])
+              member      (if (= :member side) kitten cat)
+              denied      (if (= :member side) dog kitten)]
+          (v/assert kb (list 'disjoint dog cat) U)
+          (v/assert kb (list 'genl sub super) U {:strength :default})
+          (v/assert kb (list member Tom) U)
+          (v/assert kb (denial-rule pet denied stray) U)
+          (v/assert kb (list pet Tom) U)
+          (is (not (holds? kb (list 'not (list denied Tom)) U)))
+          (is (not (holds? kb (list stray Tom) U)) "the forward join agrees")
+          (v/assert kb (list 'genl sub super) U {:strength :monotonic})
+          (is (holds? kb (list 'not (list denied Tom)) U))
+          (is (holds? kb (list stray Tom) U) "a monotonic edge contraposes"))))))
+
+(tu/deftest-kb an-exception-withdraws-a-separation-denial-firing-and-its-retraction-restores-it
+  (tu/with-terms [pet whole qa qb stray Tom]
+    (v/assert kb (list 'partition whole qa qb) U)
+    (v/assert kb (list qa Tom) U)
+    (v/assert kb (denial-rule pet qb stray) U)
+    (v/assert kb (list pet Tom) U)
+    (is (holds? kb (list stray Tom) U))
+    (let [exc (v/assert kb (list 'siblingDisjointException qa qb) U)]
+      (is (not (holds? kb (list 'not (list qb Tom)) U)))
+      (is (not (holds? kb (list stray Tom) U)) "the exempted pair denies nothing")
+      (v/retract! kb exc)
+      (is (holds? kb (list stray Tom) U) "and the denial is back"))))
+
+(tu/deftest-kb an-edge-between-two-marked-types-withdraws-a-separation-denial-firing-until-it-leaves
+  ;; the mark's edges and memberships are monotonic, so the query reads the denial
+  (doseq [[label mark] marks]
+    (testing label
+      (tu/with-terms [pet kind qa qb stray Tom]
+        (doseq [s (mark kind qa qb)] (v/assert kb s U {:strength :monotonic}))
+        (v/assert kb (list qa Tom) U)
+        (v/assert kb (denial-rule pet qb stray) U)
+        (v/assert kb (list pet Tom) U)
+        (is (holds? kb (list stray Tom) U))
+        (let [edge (v/assert kb (list 'genl qa qb) U)]
+          (is (not (holds? kb (list 'not (list qb Tom)) U)))
+          (is (not (holds? kb (list stray Tom) U)) "the forward join agrees")
+          (v/retract! kb edge)
+          (is (holds? kb (list stray Tom) U) "and the denial is back"))))))
+
+(tu/deftest-kb a-closed-extent-negative-on-a-separated-type-fires-by-negation-as-failure
+  ;; the grant withholds the literal from the join, so no stored negation and no
+  ;; membership answers it, and the placement check reads the level-6 question
+  (tu/with-terms [pet dog cat stray Tom]
+    (v/assert kb (list 'disjoint dog cat) U)
+    (v/assert kb (list 'closed_extent_predicate dog) U)
+    (v/assert kb (denial-rule pet dog stray) U)
+    (v/assert kb (list pet Tom) U)
+    (is (holds? kb (list 'not (list dog Tom)) U))
+    (is (holds? kb (list stray Tom) U) "the forward join agrees")))
+
+(tu/deftest-kb a-reader-of-a-lazy-rule-a-separation-denies-fires-when-it-or-a-fact-arrives-last
+  ;; the lazy rule is never fired; the forward reader proves its conclusion inside its join.
+  ;; A separation moving re-joins no lazy rule's readers (inference.md), so the edge and
+  ;; the declaration arrive first.
+  (let [ings [:rule :edge :disjoint :reader :pet :member]]
+    (doseq [k     [:reader :pet :member]
+            :let [order (conj (filterv #(not= k %) ings) k)]]
+      (testing (str order)
+        (tu/with-terms [pet dog cat kitten stray adoptable Tom]
+          (let [lazy (list 'set/lazyForwardRule (second (denial-rule pet dog stray)))
+                step {:rule     #(v/assert kb lazy U)
+                      :reader   #(v/assert kb (list 'set/forwardRule
+                                                    (list 'implies (list stray '?x) (list adoptable '?x)))
+                                           U)
+                      :pet      #(v/assert kb (list pet Tom) U)
+                      :member   #(v/assert kb (list kitten Tom) U)
+                      :edge     #(v/assert kb (list 'genl kitten cat) U {:strength :monotonic})
+                      :disjoint #(v/assert kb (list 'disjoint dog cat) U)}]
+            (doseq [k order] ((step k)))
+            (is (some? (v/handle-of kb (list adoptable Tom) U)))))))))

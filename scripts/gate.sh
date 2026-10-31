@@ -32,6 +32,8 @@
 #     `lein gate --all` / `lein release-gate --all` runs it here.  When the pending
 #     diff touches the index, TMS or inference files the slow tests drive and this
 #     gate ran `:default`, it prints "slow owed" beside "perf owed" (non-blocking).
+#   - `lein test-red` — the `^:red` tests, which no gate runs.  A diff touching a file
+#     they drive, or a test file holding the mark, prints "red owed" (non-blocking).
 #   - `./scripts/test-backends.sh` — the eight record×index pairs plus the overlay
 #     decorator.  **Anything touching storage, the index, records, or recovery must
 #     run this**; the suite must be failing-set-identical across all nine, and the
@@ -724,6 +726,16 @@ PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|e
 # catalog load, the feed socket, the koinii wire scenarios) name no file here.  Edit it
 # when a slow test starts driving a file, or a file's slow tests lose their marks.
 SLOW_OWED_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(resolution|except|literal_cache|memory|columnar|dense_kv|dense_roots|reindex|tokens|kv|jtms|dense_jtms|settle|recheck|clashes|discovery|checks|violations|strength|levels|observe|chain|rete|provers|inference|tactics|plan|rules|inherit|taxonomy|special|sentex|wff|nat|context_nat|abduce|qcn|qcn_kb|stp)\.clj$|^src/vaelii/impl/types/(trie|postings|snapshot|dense_roots)\.clj$|^src/vaelii/impl/disk/index_snapshot\.clj$'
+#
+# RED_OWED_RE.  The files the `^:red` tests drive: every one asserts and asks through
+# `vaelii.core`, so the inference, TMS and context files answer for them, and the temporal
+# reasoners and the shipped ontology answer for `temporal_capability_test` and
+# `pr_status_true_when_test`.  A test file holding a `^:red` mark owes the run too, and
+# `git grep` names those, so the list cannot drift from the marks.  Edit the regex when a
+# red test starts driving a file.
+RED_OWED_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(resolution|except|inherit|chain|settle|settle_phases|recheck|clashes|discovery|decide|decide/[a-z_]+|vantage|jtms|dense_jtms|taxonomy|nat|nat_read|nat_maintenance|context_nat|plan|tactics|rules|rete|strength|levels|special|checks|violations|provers|inference|abduce|wff|capabilities|qcn|qcn_kb|stp|interval|point|timepoint|duration|calendar|datetime|fluent|projection|relative|scenario|space)\.clj$|^resources/kb/'
+red_marked=$(git grep -lE '\^:red|\^\{:red true' -- test 2>/dev/null | sed 's/[.]/\\./g; s/^/^/; s/$/$/' | paste -sd'|' -)
+[[ -n "$red_marked" ]] && RED_OWED_RE="$RED_OWED_RE|$red_marked"
 
 # perf_groups_for_path.  The `groups` keys of bench/vaelii/bench/perf.clj whose checks
 # time a changed engine file's code, so the perf owed line names `lein perf --only` over
@@ -786,6 +798,9 @@ esac
 { [[ $all -eq 0 ]] || ! wanted test; } && owed_advisory slow "$SLOW_OWED_RE" "index / TMS / inference" \
   "the ^:slow half holds the order sweeps and oracles over these files — :default skips it." \
   "${BOLD}lein gate --all${RST} (or ${BOLD}lein test :slow${RST} alone)"
+owed_advisory red "$RED_OWED_RE" "red-test" \
+  "a red test that passes keeps its mark until a run of the :red selector names it." \
+  "${BOLD}lein test-red${RST}"
 
 # The arity readers a perf-ab probe times (`vaelii.bench.ab`: arity-assert, arity-edge-move,
 # arity-read, arity-recover).  `decide/arity.clj` is all arity.  `checks.clj`, `kb.clj` and

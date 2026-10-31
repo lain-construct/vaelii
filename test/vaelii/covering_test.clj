@@ -355,16 +355,11 @@
 
 ;; ---- a cover's edges bring stored facts under a rule on the whole ---------
 
-(defn- permutations [coll]
-  (if (empty? coll)
-    [[]]
-    (mapcat (fn [x] (map #(vec (cons x %)) (permutations (remove #{x} coll)))) coll)))
-
 (defn- believed? [kb sentence]
   (let [h (v/handle-of kb sentence 'CxUniverse)]
     (boolean (and h (v/in? kb h)))))
 
-(defn- every-order [n] (permutations (range n)))
+(defn- every-order [n] (tu/orders (range n)))
 
 (defn- cover-at-each-position
   "The orders of `n` writes, the last of them the cover, that keep the others in their

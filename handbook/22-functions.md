@@ -43,10 +43,10 @@ file says so in a `;;` note when it is made.
 The correspondence omits the value position, so the value takes the last argument of
 `motherOf`. The `comment` on `fatherOf` gives the reason the child comes first: "The
 child comes FIRST, which is what lets FatherFn read off it — a correspondence puts the
-value last." The kinship rules in `CxKinship.txt` are written over the predicate:
+value last." The kinship edges in `CxKinship.txt` are stated over the predicate:
 
 ```clojure
-(set/forwardRule (implies (and (motherOf ?child ?mother)) (parentOf ?mother ?child)))
+(genlInverse motherOf parentOf)
 ```
 
 **Why.**

@@ -12,11 +12,15 @@
             [vaelii.browser.catalog :as catalog]
             [vaelii.browser.jobs :as jobs]
             [vaelii.browser.web :as web]
+            [vaelii.client :as vc]
             [vaelii.core :as v]
             [vaelii.host.io.generate :as generate]
+            [vaelii.host.starter :as starter]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu])
-  (:import [java.io ByteArrayInputStream]))
+  (:import [java.io ByteArrayInputStream]
+           [org.eclipse.jetty.server Server ServerConnector]))
 
 (def ^:dynamic *app* nil)
 
@@ -37,7 +41,7 @@
   (*app* {:request-method :post :uri uri :params params :headers (or headers {})}))
 
 (defn- settled []
-  (let [deadline (+ (System/currentTimeMillis) 120000)]
+  (let [deadline (+ (System/currentTimeMillis) (tu/load-budget-ms))]
     (while (and (catalog/loading?) (< (System/currentTimeMillis) deadline))
       (Thread/sleep 20))))
 
@@ -126,6 +130,36 @@
     (is (= "base" (catalog/active)))
     (testing "and the pages answer from the KB that is left, not from a torn-down one"
       (is (= 200 (:status (GET "/")))))))
+
+(deftest a-second-starter-open-releases-the-first-and-shares-no-stores-with-it
+  (with-redefs [starter/load-into (fn [kb] (v/assert kb '(genl starter_probe thing) 'CxUniverse))]
+    (let [{kb1 :kb} (#'web/opening-kb nil)
+          _         (catalog/activate "starter")
+          {kb2 :kb} (#'web/opening-kb nil)
+          h         (v/assert kb2 '(genl second_starter_probe thing) 'CxUniverse)]
+      (is (= [true nil "starter" true]
+             [(catalog/released? kb1) (p/get-sentex (:records kb1) h) (catalog/active)
+              (identical? kb2 (:kb (catalog/entry "starter")))])))))
+
+(deftest a-dev-repl-refused-by-a-job-writing-the-starter-leaves-the-running-server
+  (with-redefs [starter/load-into    (fn [kb] (v/assert kb '(genl starter_probe thing) 'CxUniverse))
+                web/console-logging! (fn [])]
+    (let [{kb :kb} (#'web/opening-kb nil)
+          server   (Server.)
+          held     (promise)
+          release  (promise)
+          id       (jobs/submit {:label "Chain starter" :kind :chain :writes kb}
+                                (fn [_] (deliver held true) (deref release 60000 nil)))]
+      (reset! @#'web/dev-instance server)
+      (try
+        (deref held 10000 nil)
+        (is (= [:still-writing server]
+               [(:type (ex-data (try (web/dev-repl) nil (catch Exception e e))))
+                @@#'web/dev-instance]))
+        (finally
+          (deliver release true)
+          (jobs/wait id 10000)
+          (reset! @#'web/dev-instance nil))))))
 
 (deftest an-unload-during-a-chain-answers-without-waiting-for-it
   ;; A chaining job holds the process-wide write monitor for its whole run.  This job
@@ -400,10 +434,31 @@
     (is (= :unknown-subscription (get-in (op {:op :poll :args [token 0]}) [:edn :type]))
         "and a later poll of the token is refused")))
 
+(deftest a-stopped-server-ends-the-feeds-it-served
+  (let [kb     tu/*kb*
+        before (count (v/watchers kb))
+        ^Server server (web/start (catalog/holder kb) {:port 0 :token nil})
+        conn   (vc/client "localhost" (.getLocalPort ^ServerConnector (first (.getConnectors server)))
+                          {:token nil})
+        token  (:token (vc/watch conn))
+        parked (future (try (vc/poll conn token 0 {:wait-ms 20000}) (catch Exception _ nil)))
+        reg    @#'web/op-registry
+        within (fn [ms pred]
+                 (let [until (+ (System/currentTimeMillis) ms)]
+                   (while (and (not (pred)) (< (System/currentTimeMillis) until))
+                     (Thread/sleep 5))
+                   (pred)))]
+    (is (within 10000 #(= 1 (:parked @reg))) "the poll is parked")
+    (is (= (inc before) (count (v/watchers kb))))
+    (.stop server)
+    (deref parked 10000 nil)
+    (is (= [true before] [(within 5000 #(zero? (:parked @reg))) (count (v/watchers kb))])
+        "the parked poll stopped waiting, and the listener is off the KB")))
+
 ;; ---- and back out again --------------------------------------------------
 
 (defn- exported []
-  (let [deadline (+ (System/currentTimeMillis) 120000)]
+  (let [deadline (+ (System/currentTimeMillis) (tu/load-budget-ms))]
     (while (and (catalog/exporting?) (< (System/currentTimeMillis) deadline))
       (Thread/sleep 20))))
 

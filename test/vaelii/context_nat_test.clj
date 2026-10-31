@@ -12,6 +12,7 @@
   `(CxTimeFn CxMonad (DatetimeFn \"2000\"))` because January 2000 is inside 2000, with nobody
   asserting the `genlCx` edge."
   (:require [clojure.test :refer [is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.context-nat :as cn]
             [vaelii.impl.nat :as nat]
@@ -264,11 +265,8 @@
 
 ;; ---- the producer reacts to belief revival, not only to assert ------------
 
-(defn- refusal
-  "The `:type` a thrown assert refused with, or ::stored when it did not throw."
-  [f]
-  (try (f) ::stored
-       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+(def ^:private refusal
+  (fn [f] (tu/refusal-type f ::stored)))
 
 (tu/deftest-kb a-revived-subrelation-declaration-rebuilds-the-computed-edge
   ;; The producer runs only on the assert choke-point, but the belief of a
@@ -380,11 +378,11 @@
 ;; ---- the stored-fact R oracle picks its supporter content-keyed ----------
 
 (tu/deftest-kb the-stored-fact-oracle-chooses-its-supporter-by-content
-  ;; `subintervalOf` answers `::pure`, so exercise the stored-fact branch with a
-  ;; sub-relation that has no registered comparator.  With two believed `(R a b)` facts —
-  ;; the same ground relation in two contexts — the edge's supporter must be chosen by
-  ;; content (the lexicographically-smallest context), never by handle/retrieval order
-  ;; (docs/context-nat.md, order independence).
+  ;; `subintervalOf` has a comparator, so exercise the stored-fact branch with a
+  ;; sub-relation that has none.  Two believed `(R a b)` facts, the same ground relation in
+  ;; two contexts, are two routes, and the edge's justifications read in content order:
+  ;; the first rests on the fact in the lexicographically-smallest context, never on the
+  ;; one with the smaller handle (docs/context-nat.md, order independence).
   (let [cxfn  (declare-datetime-dimension! kb)
         yterm (list 'DatetimeFn "2000")
         mterm (list 'DatetimeFn "2000-01")
@@ -405,12 +403,15 @@
           km (:context (tu/sentex-matching kb '(weather Cold) month))]
       (testing "the stored-fact oracle materialized the edge"
         (is (v/sees? kb km ky)))
-      (let [edge (tu/sentex-matching kb (list 'genlCx km ky) 'CxUniverse)
-            just (first (filter #(= 'contextArgSubrelation (:informant %))
-                                (v/supporting-justifications kb (:id edge))))
-            ev   (first (filter #(= rfact (:sentence (v/sentex kb %))) (:antecedents just)))]
+      (let [edge  (tu/sentex-matching kb (list 'genlCx km ky) 'CxUniverse)
+            justs (filter #(= 'contextArgSubrelation (:informant %))
+                          (v/supporting-justifications kb (:id edge)))
+            ev-cx (fn [just] (some #(when (= rfact (:sentence (v/sentex kb %))) (:context (v/sentex kb %)))
+                                   (:antecedents just)))]
         (testing "its R-evidence supporter is the fact in the smallest context, not the first"
-          (is (= above (:context (v/sentex kb ev)))))))))
+          (is (= above (ev-cx (first justs)))))
+        (testing "each fact is a route of its own"
+          (is (= [above 'CxUniverse] (map ev-cx justs))))))))
 
 ;; ---- the context slot reads back through the ranks it was written under ---
 
@@ -578,6 +579,94 @@
       (testing "and retracting it withdraws the edge again"
         (v/retract! kb (:id (tu/sentex-matching kb (list 'subFooOf mterm yterm) 'CxUniverse)))
         (is (not (v/sees? kb km ky)))))))
+
+(tu/deftest-kb a-genlcx-edge-a-rule-concludes-after-the-contexts-orders-them
+  (tu/with-terms [CxLow CxHigh monadBelow]
+    (let [cxfn (fresh-cxfn "Monad")]
+      (v/assert kb (list 'result cxfn 'context) 'CxUniverse)
+      (v/assert kb (list 'contextArgSubrelation cxfn 1 'genlMonad) 'CxUniverse)
+      (v/assert kb (list 'forced_monotonic_predicate monadBelow) 'CxUniverse)
+      (v/assert kb (list 'set/forwardRule (list 'implies (list monadBelow '?a '?b) (list 'genlCx '?a '?b)))
+                'CxUniverse)
+      (let [klo (:context (v/sentex kb (v/assert kb '(holiday NewYear) (list cxfn CxLow))))
+            khi (:context (v/sentex kb (v/assert kb '(weather Cold) (list cxfn CxHigh))))
+            _   (is (not (v/sees? kb klo khi)) "no evidence yet")
+            h   (v/assert kb (list monadBelow CxLow CxHigh) 'CxUniverse)]
+        (is (= [true true] [(v/sees? kb CxLow CxHigh) (v/sees? kb klo khi)])
+            "the concluded edge orders the contexts along its two ends")
+        (v/retract! kb h)
+        (is (not (v/sees? kb klo khi)) "the edge's premise retracted")))))
+
+(tu/deftest-kb a-genlcx-edge-a-rule-concludes-once-a-formula-declaration-releases-it-orders-the-slices
+  (doseq [order [:declaration-first :declaration-last]]
+    (tu/with-terms [CxLow CxHigh holdsIn tag]
+      (let [cxfn  (fresh-cxfn "Monad")
+            slice #(:context (v/sentex kb (v/assert kb '(holiday NewYear) (list cxfn %))))
+            decl! #(v/assert kb (list 'arg holdsIn 2 'sentence) 'CxUniverse)]
+        (v/assert kb (list 'result cxfn 'context) 'CxUniverse)
+        (v/assert kb (list 'contextArgSubrelation cxfn 1 'genlMonad) 'CxUniverse)
+        (v/assert kb (list 'forced_monotonic_predicate holdsIn) 'CxUniverse)
+        (when (= :declaration-first order) (decl!))
+        (v/assert kb (list 'set/forwardRule (list 'implies (list holdsIn '?a (list '?p '?b)) (list 'genlCx '?a '?b)))
+                  'CxUniverse)
+        (v/assert kb (list holdsIn CxLow (list tag CxHigh)) 'CxUniverse)
+        (let [k1 (slice CxLow) k2 (slice CxHigh)]
+          (when (= :declaration-last order) (decl!))
+          (is (= [true true] [(v/sees? kb CxLow CxHigh) (v/sees? kb k1 k2)]) (str order)))))))
+
+(tu/deftest-kb a-genlcx-edge-orders-the-slices-of-the-slices-along-its-ends-in-either-order
+  (doseq [ends [:monads :slices] order [:edge-first :edge-last]]
+    (tu/with-terms [CxLow CxHigh]
+      (let [cxfn  (fresh-cxfn "Monad")
+            slice #(:context (v/sentex kb (v/assert kb '(holiday NewYear) (list cxfn %))))
+            _     (v/assert kb (list 'result cxfn 'context) 'CxUniverse)
+            _     (v/assert kb (list 'contextArgSubrelation cxfn 1 'genlMonad) 'CxUniverse)
+            _     (when (= [:monads :edge-first] [ends order])
+                    (v/assert kb (list 'genlCx CxLow CxHigh) 'CxUniverse))
+            k1    (slice CxLow)
+            k2    (slice CxHigh)
+            edge! #(v/assert kb (if (= :monads ends) (list 'genlCx CxLow CxHigh) (list 'genlCx k1 k2))
+                             'CxUniverse)
+            _     (when (= [:slices :edge-first] [ends order]) (edge!))
+            l1    (slice k1)
+            l2    (slice k2)]
+        (when (= :edge-last order) (edge!))
+        (is (= [true true] [(v/sees? kb k1 k2) (v/sees? kb l1 l2)]) (str ends " " order))))))
+
+(tu/deftest-kb a-slice-nesting-deeper-than-the-producer-rounds-logs-the-rounds-it-left
+  (tu/with-terms [CxLow CxHigh]
+    (let [cxfn  (fresh-cxfn "Monad")
+          slice #(:context (v/sentex kb (v/assert kb '(holiday NewYear) (list cxfn %))))
+          nest  #(reduce (fn [v _] (conj v (slice (peek v)))) [%1] (range %2))
+          ids   (atom [])]
+      (v/assert kb (list 'result cxfn 'context) 'CxUniverse)
+      (v/assert kb (list 'contextArgSubrelation cxfn 1 'genlMonad) 'CxUniverse)
+      (let [lows (nest CxLow 10) highs (nest CxHigh 10)]
+        (binding [trove/*log-fn* (fn [_ns _coords _level id _payload] (swap! ids conj id))]
+          (v/assert kb (list 'genlCx CxLow CxHigh) 'CxUniverse))
+        (is (= [true true [:vaelii.impl.nat-maintenance/producer-rounds]]
+               [(v/sees? kb (lows 1) (highs 1)) (v/sees? kb (lows 9) (highs 9))
+                (filterv #{:vaelii.impl.nat-maintenance/producer-rounds} @ids)]))))))
+
+(tu/deftest-kb a-genlcx-path-and-a-stated-genlmonad-each-justify-the-slice-edge-in-either-order
+  (doseq [[before after] [[:fact :path] [:path :fact]]]
+    (tu/with-terms [CxLow CxHigh]
+      (let [cxfn  (fresh-cxfn "Monad")
+            slice #(:context (v/sentex kb (v/assert kb '(holiday NewYear) (list cxfn %))))
+            stmt  {:fact (list 'genlMonad CxLow CxHigh) :path (list 'genlCx CxLow CxHigh)}
+            _     (v/assert kb (list 'result cxfn 'context) 'CxUniverse)
+            _     (v/assert kb (list 'contextArgSubrelation cxfn 1 'genlMonad) 'CxUniverse)
+            h1    (v/assert kb (stmt before) 'CxUniverse)
+            k1    (slice CxLow)
+            k2    (slice CxHigh)
+            h2    (v/assert kb (stmt after) 'CxUniverse)
+            edge  #(v/handle-of kb (list 'genlCx k1 k2) 'CxUniverse)
+            e     (edge)
+            n     (count (filter #(= 'contextArgSubrelation (:informant %))
+                                 (v/supporting-justifications kb e)))]
+        (v/retract! kb (if (= :path before) h1 h2))
+        (is (= [2 true e] [n (v/sees? kb k1 k2) (edge)])
+            (str before " then " after ": two justifications, and the fact keeps the edge"))))))
 
 ;; ---- the computed edge's supporters, stated below the context it is stored in ----
 ;;

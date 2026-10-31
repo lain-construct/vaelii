@@ -88,6 +88,13 @@
 
 ;; ---- response acts: meta-sentexes on the target, created by the responder -
 
+(defn- act-on-handle!
+  "Assert the meta-sentex `(functor agent ...args (sentexHandle handle))` in `agent`'s own
+  context with `agent` as creator, and return its handle."
+  [kb agent functor handle & args]
+  (v/assert kb (apply list functor agent (concat args [(v/sentex-handle handle)]))
+            (id/context-for agent) {:creator agent}))
+
 (defn endorse
   "The `endorses` response act: `agent` stands behind the claim at `target-handle`.  A
   meta-sentex `(endorses agent (sentexHandle target-handle))` in `agent`'s own context,
@@ -95,8 +102,7 @@
   retracted.  Two endorsers of one claim yield two distinct sentexes with two creators —
   the case a bare re-assert would collapse to one.  Returns the endorsement's handle."
   [kb agent target-handle]
-  (v/assert kb (list 'endorses agent (v/sentex-handle target-handle))
-            (id/context-for agent) {:creator agent}))
+  (act-on-handle! kb agent 'endorses target-handle))
 
 (defn answer
   "The `answers` response act: `agent` answers the query at `target-handle` with
@@ -105,8 +111,7 @@
   identity is read off THIS sentex (its context + provenance), not off the query.
   Returns the answer's handle."
   [kb agent content target-handle]
-  (v/assert kb (list 'answers agent content (v/sentex-handle target-handle))
-            (id/context-for agent) {:creator agent}))
+  (act-on-handle! kb agent 'answers target-handle content))
 
 (defn justify
   "The `justifies` response act: `agent` offers `ground` as a reason for the claim at
@@ -114,8 +119,7 @@
   in `agent`'s own context, creator `agent`.  target_following_predicate.  Returns the
   justification's handle."
   [kb agent ground target-handle]
-  (v/assert kb (list 'justifies agent ground (v/sentex-handle target-handle))
-            (id/context-for agent) {:creator agent}))
+  (act-on-handle! kb agent 'justifies target-handle ground))
 
 (defn dispute
   "The `disputes` response act: `agent` challenges the claim at `target-handle`.  Does
@@ -142,7 +146,7 @@
                            " — it names no record in this KB")
                       {:type :koinii/no-such-handle :handle target-handle})))
     (v/assert kb (list 'not (v/sentence-of sx)) ctx {:creator agent})
-    (v/assert kb (list 'disputes agent (v/sentex-handle target-handle)) ctx {:creator agent})))
+    (act-on-handle! kb agent 'disputes target-handle)))
 
 ;; ---- retraction: the engine operation named as a move --------------------
 
@@ -163,15 +167,13 @@
   a parse failure is a fact about the exchange and outlives what provoked it.  Returns
   its handle."
   [kb agent received-handle]
-  (v/assert kb (list 'notUnderstood agent (v/sentex-handle received-handle))
-            (id/context-for agent) {:creator agent}))
+  (act-on-handle! kb agent 'notUnderstood received-handle))
 
 (defn refuse
   "The `refuse` error act: `agent` will not act on the received edge at `received-handle`.
   Same shape and placement as `not-understood`, also unmarked.  Returns its handle."
   [kb agent received-handle]
-  (v/assert kb (list 'refuse agent (v/sentex-handle received-handle))
-            (id/context-for agent) {:creator agent}))
+  (act-on-handle! kb agent 'refuse received-handle))
 
 ;; ---- reads: recover the conversation as data -----------------------------
 

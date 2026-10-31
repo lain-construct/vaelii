@@ -282,6 +282,7 @@
    :unary-denied-types   [:single F-SINGLE]
    :opposed-bodies       [:single F-SINGLE]
    :mint-terms           [:single F-SINGLE]
+   :mint-rules           [:single F-SINGLE]
    :rule-antecedent-keys [:single F-SINGLE]
    :arity-bound          [:single F-SINGLE]})
 

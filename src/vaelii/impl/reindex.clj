@@ -27,6 +27,7 @@
   records, which stay untouched."
   (:require [vaelii.impl.capabilities :as cap]
             [vaelii.impl.except :as exc]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
@@ -68,22 +69,24 @@
                          (rules/antecedent-keys (:antecedent sx))
                          (rules/consequent-index-pred sx)
                          (:context sx))
-    (when (rules/rechecked? sx)
-      (rules/unindex-exception! index h (rules/recheck-predicates sx))))
+    (when-let [ks (seq (concat (when (rules/rechecked? sx) (rules/recheck-predicates sx))
+                               (rules/nonempty-recheck-predicates sx)))]
+      (rules/unindex-exception! index h ks)))
   (special/unpost-mint! index (sx/sentence-of sx) (:context sx) h)
   (tax/retire-stored-supporter! index h)
   nil)
 
 (defn- mint-conclusions
-  "The handles the stored justifications `special/mint-informant?` accepts conclude: one
-  fetch per stored justification, chunk-hinted as `recover`'s walk is."
+  "The handles the stored justifications of a mint (`kb/records-mint-kind`) conclude: one
+  fetch per stored justification and per distinct rule-handle informant, chunk-hinted as `recover`'s walk is."
   [records]
   (with-open [r (progress/start ::read-justifications
                                 "reindex: read the justifications"
                                 (cap/count-justifications records))]
     (into #{}
           (comp (keep #(do (progress/tick! r) (p/get-justification records %)))
-                (filter #(special/mint-informant? (:informant %)))
+                (filter (let [kind (memoize #(kb/records-mint-kind records %))]
+                          #(some? (kind (:informant %)))))
                 (map :consequence))
           (cap/hinting (cap/justification-prefetcher records) cap/recovery-hint-chunk
                        (p/justification-ids records)))))
@@ -99,6 +102,8 @@
         index   (:index kb)
         minted  (mint-conclusions records)]
     (p/clear-index! index)
+    (kb/forget-mint-rules! kb)
+    (kb/forget-lazy-rules! kb)
     ;; the index moves wholesale here rather than through the per-sentex choke point, so
     ;; the clock a resident derived structure is keyed by is bumped by hand — as
     ;; `core/clear!` does, and for the same reason

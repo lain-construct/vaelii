@@ -115,6 +115,19 @@
   (delay (fn vaelii-log-fn [ns coords level id payload]
            (when (enabled? level) (sink ns coords level id payload)))))
 
+(defn installed?
+  "Is `f` the backend `set-level` installs?"
+  [f]
+  (identical? f @log-fn))
+
+(defn drops?
+  "Does `taoensso.trove/*log-fn*` drop every message at `level`?  True when it is nil, or
+  when it is the backend `set-level` installs and the dial stands above `level`.  A
+  backend this namespace did not install is read as keeping every level."
+  [level]
+  (let [f trove/*log-fn*]
+    (or (nil? f) (and (installed? f) (not (enabled? level))))))
+
 (defn set-level
   "Set the dial to `level` and install the console backend at the root of
   `taoensso.trove/*log-fn*`, returning the level.  `vaelii.core/set-log-level` is the

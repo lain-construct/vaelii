@@ -56,7 +56,9 @@ for the unit it was first recorded in.
 ```
 
 `life.txt` types a birth year `(arg birthYearOf 2 integer)`, since a year is counted and
-carries no unit.
+carries no unit. `birthYearOf` states what a `birthDate` whose value is a `YearFn` term
+states, `(birthDate X (YearFn 1990))`, and a rule concludes it from one; no rule
+concludes the `birthDate` from it.
 
 **Why.**
 
@@ -147,13 +149,13 @@ itself:
   `conversionFactor` row for its base and factor, then multiplies the magnitude by the
   factor once. A unit with no `dimensionOf` is its own dimension, and a unit with no
   `conversionFactor` is its own base at factor 1.
-- *Engine.* A unit with only one of the two rows answers wrongly or not at all. A
-  `(dimensionOf Foot Length)` with no factor converts at factor 1, so one foot compares as
-  the same quantity as one metre. A `conversionFactor` with no `dimensionOf` leaves the
-  unit its own dimension, so it compares only against itself.
+- *Engine.* A unit with only one of the two rows compares only with itself and with the
+  units converting to it. A `(dimensionOf Foot Length)` with no factor is its own base,
+  so one foot compares with no metre, and a sum over a foot and a metre has no answer. A `conversionFactor` with no
+  `dimensionOf` leaves the unit its own dimension.
 - *Engine.* Conversion does not chain. A factor stated against a non-base unit is applied
-  once and the result is read as base units: a `Length` unit stated as 40 rods compares as
-  40 metres.
+  once and the result is in that unit: a `Length` unit stated as 40 rods compares only
+  with units stated in rods, and with no metre.
 - *Engine.* Two different factors, or two different dimensions, for one unit in the
   contexts a reader sees are declined, not adjudicated: the declined reading falls back to
   the unit itself, as an undeclared one does. Choosing one row would make the answer depend
@@ -166,7 +168,8 @@ itself:
 
 **Why not the other ways.** A unit table where each unit converts to its neighbour
 (millimetre to centimetre to metre) states the same definitions, and the prover, which
-multiplies once, reads every unit but the first as if it were the base. A second
+multiplies once, reads each unit in its neighbour, so a millimetre compares with no
+metre. A second
 spelling of a unit the shipped table has, such as a KB's own gram, compares with the
 shipped one only if its rows repeat the shipped definition.
 

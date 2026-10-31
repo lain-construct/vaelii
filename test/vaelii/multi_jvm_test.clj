@@ -5,10 +5,9 @@
   else to observe it from.
 
   Not \"integration tests\" — the whole suite is that already, and CONTRIBUTING.md §5
-  says so in as many words — and not end-to-end either: four of the five watch one
-  contract from the only vantage that can see it, rather than walking a user's path
-  through a stack.  What they share is the **process boundary**, which is also what makes
-  them expensive, so they carry `^:multi-jvm` and no selector reaches them.  `lein test`,
+  says so in as many words.  All but the three-seat test watch one contract from the only
+  vantage that can see it.  What they share is the **process boundary**, which makes them
+  expensive, so they carry `^:multi-jvm` and no selector reaches them.  `lein test`,
   `lein test :all` and `lein gate` all pass over this file; `lein test-multi-jvm` and
   `deep.yml`'s job run it.
 
@@ -22,6 +21,7 @@
   | daemon and CLI cannot own one directory | `docs/operations.md` | the daemon is the other process |
   | a writer ended by SIGTERM or SIGHUP leaves images the next open installs | `disk/durability.clj`'s shutdown hook | a JVM runs the hook only on its way out, and cannot open the directory after it |
   | a killed logged writer restores to a prefix of its operations | `open-kb`'s `:oplog?`, `vaelii.impl.seal` | SIGKILL stops the writer inside an operation, a frame append or a seal, and a process cannot do that to itself and read the result |
+  | three seats merging each other's deltas believe one set, across a restart and a kill mid-rebase | `docs/operations.md`, `docs/overlay.md` | each seat is a daemon in its own process over its own directories, and the kill ends that process inside the rebase |
 
   **These own their directories and touch no shared space.**  Every KB here is a fresh
   temp directory, so the suite's scratch/isolated block is not involved and there is
@@ -35,6 +35,7 @@
   `lein gate`."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [taoensso.trove :as trove]
@@ -384,6 +385,168 @@
                        " leaves: " (pr-str r))))
             (finally (v/close! kb))))))))
 
+(def ^:private seat-program
+  "A seat: a fork over a base directory and a directory of its own, served on port 0, that
+  takes its exchange steps from stdin, one command and one directory per line.  The second
+  argument is the dump the first start installs as the base, `-` on a restart.  The parent
+  sends no wire call while a command runs, so the in-process writes and the daemon's never
+  overlap.  `pull-stopping` blocks at the rebase's `:refilled` phase for the parent's kill."
+  "(require '[clojure.string :as str] '[vaelii.core :as v] '[vaelii.serve :as serve]
+            '[vaelii.koinii.deref :as d] '[vaelii.impl.overlay.rebase :as rebase])
+   (v/set-log-level :error)
+   (defn say [& xs] (println (str/join \" \" (cons \"##vaelii##\" xs))) (flush))
+   (let [[dir base] *command-line-args*
+         kb  (v/open-kb {:backend :overlay
+                         :base    {:backend :disk-log :dir (str dir \"/base\")}
+                         :overlay {:backend :disk-log :dir (str dir \"/own\")}})
+         _   (when-not (= \"-\" base) (v/import! kb base {:rebase? true}))
+         srv (serve/start kb {:port 0 :token nil})]
+     (say \"port\" (serve/port srv))
+     (loop []
+       (let [[cmd arg] (str/split (read-line) #\" \")]
+         (case cmd
+           \"publish\" (do (v/export-text! kb arg {:delta? true}) (say \"published\"))
+           \"merge\"   (say \"merged\" (pr-str (mapv :type (:refused (v/load-text! kb arg {:merge? true})))))
+           \"dump\"    (do (d/publish! kb arg) (say \"dumped\"))
+           \"pull-stopping\" (binding [rebase/*phase-hook* #(when (= :refilled %) (say \"refilled\") @(promise))]
+                             (d/pull! kb arg))
+           \"stop\"    (do (.stop srv) (v/close! kb) (say \"stopped\") (System/exit 0)))
+         (recur))))")
+
+(defn- spawn-seat
+  "Start the seat whose directory is `dir`, its first start installing the dump `base`."
+  [dir base]
+  {:dir dir :child (mj/spawn! seat-program dir base)})
+
+(defn- connect
+  "`seat` once its daemon has bound, with a client that asks for each sentex's digest."
+  [seat]
+  (let [port (Long/parseLong (mj/await-marker! (:child seat) "port" 300000))]
+    (assoc seat :conn (vc/client "localhost" port {:token nil :timeout-ms 120000 :digests? true}))))
+
+(defn- command!
+  "Send `seat` the command `cmd` on `arg` and return what it printed after `word`."
+  [seat cmd arg word]
+  (mj/tell! (:child seat) (str cmd " " arg))
+  (mj/await-marker! (:child seat) word 300000))
+
+(def ^:private shared-contexts
+  "The contexts every seat holds: the shipped KB's, and CxField, where the agents observe."
+  '[CxUniverse CxField])
+
+(defn- believed
+  "What `seat`'s daemon believes in `contexts`, as `{[digest strength] sentex-map}`.  The
+  digest stands for the sentence because a sentence the engine writes, `(defeat
+  (sentexHandle n))`, holds a handle of its own seat, and it leaves the strength out."
+  ([seat] (believed seat shared-contexts))
+  ([seat contexts]
+   (into {} (comp (mapcat #(vc/sentexes-in-context (:conn seat) % {:believed? true}))
+                  (map (juxt (juxt :digest :strength) identity)))
+         contexts)))
+
+(defn- holds?
+  "Does the believed set `bs` hold `sentence` in CxField?"
+  [bs sentence]
+  (boolean (some #(and (= sentence (:sentence %)) (= 'CxField (:context %))) (vals bs))))
+
+(defn- differ
+  "The sentex maps one of the believed sets `x` and `y` holds and the other does not."
+  [x y]
+  (let [[kx ky] (map (comp set keys) [x y])]
+    (set (concat (vals (select-keys x (set/difference kx ky)))
+                 (vals (select-keys y (set/difference ky kx)))))))
+
+(def ^:private seat-rounds
+  "The rounds, each a row: `:writes` what each seat's agents assert over the wire, `:then`
+  the step before the exchange (a clean restart, or a pull of a peer's dump killed at
+  `:refilled` and reopened), `:refused` the refusal types each seat's merge reports,
+  `:holds`/`:lacks` what every seat believes and does not in CxField after it, and
+  `:excepts` whether each seat holds seat A's `except`, which sits in CxSeatA, outside
+  `shared-contexts`."
+  [{:writes  {:a [['(genlCx CxField CxUniverse) 'CxUniverse {:strength :monotonic}]
+                  ['(set/forwardRule (implies (mesh_sensor ?x) (mesh_device ?x))) 'CxField]
+                  ['(mesh_sensor NodeA1) 'CxField]]
+              :b [['(genlCx CxField CxUniverse) 'CxUniverse {:strength :monotonic}]
+                  ['(mesh_sensor NodeB1) 'CxField]]
+              :c [['(genlCx CxField CxUniverse) 'CxUniverse {:strength :monotonic}]
+                  ['(meshNear Dover Calais) 'CxField]]}
+    :holds   '[(mesh_device NodeA1) (mesh_device NodeB1) (meshNear Dover Calais)]}
+   {:writes  {:a [['(mesh_sensor NodeA2) 'CxField]]
+              :b [['(not (mesh_device NodeA1)) 'CxField {:strength :monotonic}]]
+              :c [['(mesh_sensor NodeC2) 'CxField]]}
+    :then    [:restart :b]
+    :holds   '[(mesh_device NodeA2) (mesh_device NodeC2) (not (mesh_device NodeA1))]
+    :lacks   '[(mesh_device NodeA1)]}
+   {:writes  {:a [['(mesh_sensor NodeA3) 'CxField]]
+              :b [['(mesh_sensor NodeB3) 'CxField]]
+              :c [['(meshNear Rome Paris) 'CxField]]}
+    :then    [:kill-mid-pull :c :a]
+    :holds   '[(mesh_device NodeA3) (mesh_device NodeB3) (meshNear Rome Paris)]}
+   {:writes  {:a [['(genlCx CxSeatA CxField) 'CxUniverse {:strength :monotonic}]
+                  #(list 'except (list 'sentexHandle (vc/handle-of % '(meshNear Dover Calais) 'CxField)))]
+              :b [['(symmetric meshNear) 'CxField {:strength :monotonic}]]}
+    :refused {:b [:canonical-mismatch]}
+    :holds   '[(symmetric meshNear)]
+    :excepts {:a true :b false :c true}}])
+
+(defn- observed
+  "The sentences `ws`, one seat's writes in a round, assert in CxField."
+  [ws]
+  (for [w ws :when (and (vector? w) (= 'CxField (second w)))] (first w)))
+
+(deftest ^:multi-jvm three-seats-merging-each-others-deltas-believe-one-set-after-each-round
+  (with-tmp
+    (fn [root]
+      (let [shipped (str root "/shipped")
+            dir     #(str root "/seat-" (name %))
+            seats   (atom {})
+            reopen! (fn [k] (mj/close! (:child (@seats k)))
+                      (swap! seats assoc k (connect (spawn-seat (dir k) "-"))))]
+        (let [kb (v/open-kb {:backend :memory :space [::shipped] :recover? false})]
+          (try (tu/load-core! kb) (v/export! kb shipped)
+               (finally (v/clear! kb) (v/close! kb) (tu/drop-space! [::shipped]))))
+        (try
+          (reset! seats (into {} (map (fn [k] [k (spawn-seat (dir k) shipped)])) [:a :b :c]))
+          (swap! seats update-vals connect)
+          (doseq [[n {:keys [writes then refused holds lacks excepts]}] (map-indexed vector seat-rounds)
+                  :let [round (str "round " (inc n))
+                        [step k peer] then]]
+            (doseq [[k ws] writes, w ws]
+              (let [conn (:conn (@seats k))]
+                (if (fn? w) (vc/assert conn (w conn) 'CxSeatA) (apply vc/assert conn w))))
+            (case step
+              :restart       (do (command! (@seats k) "stop" "-" "stopped")
+                                 (is (zero? (mj/await-exit! (:child (@seats k)))))
+                                 (reopen! k))
+              :kill-mid-pull (let [dump (str root "/dump-" (inc n))]
+                               (command! (@seats peer) "dump" dump "dumped")
+                               (command! (@seats k) "pull-stopping" dump "refilled")
+                               (reopen! k))
+              nil)
+            (when step
+              (let [bs (believed (@seats k))]
+                (doseq [s (observed (mapcat writes (remove nil? [k peer])))]
+                  (is (holds? bs s) (str round ": the reopened seat " (name k) " believes " (pr-str s))))))
+            (doseq [[k s] @seats]
+              (command! s "publish" (str root "/delta-" (name k) "-" (inc n)) "published"))
+            (doseq [[k s] @seats]
+              (is (= (get refused k [])
+                     (into [] (mapcat #(edn/read-string (command! s "merge" (str root "/delta-" (name %) "-" (inc n)) "merged")))
+                           (remove #{k} (keys @seats))))
+                  (str round ": the refusals seat " (name k) "'s merge reports")))
+            (let [sets (update-vals @seats believed)]
+              (doseq [k [:b :c]]
+                (is (= #{} (differ (sets :a) (sets k)))
+                    (str round ": what seat a and seat " (name k) " believe differently")))
+              (doseq [s holds] (is (holds? (sets :a) s) (str round ": " (pr-str s))))
+              (doseq [s lacks] (is (not (holds? (sets :a) s)) (str round ": " (pr-str s)))))
+            (doseq [[k e?] excepts]
+              (is (= e? (boolean (some #(= 'except (first (:sentence %)))
+                                       (vals (believed (@seats k) '[CxSeatA])))))
+                  (str round ": whether seat " (name k) " holds seat a's except"))))
+          (finally
+            (doseq [s (vals @seats)] (mj/close! (:child s)))))))))
+
 ;; ---- the mark, checked over the sources ----------------------------------
 ;;
 ;; A mark is a promise, and a promise nothing checks is kept until the first time it is
@@ -419,7 +582,8 @@
     "a-kb-another-process-wrote-opens-cold-and-recovers"
     "a-daemon-in-another-process-answers-this-one-s-client"
     "a-killed-logged-writer-restores-to-a-prefix-of-its-operations"
-    "a-writer-ended-by-a-signal-leaves-images-the-next-open-installs"})
+    "a-writer-ended-by-a-signal-leaves-images-the-next-open-installs"
+    "three-seats-merging-each-others-deltas-believe-one-set-after-each-round"})
 
 (defn- test-sources
   "Every test namespace's source, as `path -> text`."

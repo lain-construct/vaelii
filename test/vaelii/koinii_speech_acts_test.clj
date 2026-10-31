@@ -14,12 +14,13 @@
             [vaelii.test-util :as tu]))
 
 (defn- speech-acts-kb
-  "A fresh vocabulary KB with the koinii speech-act vocabulary loaded."
-  []
-  (tu/load-dumped! (tu/fresh) :koinii/speech-acts
+  "Load the upper layer and the koinii speech-act vocabulary into `kb`, and return `kb`."
+  [kb]
+  (tu/load-dumped! kb :koinii/speech-acts
                    #(doto % (tu/load-core!) (sa/load-speech-acts))))
 
-(use-fixtures :each (tu/neutral-fresh speech-acts-kb))
+(use-fixtures :once (tu/loaded speech-acts-kb))
+(use-fixtures :each (tu/neutral))
 
 ;; ---- the context loads ----------------------------------------------------
 

@@ -639,14 +639,6 @@
 ;; assertions.  They differ in where the retired spelling sits: the firing's binding, the
 ;; condition's own constant, and inside an `(unknown …)`.
 
-(defn- orderings
-  "Every ordering of `coll` — a small local permutation, since the sweeps below are over
-  four assertions and the suite carries no combinatorics dependency."
-  [coll]
-  (if (empty? coll)
-    [[]]
-    (mapcat (fn [x] (map #(vec (cons x %)) (orderings (remove #{x} coll)))) coll)))
-
 (defn- belief-per-order
   "`{belief [order …]}` over every ordering of `ops` — a map of assertion thunks — with
   `read` taking the belief once each order has been asserted into its own cleared KB, and
@@ -658,7 +650,7 @@
                 (when after (after kb hs))
                 (update acc (read kb) (fnil conj []) order))))
           {}
-          (orderings (keys ops))))
+          (tu/orders (keys ops))))
 
 (defn- one-belief!
   "Assert that every ordering of `ops` reaches `expected`, naming the orders that did

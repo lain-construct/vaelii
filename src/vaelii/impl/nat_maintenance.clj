@@ -3,24 +3,40 @@
 (ns vaelii.impl.nat-maintenance
   "The reified-NAT maintenance the write paths run once their own work is done:
   `reconcile-assert` after a sentence is stored, `reconcile-revivals!`,
-  `collect-orphans!` and `reconcile-formula-positions` after a teardown.  Requires `nat`, `context-nat`, `chain`, `resolution` and `settle`; the
+  `collect-orphans!` and `reconcile-formula-positions` after a teardown.  Requires `nat`, `context-nat`, `chain`, `resolution`, `settle` and `special`; the
   teardown entry point `retract!` is an argument, since the engine never requires
   `vaelii.core`.  See docs/nat.md and docs/context-nat.md."
-  (:require [vaelii.impl.chain :as chain]
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.context-nat :as context-nat]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.nat-read :as nat-read]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.settle :as settle]))
+            [vaelii.impl.settle :as settle]
+            [vaelii.impl.special :as special]))
 
 ;; ---- computed genlCx edges: the merges they license -----------------------
+
+(def ^:private max-producer-rounds
+  "How many settles' belief moves `settle-computed-edges` reconciles before it logs
+  `::producer-rounds` and leaves the last settle's moves unread."
+  8)
 
 (defn- settle-computed-edges
   "Settle once when a computed `genlCx` edge was built (`built?`), seeding no chaining
   when `opts` holds `{:chain? false}`: the producer runs after the write that entails the
-  edge has settled."
+  edge has settled.  The belief moves that settle makes are reconciled and settled in turn
+  (`context-nat/reconcile-moves`), for at most `max-producer-rounds` settles."
   [kb built? opts]
-  (when built? (settle/settle-write kb (:chain? opts true)))
+  (loop [built? built? n 0]
+    (when built?
+      (settle/settle-write kb (:chain? opts true))
+      (if (< n max-producer-rounds)
+        (recur (context-nat/reconcile-moves kb (special/take-producer-moves!)) (inc n))
+        (trove/log! {:level :warn :id ::producer-rounds
+                     :msg  (str "structural genlCx reconciliation built an edge in each of "
+                                max-producer-rounds " rounds; the last settle's moves are not read")
+                     :data {:rounds n}}))))
   nil)
 
 ;; ---- the assert path ------------------------------------------------------
@@ -55,12 +71,15 @@
   "Re-decide the hold of the rules a `formula` position moved by the stored or removed
   `sentences` decides (`nat/formula-declared-predicates`,
   `chain/reconcile-formula-positions!`, docs/nat.md, The corresponding predicate), then
-  re-chain what that made and settle."
+  re-chain what that made, settle, and build the structural `genlCx` edges the settle's
+  belief moves call for (`settle-computed-edges`)."
   [kb sentences]
   (when-let [preds (seq (nat/formula-declared-predicates kb sentences))]
     (when-let [new (chain/reconcile-formula-positions! kb preds)]
       (when (seq new) (settle/rechain-seeds kb new))
-      (settle/settle kb))))
+      (settle/settle kb)
+      (when (nat/any-reified-constants? kb)
+        (settle-computed-edges kb (context-nat/reconcile-moves kb (special/take-producer-moves!)) nil)))))
 
 (defn reconcile-assert
   "The reified-NAT maintenance a just-stored `sentence` calls for, run after its own
@@ -77,17 +96,26 @@
       (nat/reconcile-nats! kb sentence)
       (reconcile-values! kb [sentence] true (:chain? opts true))
       (respell-corresponded! kb [sentence] false)
-      (settle-computed-edges kb (context-nat/reconcile-genlCx kb sentence) opts))
+      (settle-computed-edges kb (context-nat/reconcile-genlCx kb sentence (special/take-producer-moves!))
+                             opts))
     (reconcile-formula-positions kb [sentence])))
 
 ;; ---- the teardown path ----------------------------------------------------
 
 (defn reconcile-revivals!
-  "Rebuild the structural `genlCx` edges whose premises a teardown revived, and settle
-  what it built (`context-nat/reconcile-revivals`, docs/context-nat.md).  Runs only when
-  the KB declares a context function, which it checks itself."
+  "Rebuild the structural `genlCx` edges the belief moves of a teardown and its removed
+  sentexes (`sink`) call for, and settle what it built (`context-nat/reconcile-revivals`,
+  docs/context-nat.md)."
+  [kb sink]
+  (settle-computed-edges
+   kb (context-nat/reconcile-revivals kb (special/take-producer-moves!) (map :sentence @sink)) nil))
+
+(defn reconcile-moves!
+  "Rebuild the structural `genlCx` edges the belief moves a settle recorded call for
+  (`context-nat/reconcile-moves`), and settle what it built: the close of a deferred
+  batch, whose writes settled nothing."
   [kb]
-  (settle-computed-edges kb (context-nat/reconcile-revivals kb) nil))
+  (settle-computed-edges kb (context-nat/reconcile-moves kb (special/take-producer-moves!)) nil))
 
 (def ^:dynamic ^:private *in-orphan-removal?*
   "Bound true while `remove-orphaned-nats!` retracts orphaned reified NAT bookkeeping, so

@@ -223,8 +223,26 @@
                                        (count orders))))))
 
 (deftest a-denial-of-a-forced-monotonic-literal-loses-to-it-in-every-order
+  ;;   CxA  (functional ageOf) default, stored monotonic   (not (functional ageOf))
+  ;;        (ageOf Rex 3) default   (ageOf Rex 4) monotonic
+  (tu/with-terms [ageOf Rex CxA]
+    (let [wiring  [(w (list 'genlCx CxA U) U)]
+          content [(w (list 'functional ageOf) CxA)
+                   (w (list 'not (list 'functional ageOf)) CxA :monotonic)
+                   (w (list ageOf Rex 3) CxA)
+                   (w (list ageOf Rex 4) CxA :monotonic)]
+          world   {:contexts #{U CxA} :writes (into wiring content)}
+          want    {CxA {(list ageOf Rex 3) false (list ageOf Rex 4) true
+                        (list 'not (list 'functional ageOf)) false}}
+          orders  (mapv #(into wiring %) (gen/permutations content))
+          {fails :failures known :known} (expected-failures world orders want)]
+      (is (empty? (reference-agrees world want)))
+      (print-known "denial of a forced literal" known)
+      (is (empty? fails) (failure-text "denial of a forced literal" fails (count orders))))))
+
+(deftest a-denial-of-a-default-separation-defeats-it-in-every-order
   ;;   CxUniverse  (genl dog thing) (genl cat thing)
-  ;;   CxA         (disjoint dog cat) default, stored monotonic   (not (disjoint dog cat))
+  ;;   CxA         (disjoint dog cat) default   (not (disjoint dog cat)) monotonic
   ;;               (dog Rex) default   (cat Rex) monotonic
   (tu/with-terms [dog cat Rex CxA]
     (let [wiring  [(w (list 'genl dog 'thing) U) (w (list 'genl cat 'thing) U)
@@ -234,27 +252,27 @@
                    (w (list dog Rex) CxA)
                    (w (list cat Rex) CxA :monotonic)]
           world   {:contexts #{U CxA} :writes (into wiring content)}
-          want    {CxA {(list dog Rex) false (list cat Rex) true
-                        (list 'not (list 'disjoint dog cat)) false}}
+          want    {CxA {(list dog Rex) true (list cat Rex) true
+                        (list 'disjoint dog cat) false
+                        (list 'not (list 'disjoint dog cat)) true}}
           orders  (mapv #(into wiring %) (gen/permutations content))
           {fails :failures known :known} (expected-failures world orders want)]
       (is (empty? (reference-agrees world want)))
-      (print-known "denial of a forced literal" known)
-      (is (empty? fails) (failure-text "denial of a forced literal" fails (count orders))))))
+      (print-known "denial of a separation" known)
+      (is (empty? fails) (failure-text "denial of a separation" fails (count orders))))))
 
 (deftest a-rule-concluding-a-forced-monotonic-literal-from-a-plain-antecedent-is-inert-in-every-order
-  ;;   CxA  (kindPair ?a ?b) => (disjoint ?a ?b)   (kindPair bird fish)
-  ;;        (bird Tweety) default   (fish Tweety) default
-  (tu/with-terms [kindPair bird fish Tweety CxA]
-    (let [wiring  [(w (list 'genl bird 'thing) U) (w (list 'genl fish 'thing) U)
-                   (w (list 'genlCx CxA U) U)]
-          content [(w (gen/forward (list 'implies (list kindPair '?a '?b) (list 'disjoint '?a '?b))) CxA)
-                   (w (list kindPair bird fish) CxA)
-                   (w (list bird Tweety) CxA)
-                   (w (list fish Tweety) CxA)]
+  ;;   CxA  (markIt ?p) => (functional ?p)   (markIt ageOf)
+  ;;        (ageOf Tweety 3) default   (ageOf Tweety 4) default
+  (tu/with-terms [markIt ageOf Tweety CxA]
+    (let [wiring  [(w (list 'genlCx CxA U) U)]
+          content [(w (gen/forward (list 'implies (list markIt '?p) (list 'functional '?p))) CxA)
+                   (w (list markIt ageOf) CxA)
+                   (w (list ageOf Tweety 3) CxA)
+                   (w (list ageOf Tweety 4) CxA)]
           world   {:contexts #{U CxA} :writes (into wiring content)}
-          want    {CxA {(list bird Tweety) true (list fish Tweety) true
-                        (list 'disjoint bird fish) false}}
+          want    {CxA {(list ageOf Tweety 3) true (list ageOf Tweety 4) true
+                        (list 'functional ageOf) false}}
           orders  (mapv #(into wiring %) (gen/permutations content))
           {fails :failures known :known} (expected-failures world orders want)]
       (is (empty? (reference-agrees world want)))
@@ -796,16 +814,17 @@
 ;; The reader withdraws a ground and re-reads each `covering` nogood, once per denial of
 ;; the whole.
 (deftest a-cover-denial-stated-in-two-contexts-convicts-at-a-reader-that-withdraws-a-ground-in-every-order
-  ;;   CxA  (covering whole p1 p2)   (genl p2 other)   (p2 Kit)   (not (whole Kit))
+  ;;   CxA  (covering whole p1 p2) monotonic   (genl p2 other)   (p2 Kit)   (not (whole Kit))
   ;;   CxB sees CxA: (not (whole Kit)) monotonic   (not (genl p2 other)) monotonic
   ;;
-  ;; A denial of the whole denies both parts, so (p2 Kit) and either denial refute the
+  ;; A denial of the whole denies both parts through the monotonic cover's part edges,
+  ;; which a `:default` cover's do not, so (p2 Kit) and either denial refute the
   ;; cover.  CxA reads a dilemma.  CxB reads the denial :monotonic, takes (p2 Kit) OUT,
   ;; and withdraws the ground (genl p2 other).
   (tu/with-terms [whole p1 p2 other Kit CxA CxB]
     (let [denial   (list 'not (list whole Kit))
           wiring   [(w (list 'genlCx CxB CxA) U :monotonic)
-                    (w (list 'covering whole p1 p2) CxA)
+                    (w (list 'covering whole p1 p2) CxA :monotonic)
                     (w (list 'genl p2 other) CxA)]
           content  [(w denial CxA)
                     (w denial CxB :monotonic)
@@ -1049,25 +1068,46 @@
         ref   (into #{} (map :members) (get-in (believe/believe world nogoods/families) [U :nogoods]))]
     [(frequencies runs) ref]))
 
-(deftest a-disjoint-over-related-types-is-a-hard-clash-of-the-declaration-in-every-order
+(deftest a-disjoint-over-related-types-is-a-clash-of-the-declaration-and-the-edge-in-every-order
   (tu/with-terms [animalw dogw catw Fido]
     (let [base  [(w (list 'genl animalw 'thing) U :monotonic)
                  (w (list 'disjoint dogw animalw) U :monotonic)]
           decl  (list 'disjoint dogw animalw)
+          edge  (list 'genl dogw animalw)
           cover (list 'covering animalw dogw catw)]
-      (testing "over a genl edge, beside a default membership"
+      (testing "over a monotonic genl edge, beside a default membership"
         (let [[runs ref] (related-declaration-runs
-                          (conj base (w (list 'genl dogw animalw) U :monotonic) (w (list dogw Fido) U)))]
+                          (conj base (w edge U :monotonic) (w (list dogw Fido) U)))]
           (is (= 1 (count runs)) (pr-str runs))
-          (is (= #{#{decl}} (second (ffirst runs))))
-          (is (every? (first (ffirst runs)) [decl (list dogw Fido)]) "no belief moves")
-          (is (contains? ref #{decl}))))
+          (is (= #{#{decl edge}} (second (ffirst runs))))
+          (is (every? (first (ffirst runs)) [decl edge (list dogw Fido)]) "no belief moves")
+          (is (contains? ref #{decl edge}))))
+      (testing "over a default genl edge, which the monotonic declaration defeats"
+        (let [[runs ref] (related-declaration-runs (conj base (w edge U)))]
+          (is (= 1 (count runs)) (pr-str runs))
+          (is (= #{} (second (ffirst runs))) "a decided clash is no report")
+          (is (contains? (first (ffirst runs)) decl))
+          (is (not (contains? (first (ffirst runs)) edge)))
+          (is (contains? ref #{decl edge}))))
+      (testing "over a default genl edge a default cover also installs, which the declaration defeats with the cover"
+        (let [[runs ref] (related-declaration-runs (conj base (w edge U) (w cover U)))]
+          (is (= 1 (count runs)) (pr-str runs))
+          (is (contains? (first (ffirst runs)) decl))
+          (is (not-any? (first (ffirst runs)) [edge cover]))
+          (is (contains? ref #{decl edge}))))
+      (testing "over a default genl edge a monotonic cover also installs, which the declaration defeats beside the cover's clash"
+        (let [[runs ref] (related-declaration-runs (conj base (w edge U) (w cover U :monotonic)))]
+          (is (= 1 (count runs)) (pr-str runs))
+          (is (= #{#{cover decl}} (second (ffirst runs))))
+          (is (every? (first (ffirst runs)) [decl cover]))
+          (is (not (contains? (first (ffirst runs)) edge)))
+          (is (contains? ref #{decl edge}))))
       (testing "a cover naming the part the disjoint separates from its whole"
         (let [[runs ref] (related-declaration-runs (conj base (w cover U :monotonic)))]
           (is (= 1 (count runs)) (pr-str runs))
-          (is (= #{#{decl} #{cover decl}} (second (ffirst runs))))
+          (is (= #{#{cover decl}} (second (ffirst runs))))
           (is (every? (first (ffirst runs)) [decl cover]) "no belief moves")
-          (is (every? ref [#{decl} #{cover decl}])))))))
+          (is (contains? ref #{cover decl})))))))
 
 ;; ---- random worlds -----------------------------------------------------
 

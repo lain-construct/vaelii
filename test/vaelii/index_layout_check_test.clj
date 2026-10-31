@@ -15,16 +15,9 @@
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.files :as dfiles]
-            [vaelii.impl.kv :as kv])
-  (:import [java.io File]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-layout-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (File. dir)))] (.delete ^File f)))
+            [vaelii.impl.kv :as kv]
+            [vaelii.test-util :as tu])
+  (:import [java.io File]))
 
 (defn- layout-file ^File [^String dir] (File. (str dir "/index") "layout.edn"))
 
@@ -43,18 +36,18 @@
     ok?))
 
 (deftest a-fresh-durable-index-gets-its-layout-version-on-open
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-layout-")]
     (try
       (built-kb! dir)
       (is (.exists (layout-file dir)) "the sentinel exists after the first open")
       (is (= kv/index-layout-version
              (:index-layout (read-string (slurp (layout-file dir)))))
           "and names the current layout")
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest an-absent-sentinel-over-a-populated-log-rebuilds
   (testing "the pre-sentinel store: bytes present, sentinel missing"
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-layout-")]
       (try
         (built-kb! dir)
         (.delete (layout-file dir))
@@ -62,11 +55,11 @@
         (is (= kv/index-layout-version
                (:index-layout (read-string (slurp (layout-file dir)))))
             "and the sentinel is rewritten at the current layout")
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-stale-sentinel-rebuilds
   (testing "an index whose sentinel names another layout"
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-layout-")]
       (try
         (built-kb! dir)
         (spit (layout-file dir) (pr-str {:index-layout (dec kv/index-layout-version)}))
@@ -74,20 +67,20 @@
         (is (= kv/index-layout-version
                (:index-layout (read-string (slurp (layout-file dir)))))
             "and the sentinel is rewritten at the current layout")
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-current-sentinel-is-left-alone
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-layout-")]
     (try
       (built-kb! dir)
       (let [before (.lastModified (layout-file dir))]
         (is (true? (answers? dir)) "a clean store answers without repair")
         (is (= before (.lastModified (layout-file dir)))
             "and the sentinel was not rewritten"))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest the-decision-fn-names-each-case
-  (let [dir (tmpdir)
+  (let [dir (tu/tmpdir "vaelii-layout-")
         root (str dir "/index")]
     (try
       (.mkdirs (File. root))
@@ -106,7 +99,7 @@
       (.delete (File. root "layout.edn"))
       (is (= :stale (dfiles/index-layout-decision root 3 true))
           "absent over a populated log is stale, not adoptable")
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest the-layout-check-reads-the-index-kind-and-so-never-fires-on-a-fork
   ;; `index-durable?` is not the discriminant: on the `:overlay` axis it says only that
@@ -115,7 +108,7 @@
   ;; `{:backend :disk-log}` uses — and a layout check keyed on the flag would clear the fork's
   ;; merged index (permanently hiding the base's) and write a sentinel into a directory it
   ;; never read.
-  (let [dir  (tmpdir)
+  (let [dir  (tu/tmpdir "vaelii-layout-")
         ;; a real durable KB at the default location, carrying no sentinel: the state a
         ;; machine has after any 0.2.0-era `{:backend :disk-log}` open
         base (doto (v/open-kb {:backend :memory
@@ -139,13 +132,13 @@
                  (when (.isDirectory default-index)
                    (.exists (File. default-index "layout.edn"))))
               "a fork writes no sentinel into a directory it never read")))
-      (finally (rm-rf! dir) (v/clear! base)))))
+      (finally (tu/rm-rf! dir) (v/clear! base)))))
 
 (deftest a-crash-mid-rebuild-reads-as-stale-and-not-as-a-fresh-directory
   ;; the crash window the mark exists for: an absent layout version over an index the rebuild just
   ;; cleared is empty, which without the mark reads as `:unwritten` — a fresh
   ;; directory needing no rebuild, over records that are all still there
-  (let [dir (tmpdir)
+  (let [dir (tu/tmpdir "vaelii-layout-")
         root (str dir "/index")]
     (try
       (.mkdirs (File. root))
@@ -157,4 +150,4 @@
       (dfiles/write-index-layout! root 3)
       (is (= :current (dfiles/index-layout-decision root 3 true))
           "the rebuild's own sentinel write clears the mark")
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))

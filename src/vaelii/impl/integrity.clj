@@ -11,6 +11,7 @@
             [clojure.string :as str]
             [vaelii.impl.budget :as budget]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.clashes :as clashes]
             [vaelii.impl.decide.arity :as arity]
             [vaelii.impl.except :as exc]
             [vaelii.impl.inherit :as inherit]
@@ -23,6 +24,7 @@
             [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -35,6 +37,21 @@
 (def integrity-opt-keys
   "The options `kb-integrity` reads: three cooperative bounds and the categories to run."
   #{:max-work :max-ms :max-results :categories})
+
+(defn- bounded-findings
+  "Record each finding of the lazy `units` under `category`, one at a time, stopping
+  after the first finding beyond `remaining` proves that the result bound truncated
+  the sweep."
+  [category units remaining]
+  (loop [findings []
+         units    units]
+    (if-let [finding (first units)]
+      (if (and remaining (>= (count findings) remaining))
+        {:status :truncated :reason :max-results :findings findings}
+        (do
+          (budget/record! category finding)
+          (recur (conj findings finding) (rest units))))
+      {:status :complete :findings findings})))
 
 (defn- specified-findings
   "Audit one declared predicate at a time, stopping after the first finding beyond
@@ -114,21 +131,13 @@
         preds (declared-predicates kb context)]
     (with-open [r (progress/start ::genl-arg-widening "integrity: audit the predicate genl edges"
                                   (count preds))]
-      (loop [findings []
-             units    (for [spec  (progress/each r preds)
-                            :let  [own (own-arg-types kb spec context)]
-                            super (sort-by nm/print-key (tax/direct-genls tx spec context))
-                            :when (not= super spec)
-                            finding (do (budget/spend!)
-                                        (edge-widenings kb tx spec own super context))]
-                        finding)]
-        (if-let [finding (first units)]
-          (if (and remaining (>= (count findings) remaining))
-            {:status :truncated :reason :max-results :findings findings}
-            (do
-              (budget/record! :genl-arg-widening finding)
-              (recur (conj findings finding) (rest units))))
-          {:status :complete :findings findings})))))
+      (bounded-findings :genl-arg-widening (for [spec  (progress/each r preds)
+                                                 :let  [own (own-arg-types kb spec context)]
+                                                 super (sort-by nm/print-key (tax/direct-genls tx spec context))
+                                                 :when (not= super spec)
+                                                 finding (do (budget/spend!)
+                                                             (edge-widenings kb tx spec own super context))]
+                                             finding) remaining))))
 
 ;; ---- not-under-thing: a candidate type with no genl path to thing ----
 
@@ -153,17 +162,9 @@
                    (sort-by nm/print-key))]
     (with-open [r (progress/start ::not-under-thing "integrity: find the types not under thing"
                                   (count terms))]
-      (loop [findings []
-             units    (for [term  (progress/each r terms)
-                            :when (unrooted-type? kb tx term context)]
-                        {:term term})]
-        (if-let [finding (first units)]
-          (if (and remaining (>= (count findings) remaining))
-            {:status :truncated :reason :max-results :findings findings}
-            (do
-              (budget/record! :not-under-thing finding)
-              (recur (conj findings finding) (rest units))))
-          {:status :complete :findings findings})))))
+      (bounded-findings :not-under-thing (for [term  (progress/each r terms)
+                                               :when (unrooted-type? kb tx term context)]
+                                           {:term term}) remaining))))
 
 ;; ---- implicit-genl: a genl edge a cover forces but the closure does not hold ----
 
@@ -246,21 +247,13 @@
                    (sort-by nm/print-key))]
     (with-open [r (progress/start ::implicit-genl "integrity: find the implicit genl edges"
                                   (count terms))]
-      (loop [findings []
-             units    (for [term  (progress/each r terms)
-                            :when (suggestible-type? kb tx term context)
-                            cover (visible-covers tx term context)
-                            :let  [finding (do (budget/spend!)
-                                               (cover-suggestion kb tx term cover context))]
-                            :when finding]
-                        finding)]
-        (if-let [finding (first units)]
-          (if (and remaining (>= (count findings) remaining))
-            {:status :truncated :reason :max-results :findings findings}
-            (do
-              (budget/record! :implicit-genl finding)
-              (recur (conj findings finding) (rest units))))
-          {:status :complete :findings findings})))))
+      (bounded-findings :implicit-genl (for [term  (progress/each r terms)
+                                             :when (suggestible-type? kb tx term context)
+                                             cover (visible-covers tx term context)
+                                             :let  [finding (do (budget/spend!)
+                                                                (cover-suggestion kb tx term cover context))]
+                                             :when finding]
+                                         finding) remaining))))
 
 ;; ---- implicit-arity-class: an exact-arity class a kind and an arity force ----
 
@@ -308,19 +301,94 @@
   sweep."
   [kb candidate-terms context remaining]
   (let [table (arity-class-table kb context)]
-    (loop [findings []
-           units    (for [term    (->> candidate-terms
-                                       (filter #(and (symbol? %) (not (sx/variable? %))))
-                                       (sort-by nm/print-key))
-                          finding (arity-class-units kb table term context)]
-                      finding)]
-      (if-let [finding (first units)]
-        (if (and remaining (>= (count findings) remaining))
-          {:status :truncated :reason :max-results :findings findings}
-          (do
-            (budget/record! :implicit-arity-class finding)
-            (recur (conj findings finding) (rest units))))
-        {:status :complete :findings findings}))))
+    (bounded-findings :implicit-arity-class (for [term    (->> candidate-terms
+                                                               (filter #(and (symbol? %) (not (sx/variable? %))))
+                                                               (sort-by nm/print-key))
+                                                  finding (arity-class-units kb table term context)]
+                                              finding) remaining)))
+
+;; ---- undeclared-term: a used constant whose every membership its uses entail ----
+
+(defn- stated?
+  "Is the believed record `h` held by a premise, or concluded by a justification other
+  than an argument declaration's entailment from a use of the term it types: a mint
+  (`kb/mint-informant?`) or the `declaredType` mark of a type a declaration names?
+  A record a rule concludes counts as stated whatever the rule's antecedents rest on."
+  [kb h]
+  (let [tms (reasoning/tms kb)]
+    (or (jtms/premise? tms h)
+        (some #(let [i (:informant (jtms/justification tms %))]
+                 (not (or (kb/mint-informant? kb i) (= special/declared-type-informant i))))
+              (jtms/supports tms h)))))
+
+(defn- stated-membership?
+  "Does `context` see a believed membership `(T term)` that is `stated?`?  One work unit
+  per predicate `term` holds a stored unary fact of, and one per handle read."
+  [kb tx term context]
+  (let [recs (:records kb)]
+    (some (fn [pred]
+            (budget/spend!)
+            (some (fn [h]
+                    (budget/spend!)
+                    (let [s (p/get-sentex recs h)]
+                      (and s (= (list pred term) (:sentence s))
+                           (tax/sees? tx context (:context s))
+                           (stated? kb h))))
+                  (sort (reads/believed-with-args kb pred {1 term}))))
+          (sort-by nm/print-key (reads/as-stored-unary-predicates (:index kb) term)))))
+
+(defn- argument-symbols
+  "The symbols `sentence` holds in an argument position of one of its literals
+  (`nm/applied-literals`), at any depth of a compound argument, outside every quoting
+  form (`sx/quoting-functor?`).  The `.` of a dotted rest pattern `(?f . ?args)` names no
+  term."
+  [sentence]
+  (letfn [(walk [x]
+            (cond (= '. x)    []
+                  (symbol? x) [x]
+                  (and (sequential? x) (seq x) (not (sx/quoting-functor? (first x))))
+                  (mapcat walk x)
+                  :else []))]
+    (into #{} (comp (mapcat (fn [[_ lit]] (rest lit))) (mapcat walk))
+          (nm/applied-literals sentence))))
+
+(defn- used-in?
+  "Does `context` see a stored sentex, belief unread, holding `term` in an argument
+  position (`argument-symbols`)?  One work unit per handle the term index names, stopping
+  at the first use."
+  [kb tx term context]
+  (let [recs (:records kb)]
+    (some (fn [h]
+            (budget/spend!)
+            (when-let [s (p/get-sentex recs h)]
+              (and (tax/sees? tx context (:context s))
+                   (contains? (argument-symbols (sx/sentence-of s)) term))))
+          (reads/as-stored-with-term (:index kb) term))))
+
+(defn- undeclared-term
+  "The finding for `term`, or nil: `{:term term}`, with the exact `:arity`
+  `arity/relation-length` binds when it binds one, for a term that `context` sees no
+  `stated-membership?` of, whose own arity bindings include no `stated?` one (read the
+  same at every context, as `kb/relation-arity` reads them), and that a sentex `context`
+  sees uses in an argument position (`used-in?`)."
+  [kb tx term context]
+  (when-not (stated-membership? kb tx term context)
+    (let [{n :exact via :via grounds :grounds} (do (budget/spend!)
+                                                   (arity/relation-length kb term true))]
+      (when-not (and (= term via) (some #(stated? kb %) (sort grounds)))
+        (when (used-in? kb tx term context)
+          (cond-> {:term term} n (assoc :arity n)))))))
+
+(defn- undeclared-term-findings
+  "Audit each ground symbol of `candidate-terms` in print order, one term at a time
+  (`undeclared-term`), stopping after the first finding beyond `remaining` proves that the
+  result bound truncated the sweep."
+  [kb candidate-terms context remaining]
+  (let [tx    (reasoning/taxonomy kb)
+        terms (->> candidate-terms
+                   (filter #(and (symbol? %) (not (sx/variable? %))))
+                   (sort-by nm/print-key))]
+    (bounded-findings :undeclared-term (keep #(undeclared-term kb tx % context) terms) remaining)))
 
 ;; ---- orthogonal-over-separation: an orthogonal over a stated separation ----
 
@@ -385,32 +453,9 @@
         decls (visible-orthogonals kb context)]
     (with-open [r (progress/start ::orthogonal-over-separation
                                   "integrity: check the orthogonal declarations" (count decls))]
-      (loop [findings []
-             units    (keep #(orthogonal-separation kb tx % context) (progress/each r decls))]
-        (if-let [finding (first units)]
-          (if (and remaining (>= (count findings) remaining))
-            {:status :truncated :reason :max-results :findings findings}
-            (do
-              (budget/record! :orthogonal-over-separation finding)
-              (recur (conj findings finding) (rest units))))
-          {:status :complete :findings findings})))))
+      (bounded-findings :orthogonal-over-separation (keep #(orthogonal-separation kb tx % context) (progress/each r decls)) remaining))))
 
-;; ---- shared by the three ontology-engineering passes below ----
-
-(defn- bounded-findings
-  "Record each finding of the lazy `units` under `category`, one at a time, stopping
-  after the first finding beyond `remaining` proves that the result bound truncated
-  the sweep."
-  [category units remaining]
-  (loop [findings []
-         units    units]
-    (if-let [finding (first units)]
-      (if (and remaining (>= (count findings) remaining))
-        {:status :truncated :reason :max-results :findings findings}
-        (do
-          (budget/record! category finding)
-          (recur (conj findings finding) (rest units))))
-      {:status :complete :findings findings})))
+;; ---- shared by the ontology-engineering passes below ----
 
 (defn- handle-records
   "The believed sentexes among `handles`, as `{:handle :sentence :context}` maps in
@@ -447,6 +492,24 @@
                        [a c {:handle h :sentence (sx/sentence-of s) :context (:context s)}])))))
          (into [] (distinct))
          (sort-by (fn [[_ _ r]] [(:sentence r) (:context r)]) nm/compare-form))))
+
+(def ^:private acknowledgement
+  "The predicate a reviewer states of a finding to record that someone looked and why it
+  stays: `(acknowledgedFinding category subject reason)`.  The sweep reads this record
+  alone; `declined_rule_macro` is core.txt sugar a forward rule turns into one."
+  'acknowledgedFinding)
+
+(defn- acknowledgements
+  "`[subject reason]` of every `(acknowledgedFinding category ?subject ?reason)` `context`
+  sees whose reason is a string, in print order, so a finding several records acknowledge
+  carries the same reason on every run."
+  [kb category context]
+  (budget/spend!)
+  (->> (res/matches-visible kb (list acknowledgement category '?subject '?reason) context)
+       (keep (fn [[_ b]]
+               (let [r (get b '?reason)]
+                 (when (string? r) [(get b '?subject) r]))))
+       (sort-by (fn [[subject r]] [(nm/print-key subject) r]))))
 
 ;; ---- twin-genls: sibling types with one direct genl set, a missing common parent ----
 
@@ -536,17 +599,32 @@
 
 (defn- derivable-stated-edge-findings
   "Audit every visible stated `genl`, then every visible stated `disjoint`, one at a
-  time, in content order."
+  time, in content order.  A finding whose stated sentence an `acknowledgedFinding` the
+  audit context sees names under `:derivable-stated-edge` carries the first such reason
+  as `:acknowledged`."
   [kb context remaining]
   (let [tx        (reasoning/taxonomy kb)
         genls     (stated-pairs kb 'genl context)
-        disjoints (stated-pairs kb 'disjoint context)]
+        disjoints (stated-pairs kb 'disjoint context)
+        acks      (acknowledgements kb :derivable-stated-edge context)
+        ;; a stored subject is a term, which no canonicalization reorders, so a `disjoint`
+        ;; subject matches in either argument order
+        names?    (fn [sentence subject]
+                    (or (= sentence subject)
+                        (and (= 'disjoint (first sentence)) (sequential? subject)
+                             (= 3 (count subject)) (= 'disjoint (first subject))
+                             (= (set (rest sentence)) (set (rest subject))))))
+        ack       (fn [f] (if-let [r (some (fn [[subject r]]
+                                             (when (names? (:sentence (:stated f)) subject) r))
+                                           acks)]
+                            (assoc f :acknowledged r)
+                            f))]
     (with-open [r (progress/start ::derivable-stated-edge "integrity: find the derivable stated edges"
                                   (+ (count genls) (count disjoints)))]
       (bounded-findings
        :derivable-stated-edge
-       (concat (keep #(derivable-genl kb tx % context) (progress/each r genls))
-               (keep #(derivable-disjoint kb tx % context) (progress/each r disjoints)))
+       (map ack (concat (keep #(derivable-genl kb tx % context) (progress/each r genls))
+                        (keep #(derivable-disjoint kb tx % context) (progress/each r disjoints))))
        remaining))))
 
 ;; ---- disjoint-could-be-partition: a disjoint whose pair a known cover exhausts ----
@@ -605,6 +683,109 @@
       (bounded-findings
        :disjoint-could-be-partition
        (mapcat #(partition-candidates kb tx % context) (progress/each r disjoints))
+       remaining))))
+
+;; ---- open-sibling-pair: two direct specs of one parent nothing decides ----
+
+(defn subsumption-reading
+  "`{:statuses ss :witness w :via t}` for types `a` and `b`: `ss` is a subset of
+  `#{:coextensional :genl :spec :disjoint :orthogonal}`, and `w` names what put
+  `:orthogonal` in it — `:declared`, `:shared-instance`, `:shared-spec` (a shared subtype
+  with a known `(nonempty t)`) or `:unwitnessed-spec` (a shared subtype not known
+  nonempty) — with `t` the instance or the subtype it found (nil for `:declared`).  `w`
+  and `t` are nil when `ss` holds no `:orthogonal`.  `rd` holds the facts-only reads:
+  `:members` (the terms a `(t ?x)` read answers), `:isa?` (`x` an instance of `t`) and
+  `:holds?` (a ground goal answered), each read from `context`.  `vaelii.core`'s
+  `subsumption-statuses` and `disjointness-audit` read through this with `query`'s reads,
+  and the `:open-sibling-pair` pass with `facts-only-reads`.  At the five-argument arity
+  the `genl` paths and the shared subtypes are read over every edge, unscoped, as
+  `vaelii.core/genl?` and `specs` read them at their short arity: the status of a pair
+  under one context differs only in what that context sees separated or overlapping.
+  With `scoped?` true they are read through the edges `context` sees, as the
+  `:open-sibling-pair` pass reads them."
+  ([kb a b context rd] (subsumption-reading kb a b context rd false))
+  ([kb a b context rd scoped?]
+   (let [tx    (reasoning/taxonomy kb)
+         genl? (if scoped? #(tax/genl? tx %1 %2 context) #(tax/genl?-global tx %1 %2))
+         specs (if scoped? #(tax/specs tx % context) #(tax/specs-global tx %))
+         a<b   (genl? a b)
+         b<a   (genl? b a)
+         sep (kb/disjoint? kb a b context)
+         ;; asked in one spelling: `orthogonal` is symmetric, so the goal folds onto the
+         ;; stored order
+         declared? ((:holds? rd) (list 'orthogonal a b))
+         open?     (and (not a<b) (not b<a) (not sep))
+         ;; of several shared instances the content-least is reported, not the first the
+         ;; index returns
+         instance  (when (and open? (not declared?))
+                     (nm/min-by-content-key
+                      identity
+                      (filter #((:isa? rd) % b) ((:members rd) a))))
+         ;; A shared subtype counts only when it is not provably empty: a type `disjoint?`
+         ;; reports separated from itself, or one a facts-only read answers `(empty c)` of.
+         ;; Of several, the one with the most subtypes is reported, so the reading names
+         ;; the widest shared subtype rather than a leaf below it.
+         [spec ne] (when (and open? (not declared?) (nil? instance))
+                     (let [sb  (specs b)
+                           cs  (nm/by-print-key
+                                (filter #(and (contains? sb %) (not= % a) (not= % b)
+                                              (not (kb/disjoint? kb % % context))
+                                              (not ((:holds? rd) (list 'empty %))))
+                                        (specs a)))
+                           nes (filter #((:holds? rd) (list 'nonempty %)) cs)
+                           pick #(apply max-key (fn [c] (count (specs c))) %)]
+                       (cond (seq nes) [(pick nes) true]
+                             (seq cs)  [(pick cs) false])))
+         [w t]     (cond declared? [:declared nil]
+                         instance  [:shared-instance instance]
+                         ne        [:shared-spec spec]
+                         spec      [:unwitnessed-spec spec])]
+     {:statuses (cond-> #{}
+                  (and a<b b<a)       (conj :coextensional)
+                  (and a<b (not b<a)) (conj :genl)
+                  (and b<a (not a<b)) (conj :spec)
+                  sep                 (conj :disjoint)
+                  w                   (conj :orthogonal))
+      :witness  w
+      :via      t})))
+
+(defn- facts-only-reads
+  "`subsumption-reading`'s three reads through the prover registry at `context`, no rule
+  expanded (`quasiquote/ask-prepared`), each spending one work unit and memoized for one
+  sweep, which writes nothing between its pairs."
+  [kb context]
+  (let [ask (fn [goal] (budget/spend!) (quasiquote/ask-prepared kb goal context))]
+    {:members (memoize (fn [t] (into [] (map #(get % '?x)) (ask (list t '?x)))))
+     :isa?    (memoize (fn [x t] (budget/spend!) (kb/isa? kb x t context)))
+     :holds?  (memoize (fn [goal] (boolean (seq (ask goal)))))}))
+
+(defn- open-pairs
+  "The finding for parent `p`, or nil: every two of its direct specs `context` sees that
+  are type nodes (`kb/relation?` false) and that `subsumption-reading` gives no status, in
+  print order, with their count."
+  [kb tx rd p context]
+  (budget/spend!)
+  (let [kids  (nm/by-print-key (remove #(or (= p %) (kb/relation? kb % context))
+                                       (tax/direct-specs tx p context)))
+        pairs (vec (for [[i x] (map-indexed vector kids)
+                         y     (drop (inc i) kids)
+                         :when (do (budget/spend!)
+                                   (empty? (:statuses (subsumption-reading kb x y context rd true))))]
+                     [x y]))]
+    (when (seq pairs)
+      {:parent p :count (count pairs) :pairs pairs})))
+
+(defn- open-sibling-pair-findings
+  "Audit every type node `context` sees as a parent, one at a time, in print order."
+  [kb context remaining]
+  (let [tx      (reasoning/taxonomy kb)
+        rd      (facts-only-reads kb context)
+        parents (nm/by-print-key (remove #(kb/relation? kb % context) (tax/types tx context)))]
+    (with-open [r (progress/start ::open-sibling-pair "integrity: find the open sibling pairs"
+                                  (count parents))]
+      (bounded-findings
+       :open-sibling-pair
+       (keep #(open-pairs kb tx rd % context) (progress/each r parents))
        remaining))))
 
 ;; ---- missing-arg: a declared argument position no declaration types ----
@@ -723,6 +904,51 @@
       (bounded-findings
        :missing-arg
        (keep (fn [[pred arity]] (missing-positions kb tx pred arity context))
+             (progress/each r preds))
+       remaining))))
+
+;; ---- undecided-relation-property: a binary predicate no property mark decides ----
+
+(def ^:private relation-property-marks
+  "The marks that decide a binary predicate's algebra, each read as `(mark P)` or its
+  stated `(not (mark P))`: handbook ch. 19's marks and their complements in core.txt's
+  lattice.  An `inverse` or a `functionalInArg` relates `P` to another predicate or to a
+  position and decides none of these."
+  '[transitive anti_transitive symmetric asymmetric anti_symmetric reflexive irreflexive
+    functional])
+
+(defn- relation-property-goals
+  "The goals any one believed answer of which decides `pred`, in `relation-property-marks`
+  order, each positive and then negated."
+  [pred]
+  (mapcat (fn [g] [g (list sx/not-functor g)])
+          (map #(list % pred) relation-property-marks)))
+
+(defn- decided-property?
+  "Does `context` see a believed sentex answering one of `relation-property-goals`?  One
+  work unit per goal read and per handle matched, stopping at the first."
+  [kb pred context]
+  (let [tms (reasoning/tms kb)]
+    (some (fn [goal]
+            (budget/spend!)
+            (some (fn [[h _]] (budget/spend!) (jtms/in? tms h))
+                  (res/matches-visible kb goal context)))
+          (relation-property-goals pred))))
+
+(defn- undecided-relation-property-findings
+  "Audit every relation `context` sees declared arity 2 (`arity-census`) that it does not
+  see a `function`, one at a time, in print order."
+  [kb context remaining]
+  (let [preds (->> (arity-census kb context)
+                   (keep (fn [[p n]] (when (= 2 n) p)))
+                   (remove #(do (budget/spend!) (kb/isa? kb % 'function context)))
+                   nm/by-print-key)]
+    (with-open [r (progress/start ::undecided-relation-property
+                                  "integrity: find the binary predicates no property decides"
+                                  (count preds))]
+      (bounded-findings
+       :undecided-relation-property
+       (keep #(when-not (decided-property? kb % context) {:predicate %})
              (progress/each r preds))
        remaining))))
 
@@ -980,24 +1206,6 @@
         (some #(contrary-rule? kb preds ctx %)
               (sort (reads/as-stored-rules-by-consequent-global (:index kb) sx/not-functor))))))
 
-(def ^:private acknowledgement
-  "The predicate a reviewer states of a finding to record that someone looked and why it
-  stays: `(acknowledgedFinding category subject reason)`.  The sweep reads this record
-  alone; `declined_rule_macro` is core.txt sugar a forward rule turns into one."
-  'acknowledgedFinding)
-
-(defn- acknowledgements
-  "`[subject reason]` of every `(acknowledgedFinding category ?subject ?reason)` `context`
-  sees whose reason is a string, in print order, so a finding several records acknowledge
-  carries the same reason on every run."
-  [kb category context]
-  (budget/spend!)
-  (->> (res/matches-visible kb (list acknowledgement category '?subject '?reason) context)
-       (keep (fn [[_ b]]
-               (let [r (get b '?reason)]
-                 (when (string? r) [(get b '?subject) r]))))
-       (sort-by (fn [[subject r]] [(nm/print-key subject) r]))))
-
 (defn- acknowledged-declaration
   "The reason of the first acknowledgment of the rule-macro suggestion `decl` the rule's
   context sees, or nil."
@@ -1107,17 +1315,9 @@
   (let [nodes (genl-nodes kb context)]
     (with-open [r (progress/start ::undeclared-arity "integrity: find the genl nodes with no arity"
                                   (count nodes))]
-      (loop [findings []
-             units    (for [term  (progress/each r nodes)
-                            :when (undeclared-arity? kb term)]
-                        {:term term})]
-        (if-let [finding (first units)]
-          (if (and remaining (>= (count findings) remaining))
-            {:status :truncated :reason :max-results :findings findings}
-            (do
-              (budget/record! :undeclared-arity finding)
-              (recur (conj findings finding) (rest units))))
-          {:status :complete :findings findings})))))
+      (bounded-findings :undeclared-arity (for [term  (progress/each r nodes)
+                                                :when (undeclared-arity? kb term)]
+                                            {:term term}) remaining))))
 
 (defn- uncorresponded-units
   "`{:function f :rules [handle …]}` for each `reifiable_function` an open application in
@@ -1148,13 +1348,7 @@
   "Report each function `uncorresponded-units` names, stopping after the first finding
   beyond `remaining` proves that the result bound truncated the sweep."
   [kb context remaining]
-  (loop [findings [] units (uncorresponded-units kb context)]
-    (if-let [finding (first units)]
-      (if (and remaining (>= (count findings) remaining))
-        {:status :truncated :reason :max-results :findings findings}
-        (do (budget/record! :uncorresponded-function finding)
-            (recur (conj findings finding) (rest units))))
-      {:status :complete :findings findings})))
+  (bounded-findings :uncorresponded-function (uncorresponded-units kb context) remaining))
 
 ;; ---- taxonomy-island: a type with a genl edge that does not reach the root ----
 
@@ -1770,13 +1964,15 @@
 
 (defn- arg-type-conflicted?
   "Does a declaration demand a term be of a type disjoint from another type the two rules
-  place that term in?  `lits` are the positive antecedents of both rules and both
+  place that term in?  `antes` are the positive antecedents of both rules and `heads` both
   consequents, already under σ, so a variable the two rules unify appears once.  Each term
   collects `[type source]` pairs: `:stated` for a type a unary literal names, `:declared`
   for a type one of these declarations demands:
 
-  * an instance-type declaration of the literal's predicate on the term's position, `arg`
-    and its covering forms `args` / `argAndRest` alike (`declared-arg-types`);
+  * an instance-type declaration of an antecedent's predicate on the term's position, `arg`
+    and its covering forms `args` / `argAndRest` alike (`declared-arg-types`).  A
+    consequent's own declarations are `:stated`: the conclusion entails the type, so the
+    type is one the rule places the term in;
   * the relation-wide arity class of `P`'s length, for `a` in `(genl a P)`
     (`genl-arity-class`);
   * for an application written at any depth, its function's `result`, and its function's
@@ -1785,10 +1981,10 @@
   True when one term holds two disjoint types and at least one of them is `:declared`.
   `genlArg` and `genlResult` are not read: each bounds a subtype rather than a membership.
   See docs/quality.md, \"Contradictions in waiting\"."
-  [kb lits context]
+  [kb antes heads context]
   (let [tax     (reasoning/taxonomy kb)
         demands (reduce
-                 (fn [m l]
+                 (fn [m [l own]]
                    (let [f  (nm/functor l)
                          as (vec (nm/args l))]
                      (if (or (sx/negation? l) (not (symbol? f)) (sx/variable? f))
@@ -1801,9 +1997,10 @@
                                  m)]
                          (reduce (fn [m [x d]] (update m x (fnil conj #{}) d))
                                  m (concat (for [[n t] (declared-arg-types kb f (count as) context)]
-                                             [(nth as (dec n)) [t :declared]])
+                                             [(nth as (dec n)) [t own]])
                                            (application-demands kb f as context)))))))
-                 {} lits)]
+                 {} (concat (map vector antes (repeat :declared))
+                            (map vector heads (repeat :stated))))]
     (boolean
      (some (fn [[_ ts]]
              (let [ts (vec ts)]
@@ -1855,13 +2052,13 @@
         lits  (into (mapv subst (:antecedent a)) (map subst) (:antecedent b))
         pos   (into #{} (remove sx/negation?) lits)
         neg   (into #{} (comp (filter sx/negation?) (map second)) lits)
-        heads (conj pos (subst (:consequent a)) (subst (:consequent b)))]
+        heads [(subst (:consequent a)) (subst (:consequent b))]]
     (and (empty? (set/intersection pos neg))
          (not (negation-met-by-a-spec? kb pos neg context))
          (not (separated-antecedents? kb pos context))
          (not (arity-conflicted? kb pos context))
          (not (arity-floor-conflicted? kb pos context))
-         (not (arg-type-conflicted? kb heads context)))))
+         (not (arg-type-conflicted? kb pos heads context)))))
 
 (defn- rule-functors
   "Every predicate a rule names — its consequent's and its antecedents', a negation
@@ -1926,9 +2123,7 @@
   (let [tax (reasoning/taxonomy kb)
         pos (filterv #(= :positive (:polarity %)) rows)]
     {:by-key   (by-consequent rows)
-     :unary-fs (when (or (seq (tax/disjoint-pairs tax))
-                         (seq (tax/disjoint-metatypes tax))
-                         (seq (tax/sibling-disjoints tax)))
+     :unary-fs (when (clashes/separations? tax)
                  (into #{} (comp (filter #(= 1 (:arity %))) (map :functor)) pos))
      :marked   {:functional (marked-groups tax :functional pos)
                 :asymmetric (marked-groups tax :asymmetric pos)}}))
@@ -2126,6 +2321,7 @@
    [:not-under-thing not-under-thing-findings]
    [:implicit-genl implicit-genl-findings]
    [:implicit-arity-class implicit-arity-class-findings]
+   [:undeclared-term undeclared-term-findings]
    [:orthogonal-over-separation (fn [kb _ context remaining]
                                   (orthogonal-over-separation-findings kb context remaining))]
    [:rule-macro (fn [kb _ context remaining]
@@ -2146,6 +2342,10 @@
                                    (disjoint-could-be-partition-findings kb context remaining))]
    [:missing-arg (fn [kb _ context remaining]
                    (missing-arg-findings kb context remaining))]
+   [:open-sibling-pair (fn [kb _ context remaining]
+                         (open-sibling-pair-findings kb context remaining))]
+   [:undecided-relation-property (fn [kb _ context remaining]
+                                   (undecided-relation-property-findings kb context remaining))]
    [:taxonomy-island (fn [kb _ context remaining]
                        (taxonomy-island-findings kb context remaining))]
    [:rule-clash-review (fn [kb _ context remaining]
@@ -2157,7 +2357,8 @@
   "The review-only categories: a sweep runs their passes only when `:categories` names
   them, so a finding of one never turns an otherwise clean default sweep into `:gap`."
   #{:twin-genls :derivable-stated-edge :disjoint-could-be-partition :missing-arg
-    :taxonomy-island :rule-clash-review :rule-macro-review})
+    :open-sibling-pair :undecided-relation-property :taxonomy-island :rule-clash-review
+    :rule-macro-review})
 
 (defn- check-args!
   "Refuse a `candidate-terms` that is not a set of ground terms (`:bad-args`), and a

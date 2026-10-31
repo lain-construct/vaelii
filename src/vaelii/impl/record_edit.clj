@@ -59,7 +59,8 @@
   (cond
     (not (contains? sx/direction-engines direction))
     {:type :unknown-option :mismatch :bad-value :handle h :direction direction
-     :options (vec (sort (keys sx/direction-engines))) :operation "edit-records!"
+     :options (vec (sort (disj (set (keys sx/direction-engines)) :lazy-forward)))
+     :operation "edit-records!"
      :message (str "unknown direction " (pr-str direction) " for handle " h)}
 
     (nil? sx)
@@ -75,7 +76,14 @@
     {:type :unknown-option :mismatch :conflict :handle h :direction direction
      :operation "edit-records!"
      :message (str "handle " h " is a choice or constraint rule; a solve decides its head,"
-                   " so it takes no direction")}))
+                   " so it takes no direction")}
+
+    (or (= :lazy-forward direction) (contains? (:engines sx) :lazy))
+    {:type :unknown-option :mismatch :conflict :handle h :direction direction
+     :operation "edit-records!"
+     :message (str "handle " h " is or would be a lazy-forward rule; the firings reading it"
+                   " rest on it as an antecedent, and edit-records! re-joins and deletes"
+                   " firings by rule.  Retract it and assert the new spelling")}))
 
 (defn- throw-problem! [problem]
   (when problem (throw (ex-info (:message problem) (dissoc problem :message)))))
@@ -136,9 +144,9 @@
   :seeds [h …]}`: `:seeds` are what the settle starts from, the kept removals, the stored
   conclusions of the deleted justifications and the rules the batch puts on `:forward`.
 
-  Refuses a KB with belief (`:belief-built`), an `except`, `defeat` or `exceptWhen`
-  removal (`:record-edit-unsupported`), and a direction on a handle that is not a stored
-  derive rule (`:unknown-option`, `:unknown-handle`), before writing anything."
+  Refuses before writing a KB with belief (`:belief-built`), an `except`, `defeat` or
+  `exceptWhen` removal (`:record-edit-unsupported`), and a direction on a handle that is
+  not a stored derive rule or onto or off `:lazy-forward` (`:unknown-option`, `:unknown-handle`)."
   [kb batch]
   (opts/check! batch #{:remove :direction} "edit-records!"
                "A key nothing reads would leave its edits unapplied.")
@@ -171,7 +179,7 @@
           ;; licensed by a second route; `recover` leaves it out as `:unrooted`, and
           ;; `sweep!` reads the facts to re-chain off it before deleting it
           edges    (into #{} (filter #(special/closure-edge-relation (sx/sentence-of (stored %)))) delete)
-          left     (into #{} (comp (filter (fn [[_ j]] (and (integer? (:informant j))
+          left     (into #{} (comp (filter (fn [[_ j]] (and (special/firing-informant? kb (:informant j))
                                                             (not (contains? narrowed (:informant j)))
                                                             (some edges (:antecedents j)))))
                                    (map key))
@@ -242,7 +250,7 @@
          gone?   (fn [h] (and (integer? h) (nil? (p/get-sentex records h))))
          ;; read off the records before they go, as `edit!` reads its seeds off the
          ;; justifications its sweep removed (`special/resubsumption-seeds`)
-         refire  (special/firing-seeds js gone? gone?)
+         refire  (special/firing-seeds kb js gone? gone?)
          _       (run! #(p/delete-justification! records %) unrooted)
          _       (swap! (:unrecovered kb) dissoc :unrooted)
          _       (step! :sweep)

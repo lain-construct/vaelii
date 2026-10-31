@@ -9,9 +9,10 @@
   is a value the loop holds and ticks, opened with `with-open`; no dynamic var carries it.
   A caller follows the loops started under it through `*observer*`.  See
   docs/operations.md, \"Progress lines\"."
-  (:require [taoensso.trove :as trove])
-  (:import (java.util.concurrent Executors Future ScheduledExecutorService ThreadFactory
-                                 TimeUnit)
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.logging :as logging])
+  (:import (java.util.concurrent Future ScheduledExecutorService ScheduledThreadPoolExecutor
+                                 ThreadFactory TimeUnit)
            (java.util.concurrent.atomic AtomicLong AtomicReference)))
 
 (def first-line-ms
@@ -100,8 +101,8 @@
 (defn- emit!
   "Log one line of the reporter `r` at `elapsed` ns."
   [r done elapsed done?]
-  (let [{:keys [id label total]} r]
-    (trove/log! {:level :info :id id :ns (or (some-> id namespace) (str *ns*))
+  (let [{:keys [id label total log-ns]} r]
+    (trove/log! {:level :info :id id :ns log-ns
                  :msg  (line label done total elapsed done?)
                  :data {:done done :total total :elapsed-ms (quot (long elapsed) 1000000)}})))
 
@@ -184,10 +185,11 @@
   (fn [{:keys [derived]}] (tick-to! r (or derived 0))))
 
 (defonce ^:private ^ScheduledExecutorService timer
-  (Executors/newSingleThreadScheduledExecutor
-   (reify ThreadFactory
-     (newThread [_ runnable]
-       (doto (Thread. ^Runnable runnable "vaelii-progress") (.setDaemon true))))))
+  (doto (ScheduledThreadPoolExecutor.
+         1 (reify ThreadFactory
+             (newThread [_ runnable]
+               (doto (Thread. ^Runnable runnable "vaelii-progress") (.setDaemon true)))))
+    (.setRemoveOnCancelPolicy true)))
 
 (defn- schedule!
   "Run `(task)` `delay-ns` from now unless the reporter `r` is closed."
@@ -201,11 +203,15 @@
 
 (defn- on-timer!
   "The timer's check of `r`: log a line when one is due, at the count reached so far, and
-  run again when the next one is."
+  run again when the next one is.  While the log drops `:info` (`logging/drops?`), the
+  check logs nothing and runs again `first-line-ms` later at the earliest."
   [r task]
-  (let [elapsed (- (long ((:clock r))) (long (:t0 r)))]
-    (emit-if-due! r (.get ^AtomicLong (:done r)) elapsed)
-    (schedule! r task (- (.get ^AtomicLong (:next-ns r)) elapsed))))
+  (let [elapsed (- (long ((:clock r))) (long (:t0 r)))
+        quiet?  (logging/drops? :info)]
+    (when-not quiet?
+      (emit-if-due! r (.get ^AtomicLong (:done r)) elapsed))
+    (schedule! r task (cond-> (- (.get ^AtomicLong (:next-ns r)) elapsed)
+                        quiet? (max (* (long first-line-ms) 1000000))))))
 
 (defn done!
   "Close the loop `r` reports: stop its timer, log the closing line when a progress line
@@ -221,7 +227,22 @@
       (observe! r done elapsed true)))
   nil)
 
-(defrecord Reporter [id label total clock t0 ^AtomicLong done ^AtomicLong check-at
+(def ^:private log-vars
+  "Every dynamic var the timer's `trove/log!` and `logging/set-level`'s backend read."
+  [#'trove/*log-fn* #'trove/*ctx* #'*out* #'*err*])
+
+(defn- timer-task
+  "The task the timer runs for `r`: `on-timer!` under the thread bindings `start` names."
+  [r]
+  (let [f     trove/*log-fn*
+        frame (if (or (nil? f) (logging/installed? f))
+                (reduce (fn [m v] (if (thread-bound? v) (assoc m v (var-get v)) m)) {} log-vars)
+                (get-thread-bindings))
+        task  (promise)]
+    (deliver task (fn [] (with-bindings* frame #(on-timer! r @task))))
+    @task))
+
+(defrecord Reporter [id label log-ns total clock t0 ^AtomicLong done ^AtomicLong check-at
                      ^AtomicLong next-ns ^AtomicReference shown ^AtomicLong lines
                      ^AtomicReference timer observer ^AtomicLong observed]
   java.io.Closeable
@@ -232,23 +253,23 @@
   the keyword `id` and opening with `label`.  The clock starts here.  Closing it
   (`with-open`) logs the closing line (`done!`), and a reporter left open logs on.
   `opts`: `:clock`, a zero-argument fn answering nanoseconds (`System/nanoTime` by
-  default), and `:timer?`, whether a timer logs the lines no tick does (by default only
-  under the default clock).  The timer logs under the dynamic bindings in force here, so
-  a caller's `binding` of `trove/*log-fn*` sees its lines, and the `*observer*` in force
-  here is the reporter's."
+  default), and `:timer?`, whether a timer logs the lines no tick does (by default under
+  the default clock and a `total` other than 0).  The timer logs under every binding in
+  force here, or under those of `log-vars` alone when `trove/*log-fn*` is nil or
+  `set-log-level`'s backend.  A level raised mid-loop prints its next timer line.  The
+  `*observer*` in force here is the reporter's."
   (^java.io.Closeable [id label total] (start id label total nil))
   (^java.io.Closeable [id label total {:keys [clock] :as opts}]
-   (let [timer? (get opts :timer? (nil? clock))
+   (let [timer? (get opts :timer? (and (nil? clock) (not= 0 total)))
          clock  (or clock #(System/nanoTime))
-         r      (->Reporter id label (some-> total long) clock (long (clock))
+         r      (->Reporter id label (or (some-> id namespace) (str *ns*)) (some-> total long)
+                            clock (long (clock))
                             (AtomicLong. 0) (AtomicLong. 1)
                             (AtomicLong. (* (long first-line-ms) 1000000))
                             (AtomicReference. [0 nil]) (AtomicLong. 0) (AtomicReference. nil)
                             *observer* (AtomicLong. 0))]
      (when timer?
-       (let [task (promise)]
-         (deliver task (bound-fn* #(on-timer! r @task)))
-         (schedule! r @task (* (long first-line-ms) 1000000))))
+       (schedule! r (timer-task r) (* (long first-line-ms) 1000000)))
      r)))
 
 (defn each

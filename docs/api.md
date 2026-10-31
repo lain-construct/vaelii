@@ -116,7 +116,9 @@ default-chain-opts                              ; the bounds a chain run takes w
 (conflicts kb [opts])                           ; irreducible clashes among known-true content —
                                                ; same entry shape as contradictions; both sides stay believed;
                                                ; :grounds names the declarations a clash is convicted through;
-                                               ; {:grounds? false} leaves it off, a taxonomy walk an entry saved
+                                               ; {:grounds? false} leaves it off, a taxonomy walk an entry saved;
+                                               ; {:defeats? true} adds each decided nogood as a defeat report
+                                               ; (:verdict :defeat, :loser, :winners, :placed-in; nmtms.md)
 (contradictions kb)                            ; coexisting pairs at :default — represented dilemmas:
                                                ; a rebuttal (P/not-P), a definitional clash
                                                ; (:kind :disjoint|:functional|:asymmetric
@@ -223,7 +225,9 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; without themselves, and disjoint pairs a known cover
                                                 ; exhausts (a candidate partition), and for review every
                                                 ; declared argument position no arg-type declaration
-                                                ; types, every edged type off the taxonomy's root, and
+                                                ; types, every sibling pair nothing decides, every
+                                                ; binary predicate no relation property decides,
+                                                ; every edged type off the taxonomy's root, and
                                                 ; every rule clash an inert rule or an exception
                                                 ; accounts for. Returns
                                                 ; {:status :audited :candidate-count n}
@@ -231,16 +235,18 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
-                                                ; :implicit-arity-class,
+                                                ; :implicit-arity-class, :undeclared-term,
                                                 ; :orthogonal-over-separation, :rule-macro,
                                                 ; :undeclared-arity,
                                                 ; :uncorresponded-function, :stranded-declaration,
                                                 ; :rule-clash, :twin-genls, :derivable-stated-edge,
                                                 ; :disjoint-could-be-partition, :missing-arg,
+                                                ; :open-sibling-pair,
+                                                ; :undecided-relation-property,
                                                 ; :taxonomy-island, :rule-clash-review and
                                                 ; :rule-macro-review. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
-                                                ; passes to run. The seven review-only passes run only
+                                                ; passes to run. The nine review-only passes run only
                                                 ; when :categories names them; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);
@@ -359,7 +365,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; `(modal_predicate pred)`, so the grant follows
                                                ; retraction and is scoped by the context holding
                                                ; it — `CxUniverse` by default (docs/belief.md) -> kb
-(add-reasoner kb :allen :rcc8)                 ; register shipped ones by name -> kb
+(add-reasoner kb :allen :rcc8)                 ; register shipped ones by name, recorded in the
+                                               ;   store an open is held to (docs/storage.md) -> kb
 (reasoners)                                    ; the list: the six algebras + :duration :metric-time
                                                ;   :sign :calendar, and :brave-cautious, the ASP
                                                ;   dilemma reader (docs/labeling.md)
@@ -415,11 +422,14 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; ontology is authored in; opts {:context C} or
                                                ; {:ancestor-set C} to narrow.  Content-ordered and free of
                                                ; anything about the run, so the same knowledge
-                                               ; always writes the same bytes
-(load-text! kb path)                           ; read one back — a directory of Cx*.txt, or one
+                                               ; always writes the same bytes.  {:delta? true} on
+                                               ; a fork writes the fork's own writes only
+(load-text! kb path opts?)                     ; read one back — a directory of Cx*.txt, or one
                                                ; such file.  The file name is the context, and
                                                ; every form goes through `assert`, so this is
-                                               ; export-text!'s inverse and NOT import!'s
+                                               ; export-text!'s inverse and NOT import!'s;
+                                               ; {:merge? true} reports a refused form in
+                                               ; :refused instead of throwing
 (export! kb dir opts?)                         ; write it out as a portable dump — field-map frames,
                                                ; no class names; opts {:variant :records|:records+index
                                                ; :compression :gzip|:xz|:none :chunk-size n
@@ -429,7 +439,13 @@ default-chain-opts                              ; the bounds a chain run takes w
 (import! kb dir opts?)                         ; read a dump back into the (empty) kb — export!'s
                                                ; inverse.  opts {:belief? true|:stored|false
                                                ; :report-every n :on-progress f
-                                               ; :drop-principal? bool}; provenance lands as
+                                               ; :drop-principal? bool :rebase? bool
+                                               ; :on-replayed f}; :rebase? true on a fork
+                                               ; replaces its base and asserts the fork's own
+                                               ; writes again, calling :on-replayed with each
+                                               ; one's old record and new handle
+                                               ; (docs/overlay.md);
+                                               ; provenance lands as
                                                ; written, and :drop-principal? true drops each
                                                ; map's :principal (koinii's pull! passes it).  :belief?
                                                ; true (the default) installs the dump's belief
@@ -571,6 +587,14 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; :individual adds :types :predicates (with counts)
                                                ; :context adds :up :down :sentex-count, and
                                                ;   :computed-spec-of for a reified one
+                                               ; :type and :predicate add :definitional-block:
+                                               ;   handbook ch. 06's parts as {:part :value}
+                                               ;   rows in its order, :missing where the KB
+                                               ;   holds none, :kind apart from :arity-class,
+                                               ;   no row for seeAlso/termsRelated; a type's
+                                               ;   :siblings rows each name the :separation
+                                               ;   that decides them (:overlaps with a
+                                               ;   :witness and :via where one is shown)
                                                ; Every declaration, grant and comment is read from
                                                ; `context`'s genlCx ANCESTOR SET, so two vantages give two
                                                ; correct answers; `?ctx` (the default) reads every
@@ -658,6 +682,12 @@ assertable-strengths                            ; #{:monotonic :default}, the se
 (canonical-sentex kb sentence context)          ; the canonical sentex for a sentence WITHOUT
                                                 ; storing it — same map shape as `sentex`, no
                                                 ; `:id`; a stable content key / address
+(digest kb handle) / (digest kb s context)      ; the content digest "sha256:<64 hex>" of a
+                                                ; sentex, equal in every KB that holds it; a
+                                                ; checksum (docs/storage.md, "Content digests")
+(digests kb handles opts?)                      ; the same over many handles, one digest per record;
+                                                ; {:provenance? true} digests :creator and :created too
+(digest? x)                                     ; is x a digest string?
 ;; the meta-sentex handle term: `(sentexHandle H)` names a stored sentex so a meta can
 ;; predicate about it — `except` / `exceptWhen` and a `target_following_predicate` reply
 (sentex-handle n)                               ; the (sentexHandle n) term naming handle n
@@ -740,9 +770,13 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; :for-why / :against-why are `why`'s graph, for a
                                                 ; side the store holds; :for-derivation /
                                                 ; :against-derivation are `query`'s {:proof? true} tree,
-                                                ; for a side a rule derived instead.  A side carries at
-                                                ; most one — the derivation is the fallback, and needs a
-                                                ; positive depth and a ground sentence
+                                                ; for a ground side the store does not hold, or below a
+                                                ; positive depth the one leaf a prover answered.  A side
+                                                ; carries at most one.  A leaf a SupportingProver answered
+                                                ; names its records under :supports, one vector of
+                                                ; {:handle :sentence :context} per reading.  A stored sentence
+                                                ; a placed nogood defeats at context is :false, with its
+                                                ; defeat reports under :defeated-by
 ;; introspection: sentex, justification, supporting-justifications, dependent-justifications, premise?, defeat-class
 ;;   both justification listings are ordered by CONTENT — the informant's own sentence,
 ;;   then the antecedent sentences — and so is the antecedent vector inside each
@@ -909,8 +943,11 @@ for the whole load and is comparable between runs and between corpus sizes. Wher
 time goes, phase by phase: [storage.md](storage.md), "What a bulk load costs".
 The argument-type derivations ride on the skipped checks, so a bulk load stores none of
 them; `record-arg-types`, run once after the load on the recovered KB, records them
-([argtypes.md](argtypes.md#where-it-does-not-mint)). `:max-ms` and `:stop?` bound the load
-as they bound `assert-many` ([inference.md](inference.md#stopping-a-run)).
+([argtypes.md](argtypes.md#where-it-does-not-mint)). No stored rule fires over the loaded
+facts either, so `forward-chain` follows `record-arg-types`. Both read the whole KB, so a
+snapshot loaded over a larger KB takes a chained write
+([storage.md](storage.md#loading-a-changing-snapshot-over-a-fixed-base)). `:max-ms` and
+`:stop?` bound the load as they bound `assert-many` ([inference.md](inference.md#stopping-a-run)).
 
 `edit!` batches assertions **and** retractions into one settle — `{:add [[sentence
 context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a
@@ -960,7 +997,9 @@ author who edits an ontology wants, and what a dump deliberately is not. The shi
 ontology (`resources/kb/`) *is* a text KB, so `export-text!` is the writer for a format
 the engine already reads.
 
-`import!` reads a dump into an **empty** KB and refuses a KB that holds a sentex. A dump
+`import!` reads a dump into an **empty** KB and refuses a KB that holds a sentex, except a
+fork under `:rebase? true`, where the dump replaces the fork's base and the fork's own writes
+are asserted again over it ([overlay.md](overlay.md#replacing-the-base)). A dump
 refused for its own content leaves the KB empty, so the retry needs no `clear!`. Three
 such refusals are met in the middle of the stream: a handle named twice, a frame naming
 a class, and a frame no reader decodes. The import empties the store before it throws.
@@ -984,10 +1023,18 @@ chaining puts it back at load. An inert sentex is written `(set/inert S)`, which
 `load-text!` stores through `assert-inert` ([kbs.md](kbs.md#text-you-exported-yourself)).
 Over a KB whose belief is not built, an inert sentex and a derived one read alike, so the
 export refuses `:unrecovered-kb` when the store holds a sentex that is neither a premise
-nor a TMS node. A premise that names a sentex *by handle* — an `(except H)`, a
-`target_following_predicate` meta — has no text form at all and is counted in `:skipped`:
-the number is a fact about this store. For those, and for handle identity in general, the
-entry point is `export!`.
+nor a TMS node. A premise that names a sentex *by handle* at a reference position — an
+`(except H)`, a `target_following_predicate` meta — is written with `(ist Cx S)` in place of
+each `(sentexHandle H)`, the named record's context and sentence, and `load-text!` resolves
+it as `assert` does
+([canonicalization.md](canonicalization.md#a-reference-to-a-stored-sentex)). `:skipped`
+counts a record naming a handle at any other position, or one no stored record holds. For
+handle identity itself, the entry point is `export!`.
+
+**A fork's delta.** `{:delta? true}` on a fork writes what the fork wrote over its base,
+and `(load-text! kb dir {:merge? true})` reads it into another KB, reporting each form it
+refuses under `:refused`, a digest mismatch as `:canonical-mismatch`
+([overlay.md](overlay.md#a-delta)).
 
 **Deterministic.** Forms are ordered by content and the text carries nothing about the run
 that wrote it, so two KBs holding the same knowledge write byte-identical files whatever
@@ -1000,6 +1047,56 @@ is *dropped* rather than refused, so a `genlCx` edge arriving after the fact it 
 placed is the one thing retrying cannot fix. Every form goes through the ordinary write
 path, so the KB it lands in need not be empty. `lein cli load` is this entry point
 ([operations.md](operations.md)).
+
+## Reading a dump back
+
+`import!` reads a dump written by `export!`, a round trip whose halves are both public.
+With `:belief? true` the dump lands in the state a restart produces: records,
+justifications and premise marks stored, index rebuilt, belief recovered. With `:belief?
+false` every sentex is stored and indexed but no justification stream is read and nothing
+is recovered, so the KB is browsable, findable and countable but not belief-queryable; that
+is the path for a corpus past what an in-RAM JTMS scales to. `:belief? :stored` stores
+everything `true` stores (justifications, premise marks, provenance, the index) and leaves
+`recover` for a later job over the finished store. For a dump in a **foreign** dialect it is
+the only mode that keeps them at all: the records-only path carries no strength onto a
+foreign record and marks no premise, so a later `recover` over that store believes nothing.
+
+A dump refused for its own content leaves `kb` as empty as it found it, so the retry needs
+no `clear!`: a handle named twice, a frame naming a class, and a frame no reader decodes
+are refused mid-stream, and the import empties the store before it throws. A callback that
+throws, a torn stream or a store failure leaves `kb` holding what had already landed.
+
+Provenance lands as the dump wrote it. `:drop-principal? true` drops each map's
+`:principal`, the key a daemon records from its token table
+([operations.md](operations.md#the-token-table)); `koinii.deref/pull!` passes it. A dump
+records the reasoner set of the KB that wrote it, and `:reasoners :stored` registers that
+set once the import lands, when the destination registers no name outside it
+([storage.md](storage.md), "The reasoner set"). `:rebase? true` on a fork opened from
+`:base` opts installs the dump as the fork's base and asserts the fork's own premises,
+inert sentexes and retractions of base premises again over it; the summary adds `:rebase`,
+what that assert could not land. A fork `fork` took over a live KB is refused
+(`:frozen-base`), and on a KB that is no fork the option changes nothing
+([overlay.md](overlay.md), "Replacing the base").
+
+Two counts in the summary are disagreements between the dump and this build, and neither
+stops the load. `:naming` is what got stored under a name `assert` would refuse. `:refused`
+is what was skipped: a frame that could not be **built** (a rule whose structure a
+since-widened check now rejects), or that `assert` refuses and whose record would answer
+wrongly (an open literal; a rule whose antecedent functor is a variable, a `do/` imperative
+or an `or` no expansion removes, or that is not range-restricted; a special predicate's
+declaration its well-formedness check refuses, the checks that read stored content
+excepted; a non-finite measure; an `exceptWhen` over a fact; a sentex in a query context).
+A skipped frame goes with whatever rests on it, and is reported; `:sentexes` and `:frames`
+differ by those, by `:collapsed`, and by the further forms `:expanded` counts. An `(ist Ctx
+S)` frame is stored as S in Ctx, which is what `assert` stores.
+
+`true` and `:stored` land two frames with one canonical form on one handle at the stronger
+strength, and count the second in `:collapsed`; `false` stores one record per frame, so
+such a pair lands as two records. A rule frame `assert` expands (an `or` antecedent, an
+`and` consequent) is stored as the rules `assert` stores, one per form, on every path, and
+counted in `:expanded` as `{:frames n :records n}`. A dump `export!` wrote holds no such
+pair; one reaches the import from a hand-edited dump, another dialect's or another build's,
+or as an `(ist Ctx S)` frame beside S in Ctx ([naming.md](naming.md)).
 
 ## Validating without writing
 
@@ -1059,6 +1156,18 @@ write.  The stages stop
 at the first that finds anything, since each later one reads the KB assuming the earlier
 ones held.
 
+**An option key nothing reads is refused, because the default it falls back to is silent.**
+`{:strenth :monotonic}` stores known-true content as a default that the first contradicting
+default defeats, and `{:strength 0.7}` names a class the KB lacks, which `strength/rank-of`
+scores below `:default`; so `:strength` accepts the two assertable classes only (undercutting
+is `exceptWhen`'s job). `{:max-result 5}` leaves a cap off and `:bounded?` false, `{:believed
+true}` returns the stored extent where the believed one was asked for, and a misspelt
+`:max-derivation` runs a chain unbounded. The five kinds of entry point (bound, extent,
+assert, chain, search) share one check, `core/check-opts!`, which appends the matching
+clause to the refusal and then checks the value domains (`opts/bound-domains`): a string
+`:max-depth`, or a non-fn `:on-progress`, is refused as `:unknown-option` instead of
+throwing a bare cast error later.
+
 `check-edit` is the same over an `edit!` batch, and each problem additionally carries
 `:in` (`:add` / `:remove`), `:index` and `:entry`, so a caller can point at the line
 rather than at the batch.  An `:add` is judged against the KB **as it stands**, and a
@@ -1091,7 +1200,7 @@ that would open a definitional clash with believed content visible from the cont
 ;;         :detail {:types [cat dog]}}
 ```
 
-The refusal reads thirteen things, and the call stores nothing when one of them clashes:
+The refusal reads fourteen things, and the call stores nothing when one of them clashes:
 
 - the sentence against believed content: a `:disjoint`, `:functional`, `:asymmetric`,
   `:anti-transitive` or `:cover` clash, from the checks `assert` runs;
@@ -1178,7 +1287,13 @@ The refusal reads thirteen things, and the call stores nothing when one of them 
   refused. A forced-monotonic positive is never refused here, since it wins against its
   denial. A complement at `:default` refuses nothing: the pair is stored and
   `contradictions` lists it. A rebuttal whose loss the complement's strength alone decides
-  is refused here, and a rebuttal the settle weighs lands. `assert` stores both.
+  is refused here, and a rebuttal the settle weighs lands. `assert` stores both;
+- after the write settles, the networks of the registered calculi it moves: a component
+  made unsatisfiable, whose blame names a sentex the write premised or concluded, is
+  `:violation :unsatisfiable-network`, `:clashes-with` names the other blamed facts and
+  `:detail` holds `:calculus`, `:context`, `:nodes` and `:pairs`. `{:refuse-unsatisfiable?
+  false}` skips this arm. `assert` stores the write and files a
+  `:qualitative-inconsistency` entry ([qcn.md](qcn.md#support-what-an-entailed-relation-rests-on)).
 
 `:violation` names the clash kind and `:detail` holds that kind's own keys. Every other
 refusal is `assert`'s, under its own `:type`. The complement arm reads the complement's
@@ -1516,8 +1631,8 @@ facts are stored. `vaelii.host.sync/sync!` locks CxUniverse's premises about the
 vocabulary to the shipped files, every `genlCx` edge excepted ([contexts.md](contexts.md#the-context-topology)).
 
 The **middle contexts** are `kb/middle/`, each seeing CxUniverse (`CxKinship`,
-`CxBiology`, `CxChange`, `CxSocial` — the rules; `CxMereology` — two preservation
-declarations; `CxAnatomy` and `CxSize` — claims about kinds), and **CxWell** sees the seven, so it transitively sees the whole
+`CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules; `CxAnatomy` and `CxSize`
+— claims about kinds), and **CxWell** sees the seven, so it transitively sees the whole
 ontology but three opt-in theories.
 `CxNormalPhysicalConditions`, the states of matter at room temperature, and `CxTra`,
 vocabulary that is generally useful but specific to one domain (the relations over
@@ -1538,7 +1653,7 @@ The middle theories are the defeasible defaults that state their own exception w
 are alive until they are dead and awake until they are asleep; a `metal_stuff` is solid
 at room temperature except mercury — five rules of one shape, differing in whether the exception
 names a species, a whole class, a kind of stuff, or a state that changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
-a variable so they join, such as grandparentOf).
+a variable so they join — grandparentOf, part-location, owns-parts).
 
 **A binary predicate says which level it relates at, unless its two ends disagree.**
 `relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
@@ -1573,3 +1688,299 @@ over cast facts in `CxNaturalWorld` places its conclusion back there. `afterEven
 inverts a transitively-derived `beforeEvent` as well as a direct one: `InverseProver`
 hands the swapped goal back to the engine (minus itself and backchaining) rather than
 matching raw facts, so an inverse composes with its partner's transitivity.
+
+## The `violations` ledger
+
+`violations` lists the definitional constraints a *derived* conclusion would have broken during the
+last forward-chaining run, and what a bounded pass did not reach.  Each entry is
+`{:violation <kind> :sentence S :context C :rule handle :run n :detail {…}}`.
+
+**`:sentence` and `:context` are not on every entry.** An entry about a *term*, a
+*pair*, a *budget*, a whole *network* or one *antecedent literal* names no one dropped
+sentence: all the bounded-work notices below carry neither key, and the three network
+reports and `:post-join-ambiguous` carry a `:context` with `:sentence` nil.  So a
+consumer reads both with `when-let` rather
+than unconditionally. `:message` is under `:detail` on every kind but `:non-confluent`
+and `:aggregate`, which carry it at the top level.
+
+### The kinds
+
+The three tables below are the full list of kinds, and `violation_kinds_test` holds them to
+the code: it scans the sources for every kind the engine can file, and fails on a kind
+with no row here, on a row here naming a kind nothing files, and on a `:detail` column
+that is not the keys the entry builds.  A detail cell naming no key belongs to a kind
+whose entry is a *check's* problem map rather than the filing site's own, so its keys
+are the check's and vary with what it found.
+
+#### Dropped — the conclusion is not stored
+
+A rule fired, or the engine minted content on its own behalf, and what came out could
+not be admitted: no sentex, no justification, and `why-not` reduced to `:not-stored`.
+
+| entry | means | detail |
+|---|---|---|
+| `:arg-type` / `:arg-genl` | an argument fails a declared constraint — `arg`'s type, or `genlArg`'s subtype floor.  A rule's conclusion convicted at its own argument is stored and held instead, as `:inert-argument`; one convicted at a function application's input is dropped here | `:arg` `:expected` `:position` `:message` |
+| `:inter-arg-type` | an `interArg` conditional constraint, or an `interArgs` / `interArgAndRest` homogeneity constraint, whose trigger argument holds and whose target argument does not | `:arg` `:expected` `:position` `:trigger` `:trigger-type` `:trigger-position` `:message` |
+| `:disjoint` | an application whose result type is disjoint from a type its argument position demands, before its constant is minted, so no second sentex stands for the pair | the check's problem map |
+| `:not-stratified` | a derived `genl` / `genlCx` edge would put a cycle through negation in the rule set, or a minted generator would close a generator cycle | `:cycle` `:message` |
+| `:not-well-formed` | a minted sentence a special predicate's own structure check refuses | `:problems` `:message` |
+| `:naming` | a minted sentence breaking a naming invariant — the spellings in docs/naming.md | `:message` |
+| `:no-placement` | the join completed and no context sees the rule, every antecedent fact, and the `genl` edges the match climbed | `:rule-context` `:fact-contexts` `:subsumed` `:would-place` `:message` |
+| `:mint-refused` | a conclusion naming a reifiable application with no constant yet, whose mint the assert path refused — a sentence the mint writes about the new constant that `assert` refuses | `:refusal` `:message` |
+| `:post-join-ambiguous` | a post-join antecedent — an aggregate, or a computed literal reading one — answered **two ways**, so a firing taking either would conclude a different fact per arrival order.  Filed once per distinct disagreement, since the literal is re-solved on every firing attempt | `:literal` `:solutions` `:message` |
+| `:not-range-restricted` / `:not-indexable` / `:disjunction-too-wide` / `:not-assertible` / `:exception-not-closed` / `:naf-not-closed` / `:quantifier-not-local` | a rule a **generator** minted that the rule checks refuse — the list both storage entry points read, so a mint owes what an author's rule owes.  `:disjunction-too-wide` is the one a *written* rule rarely reaches: an `or` the assert entry point admits is expanded away, so what is left for a mint to file is a generated rule over the alternative cap (docs/canonicalization.md) | the refusal's own keys, and `:message` |
+
+An **arbitrable** clash is not dropped: a rule's conclusion, an argument-type mint, a
+decontextualization lift's copy and an equality merge's twin are stored, and the
+settle places the clash, which is what gives the loser a `why-not`.
+
+#### Reported — nothing was dropped
+
+| entry | means | detail |
+|---|---|---|
+| `:non-confluent` | two schematic equations disagree about a shared term; the normal form stays deterministic, so nothing is dropped | `:with` `:message` |
+| `:inert-argument` | a stored fact, asserted or concluded by a rule, whose argument fails a declared argument type as `assert` reads it — a value under `arg`, a symbol under the constraint-only reading, a `quotedArg` kind — held in the `:out` forced set, so it is never believed (docs/argtypes.md).  Read off the held facts at each call, not filed: the entry stands while the fact is stored and convicted, and carries no `:run` | the check's problem map |
+| `:inert-rule` | a stored rule, asserted or minted, one of whose variables two argument constraints hold to separated types, so no term fills it: `:detail` is the `:arg-variable` conviction.  The rule is held in the `:out` forced set, so it is never believed and fires nothing (docs/argtypes.md).  Read off the held rules at each call, as `:inert-argument` is | `:variable` `:expected` `:message` |
+| `:forced-conclusion` | a stored firing concluding a forced-monotonic literal, or its denial, from a rule whose antecedents are not all forced-monotonic or that has an `unknown`, `exceptWhen` or `set/defaultRule`: the firing is held void at some reader, so it supports nothing there, and `:not-forced-monotonic` names the rule's antecedent predicates that are not forced-monotonic (docs/nmtms.md).  Read off the stored firings at each call, not filed: the entry stands while the firing is stored and convicted, `:sentence` is the conclusion's stored spelling, and the entry carries no `:run` | `:not-forced-monotonic` `:message` |
+| `:aggregate` | an aggregate prover cannot reduce an extent — values that are not numbers of one dimension, or bounds only partially ordered.  Filed once per distinct error, since a count is recomputed rather than cached | `:message` `:values` |
+| `:qualitative-inconsistency` | the qualitative network visible from a context is unsatisfiable, so no goal naming a node of an unsatisfiable component is answered there | `:calculus` `:message` `:nodes` `:pairs` `:sources` |
+| `:metric-temporal-mixed-dimensions` | the `temporalDistance` facts visible from a context span more than one dimension, so it gets no metric network at all | `:message` `:dimensions` `:units` |
+| `:metric-temporal-inconsistency` | the metric temporal constraints visible from a context cannot all be satisfied | `:message` `:unit` `:nodes` `:pairs` `:cycle` |
+| `:sign-inconsistency` | the sign facts visible from a context leave some quantity with no possible sign at all, so no sign goal is answered there | `:message` `:quantities` |
+
+A disjointness clash between two memberships each admissible where it was written is
+not filed here.  The settle places it at the contexts that see the pair whole, and
+`contradictions` or `conflicts` answers it; `exposed-clashes` names every
+jointly-visible pair on demand.
+
+#### Bounded — the pass did not cover everything
+
+So a cap never reads as full coverage. Two kinds, separate because a reader acts on
+them differently, and each one entry per edge rather than one per trigger.
+
+| entry | means | detail |
+|---|---|---|
+| `:context-edge-exposure-truncated` | a `genlCx` edge's own **merge**-deriving sweep, over `functional` / `functionalInArg` / `anti_symmetric`, was cut short, so pairs beyond the budget go **unmerged for this edge** | `:context` `:mark` `:budget` `:message` |
+| `:genl-edge-revival-truncated` | a revived `genl` edge's **merge**-deriving sweep over its spec subtree, under a `functional` / `functionalInArg` / `anti_symmetric` mark, was cut short, so facts past the budget that arrived while the edge was OUT go **unmerged** | `:edge` `:context` `:budget` `:message` |
+
+`:context-edge-exposure-truncated` is the one entry here filed from an assert rather
+than a settle — eagerly, from the `genlCx`-edge assert that triggers
+`special/equate-under-context-edge` — and its residual is narrower than every other
+row's for it.  A merge this row's sweep does not reach is not derived by anything else
+afterward, since nothing re-triggers on a `genlCx` edge that has already landed.
+`:genl-edge-revival-truncated` is filed from a settle, by the sweep it runs for a
+revived `genl` edge (`special/revived-declaration-sweeps`), and no later settle
+re-examines a merge past its cut.
+
+Why a truncation is one entry per edge rather than per trigger, and what the instance
+budget bounds: docs/taxonomy.md and docs/exceptions.md.
+
+The ledger **accumulates** — each entry carries the `:run` id of the chaining run
+that filed it, so a bulk load's drops are still here at the end — and is capped at
+the newest 1000.  Every drop is also logged at `:warn` as it happens.  Retracting
+the ingredient of an entry does not withdraw it.  `clear-violations!` empties it.
+The `:forced-conclusion` entries follow the ledger's, in content order, and are read
+off the stored firings (`checks/forced-conclusion-entries`): neither the cap nor
+`clear-violations!` removes one.  The `:inert-argument` and `:inert-rule` entries follow
+those, in content order, read off the held facts and rules
+(`checks/held-argument-entries`), and neither the cap nor `clear-violations!` removes
+one either.
+
+## Contract notes moved out of the docstrings
+
+The docstring of each var below holds its contract; the rest of what it said is here.
+
+### Contract notes: `why-not`
+
+  {:handle h :sentence S :context C :believed? false :reason <keyword> …}
+
+| `:reason` | means | carries |
+|---|---|---|
+| `:not-stored` | no sentex has this handle | — |
+| `:superseded` | an equality merge restated it under its class representative; it lost no argument and retracting the equality gives it straight back | `:superseded-by` `:rewrites` |
+| `:defeated` | the target of a placed `defeat` in force at its own context, whose handles `:defeats` names and whose nogoods convict through the declarations `:grounds` names, as a clash report's do | `:contradicted-by` `:defeats` `:grounds` |
+| `:withdrawn` | IN in the network, and not believed at its own context because every justification rests on a handle a placed `defeat` in force there hides; each `:withdrawn-by` entry names that handle, its context, the `:defeat` and the defeat's context under `:vantage` (docs/nmtms.md) | `:withdrawn-by` |
+| `:inert` | a tuple whose length breaks its functor's, or a fact whose argument fails its declared argument type, stored and held OUT (docs/nmtms.md). `:conviction` is the argument check's problem map, the one `try-assert` throws as `:definitional-clash` (docs/argtypes.md). `:binding` names the length the tuple breaks, `{:length n}` or `{:min m}`, the predicate `:via` binds it and the binding handles under `:grounds` (docs/taxonomy.md, "Arity") | `:binding` for a tuple, `:conviction` for an argument |
+| `:forced-conclusion` | not a premise, and a supporting justification is a firing held void, at its own context, for concluding a forced-monotonic literal from antecedents that are not forced-monotonic (docs/nmtms.md). Each `:convicted` entry names the `:rule` and, under `:not-forced-monotonic`, the antecedent predicates a `forced_monotonic_predicate` declaration would make forced-monotonic; `:support` lists the other justifications as `:unsupported` does | `:convicted` `:support` |
+| `:unsupported` | not a premise, and no supporting justification reads `:supports` at its own context: each entry's `:verdict` is `justification-verdicts`' reason, and `:missing` lists the handles it rests on that are OUT in the network | `:support` with `:verdict` and `:missing` |
+| `:excepted` | a rule applied and its `exceptWhen` query held: under forward chaining its conclusion is stored with a guard defeat, through `:monotonic` and `:default` blockers alike (docs/exceptions.md) | `:rule` `:exception` `:via` |
+| `:closed-extent` | *(sentence arity only)* nothing stored or derived says so, **and** `(closed_extent_predicate P)` is visible here, or a `(closedExtentForArg P n v)` whose position `n` the sentence fills with `v` — so the KB is not silent about it, it says the extent is complete and this is not in it | — |
+
+A believed handle yields `{:believed? true}` and no `:reason`.  An empty `:support`
+under `:unsupported` means it never had a justification at all.  A nil handle is
+`:not-stored` — the answer for a sentence the KB does not hold — while a non-handle
+(a vector of handles included) is refused (`:bad-handle`), as `why` refuses it.
+
+**`:contradicted-by` is read off the placed nogoods.**  It names the other members of
+every placed `contradicts` holding a `nogood` justification on the same antecedents as
+a defeat of the handle (`exc/defeat-member-sets`), including a nogood that does not
+convict at that context.
+
+A stored-but-disbelieved handle is checked for an exception first: excepted is the
+more specific answer than the rest.
+
+**The sentence arity** `(why-not kb sentence context)` exists because `exceptWhen`
+produces an answer no handle can carry: a conclusion blocked through `:monotonic` facts
+is never stored, so there is nothing to pass to the handle arity.  A stored sentence
+delegates to that arity.  A sentence `context` stores
+nothing for is looked for in the contexts `context` inherits from, most specific first
+(`inherited-sentex-handle`), since `ask?` and `believed?` answer from those too.  Neither
+stored, inherited nor excepted is `:not-stored`.  It takes an `(ist Ctx S)` sentence, asking after S in Ctx and
+reporting it under that context (`ist-goal`).
+
+**`{:nearest n}` answers the emptiest case.**  `:not-stored` says nothing is there, which
+is exactly the answer a reader whose rule was supposed to conclude the goal cannot use.
+The fourth arity `(why-not kb sentence context {:nearest n})` runs a **bounded backward
+search** and reports, under `:nearest`, the n rules that came closest — each as
+`{:rule :rule-sentence :satisfied :missing :bindings}`, ranked by how many antecedents
+are satisfied and tied on content.  `:satisfied` holds under one binding of the variables
+the goal leaves open, so `:missing` is empty only when the whole body joins.  `:missing` is the list to read: it is the antecedent
+the KB has not been told.
+
+It costs a search, which is why it is **off by default**: `why-not` is called in a loop
+over a conflict list, and a backward search per call would change what the entry point costs.
+The bounds are `:max-depth` (`default-nearest-depth`) and `:max-ms`
+(`default-nearest-ms`), both overridable, and `:nearest-search` reports which of them
+bit — `:status` is `search-tree`'s `:complete` / `:bounded` / `:timeout`, or `:refused`
+where the search would not start.  `why-not-opt-keys` is the key set.
+
+**The frontier is the node engine's, whatever `*query-engine*` is bound to.**  The DFS
+prover holds its unfinished proofs on the JVM stack and unwinds them as it goes, so it
+has no dead frontier left to read once it has failed; the node engine's state is a value
+that outlives the search, and `search-tree` is the read of it (docs/inference.md).  So a
+goal the DFS reaches and the node engine does not — one needing more rewrites than
+`:max-depth` allows — has no near miss reported, and `:nearest-search`'s `:status` and
+`:max-depth` are what say so.  `:nearest` is attached to `:not-stored` alone: every
+other reason already names the thing that stopped it.
+
+### Contract notes: `edit!`
+
+All-or-nothing is against a refusal, not against a reader: a reader on another thread
+sees each add and each removal as it lands.  The batch's effect as one change is the
+one `watch` event it produces, or `edit-with-consequences`.
+
+The refusal is rethrown with its own `ex-data` plus `:rolled-back true` and
+`:in` / `:index` / `:entry` naming the batch line that raised it, the original hung off
+it as the cause.  A throw that is not an `ex-info` is rethrown exactly as raised; the
+rollback ran the same.
+
+**A removal is the half no rollback can put back**, so every `:remove` is asked for its
+refusal (`teardown-refusal` — the unrecovered-premise and unrecovered-KB cases
+`retract!` throws) while nothing has been removed yet, after the adds and before the
+first teardown.  Past that point the batch is committed and the removals, the settle
+and the teardown sweeps run to the end.
+
+**A rolled-back batch changes nothing a listener is told about.**  The rollback runs
+with the change feed off, so it accumulates no region and the one event this entry point
+delivers has nothing to say (docs/feed.md).
+
+What `check-edit` reports for the batch's own structure, this entry point refuses **before
+applying anything**: a malformed `:add` entry is `:shape` (never applied with the
+junk dropped), and a `:remove` handle naming nothing stored is `:unknown-handle` —
+where `retract!` of one is an ordinary zero-count answer, a *batch* naming one is a
+half-applied write waiting to happen, so the whole batch is refused while nothing
+has landed.  (A nil `:remove` entry stays nothing-to-remove, matching `handle-of` of
+an absent sentence.)
+
+**An unrecovered KB refuses the whole batch** (`:unrecovered-kb`), before anything is
+applied.  This entry point's headline guarantee is a JTMS claim — belief that survives the
+edit is never swept and rebuilt — and over an empty network there is no belief for it
+to be about; what is left is "assert these unchecked, delete those unswept".
+
+### Contract notes: `query`
+
+The depth may also come from `*query-options*` `:max-depth`, which is where `prove`
+reads it from too — so one dynamic binding sets the depth for every read in its scope.
+`opts` wins over it.  It has no default, so a depth bound nowhere stays the
+no-rule-expansion answer rather than a number nobody chose.
+
+**`{:proof? true}`** changes the result shape to `[{:bindings … :proof …}]`, one
+**justification tree** per answer — the derivation the search took, reading the way
+`why` does (`:goal` / `:via` / `:because`).  `why` explains a *stored* belief by
+reading the JTMS; this explains an *ephemeral* one by reading the search, and the two
+are deliberately one shape.  Needs a depth, since without one no rule was expanded and
+there is no derivation to show.
+
+Everything else in `opts` is the node engine's, defaulting from `*query-options*` —
+`:strategy` (`vaelii.impl.tactics`), `:portfolio?`, `:auto?`, `:racers` — and is
+ignored where no depth sends the query there.  That is the whole key set
+(`query-opt-keys`); a key off it is refused (`:unknown-option`) rather than handed on,
+since the engine would ignore it and `{:max-deph 3}` would answer facts-only with
+nothing to say so.  A non-map `opts` and a `:max-depth` that is not a natural number
+are refused the same way.
+
+**A depth reaches further, never against belief.**  An answer a rule expansion produced
+whose sentence names a stored sentex the JTMS holds **defeated** is not returned at any
+depth, and does not feed a rule above it either — so a depth answers more than the
+registry alone and never disagrees with `ask` about which side of a settled clash holds
+(docs/inference.md, "Answers belief has already decided against").
+
+Two things this is not.  `prove` is the *unbounded* backward chainer: it terminates
+on the data rather than on a bound, so it answers a chain deeper than any depth you
+would have guessed, at the cost of facts-and-rules only.  `sentexes-matching` is the
+belief-filtered index read, and returns sentexes rather than bindings.
+
+### Contract notes: opening, forking, ordering and reading terms
+
+**`open-kb` releases what a failed open took.**  A throw after the durable stores resolve
+(a stale-index refusal, an identity mismatch, a fork base that grew into its handles, a
+`recover` over a corrupt store) returns no KB, so the exclusive lock would stay held for
+the JVM's life.  `open-kb` closes the directories this call newly opened, writes no image
+(an image of a partly loaded index would replace the one on disk) and rethrows the original.
+
+**`fork`'s `:tms` does not inherit**, because the two representations are belief-identical
+(`jtms_dense_oracle_test`).  The naming policy and the registered reasoners inherit, since
+a fork is a hypothesis over the base's content and a different convention would answer a
+different question.  The fork's belief is rebuilt by one `recover` pass over the merged
+records, so taking a fork costs the recovery, not a copy of the base.  A `:columnar` index
+is refused because a KV decorator would fork its roots and leave the native trie behind.
+
+**`sort-by-content` is public** so an application ranking its own answers breaks ties on
+content, as the engine does.  The default comparator walks a key in place, so no ambient
+`*print-*` var can elide two distinct keys to one, and a key outside the walked shapes (a
+map, a set) is ordered by its full print with the print bounds released.  The key is built
+once per element, where `sort-by` builds it once per comparison.
+
+**`terms` and `find-terms` read the term-name set**, so cost is the size of the
+vocabulary.  `terms` returns a sorted vector because a sorted set loses its order over EDN.
+`:limit` is a stable prefix of the unbounded answer, selected by a bounded heap
+(`smallest-n`) in O(m log n) over m hits, with the same ties as the full sort.  The heap's
+capacity starts at a small floor, since `n` can be a URL offset a caller controls.  A cap
+that is not a positive integer would otherwise raise a bare cast error (a 500 over the
+daemon) or read as no cap with `:bounded?` false, so `check-limit!` refuses it for every
+entry point taking a cap.  A regex runs over a `CharSequence` that counts the characters
+the matcher reads (`:pattern-too-costly`), because `find-terms` runs under the daemon's
+single-writer monitor and an unbounded match would stall every write behind it; the
+counter is shared across the candidates of one call and refuses past `scan-budget` with
+`:scope :scan`.
+
+**The extent readers are lazy over live state.**  A root on an imported ontology runs to
+a hundred thousand records and the browser shows fifty a page, so `records-of` fetches each
+record as the seq is walked.  A seq held across a write yields what is stored when it is
+walked.
+
+**`term-role` precedence.**  A namespace decides `:lexeme` outright and the name half is
+not ours to read; a context name is also CapitalCamel, so `:context` wins over
+`:individual`; a sense is a type, so `:sense` is reported before `:type`.
+
+**`close!` releases process registries.**  An in-memory `:space` stays registered until
+`clear!`; an engine-allocated space (an ephemeral fork's own half, a `kb-diff` side), the
+derived index of a disk-backed KB, the incremental matcher's alpha index (keyed weakly, so
+a KB dropped without `close!` is also reclaimed by GC) and the nogood readers' memos are
+dropped, so a process opening durable KBs in a loop keeps no index per finished directory.
+
+**`set-log-level` is not a daemon op.**  It changes the process, not a KB, and the
+daemon's bearer token is optional on the loopback default, so an op that turns on `:trace`
+would let a socket caller spend the operator's disk.
+
+**`with-deferred-settle` and `assert-many` are not transactions**, on purpose: an
+order-insensitive loader (`seed/load-sentences`) needs the sentences that landed to stay
+landed, and rolling a bulk load back costs an audit entry per premise mark.  Use `edit!`
+for all-or-nothing.  The depth potential is repaired on the way out even after a throw.
+
+**`:on-progress` at `bulk-assert-facts!`** is the load's rate: it is not `assert`'s
+chaining callback, since `:chain? false` is forced.
+
+**`sentexes-matching` and `handle-of` refuse a malformed request** (`:shape`) because nil
+means "not stored" and would report a malformed request as an absence; a variable context
+names every context while `handle-of` answers one handle.

@@ -22,9 +22,6 @@
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
-
 (defn- bare-rule [antes conseq]
   (list 'set/forwardRule (vr/rule-sentence antes conseq)))
 
@@ -34,8 +31,8 @@
   [kb]
   (let [q (tu/tmp-pred) pac (tu/tmp-pred) r (tu/tmp-pred)
         e (tu/tmp-pred) o (tu/tmp-pred) x (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list q '?x)] (list pac '?x))             'CxUniverse)
-    (v/assert kb (default-rule [(list r '?x)] (list 'not (list pac '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list q '?x)] (list pac '?x))             'CxUniverse)
+    (v/assert kb (tu/default-rule [(list r '?x)] (list 'not (list pac '?x))) 'CxUniverse)
     (v/assert kb (bare-rule [(list pac '?x)]             (list e '?x)) 'CxUniverse)
     (v/assert kb (bare-rule [(list 'not (list pac '?x))] (list e '?x)) 'CxUniverse)
     (v/assert kb (bare-rule [(list pac '?x)]             (list o '?x)) 'CxUniverse)
@@ -80,8 +77,8 @@
   [kb n]
   (let [q (tu/tmp-pred) r (tu/tmp-pred) pac (tu/tmp-pred)
         e (tu/tmp-pred) shared (tu/tmp-pred) hub (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list q '?x)] (list pac '?x))             'CxUniverse)
-    (v/assert kb (default-rule [(list r '?x)] (list 'not (list pac '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list q '?x)] (list pac '?x))             'CxUniverse)
+    (v/assert kb (tu/default-rule [(list r '?x)] (list 'not (list pac '?x))) 'CxUniverse)
     (v/assert kb (bare-rule [(list pac '?x)]             (list e '?x))      'CxUniverse)
     (v/assert kb (bare-rule [(list 'not (list pac '?x))] (list e '?x))      'CxUniverse)
     (v/assert kb (bare-rule [(list pac '?x)]             (list shared hub)) 'CxUniverse)
@@ -170,15 +167,15 @@
   (let [pa (tu/tmp-pred) pb (tu/tmp-pred) pc (tu/tmp-pred)
         qd (tu/tmp-pred) rd (tu/tmp-pred) pd (tu/tmp-pred) e (tu/tmp-pred)
         x  (tu/tmp-ind) y (tu/tmp-ind)
-        asserts [[(default-rule [(list pa x)] (list 'not (list pb x))) 'CxUniverse]
-                 [(default-rule [(list pb x)] (list 'not (list pa x))) 'CxUniverse]
-                 [(default-rule [(list pc x)] (list 'not (list pb x))) 'CxUniverse]
-                 [(default-rule [(list pb x)] (list 'not (list pc x))) 'CxUniverse]
+        asserts [[(tu/default-rule [(list pa x)] (list 'not (list pb x))) 'CxUniverse]
+                 [(tu/default-rule [(list pb x)] (list 'not (list pa x))) 'CxUniverse]
+                 [(tu/default-rule [(list pc x)] (list 'not (list pb x))) 'CxUniverse]
+                 [(tu/default-rule [(list pb x)] (list 'not (list pc x))) 'CxUniverse]
                  [(list pa x) 'CxUniverse]
                  [(list pb x) 'CxUniverse]
                  [(list pc x) 'CxUniverse]
-                 [(default-rule [(list qd '?z)] (list pd '?z)) 'CxUniverse]
-                 [(default-rule [(list rd '?z)] (list 'not (list pd '?z))) 'CxUniverse]
+                 [(tu/default-rule [(list qd '?z)] (list pd '?z)) 'CxUniverse]
+                 [(tu/default-rule [(list rd '?z)] (list 'not (list pd '?z))) 'CxUniverse]
                  [(bare-rule [(list pd '?z)]             (list e '?z)) 'CxUniverse]
                  [(bare-rule [(list 'not (list pd '?z))] (list e '?z)) 'CxUniverse]
                  [(list qd y) 'CxUniverse]
@@ -213,8 +210,8 @@
         q2 (tu/tmp-pred) r2 (tu/tmp-pred) p2 (tu/tmp-pred) e2 (tu/tmp-pred)
         f  (tu/tmp-pred) x (tu/tmp-ind)
         diamond (fn [q r p e]
-                  [[(default-rule [(list q '?x)] (list p '?x))             'CxUniverse]
-                   [(default-rule [(list r '?x)] (list 'not (list p '?x))) 'CxUniverse]
+                  [[(tu/default-rule [(list q '?x)] (list p '?x))             'CxUniverse]
+                   [(tu/default-rule [(list r '?x)] (list 'not (list p '?x))) 'CxUniverse]
                    [(bare-rule [(list p '?x)]             (list e '?x)) 'CxUniverse]
                    [(bare-rule [(list 'not (list p '?x))] (list e '?x)) 'CxUniverse]
                    [(list q x) 'CxUniverse]
@@ -251,8 +248,8 @@
   (let [x  (tu/tmp-ind)
         es (vec (for [_ (range n)]
                   (let [q (tu/tmp-pred) r (tu/tmp-pred) p (tu/tmp-pred) e (tu/tmp-pred)]
-                    (v/assert kb (default-rule [(list q '?x)] (list p '?x))             'CxUniverse)
-                    (v/assert kb (default-rule [(list r '?x)] (list 'not (list p '?x))) 'CxUniverse)
+                    (v/assert kb (tu/default-rule [(list q '?x)] (list p '?x))             'CxUniverse)
+                    (v/assert kb (tu/default-rule [(list r '?x)] (list 'not (list p '?x))) 'CxUniverse)
                     (v/assert kb (bare-rule [(list p '?x)]             (list e '?x)) 'CxUniverse)
                     (v/assert kb (bare-rule [(list 'not (list p '?x))] (list e '?x)) 'CxUniverse)
                     (v/assert kb (list q x) 'CxUniverse)
@@ -292,7 +289,7 @@
   [kb]
   (let [pa (tu/tmp-pred) pb (tu/tmp-pred) pc (tu/tmp-pred) x (tu/tmp-ind)]
     (doseq [[p q] [[pa pb] [pb pa] [pc pb] [pb pc]]]
-      (v/assert kb (default-rule [(list p x)] (list 'not (list q x))) 'CxUniverse))
+      (v/assert kb (tu/default-rule [(list p x)] (list 'not (list q x))) 'CxUniverse))
     (doseq [p [pa pb pc]] (v/assert kb (list p x) 'CxUniverse))
     (mapv #(v/handle-of kb (list % x) 'CxUniverse) [pa pb pc])))
 

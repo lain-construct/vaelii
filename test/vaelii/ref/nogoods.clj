@@ -117,6 +117,26 @@
                   (conj route e))))]
       (set (walk lower #{lower})))))
 
+(defn- related-routes
+  "Every acyclic route from `lower` up to `upper` over the believed `genl` sentences and
+  the part edges of the believed `covering`s, each as the set of sentences stating its
+  edges: a `genl` edge states itself, and a part edge is stated by its cover."
+  [view lower upper]
+  (let [edges (concat (for [[_ u v :as e] (genl-edges view)] [e u v])
+                      (for [c (:believed view)
+                            :when (and (tuple? c) (= 'covering (first c)) (<= 4 (count c)))
+                            p (drop 2 c)]
+                        [c p (second c)]))
+        out   (group-by second edges)]
+    (letfn [(walk [u seen]
+              (if (= u upper)
+                [#{}]
+                (for [[s _ v] (get out u)
+                      :when (not (contains? seen v))
+                      route (walk v (conj seen v))]
+                  (conj route s))))]
+      (set (walk lower #{lower})))))
+
 ;; ---- collecting ------------------------------------------------------------
 
 (defn- content-key [ng]
@@ -156,10 +176,12 @@
   `(disjoint a b)` and `(disjoint b a)` both believed make one nogood per pair of
   memberships, with both declarations in `:ground`.
 
-  A declaration over two types one of which is in the other's closure is a one-member
-  nogood of the declaration itself, `:ground` the edges of the routes between them: a
-  hard clash, since the declaration is forced-monotonic (docs/reference.md, invariant 3).
-  One membership whose own closure holds both separated types convicts nothing."
+  A declaration over two types one of which is in the other's closure is a nogood of the
+  declaration and the sentences stating one route of edges between them
+  (`related-routes`), one per route, with an empty `:ground`: every member is weighed
+  (docs/reference.md, decision 8). A route of one cover part edge is the cover pair
+  `covering` reads. One membership whose own closure holds both separated types convicts
+  nothing."
   [view]
   (let [decls  (filterv (fn [[_ t1 t2]] (not= t1 t2)) (declarations view 'disjoint 2))
         edges  (genl-edges view)
@@ -180,10 +202,12 @@
       (for [[_ t1 t2 :as d] decls
             :let  [lower (cond (contains? (up view t1) t2) t1
                                (contains? (up view t2) t1) t2)]
-            :when lower]
+            :when lower
+            route (related-routes view lower (if (= lower t1) t2 t1))
+            :when (not (and (= 1 (count route)) (= 'covering (first (first route)))))]
         {:kind    :disjoint
-         :members #{d}
-         :ground  (route-edges view edges lower (if (= lower t1) t2 t1))})))))
+         :members (conj route d)
+         :ground  #{}})))))
 
 ;; ---- functional and functionalInArg ------------------------------------------
 
@@ -317,8 +341,9 @@
   "The `[u v]` edges of the view's closure that hold for every term: each believed `(genl
   u v)` whose class at the view is `:monotonic` or that joins two terms spelled as
   predicates (in the forced-monotonic set, docs/reference.md D10), and the part edges
-  of each believed `covering`, a cover declaration (docs/taxonomy.md, \"A cover states
-  the specialization it rests on\")."
+  of each believed `covering` whose class is `:monotonic` (docs/taxonomy.md, \"A cover
+  states the specialization it rests on\"): a cover keeps the strength it was written
+  at, and a `:default` one's part edges apply forward only."
   [view]
   (into []
         (mapcat (fn [s]
@@ -327,7 +352,8 @@
                          (or (= :monotonic ((:class view) s))
                              (every? predicate-spelled? (rest s))))
                     [[(nth s 1) (nth s 2)]]
-                    (and (tuple? s) (= 'covering (first s)) (<= 4 (count s)))
+                    (and (tuple? s) (= 'covering (first s)) (<= 4 (count s))
+                         (= :monotonic ((:class view) s)))
                     (for [p (drop 2 s)] [p (second s)])
                     :else [])))
         (:believed view)))
@@ -389,8 +415,8 @@
   The declaration is a ground, not a member.
 
   A cover naming a part that a believed `(disjoint P W)` or `(disjoint W P)` separates from
-  its whole is a two-member nogood of the cover and the `disjoint`, with an empty `:ground`:
-  a hard clash, since both are forced-monotonic (docs/reference.md, invariant 3)."
+  its whole is a two-member nogood of the cover and the `disjoint`, with an empty `:ground`,
+  both weighed (docs/reference.md, decision 8)."
   [view]
   (let [edges   (genl-edges view)
         covers  (filterv #(and (tuple? %) (= 'covering (first %)) (<= 4 (count %)))

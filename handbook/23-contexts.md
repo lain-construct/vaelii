@@ -106,7 +106,8 @@ it, and confirm the edges are in the context's own file.
 
 **Practice.** Place a context for an invented setting as a sibling of `CxRealWorld` under
 `CxWell`, never below `CxRealWorld`. Restate in `CxRealWorld`, at `:monotonic`, a claim
-that holds of the real world and that a fiction may break.
+that holds of the real world and that a fiction may break. In the fiction, deny the
+`CxUniverse` claim `:monotonic` to state what the setting breaks.
 
 **Example.** `CxRealWorld.txt`:
 
@@ -125,17 +126,17 @@ holds of the real world." `catbus_test` places a fiction context with
 - *Engine.* An `except` or a sentence stated in a fiction is visible at the fiction and
   below it. A sibling of `CxRealWorld` is neither, so nothing a fiction states reaches the
   real world.
-- *Engine.* `catbus_test` shows the two outcomes. In the fiction, a term that is both a cat
-  and a bus at `:default` is a dilemma `contradictions` reports, and both memberships stay
-  believed. In `CxRealWorld`, a `:monotonic` cat membership beside a `:default` bus
-  membership is a nogood with a unique weakest member, and the bus membership loses.
-  [Ch. 24](24-strength.md) says which strength decides each outcome.
+- *Engine.* `catbus_test` shows the outcomes. A fiction that denies `(disjoint animal
+  vehicle)` `:monotonic` defeats the `:default` `CxUniverse` copy there, and a term that is
+  both a cat and a bus clashes with nothing in the fiction. `CxRealWorld` does not see the
+  denial, and its `:monotonic` copy stays believed. In a fiction that states no denial, a
+  term that is both at `:default` is a dilemma `contradictions` reports. In `CxRealWorld`,
+  a `:monotonic` cat membership beside a `:default` bus membership defeats the bus
+  membership. [Ch. 24](24-strength.md#catbus-principle) says which strength decides each
+  outcome.
 - *Maintenance.* `CxNormalPhysicalConditions.txt` sees `CxRealWorld`, and its header says
   this "excludes every fiction". A theory that holds only of the real world goes under
   `CxRealWorld` in the same way.
-
-*In development:* the separation's strength deciding the fiction case is in development
-([ch. 24](24-strength.md#the-forced-monotonic-set)).
 
 **Why not the other ways.** A fiction below `CxRealWorld` inherits every real-world
 restatement, so the overlap it was written to hold is the weaker member of a nogood there.
@@ -149,9 +150,11 @@ restatement, so the overlap it was written to hold is the weaker member of a nog
 `(except (sentexHandle H))` in that context, where `H` is the handle of the sentex. Do not
 retract a shared sentence to remove it from one reader.
 
-**Example.** The shipped files state no `except`. The fiction case in `CxRealWorld.txt`'s
-header is the use: a fiction below `CxWell` may except a `CxUniverse` separation, and the
-except hides it in that fiction alone.
+**Example.** The shipped files state no `except`. A fiction states an overlap by denying
+the separation ([The real world and fiction](#the-real-world-and-fiction)), which a
+`:default` separation loses. An `except` is for a sentence the fiction must not read at
+all, such as a `CxUniverse` rule whose conclusions the setting does not follow, or a
+`:monotonic` sentence a denial cannot defeat.
 
 **Why.**
 

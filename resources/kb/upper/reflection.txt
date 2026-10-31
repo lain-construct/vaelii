@@ -213,3 +213,17 @@
 (genl expresses means)
 (arg expresses 1 wff_sentence)
 (arg expresses 2 proposition)
+
+;; A syncategorematic constant is written where a term goes and names nothing, so it is
+;; no expression: the expression lattice's atomic kinds are the denoting terms and the
+;; variables.  core.txt states the membership of each set/ wrapper and of Quote, and the
+;; type is the list of syntax constants the :undeclared-term pass reads as declared.  The
+;; type sits beside logical, linguistic and quantitative under nowhere_never, separated
+;; from linguistic and quantitative.  Nothing separates it from logical: a KB may declare
+;; Quote a reifiable_function, and a function is logical.
+(comment syncategorematic "A constant of vaelii's syntax that is written like a term and names nothing, e.g. set/monotonic, which the loader reads and never stores. A sentence mentions one only to document it.")
+(unary_predicate syncategorematic)
+(genl syncategorematic nowhere_never)
+(disjoint syncategorematic linguistic)
+(disjoint syncategorematic quantitative)
+(not (disjoint syncategorematic logical))

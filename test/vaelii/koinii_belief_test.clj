@@ -14,13 +14,10 @@
             [vaelii.test-util :as tu])
   (:import (clojure.lang ExceptionInfo)))
 
-(defn- belief-kb
-  "A fresh vocabulary KB, restored by `tu/load-core!`: CxUniverse carries the `believes`
-  modal_predicate grant, so a modal goal asked from CxUniverse is recognized."
-  []
-  (tu/load-core! (tu/fresh)))
-
-(use-fixtures :each (tu/neutral-fresh belief-kb))
+;; The upper layer, restored by `tu/load-core!`: CxUniverse carries the `believes`
+;; modal_predicate grant, so a modal goal asked from CxUniverse is recognized.
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (defn- holds!
   "`agent` asserts `claim` into its own koinii context, recorded as its creator.  Returns

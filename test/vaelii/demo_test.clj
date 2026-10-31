@@ -161,7 +161,7 @@
 
 (tu/deftest-kb the-cascade-is-visible-at-every-step
   ;; The page renders every watched sentence at every step: a stored one with its record,
-  ;; and travelling with what `ask?` answers, because the event-kind hierarchy answers it
+  ;; and travelling with what `argue` answers, because the event-kind hierarchy answers it
   ;; at retrieval and stores no record.
   (testing "the page shows what moved, stored and answered alike"
     (let [app (web/app kb)
@@ -175,6 +175,8 @@
         (let [[_ b1 b2 b3] (run-through app cookie body ["start" "except" "restore"])]
           (is (shows? b1 "( penguin Pingu" "not stored") "before step 2, nothing says Pingu is a penguin")
           (is (shows? b1 travel-row "answerable") "step 1: what flies travels")
+          (is (shows? b1 travel-row "answerable from .*\\( genl flying travelling \\)")
+              "with the records the answer was read from")
           (is (shows? b2 travel-row "unanswerable") "step 2: travelling goes with the flight")
           (is (shows? b3 "( penguin Pingu" "not stored") "and step 3 takes the penguin claim back")
           (is (shows? b3 travel-row "answerable") "so travelling is answerable again"))
@@ -185,8 +187,13 @@
       (try
         (v/assert kb bird sbx)
         (is (v/ask? kb travel sbx) "step 1: flying earned → travelling answerable via hierarchy")
+        (is (some #(= #{flies '(genl flying travelling) '(transitiveInArg hasCapability 2 genl)}
+                      (set (map :sentence %)))
+                  (some :supports (:for-derivation (v/argue kb travel sbx))))
+            "step 1: the answer names the flight, the genl edge and the declaration")
         (v/assert kb penguin sbx)
         (is (not (v/ask? kb travel sbx)) "step 2: flying defeated → travelling unanswerable")
+        (is (nil? (:for-derivation (v/argue kb travel sbx))) "and names no reading")
         (v/retract! kb (v/handle-of kb penguin sbx))
         (is (v/ask? kb travel sbx) "step 3: flying restored → travelling answerable again")
         (finally (sandbox/reset! kb sbx))))))

@@ -10,6 +10,7 @@
   sets\", and docs/taxonomy.md, \"Arity\"."
   (:require [vaelii.impl.caches :as caches]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.predicates :as predicates]
@@ -602,7 +603,7 @@
           (not (sx/variable? (first s))) (symbol? (second s))
           (reaches-class? kb (first s))))))
 
-(defn- note-class!
+(defn note-class!
   "Queue the handle of `sx` under `::classes` when it is stored and `class-shaped?`, and
   drop it when it leaves, for the settle to sync the class memberships it moves
   (`take-classes!`)."
@@ -765,14 +766,10 @@
   route is read."
   [kb tax t]
   (let [tms (reasoning/tms kb)]
-    (loop [q [t] seen #{t}]
-      (if-let [x (peek q)]
-        (let [nxt (into [] (filter #(and (not (contains? seen %))
-                                         (some (fn [sup] (class-route-ok? tms sup))
-                                               (tax/supporters tax [:genl % x]))))
-                        (tax/direct-specs-global tax x))]
-          (recur (into (pop q) nxt) (into seen nxt)))
-        seen))))
+    (graph/reach-all [t]
+                     (fn [x]
+                       (filter (fn [s] (some #(class-route-ok? tms %) (tax/supporters tax [:genl s x])))
+                               (tax/direct-specs-global tax x))))))
 
 (defn- monotonic-members
   "The symbols `x` of the stored memberships `(t x)` held at `:monotonic`, for each type

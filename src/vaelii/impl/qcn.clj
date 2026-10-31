@@ -18,6 +18,15 @@
   [net {:keys [universe identity]} i j]
   (if (= i j) identity (get net [i j] universe)))
 
+(defn compose-by
+  "The `:compose` fn of a relation algebra whose composition is the table `table`
+  (`{r1 {r2 #{r…}}}`): the union of the entries over every member pair of two relation sets."
+  [table]
+  (fn [s1 s2]
+    (into #{}
+          (mapcat (fn [a] (mapcat (fn [b] (get-in table [a b])) s2)))
+          s1)))
+
 (defn- unsatisfiable-as-given?
   "Is one recorded constraint unsatisfiable before any tightening: empty, or a diagonal
   constraint excluding the identity?  The loop reports neither (docs/qcn.md, \"Path

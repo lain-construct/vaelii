@@ -10,7 +10,8 @@
             [vaelii.impl.skolem :as skolem]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

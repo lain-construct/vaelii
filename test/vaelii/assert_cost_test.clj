@@ -134,12 +134,10 @@
 
 ;; ---- the workloads -------------------------------------------------------
 ;;
-;; Each returns a **thunk**, and the split is the whole reason the counts are stable:
-;; everything the workload needs in place — the KB, its taxonomy, its declarations, its
-;; rule — is built by the time the thunk is called, so `measure` starts the instrument
-;; over the asserts being priced and nothing else.  Building the KB inside would count
-;; `open-kb`'s coverage-check read, which is one op and differs on the first call in a
-;; process.
+;; Each returns a thunk. Everything the workload needs in place (the KB, its taxonomy,
+;; declarations and rule) is built when the thunk is called, so `measure` starts the
+;; instrument over the asserts being priced and nothing else; building the KB inside would
+;; count `open-kb`'s coverage-check read, which differs on the first call in a process.
 
 (defn- plain
   "A binary fact of fresh individuals: no declaration, no membership, no rule.  The floor,
@@ -295,17 +293,11 @@
 
 ;; ---- the retraction workloads --------------------------------------------
 ;;
-;; The same shape with one difference: the thunk **retracts**, and everything it retracts
-;; was asserted during the build.  So the instrument covers the teardowns and none of the
-;; asserts that set them up, exactly as the six above cover asserts and not the taxonomy
-;; behind them.
-;;
-;; What a retraction costs is countable because `unindex-sentex!` reports it
-;; (`:retracts`, docs/profile.md).  What it is **not** is quotable per retraction, and
-;; `:dead` is why: how many trie nodes a removal empties is decided by what else is still
-;; stored under the same prefix, so the number below is a property of *this corpus torn
-;; down in this order* and not of a fact of this shape.  Every other family is decided by
-;; the sentex, so its count is a per-assert budget.
+;; The same shape with one difference: the thunk retracts what the build asserted, so the
+;; instrument covers the teardowns and none of the asserts that set them up. `unindex-sentex!`
+;; reports a retraction's cost (`:retracts`, docs/profile.md). It is not quotable per
+;; retraction, because `:dead`, the trie nodes a removal empties, depends on what else is
+;; stored under the same prefix: it is a property of this corpus torn down in this order.
 
 (def ^:private nat-population
   "Reified NATs standing in the KB for the two NAT workloads.  Its own knob rather than
@@ -475,8 +467,8 @@
 ;; marks, and in a KB declaring none it reads the `natFormula` count, since a context slot
 ;; mints a `cx/` constant with no declaration (docs/context-nat.md).  The assert workloads
 ;; declare none, so each assert reads the count once.  A teardown reads it once, for the
-;; removal record; a KB declaring a reifiable function reads the `contextArgSubrelation`
-;; count instead, for the structural-genlCx revival.
+;; removal record.  A KB declaring a reifiable function reads nothing further for a
+;; teardown that moves no `genlCx` edge and revives or derives nothing.
 ;;
 ;; **One `:predicate-extent` read per teardown, in a KB declaring a reifiable function, is
 ;; the correspondence presence check.**  The removal record's value reconcile
@@ -614,42 +606,22 @@
               :trie-counts 900 :trie-lookup 100 :mint 100}
     :writes  {:levels 400 :terms 300 :roots 1000 :term-names 100 :slots 300}}
 
-   ;; **The workload the entailment moves most.**  Every predicate is declared, so the
-   ;; shipped default reads each declaration and tests the argument against the type it
-   ;; names — the `:argument-root`/`:argument-slot` jump over `plain` — where the
-   ;; constraint-only reading (`VAELII_ASSERTIVE_ARG_TYPES=0`) reads one dynamic var and
-   ;; stops.  This is the per-assert declaration cost `lein perf` divides out and this
-   ;; test makes visible, and it is the whole reason the entailment stays measured and
-   ;; is not switched off.
-   ;; The arguments already hold the type, so each mint dedups to a stored handle and adds
-   ;; the declaration's justification without re-querying the minted type's own declarations:
-   ;; `special/entail-arg-type` recurs the entailment cascade only on a transition to
-   ;; believed, and an already-believed dedup target is not one. That skip is the −2 in each
-   ;; of `:argument-root`, `:argument-slot` and `:predicate-extent` against the pre-skip budget.
-   ;;
-   ;; Every minted type is a functor no sentence declares `arg` or `genlArg` of, so deriving
-   ;; its own entailments no longer probes the argument index for declarations it lacks:
-   ;; `res/constraining-predicates` filters a mint's functor against the declaration functor set,
-   ;; which is the −1,400 `:argument-root` and −1,300 `:argument-slot` this workload stopped
-   ;; reading when the filter landed.
-   ;;
-   ;; And each mint's admissibility is checked once, not twice.  `checks/entailment-check`
-   ;; runs `constraint-problem` over every prospective mint before the trigger is stored and
-   ;; refuses the trigger if one fails, so the materializer's own `constraint-violation` over
-   ;; the same first-level mints (`special/inadmissible`, `pre-checked?`) asks a question
-   ;; already answered — storing the trigger only adds memberships, which convict on an absent
-   ;; type and never a present one.  Skipping it is the −600 `:argument-root`, −600
-   ;; `:argument-slot` and −400 `:predicate-extent` here; the retroactive and chaining mints, which
-   ;; no pre-store check covers, still pay it.
-   ;;
-   ;; The declaration's argument-position check reads its predicate's length off the binding
-   ;; family (`arity/relation-length`) and no membership of it: the −1 in each of
-   ;; `:argument-root` and `:argument-slot`.
-   ;;
-   ;; The entry check asks each mint whether a stored, more specific membership withholds
-   ;; it (`checks/subsumed-mint`) before asking its admission, which reads the term's
-   ;; memberships once: the +100 `:argument-slot`.  A withheld mint skips the admission
-   ;; checks, whose cover arm asks the provers once per cover over the type
+   ;; **The workload the entailment moves most.**  Every predicate is declared, so the shipped
+   ;; default reads each declaration and tests the argument against the type it names, where
+   ;; the constraint-only reading (`VAELII_ASSERTIVE_ARG_TYPES=0`) reads one dynamic var and
+   ;; stops. This is the per-assert declaration cost `lein perf` divides out.
+   ;; The arguments already hold the type, so each mint dedups to a stored handle:
+   ;; `special/entail-arg-type` recurs the cascade only on a transition to believed.
+   ;; `res/constraining-predicates` filters a mint's functor against the declaration functor
+   ;; set, so a minted type no sentence declares `arg` or `genlArg` of probes no argument index.
+   ;; `checks/entailment-check` runs `constraint-problem` over every prospective mint before the
+   ;; trigger is stored, so the materializer's own `constraint-violation` over the same
+   ;; first-level mints (`special/inadmissible`, `pre-checked?`) is skipped; the retroactive and
+   ;; chaining mints still pay it. The argument-position check reads its predicate's length off
+   ;; the binding family (`arity/relation-length`). The entry check asks each mint whether a
+   ;; stored, more specific membership withholds it (`checks/subsumed-mint`), which reads the
+   ;; term's memberships once: the +100 `:argument-slot`.  A withheld mint skips the
+   ;; admission checks, whose cover arm asks the provers once per cover over the type
    ;; (`lein perf`'s `withheld-mint-beside-covers`).
    {:name    :declared
     :build   declared
@@ -806,23 +778,18 @@
               :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1300 :term-names 200 :slots 300}}])
 
-;; The retraction half.  `:unindexed` is the retraction budgets' `:sentexes` — how many
-;; sentexes left the index — and it is checked first for the same reason: a budget
-;; compared against a different number of teardowns is comparing two workloads.
-;;
-;; `:dead` inside `:retracts` is the one number here that is **not** a per-operation
-;; constant, and it is budgeted anyway because it is exactly reproducible for a fixed
-;; corpus torn down in a fixed order.  Read it as a property of this workload, never as
-;; what a fact of this shape costs: the same fact retracted out of a corpus that shares
-;; more prefix kills fewer nodes, and moving `n` moves this number non-proportionally
-;; while every other family scales with it.
+;; The retraction half. `:unindexed` is the retraction budgets' `:sentexes`, checked first
+;; because a budget compared against a different number of teardowns compares two workloads.
+;; `:dead` inside `:retracts` is not a per-operation constant: it is budgeted because it is
+;; reproducible for a fixed corpus torn down in a fixed order, and it moves
+;; non-proportionally with `n` while every other family scales with it.
 (def ^:private retraction-budgets
   [{:name    :plain-teardown
     :build   plain-teardown
     :sentexes 0
     :unindexed 100
     :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
-              :tax-support 3900 :trie-counts 700 :mint 100}
+              :tax-support 3400 :trie-counts 700 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1102 :term-names 202 :slots 201 :dead 302}}
 
@@ -832,80 +799,57 @@
     :sentexes 0
     :unindexed 200
     :reads   {:exception-index 200 :opposed 100 :predicate-extent 900
-              :tax-support 3900 :trie-counts 700 :mint 100}
+              :tax-support 3400 :trie-counts 700 :mint 100}
     :writes  {}
     :retracts {:levels 1000 :terms 800 :roots 2204 :term-names 200 :slots 402 :dead 602}}
 
-   ;; **`:predicate-extent` and `:term-index` are the two a narrowing of the orphan sweep
-   ;; **The workload the orphan sweep's scope is priced by, and the numbers below are the
-   ;; second measurement.**  The first read 10,800 predicate-extent and 10,000 term-index for 100
-   ;; retractions — 108 and 100 per retraction, one pair per standing reified NAT, on a
-   ;; teardown naming none of them and collecting none of them, because the sweep read what
-   ;; the KB held rather than what the retraction reached.  Narrowed to the removed region
-   ;; it is 8 predicate-extent and 0 term-index per retraction: `plain-teardown`'s own 7 and
-   ;; the correspondence presence check.  A bystander NAT population costs a teardown
-   ;; nothing.  `:trie-lookup`
-   ;; goes to 0 for the same reason.  The other five families are the same removal either
-   ;; way and did not move.
-   ;;
-   ;; `:term-index` and `:trie-lookup` are **absent rather than asserted at 0**: a family the
-   ;; workload never reads is a key the tally never emits, and under exact equality an
-   ;; absent key is the stronger claim of the two — one read of either fails this budget.
+   ;; **The workload the orphan sweep's scope is priced by.**  The sweep reads the removed
+   ;; region, not what the KB holds, so a bystander NAT population costs a teardown nothing:
+   ;; 8 predicate-extent and 0 term-index per retraction (`plain-teardown`'s own 7 and the
+   ;; correspondence presence check), where a sweep over the KB's population read 108 and 100.
+   ;; `:term-index` and `:trie-lookup` are absent rather than asserted at 0: a family the
+   ;; workload never reads is a key the tally never emits, so one read of either fails this
+   ;; budget.
    {:name    :nat-bystander-teardown
     :build   nat-bystander-teardown
     :sentexes 0
     :unindexed 100
-    :reads   {:exception-index 100 :opposed 100 :predicate-extent 800
-              :tax-support 3900 :trie-counts 300 :mint 100}
+    :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
+              :tax-support 3400 :trie-counts 300 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1003 :term-names 102 :slots 102 :dead 301}}
 
-   ;; 200 unindexed for 100 retractions — the use, plus the `natFormula` its removal
-   ;; orphaned.  **That count is the workload's point and is not a number to lower
-   ;; downward**: a sweep that stops finding the orphan unindexes 100 here and leaves a raw
-   ;; `nat/` symbol behind, so the narrowing is admissible only while this stays 200.  It
-   ;; did.  The reads fell with the scope, exactly as the bystander's did — the first
-   ;; measurement read 11,800 predicate-extent and 10,100 term-index, off a *declining* population
-   ;; the sweep walked twice per retraction (`:term-index` was 2·(100+99+…+1)).  What is
-   ;; left is the region: 15 predicate-extent and 3 term-index per retraction, for a constant
-   ;; the population no longer enters.
-   ;;
-   ;; The orphan question itself settles on the `natFormula` clause here — a collected
-   ;; constant has its map and nothing else left — so it reads neither the expression nor
-   ;; the declarations to find out what the mint wrote about it (`nat/minted-for`, held
-   ;; behind a delay).  That is the whole of the difference between this budget and one
-   ;; that asks those questions unconditionally: three predicate-extent reads and one
-   ;; trie-lookup per retraction, on the path every teardown of a NAT-bearing KB takes.
+   ;; 200 unindexed for 100 retractions: the use, plus the `natFormula` its removal orphaned.
+   ;; That count is the workload's point: a sweep that stops finding the orphan unindexes 100
+   ;; and leaves a raw `nat/` symbol behind, so the narrowing is admissible only while this
+   ;; stays 200. The reads are the region's, 15 predicate-extent and 3 term-index per
+   ;; retraction, and the population does not enter them. The orphan question settles on the
+   ;; `natFormula` clause, since a collected constant has its map and nothing else left, so it
+   ;; reads neither the expression nor the declarations (`nat/minted-for`, held behind a delay).
+   ;; Asking them unconditionally costs three predicate-extent reads and one trie-lookup per
+   ;; retraction, on the path every teardown of a NAT-bearing KB takes.
    {:name    :nat-orphan-teardown
     :build   nat-orphan-teardown
     :sentexes 0
     :unindexed 200
-    :reads   {:exception-index 200 :opposed 200 :predicate-extent 1500
-              :term-index 300 :tax-support 7800 :trie-counts 600 :mint 200}
+    :reads   {:exception-index 200 :opposed 200 :predicate-extent 1300
+              :term-index 300 :tax-support 6800 :trie-counts 600 :mint 200}
     :writes  {}
     :retracts {:levels 1200 :terms 1000 :roots 2204 :term-names 303 :slots 402 :dead 802}}
 
-   ;; **The workload the supersession reconcile's scope is priced by**, and `:trie-lookup`
-   ;; is the family that reads it: the reconcile probes the store for each displaced
-   ;; spelling's restatement, so a pass over the whole displaced set costs one lookup per
-   ;; standing merge per retraction.  A reconcile scoped to the KB reads **10,000** of them
-   ;; here — 100 merges × 100 retractions, on a teardown that names none of them and
-   ;; un-merges nothing — and one scoped to the moved region reads **none**.
-   ;;
-   ;; Everything else is `plain-teardown` exactly: 700 `:predicate-extent`, 100
-   ;; `:exception-index`, 100 `:opposed`, 700 `:trie-counts`.  The three retract families that differ from
-   ;; it (`:term-names`, `:slots`, `:dead`) differ because the *victims* are a different shape
-   ;; of fact, not because the merges are there.
-   ;;
-   ;; `:term-index` and `:trie-lookup` are **absent rather than asserted at 0**, and that is
-   ;; the stronger claim: a family the workload never reads is a key the tally never emits,
-   ;; so one read of either fails this budget.
+   ;; **The workload the supersession reconcile's scope is priced by**, read by `:trie-lookup`:
+   ;; the reconcile probes the store for each displaced spelling's restatement. A reconcile
+   ;; scoped to the KB reads 10,000 of them here (100 merges x 100 retractions), and one scoped
+   ;; to the moved region reads none. Everything else is `plain-teardown`: 700
+   ;; `:predicate-extent`, 100 `:exception-index`, 100 `:opposed`, 700 `:trie-counts`; the
+   ;; victims' shape moves `:term-names`, `:slots` and `:dead`. `:term-index` and `:trie-lookup`
+   ;; are absent rather than asserted at 0, so one read of either fails this budget.
    {:name    :merge-bystander-teardown
     :build   merge-bystander-teardown
     :sentexes 0
     :unindexed 100
     :reads   {:exception-index 100 :opposed 100 :predicate-extent 700
-              :tax-support 3900 :trie-counts 700 :mint 100}
+              :tax-support 3400 :trie-counts 700 :mint 100}
     :writes  {}
     :retracts {:levels 500 :terms 400 :roots 1003 :term-names 102 :slots 102 :dead 301}}])
 

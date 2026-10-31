@@ -233,12 +233,48 @@
       (is (true? (v/ask? kb goal)))
       (is (= :true (:verdict (v/argue kb goal 'CxUniverse {:max-depth 3})))))))
 
-(tu/deftest-kb ^:red argue-names-the-supports-of-a-retrieval-time-transitive-in-arg-conclusion
-  ;; Red on vaelii#239.  The answer holds (the test above), but no record is stored for
-  ;; it and the search reports it as one `:leaf`, so its explanation names none of the
-  ;; fact it was reached from, the `genl` edge or the declaration that licenses the step.
+(tu/deftest-kb argue-names-the-supports-of-a-retrieval-time-transitive-in-arg-conclusion
+  ;; No record holds the answer, so the derivation's one `:leaf` names the fact it was
+  ;; reached from, the `genl` edge and the declaration that licenses the step
   (tu/with-terms [wren hasSkill gliding moving Pip]
     (let [{:keys [goal supports]} (transitive-skill-kb! kb wren hasSkill gliding moving Pip)
           r (v/argue kb goal 'CxUniverse {:max-depth 3})]
       (is (= :true (:verdict r)))
       (is (= supports (into #{} (filter supports) (named-in r)))))))
+
+(tu/deftest-kb argue-names-the-supports-at-no-depth-and-none-once-the-edge-is-retracted
+  (tu/with-terms [wren hasSkill gliding moving Pip]
+    (let [{:keys [goal supports]} (transitive-skill-kb! kb wren hasSkill gliding moving Pip)
+          r (v/argue kb goal 'CxUniverse)]
+      (is (= [supports] (mapv #(set (map :sentence %)) (:supports (first (:for-derivation r))))))
+      (v/retract! kb (v/handle-of kb (list 'genl gliding moving) 'CxUniverse))
+      (let [r (v/argue kb goal 'CxUniverse)]
+        (is (= :unknown (:verdict r)))
+        (is (nil? (:for-derivation r)))))))
+
+(tu/deftest-kb argue-false-for-a-default-an-observation-defeats-below-it
+  ;; docs/nmtms.md, "Observation beats expectation": the clash is placed at CxSeat, so
+  ;; CxUniverse above it still believes the default
+  (tu/with-terms [dog_t cat_t Muffet CxSeat]
+    (v/assert kb (list 'genlCx CxSeat 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list cat_t Muffet) 'CxUniverse)
+    (v/assert kb (list dog_t Muffet) CxSeat {:strength :monotonic})
+    (let [a (v/argue kb (list cat_t Muffet) CxSeat)]
+      (is (= :false (:verdict a)))
+      (is (= [[(list cat_t Muffet) [(list dog_t Muffet)] [CxSeat]]]
+             (mapv (juxt (comp :sentence :loser) #(mapv :sentence (:winners %)) :placed-in)
+                   (:defeated-by a)))))
+    (let [a (v/argue kb (list cat_t Muffet) 'CxUniverse)]
+      (is (= :true (:verdict a)))
+      (is (nil? (:defeated-by a))))))
+
+(tu/deftest-kb argue-false-for-a-functional-filler-an-observation-defeats
+  (tu/with-terms [ageOf Tom]
+    (v/assert kb (list 'binary_predicate ageOf) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'functional ageOf) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list ageOf Tom 3) 'CxUniverse)
+    (v/assert kb (list ageOf Tom 4) 'CxUniverse {:strength :monotonic})
+    (let [a (v/argue kb (list ageOf Tom 3) 'CxUniverse)]
+      (is (= :false (:verdict a)))
+      (is (= [[(list ageOf Tom 4)]] (mapv #(mapv :sentence (:winners %)) (:defeated-by a)))))))

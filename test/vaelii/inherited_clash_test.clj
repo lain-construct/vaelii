@@ -263,11 +263,6 @@
     (testing "and a resolved contradiction is reported by neither reading"
       (is (empty? (inherited-reports kb))))))
 
-(defn- orders
-  "Every ordering of `xs`."
-  [xs]
-  (if (empty? xs) [()] (for [x xs, more (orders (remove #{x} xs))] (cons x more))))
-
 (defn- placed-about
   "The member sentences of each stored sentence of functor `f` that names a sentex about
   `pred`, as a set of sets with `renames` applied."
@@ -285,7 +280,7 @@
   ;; The stored claim is never the loser there, so it stays believed, and the placed
   ;; sentences are the same whether the declaration arrives first or last.
   (let [readings
-        (vec (for [order (orders [:decl :general :stored])]
+        (vec (for [order (tu/orders [:decl :general :stored])]
                (tu/with-terms [carriesLoad hauler_kind cart_kind]
                  (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
                  (let [stored  (list carriesLoad cart_kind 'Bone1)
@@ -516,16 +511,11 @@
          (v/believed? kb (:denial hs) CxR)
          (boolean (seq (v/sentexes-with-functor kb 'contradicts)))]))))
 
-(defn- permutations [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (permutations (remove #{x} xs))] (cons x more))))
-
 (tu/deftest-kb a-reading-resting-on-a-default-reason-is-undercut-and-the-denial-stands
   ;; The claim is known-true and the declaration is :default, so the reading is :default
   ;; and the stored denial undercuts it: no nogood forms, in every arrival order.
   (is (= #{[true true false]}
-         (into #{} (map default-reason-reading) (permutations [:edge :decl :claim :denial])))))
+         (into #{} (map default-reason-reading) (tu/orders [:edge :decl :claim :denial])))))
 
 (tu/deftest-kb an-inherited-clash-is-placed-at-its-vantage-and-no-reader-decides-it
   ;;   CxUniverse  the vocabulary, every reason :monotonic
@@ -594,7 +584,7 @@
   ;; where the meta-except shows the edge again.  Every arrival order with the edge before
   ;; its except and the except before the meta-except.
   (let [orders (filter #(let [i (zipmap % (range))] (< (i :edge) (i :except) (i :meta)))
-                       (permutations [:edge :except :meta :claim :deny]))]
+                       (tu/orders [:edge :except :meta :claim :deny]))]
     (is (= #{[#{['contradicts :below] ['defeat :below]} false true #{}]}
            (into #{} (map meta-except-reading) orders)))))
 
@@ -645,7 +635,7 @@
                             [(transitiveInArgInverse carriesLoad 1 genl) CxUniverse])
                CxBase]
              '[(defeat [(not (carriesLoad a Bone1)) CxBase]) CxBase]}}
-         (into #{} (map knocked-edge-reading) (permutations [:edge :knock :claim :deny])))))
+         (into #{} (map knocked-edge-reading) (tu/orders [:edge :knock :claim :deny])))))
 
 (defn- hidden-cover-reading
   "`[placed denial-at-below denial-at-base placed-after]` once `ops` run in order: the
@@ -702,7 +692,7 @@
   ;; the except leaves the clash at CxBase alone.  Every arrival order with the cover
   ;; before its except.
   (let [orders (filter #(let [i (zipmap % (range))] (< (i :cover) (i :except)))
-                       (permutations [:cover :covered :claim :deny :except]))]
+                       (tu/orders [:cover :covered :claim :deny :except]))]
     (doseq [shape [:decl :route :copy]]
       (is (= #{[#{['contradicts :base] ['defeat :base] ['contradicts :below] ['defeat :below]}
                 false false #{['contradicts :base] ['defeat :base]}]}
@@ -763,7 +753,7 @@
   ;; `(rr Aa)` in all 24 orders.  With the merge last, a stored
   ;; `(rr Zz)` restates as `(rr Aa)` under `[(rr Zz) (rewriteOf Aa Zz)]`.
   (doseq [claimed [:Zz :Aa]]
-    (let [rs (into #{} (map #(merged-reading claimed %)) (permutations [:claim :deny :rule :merge]))]
+    (let [rs (into #{} (map #(merged-reading claimed %)) (tu/orders [:claim :deny :rule :merge]))]
       (is (= #{{:rr false :reported #{}}} rs)
           (str claimed)))))
 
@@ -806,7 +796,7 @@
          (into {}
                (for [strength [:monotonic :default]]
                  [strength (into #{} (map #(separated-reading kb strength %))
-                                 (permutations [:sep :edge :down :up]))])))))
+                                 (tu/orders [:sep :edge :down :up]))])))))
 
 (tu/deftest-kb retracting-the-separation-withdraws-the-inherited-membership-clash
   (is (= #{[#{} true true]}
@@ -818,7 +808,7 @@
   ;; `(down lower)` that `(down upper)` reaches.
   (is (= #{[#{'(down lower)} true]}
          (into #{}
-               (for [order (permutations [:sep :edge :down :plain])]
+               (for [order (tu/orders [:sep :edge :down :plain])]
                  (tu/with-terms [down_kind plain_kind upper_kind lower_kind]
                    (v/assert kb (list 'transitiveInArgInverse down_kind 1 'genl) U mono)
                    (let [write {:sep   #(v/assert kb (list 'disjoint down_kind plain_kind) U mono)

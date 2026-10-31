@@ -74,11 +74,10 @@
   type-level one (`genlArg`, `argAndRestGenl`, `argsGenl`: subtype) the argnum chokepoint
   answers for slot `n` (`res/arg-constraints-at`), over `pred` and every super-predicate
   whose declarations bind its tuples, the union the assert-time checker reads; plus one
-  `:type-position` entry when `pred` is a believed `type_relation_predicate` — core.txt's
-  note beside `genl`: \"the position is not thereby unconstrained: genl is a
-  type_relation_predicate, which says of every one of its positions what genlArg says
-  of one.\"  A `quotedArg` constrains the filler as written, not what it denotes, and
-  is not read here.
+  `:type-position` entry when `pred` is a believed `type_relation_predicate`, which
+  core.txt's note beside `genl` gives as what constrains `genl`'s positions.  A
+  `quotedArg` constrains the filler as written, not what it denotes, and is not read
+  here.
 
   A set, because the constraints compose as an unordered conjunction and the same
   constraint reached through two ancestors is one question."

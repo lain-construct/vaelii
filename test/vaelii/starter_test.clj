@@ -4,6 +4,7 @@
   "The starter schema loads and, with the test-world's cast beneath it, its rules and
   taxonomy behave."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
@@ -211,6 +212,17 @@
     (is (empty? (for [s sxs :let [f (:sentence s)]
                       :when (and (seq? f) (= 'genlCx (first f)) (some gone (rest f)))]
                   f)))))
+
+(tu/deftest-kb the-starter-load-warns-of-each-retired-symbol-a-stored-sentex-names
+  (tu/with-terms [old_kind unused_kind Fido CxStore]
+    (v/assert kb (list old_kind Fido) CxStore)
+    (let [logged (atom [])]
+      (with-redefs [seed/release-renames (constantly {:retired #{old_kind unused_kind}})]
+        (binding [trove/*log-fn* (fn [_ns _coords level id payload]
+                                   (when (= ::starter/retired-symbol id)
+                                     (swap! logged conj [level (:data (force payload))])))]
+          (starter/load-into kb)))
+      (is (= [[:warn {:symbol old_kind :sentexes 1}]] @logged)))))
 
 (tu/deftest-kb starter-loads-and-reasons
   (testing "the universal rule fires on natural-world facts, landing in CxNaturalWorld"

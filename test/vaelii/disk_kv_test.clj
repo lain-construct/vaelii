@@ -10,21 +10,14 @@
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.kv :as dkv]
-            [vaelii.impl.protocols :as p])
+            [vaelii.impl.protocols :as p]
+            [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]
            [java.util.concurrent Future]))
 
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-dkv-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
-
 (defn- with-tmp [f]
-  (let [dir (tmpdir)]
-    (try (f dir) (finally (rm-rf! dir)))))
+  (let [dir (tu/tmpdir "vaelii-dkv-")]
+    (try (f dir) (finally (tu/rm-rf! dir)))))
 
 (deftest persistence-round-trip
   (with-tmp
@@ -285,13 +278,13 @@
   ;; New-value logging re-serialized the grown set on every add — O(N²), bytes/member
   ;; growing ∝ N — and would fail this test.
   (letfn [(load-bytes [n]
-            (let [dir (tmpdir)]
+            (let [dir (tu/tmpdir "vaelii-dkv-")]
               (try
                 (let [b (dkv/open-kv-backend dir)]
                   (try (dotimes [i n] (p/kv-add-to-set b [:context-root 'p] i))
                        (log-bytes dir)
                        (finally (dkv/close! b))))
-                (finally (rm-rf! dir)))))]
+                (finally (tu/rm-rf! dir)))))]
     (let [n     5000
           per-1 (/ (double (load-bytes n)) n)
           per-2 (/ (double (load-bytes (* 2 n))) (* 2 n))]

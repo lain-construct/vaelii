@@ -12,6 +12,7 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.host.seed :as seed]
             [vaelii.host.sync :as sync]
             [vaelii.impl.io.text :as text]
             [vaelii.test-util :as tu]))
@@ -338,6 +339,54 @@
       (is (= in-sync (sync/plan kb @ships)))
       (finally (tu/clear-kb! kb)))))
 
+(deftest release-renames-follow-a-rename-across-releases
+  (is (= '{:renames        {aOld cNew, bMid cNew}
+           :context-merges {CxA CxC, CxB CxC}
+           :re-meanings    {r "first; second"}
+           :retired        #{d e}}
+         (seed/compose-renames '[{:renames {aOld bMid} :context-merges {CxA CxB}
+                                  :re-meanings {r "first"} :retired #{d}}
+                                 {:renames {bMid cNew} :context-merges {CxB CxC}
+                                  :re-meanings {r "second"} :retired #{e}
+                                  :api {:renames {x y}}}])))
+  (is (= #{:renames :context-merges :re-meanings :retired}
+         (set (keys (seed/release-renames))))
+      "the shipped files compose, and their :api rows are no KB rewrite"))
+
+(deftest unreleased-renames-compose-after-every-released-file
+  (is (= ["0.4.0.edn" "0.30.1.edn" "0.31.0.edn" "unreleased.edn"]
+         (sort-by @#'seed/release-order
+                  ["unreleased.edn" "0.31.0.edn" "0.4.0.edn" "0.30.1.edn"]))))
+
+(defn- names?
+  [sentence sym]
+  (boolean (some #{sym} (tree-seq coll? seq sentence))))
+
+(deftest a-release-rename-rewrites-premises-and-reports-a-re-meaning-unchanged
+  (tu/with-terms [old_kind new_kind meant_kind Fido CxStore CxOld CxNew]
+    (let [kb      (open-kb :renames (fn [_]))
+          renames {:renames {old_kind new_kind} :context-merges {CxOld CxNew}
+                   :re-meanings {meant_kind "reads a second argument"} :retired #{}}
+          held    (fn [cx] (map v/sentence-of (v/sentexes-in-context kb cx)))]
+      (try
+        (v/assert kb (list old_kind Fido) CxStore {:strength :monotonic})
+        (v/assert kb (list 'implies (list old_kind '?x) (list meant_kind '?x)) CxStore)
+        (v/assert kb (list meant_kind Fido) CxOld)
+        (let [r (sync/rename! kb renames)]
+          (is (= {:rewritten 3 :refused [] :retired []} (dissoc r :re-meanings)))
+          (testing "a rewrite keeps the premise's strength"
+            (is (= :monotonic (:strength (v/sentex kb (v/handle-of kb (list new_kind Fido) CxStore))))))
+          (is (not-any? #(names? % old_kind) (held CxStore)))
+          (is (some #(and (names? % new_kind) (names? % meant_kind)) (held CxStore)) "the rule is rewritten")
+          (testing "a merged context's premise moves, and the re-meant symbol is reported"
+            (is (some? (v/handle-of kb (list meant_kind Fido) CxNew)))
+            (is (empty? (held CxOld)))
+            (is (= [{:symbol meant_kind :note "reads a second argument"}]
+                   (map #(dissoc % :premises) (:re-meanings r))))
+            (is (= #{CxStore CxNew} (set (map :context (:premises (first (:re-meanings r)))))))))
+        (is (= 0 (:rewritten (sync/rename! kb renames))) "a second run finds nothing to rewrite")
+        (finally (tu/clear-kb! kb))))))
+
 (deftest write-back-edits-one-line-per-premise
   (let [dir   (io/file (System/getProperty "java.io.tmpdir") (str "vaelii-write-back-" (System/nanoTime)))
         core  (io/file dir "core.txt")
@@ -373,6 +422,27 @@
         (testing "a removal matches the sentence under other variable names, and comments stay"
           (is (= "(comment cat \"A cat.\")\n(genl cat mammal)\n;; a cat is a mammal\n(genl cat feline)\n"
                  (slurp other)))))
+      (finally
+        (tu/clear-kb! kb)
+        (run! io/delete-file (reverse (file-seq dir)))))))
+
+(deftest write-back-writes-a-form-whole-under-a-callers-print-bound
+  (let [dir  (io/file (System/getProperty "java.io.tmpdir") (str "vaelii-write-back-" (System/nanoTime)))
+        core (io/file dir "core.txt")
+        kb   (open-kb :write-back-bound (fn [_]))
+        u    'CxUniverse]
+    (try
+      (.mkdirs dir)
+      (spit core "(comment dog \"A dog.\")\n(genl dog mammal)\n")
+      (binding [*print-length* 2 *print-level* 1]
+        (sync/write-back! kb
+                          {:add    [{:context u :form '(set/monotonic (genl dog mammal))}
+                                    {:context u :form '(implies (and (dog ?d) (pet ?d)) (mammal ?d))}]
+                           :remove [{:context u :form '(genl dog mammal)}]}
+                          #(when (= u %) [core])))
+      (is (= (str "(comment dog \"A dog.\")\n(set/monotonic (genl dog mammal))\n\n"
+                  "(implies (and (dog ?d) (pet ?d)) (mammal ?d))\n")
+             (slurp core)))
       (finally
         (tu/clear-kb! kb)
         (run! io/delete-file (reverse (file-seq dir)))))))

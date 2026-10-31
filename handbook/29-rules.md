@@ -154,25 +154,24 @@ variable names. Write a disjunctive condition as an `or` in the antecedent and a
 conjunctive conclusion as an `and` in the consequent. Keep the order of evaluable
 literals and of a recursive literal as written, since the engine keeps it.
 
-**Example.** One rule with a disjunctive antecedent, over `CxKinship`'s vocabulary:
+**Example.** One rule with a disjunctive antecedent, over `CxKinship`'s vocabulary: a
+sibling or a first cousin is close kin.
 
 ```clojure composed
 (set/forwardRule
-  (implies (or (fatherOf ?child ?parent) (motherOf ?child ?parent))
-           (parentOf ?parent ?child)))
+  (implies (or (and (parentOf ?p ?x) (parentOf ?p ?y) (different ?x ?y))
+               (and (parentOf ?p ?x) (siblingOf ?p ?q) (parentOf ?q ?y)))
+           (closeKinOf ?x ?y)))
 ```
 
-The engine stores the two rules `CxKinship.txt` states one by one, one per alternative,
-and `assert` returns both handles as a vector. The split also shows what the disjunction
-was: two separate claims. Each one relates a predicate to `parentOf` with the two
-arguments exchanged, which is what `(genlInverse fatherOf parentOf)` and
-`(genlInverse motherOf parentOf)` state ([ch. 17](17-predicate-hierarchy.md)), so by
-[Rule, edge or declaration](#rule-edge-or-declaration) the two edges are the form to
-write.
-
-*In development:* a disjunctive antecedent as a form an author writes is in development.
-`CxKinship.txt` states the two rules, and no shipped file states the two `genlInverse`
-edges.
+The engine stores two rules, one per alternative, and `assert` returns both handles as a
+vector. Each alternative joins several literals, so neither rule restates an edge or a
+declaration. An `or` antecedent whose alternatives split into rules that each restate an
+edge states the edges in a longer form: `(or (fatherOf ?child ?parent) (motherOf ?child
+?parent))` ⇒ `(parentOf ?parent ?child)` splits into one rule per alternative, and each
+states what `(genlInverse fatherOf parentOf)` or `(genlInverse motherOf parentOf)` states
+([ch. 17](17-predicate-hierarchy.md)). `CxKinship.txt` states the two edges, the form
+[Rule, edge or declaration](#rule-edge-or-declaration) asks for.
 
 **Why.**
 
@@ -210,6 +209,10 @@ arithmetic `evaluate`) tests or computes from what that antecedent binds.
   (implies (and (birthYearOf ?x ?bx) (birthYearOf ?y ?by) (lessThan ?bx ?by))
            (olderThan ?x ?y)))
 ```
+
+`birthYearOf` is a `birthDate` at the precision of a year: life.txt's rules conclude it
+from a `birthDate` stated as a `YearFn`, `MonthFn`, `DayFn` or `InstantFn` term, so a
+birth date stated to the day reaches this rule too.
 
 **Why.**
 

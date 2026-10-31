@@ -48,7 +48,8 @@
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.io.fingerprint :as fp]
             [vaelii.impl.observe :as observe]
-            [vaelii.impl.protocols :as p]))
+            [vaelii.impl.protocols :as p])
+  (:import [java.util.concurrent.locks ReentrantReadWriteLock]))
 
 ;; ---- reserved bookkeeping keys --------------------------------------------
 
@@ -132,13 +133,14 @@
   digested keeps its first digest, which is the record the fork's state was written over."
   [base meta-kv base-top hidden? id]
   (when-let [h (handle id)]
-    (when (and (< h (long base-top)) (not @hidden?) (not (digested? meta-kv h)))
+    (when (and (< h (long @base-top)) (not @hidden?) (not (digested? meta-kv h)))
       (when-let [d (base-digest base h)]
         (p/kv-put meta-kv (digest-key h) d)
         (p/kv-add-to-set meta-kv digested-key h)))))
 
 (defrecord OverlayRecordStore [overlay base meta-kv counter base-top
-                               hidden? sx-tombstoned jd-tombstoned pv-tombstoned released]
+                               hidden? sx-tombstoned jd-tombstoned pv-tombstoned released
+                               base-opts rebase-lock]
 
   p/RecordStore
   ;; strictly above every handle the base holds, so a minted handle is never a base one
@@ -449,7 +451,8 @@
                        ".  A fork's records, removals and index counts are written against"
                        " the base it was mounted over, so over this one it would hide base"
                        " sentences.  Mount the fork over the base it was taken against, and"
-                       " re-assert its premises by content in a fresh fork over this one")
+                       " import this base's dump into it with :rebase? true, which asserts its"
+                       " writes again by content")
                   {:type      :fork-base-overlap
                    :handles   (into [] (take overlap-shown) handles)
                    :watermark watermark})))
@@ -495,9 +498,13 @@
   after a restart.  It records the base's watermark in the bookkeeping, and refuses
   (`:fork-base-overlap`) a remount over a base that has changed since, once the fork has
   written anything (`check-base-overlap!`).  `index-cleared?` says the fork's own index
-  half has been rebuilt (`reindex`), which is state the record half cannot see."
-  ([overlay base meta-kv] (overlay-record-store overlay base meta-kv false))
+  half has been rebuilt (`reindex`), which is state the record half cannot see.
+  `base-opts` are the opts the base was opened from, or nil when it arrived as open
+  stores; `rebase!` replaces a base that has them."
+  ([overlay base meta-kv] (overlay-record-store overlay base meta-kv false nil))
   ([overlay base meta-kv index-cleared?]
+   (overlay-record-store overlay base meta-kv index-cleared? nil))
+  ([overlay base meta-kv index-cleared? base-opts]
    (let [base-next (long (p/next-id base))         ; allocation, not mutation (see `frozen`)
          own-next  (long (p/next-id overlay))
          hidden?   (some? (p/kv-get meta-kv cleared-key))
@@ -514,12 +521,45 @@
        :base           base
        :meta-kv        meta-kv
        :counter        (atom (max base-next own-next))
-       :base-top       base-next
+       :base-top       (atom base-next)
        :hidden?        (atom hidden?)
        :sx-tombstoned  (atom (set (p/kv-members meta-kv sx-tombstone-key)))
        :jd-tombstoned  (atom (set (p/kv-members meta-kv jd-tombstone-key)))
        :pv-tombstoned  (atom (set (p/kv-members meta-kv pv-tombstone-key)))
-       :released       (atom (set (p/kv-members meta-kv released-key)))}))))
+       :released       (atom (set (p/kv-members meta-kv released-key)))
+       :base-opts      base-opts
+       :rebase-lock    (ReentrantReadWriteLock.)}))))
+
+(defn rebase!
+  "Empty the fork `store`'s own records and bookkeeping, call `refill!`, which replaces the
+  contents of the base's stores, and mount the emptied half over the new base, returning
+  what `refill!` returns.  The handle counter and the watermark are seeded from the
+  base's `next-id`, as a mount seeds them.  Every record, tombstone, released mark and
+  base digest the fork held is dropped, so nothing written against the old base is read
+  against the new one.  The base reads as hidden until `refill!` returns."
+  [{:keys [overlay base meta-kv counter base-top hidden?
+           sx-tombstoned jd-tombstoned pv-tombstoned released]} refill!]
+  (reset! hidden? true)
+  (p/clear-records! overlay)
+  (p/kv-clear! meta-kv)
+  (run! #(reset! % #{}) [sx-tombstoned jd-tombstoned pv-tombstoned released])
+  (let [r         (refill!)
+        base-next (long (p/next-id base))
+        own-next  (long (p/next-id overlay))]
+    (p/kv-put meta-kv watermark-key base-next)
+    (reset! base-top base-next)
+    (reset! counter (max base-next own-next))
+    (reset! hidden? false)
+    r))
+
+(defn excluding-readers
+  "Call `f` holding the write side of fork `store`'s rebase lock, and return what `f`
+  returns.  Every public read holds the read side (`kb/reading`), so a read on another
+  thread waits for `f` to return, and the calling thread's own reads re-enter."
+  [{:keys [^ReentrantReadWriteLock rebase-lock]} f]
+  (let [l (.writeLock rebase-lock)]
+    (.lock l)
+    (try (f) (finally (.unlock l)))))
 
 (defn overlay-record-store?
   "Is `store` one of these — i.e. is it already a fork's record half?  Asked by

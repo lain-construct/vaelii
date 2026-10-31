@@ -8,6 +8,7 @@
   subsumption or disjointness), and :unknown."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.integrity :as integrity]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
@@ -158,7 +159,7 @@
     (doseq [[[a b] ms] [[[one two] [Zed Abe]] [[three four] [Abe Zed]]]
             m ms t [a b]]
       (v/assert kb (list t m) 'CxUniverse))
-    (let [via #(:via (#'v/subsumption-reading kb %1 %2 'CxUniverse (#'v/instance-reads kb 'CxUniverse)))]
+    (let [via #(:via (integrity/subsumption-reading kb %1 %2 'CxUniverse (#'v/instance-reads kb 'CxUniverse)))]
       (is (= Abe (via one two) (via three four))))))
 
 (tu/deftest-kb a-shared-subtype-below-two-separated-types-is-no-witness

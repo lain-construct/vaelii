@@ -23,10 +23,6 @@
 
 ;; Each reader answers a boolean, so a failing `is` prints the question and not the KB.
 (defn- holds-isa  [x t ctx]       (boolean (v/isa? tu/*kb* x t ctx)))
-(defn- holds-ask  [s ctx]         (boolean (v/ask? tu/*kb* s ctx)))
-(defn- holds-sees [k y]           (boolean (v/sees? tu/*kb* k y)))
-(defn- holds-genl [sub super ctx] (boolean (v/genl? tu/*kb* sub super ctx)))
-
 (defn- in-clash?
   "Is the sentex `sentence` stored in `context` a member of a standing nogood?"
   [kb sentence context]
@@ -36,10 +32,10 @@
 
 (tu/deftest-kb the-theory-is-opt-in-below-cxuniverse
   (testing "the theory sees the upper ontology through CxUniverse"
-    (is (holds-sees NPC 'CxUniverse)))
+    (is (tu/holds-sees NPC 'CxUniverse)))
   (testing "neither CxWell nor the upper ontology sees the theory"
-    (is (not (holds-sees 'CxWell NPC)))
-    (is (not (holds-sees 'CxUniverse NPC)))))
+    (is (not (tu/holds-sees 'CxWell NPC)))
+    (is (not (tu/holds-sees 'CxUniverse NPC)))))
 
 (tu/deftest-kb cxwell-concludes-no-state-of-matter
   ;; CxWell is the everyday context with no temperature assumed: a stone and a metal stated
@@ -48,12 +44,12 @@
     (v/assert kb (list 'stone Boulder) 'CxWell)
     (v/assert kb (list 'metal_stuff Ingot) 'CxWell)
     (is (not (holds-isa Boulder 'solid 'CxWell)))
-    (is (not (holds-ask (list 'solid Ingot) 'CxWell)))
+    (is (not (tu/holds-ask (list 'solid Ingot) 'CxWell)))
     (is (not (holds-isa Ingot 'solid 'CxWell)))))
 
 (tu/deftest-kb mercury-is-a-first-order-kind-of-metal-stuff
-  (is (holds-genl 'mercury 'metal_stuff 'CxUniverse))
-  (is (holds-ask '(type mercury) 'CxUniverse))
+  (is (tu/holds-genl 'mercury 'metal_stuff 'CxUniverse))
+  (is (tu/holds-ask '(type mercury) 'CxUniverse))
   (is (seq (v/sentexes-matching kb '(comment mercury ?c) 'CxUniverse))))
 
 (tu/deftest-kb stone-wood-and-glass-are-solid-under-normal-conditions
@@ -70,15 +66,15 @@
     (testing "a user context placed under the theory reads each one solid"
       (doseq [x [Pebble Plank Pane]]
         (is (holds-isa x 'solid CxRoom) (str x " is solid in a room"))
-        (is (holds-ask (list 'solid x) CxRoom))))
+        (is (tu/holds-ask (list 'solid x) CxRoom))))
     (testing "a context that does not see the theory concludes no state"
       (doseq [ctx [CxStuff CxElsewhere 'CxWell 'CxUniverse]
               x   [Pebble Plank Pane]]
         (is (not (holds-isa x 'solid ctx)) (str x " is not concluded solid in " ctx))))
     (testing "the three edges are the theory's, not the upper ontology's"
       (doseq [t '[stone wood glass_stuff]]
-        (is (holds-genl t 'solid NPC))
-        (is (not (holds-genl t 'solid 'CxUniverse)))))))
+        (is (tu/holds-genl t 'solid NPC))
+        (is (not (tu/holds-genl t 'solid 'CxUniverse)))))))
 
 (tu/deftest-kb metal-stuff-is-solid-by-default-and-mercury-is-the-exception
   (tu/with-terms [CxStuff CxRoom CxElsewhere Nail Droplet]
@@ -91,7 +87,7 @@
     (v/assert kb (list 'metal_stuff Nail) CxStuff)
     (v/assert kb (list 'mercury Droplet) CxStuff)
     (testing "a metal the KB says nothing more about is solid in a user context under the theory"
-      (is (holds-ask (list 'solid Nail) CxRoom))
+      (is (tu/holds-ask (list 'solid Nail) CxRoom))
       (is (holds-isa Nail 'solid CxRoom)))
     (testing "the conclusion is a default, which a later fact can block"
       (let [h (v/handle-of kb (list 'solid Nail) CxRoom)]
@@ -100,7 +96,7 @@
     (testing "mercury is liquid and is not concluded solid"
       (is (holds-isa Droplet 'liquid CxRoom))
       (is (holds-isa Droplet 'metal_stuff CxRoom))
-      (is (not (holds-ask (list 'solid Droplet) CxRoom)))
+      (is (not (tu/holds-ask (list 'solid Droplet) CxRoom)))
       (is (not (holds-isa Droplet 'solid CxRoom)))
       (is (= :excepted (:reason (v/why-not kb (list 'solid Droplet) CxRoom)))
           "the rule applied and its exception held"))
@@ -111,5 +107,5 @@
                           (concat (v/contradictions kb) (v/conflicts kb))))))
     (testing "a context that does not see the theory concludes no state"
       (doseq [ctx [CxStuff CxElsewhere 'CxWell 'CxUniverse]]
-        (is (not (holds-ask (list 'solid Nail) ctx)) (str "Nail solid in " ctx))
+        (is (not (tu/holds-ask (list 'solid Nail) ctx)) (str "Nail solid in " ctx))
         (is (not (holds-isa Droplet 'liquid ctx)) (str "Droplet liquid in " ctx))))))

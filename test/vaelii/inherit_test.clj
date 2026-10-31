@@ -966,18 +966,13 @@
     (is (empty? (v/sentexes-matching kb (list fitsIn Other) 'CxUniverse))
         "and a fresh firing agrees with it")))
 
-(defn- permutations [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (permutations (remove #{x} xs))] (cons x more))))
-
 (tu/deftest-kb a-separated-membership-releases-an-exception-on-an-inherited-membership-in-every-order
   ;; `(down_kind upper)` reaches `(down_kind lower)`, which holds the exception, until
   ;; `(plain_kind lower)` and the separation undercut the `:default` reading.  The two
   ;; arrive in any order around the rule and its premise, and the firing is re-decided.
   (is (= #{[false true]}
          (into #{}
-               (for [order (permutations [:sep :member :rule :premise])]
+               (for [order (tu/orders [:sep :member :rule :premise])]
                  (tu/with-terms [down_kind plain_kind upper lower probe_kind fits Thing]
                    (v/assert kb (list 'transitiveInArgInverse down_kind 1 'genl) 'CxUniverse)
                    (v/assert kb (list 'genl lower upper) 'CxUniverse)
@@ -1002,7 +997,7 @@
   ;; reads it undercut by `(plain_kind lower)`.
   (is (= #{[true false]}
          (into #{}
-               (for [order (permutations [:sep :member :claim])]
+               (for [order (tu/orders [:sep :member :claim])]
                  (tu/with-terms [down_kind plain_kind upper lower CxA]
                    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
                    (v/assert kb (list 'transitiveInArgInverse down_kind 1 'genl) 'CxUniverse)

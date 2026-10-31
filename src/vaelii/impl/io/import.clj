@@ -1,79 +1,13 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.import
-  "Import a vaelii **export dump** — a directory of record streams — into a KB,
-  landing in exactly the state the engine's own restart path (`reindex` / `recover`) already
-  knows how to produce.
-
-  A dump is a directory whose `meta.edn` is the marker and schema; every other file is
-  a nippy stream:
-
-      sentexes.nippy.stream        one field-map frame per sentex
-      justifications.nippy.stream  one per justification
-      provenance.nippy.stream      [handle map] per frame — optional
-
-  A `:records+index` dump also carries the index, as a **cache** that is used only when
-  it can be proved to describe the records that were just stored (see *the index* below);
-  otherwise the index is rebuilt, and the summary says which happened and why.
-
-  **Framing.**  A chunked stream is a run of `[int32 length][compressed chunk]`, each
-  chunk a compressed stream over back-to-back nippy frames; a single-stream file is one
-  compressed stream over the lot.  Our own dumps **state** which (`:framing`); a
-  foreign dump's is inferred from its own version line.  Both are constant-memory lazy
-  seqs.
-
-  **A frame of our own dialect is a plain field map** whose `:sentence` is already
-  there — but a rule's `set/*Rule` wrappers and its variable names canonicalized *into*
-  the record (`:engines` / `:defeasible` / `:effect` / `:varmap`), so both are written back around
-  it before the constructor sees it.  A frame that is *not* ours goes to a foreign
-  reader (`vaelii.impl.foreign`), which is resolved at runtime and may not be in the
-  build at all.  The discrimination is on the **frame**, never on `meta.edn`'s
-  `:dialect`: a declaration is not an authority over the bytes beside it, and keying off
-  the frame keeps a mixed dump readable.
-
-  Whatever the dialect, **every sentence is re-canonicalized** through this build's own
-  constructor (`res/kb-sentex`).  A stored canonical form is never trusted, not even
-  our own: variable numbering, symmetric argument order and comparison folding belong to
-  the *reading* build, and a record indexed under a key this build's `lookup` never
-  reproduces would be silently unfindable.
-
-  **Handles are preserved** for a dump of ours: every record is stored at the handle the
-  dump gave it, so a handle means the same thing either side of an export.  Safe because
-  the destination must be empty and because a store's counter clears any handle written
-  that way (`p/next-id`) — without which the next `assert` would mint handle 1 again and
-  overwrite the first imported record.  Two things can still stop a handle landing as
-  given, and neither is silent: a frame with no `:id`, and a frame whose canonical form
-  is one already stored, which **collapses** onto that handle (a dedup this build is
-  right to perform — two engine forms can canonicalize to one stored record — and the
-  dump's numbering cannot survive it).  Either makes the import `:remapped`, and then one
-  `old->new` map carries the dump's ids across: justification references, and the
-  `(sentexHandle H)` a meta-sentex embeds *inside stored content*, which
-  `rewrite-embedded-handles!` rewrites in the sentence.  A meta-sentex whose embedded
-  handle cannot be resolved is **dropped**, and the drop reaches the map as well as the
-  store (`forget-deleted`): a dump id whose record is gone has to stop resolving, or the
-  references to it resolve to a handle nothing is stored at.
-
-  **The index is replayed only when it can be proved to fit**, and discarding it is
-  always safe — which is what makes a cache out of what would otherwise be a risk.  An
-  index that does not match its records is *worse* than no index: every lookup then
-  answers confidently and short, and nothing in the engine is positioned to notice.  So
-  all three of these must hold (`index-decision`):
-
-  * the entries are keyed in the layout this build reads (`kv/index-layout-version`);
-  * the fingerprint accumulated **while storing** equals the one written beside the
-    entries (`vaelii.impl.io.fingerprint`) — accumulated, not recomputed, since a second
-    pass over the records to validate a cache would cost more than the cache saves;
-  * the handles were preserved, so a posting names the record it named in the source.
-
-  Anything else rebuilds, at `:info`, with the reason named.  A cache that silently
-  stops being used is a cache nobody maintains.
-
-  The store-facing replay is written against the engine's real protocols: populate the record
-  store with the re-canonicalized records + justifications + premise marks, then either
-  install the dumped index (`p/index-load`) or rebuild it (`reindex`), then
-  `core/recover` — which rebuilds the JTMS and the taxonomy **from the records**, so a
-  replayed index shortcuts the index and nothing else.  Out of scope: the `:pg-memory`
-  variant."
+  "Import a vaelii export dump, a directory of record streams, into a KB, landing in the state
+  the engine's own restart path (`reindex` / `recover`) produces. `meta.edn` is the marker
+  and schema, and every other file is a nippy stream. Every sentence is re-canonicalized
+  through `res/kb-sentex`; handles are preserved for a dump of ours; the dumped index is
+  replayed only when it is proved to fit, and the summary says which happened and why. A frame
+  that is not of our dialect goes to a foreign reader (`vaelii.impl.foreign`). Out of scope:
+  the `:pg-memory` variant. See docs/storage.md, \"Importing a dump\"."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.walk :as walk]
@@ -137,15 +71,9 @@
 ;;; policy of choosing a reader from a dump's own `meta.edn` (`stream-reader-for`).
 
 (defn- check-frame-count!
-  "Refuse a stream that ended early.  A torn chunk is indistinguishable from a clean EOF — the
-  decompressor cannot tell a truncated file from a finished one — so the only witness
-  a truncated dump leaves is the count `meta.edn` states, and this is the same
-  comparison `replay-index!` makes for the index entries.  Nil `stated` (a dump that
-  states no count) checks nothing.
-
-  `n` is what the **stream yielded**, not what got stored: a frame this build refuses
-  (below) and a frame that collapses onto a handle already stored both leave the store
-  shorter than the dump, and neither is a torn file."
+  "Refuse a stream that ended early (`:truncated-dump`). A torn chunk is indistinguishable from
+  a clean EOF, so the count `meta.edn` states is the only witness. `n` is what the stream
+  yielded, not what got stored. Nil `stated` checks nothing."
   [what n stated]
   (when (and stated (< (long n) (long stated)))
     (throw (ex-info (str "the dump states " stated " " (name what) " and the stream"
@@ -246,17 +174,18 @@
                             (str (name c) " " (format "%,d" (long n)))))
            " — they are not stored, and anything resting on one is dropped with it"))))
 
-(defn- stream-reader-for
-  "The reader for a dump's stream files.  One of ours **states** its framing, because a
-  version number already means something else here; a foreign dump's is inferred from
-  its own version line — v6+ chunked, v4/v5 single-stream.  The inference is for a
-  dump that states *nothing*: a `:framing` this build does not know is a declared
-  field of the frozen format holding a value from some other build, and guessing a
-  reader for it fails later as a decompression error with no `:type` — so it is
-  refused up front, the way an unknown `:compression` is.
+(def ^:dynamic *wrap-reader*
+  "A fn from the stream reader `stream-reader-for` chooses to the reader the import reads
+  every stream file through, or nil for the chosen reader itself.  A reader takes `[file
+  compression]` and answers the file's frames.  The test fixtures bind it to answer the
+  frames of a dump they restore many times from a vector thawed once per JVM
+  (`vaelii.test-util/restore!`)."
+  nil)
 
-  The framing itself is `vaelii.impl.io.frames`'; this only chooses which of its two
-  readers a dump's own `meta.edn` calls for."
+(defn- stream-reader-for
+  "The reader for a dump's stream files. Our own dumps state their framing; a foreign dump's
+  is inferred from its version line (v6+ chunked, v4/v5 single-stream). A `:framing` this
+  build does not know is refused up front, as an unknown `:compression` is."
   [meta]
   (case (:framing meta)
     :chunked frames/read-chunked-seq
@@ -331,33 +260,38 @@
                            " is not supported by this build (supports " supported ")")
                       {:type :unsupported-version :found vn :supported supported})))))
 
+(defn check-dump!
+  "Refuse a dump `meta` describes that this build does not read: a format version outside
+  its dialect's numbering (`:unsupported-version`), and a variant other than `:records` /
+  `:records+index` (`:unsupported-variant`).  Returns the variant."
+  [meta]
+  (assert-supported-version! meta)
+  (let [variant (:variant meta :records)]
+    (when-not (#{:records :records+index} variant)
+      (throw (ex-info (str "unsupported dump variant " variant
+                           " — this importer reads :records / :records+index")
+                      {:type :unsupported-variant :variant variant})))
+    variant))
+
 (defn- assert-empty-destination! [kb]
   (let [n (cap/count-sentexes (:records kb))]
     (when (pos? n)
       (throw (ex-info (str "destination KB is not empty (" n " sentexes); import expects "
-                           "a fresh KB to avoid id collisions — clear the store first")
+                           "a fresh KB to avoid id collisions — clear the store first, or,"
+                           " to keep this KB's writes over a newer dump, open it as a fork"
+                           " ({:backend :overlay :base … :overlay …}) and import with"
+                           " :rebase? true")
                       {:type :not-empty :sentex-count n})))))
 
 ;;; ── frame decode ──────────────────────────────────────────────────────
 
 (defn- our-sentence
-  "The sentence for a frame **our own writer** produced, as its author wrote it — which
-  is what the constructor takes, and is not quite what the frame stores.
-
-  Two things ride beside a rule's `:sentence` rather than in it, and both have to be put
-  back or they are lost silently.  The `set/*Rule` wrappers canonicalized into
-  `:engines` / `:defeasible` / `:effect`, so they go back around it
-  (`rules/rewrap-sentex`) — handing over the bare sentence would turn every defeasible
-  forward rule into a bare backward one.  A frame keyed `:direction` / `:assumption` /
-  `:constraint` spells the same wrappers as three fields, and is read through
-  `sx/fielded-rule-slots`.  And the variables were renumbered to `?var0…`,
-  with `:varmap` holding the names the author used, so those go back in
-  (`sentex/originalize`) — re-canonicalizing the numbered form instead would rebuild the
-  rule correctly and leave it displaying as `?var0` forever.  A fact carries neither: its
-  `not` is already in its sentence.
-
-  A rule frame carries `:sentence` beside `:antecedent` / `:consequent` (`io.export`
-  writes it); one carrying only the two fields is rebuilt from them (`rule-sentence`)."
+  "The sentence for a frame our own writer produced, as its author wrote it. A rule's
+  `set/*Rule` wrappers (`:engines` / `:defeasible` / `:effect`, or the `:direction` /
+  `:assumption` / `:constraint` fields read through `sx/fielded-rule-slots`) go back around
+  it (`rules/rewrap-sentex`), and its `:varmap` names go back in (`sentex/originalize`). A
+  fact carries neither. A rule frame carrying only `:antecedent` and `:consequent` is rebuilt
+  from them (`rule-sentence`)."
   [{:keys [sentence antecedent consequent varmap engines defeasible effect
            direction assumption constraint]}]
   (if (some? antecedent)
@@ -370,21 +304,11 @@
     sentence))
 
 (defn- frame-decoder
-  "A `frame -> {:id :context :sentence :strength …}` decoder for this import.
-
-  A map carrying `:sentence`, or a `RuleSentex`'s fields (an `:antecedent` beside a
-  `:varmap`), is ours and is decoded here; anything else is a foreign dialect's and goes
-  to its reader, resolved **once** (a `delay`, not a lookup per frame — this runs once
-  per frame in the dump) and possibly not there at all, in which case the import refuses
-  with `:no-foreign-reader` for a build that has finished with that format.
-
-  An `:antecedent` alone does not make a frame ours: the engine dialect's field map
-  carries one on every frame — nil on a fact, a collection of literals on a rule — and
-  no `:varmap`.  Read as ours, a fact decodes to a nil sentence, so every fact in a
-  context collapses onto the first, and a rule to an `implies` over literal lists.
-
-  The discrimination is on the frame rather than on `meta.edn`'s `:dialect`, so a
-  declaration cannot be wrong about the bytes beside it and a mixed dump stays readable."
+  "A `frame -> {:id :context :sentence :strength …}` decoder for this import. A map carrying
+  `:sentence`, or a `RuleSentex`'s fields (an `:antecedent` beside a `:varmap`), is ours;
+  anything else goes to the foreign reader, resolved once in a `delay`, and the import
+  refuses with `:no-foreign-reader` when it is absent. An `:antecedent` alone does not make
+  a frame ours. The discrimination is on the frame, not on `meta.edn`'s `:dialect`."
   []
   (let [foreign-decode (delay (:decode-frame (foreign/reader :engine-dump)))]
     (fn [frame]
@@ -411,11 +335,8 @@
 
 ;;; ── progress ──────────────────────────────────────────────────────────
 ;;
-;; A dump of this size loads for minutes, so the streaming passes report how far in they
-;; are.  The report is a **callback**, not a log line, because a caller driving the load
-;; from a UI needs the number rather than the text — and because a callback that throws
-;; is how that caller **cancels**: the throw propagates out of the pass it interrupted,
-;; leaving the KB holding what had already landed (an import is not a transaction).
+;; The streaming passes report through a callback, not a log line, and a callback that throws
+;; cancels the import: the throw leaves the KB holding what had landed.
 
 (defn- ticker
   "A per-frame counter that calls `on-progress` every `every` frames with
@@ -440,43 +361,21 @@
   (boolean (some sx/sentex-handle? (tree-seq sequential? seq sentence))))
 
 (defn- import-sentexes!
-  "Stream the sentex frames: decode each to a readable sentence, re-canonicalize through
-  `res/kb-sentex`, and store it.  Two dump forms that canonicalize to one canonical form
-  dedup to one handle (a local `[sentence context] -> handle` map), so a dump id is never
-  assumed to survive 1:1.
-
-  For a dump of **ours** the record is stored at the handle the dump gave it rather than at
-  a freshly minted one, which is what makes an id in the dump mean something.  It is safe
-  because the destination is empty (`assert-empty-destination!`) and because the counter
-  now clears any handle written this way (`p/next-id`).  Two things can still stop a
-  handle landing as given, and both are counted rather than hidden: a frame carrying no
-  `:id` has none to preserve, and a frame whose canonical form is one already stored
-  **collapses** onto that handle — a dedup this build is right to perform and the dump's
-  numbering cannot survive.  `:collapsed` is counted in either dialect, since it is a
-  fact about the frames rather than about the policy.
-
-  A frame `assert` would expand (`storable-sentexes`) maps its dump id to its first form's
-  handle.  Its further forms are stored after the stream, so a handle minted for one never
-  takes a dump id a later frame claims, and are returned as `:expansions`, `[[first-handle
-  handle] …]`, for `mark-expanded-premises`.
+  "Stream the sentex frames: decode each, re-canonicalize through `res/kb-sentex` and store
+  it. Two forms that canonicalize to one dedup to one handle (a local `[sentence context] ->
+  handle` map). For a dump of ours the record is stored at its dump handle; a frame with no
+  `:id`, or one that collapses onto a stored handle, is counted (`:collapsed` in either
+  dialect). A frame `assert` would expand (`storable-sentexes`) maps its dump id to its first
+  form's handle, and its further forms are stored after the stream and returned as
+  `:expansions` for `mark-expanded-premises`.
 
   Returns `{:sx-meta {dump-id {:handle h :rule? bool :strength s}} :embedding [handle]
   :collapsed n :minted n :expanded {:frames n :records n} :expansions [...] :frames n
-  :refused {…} :fingerprint {…} :naming {…}}` — the source of the old→new id map
-  and the premise decisions, plus the handles whose stored content names another sentex
-  (needing a rewrite once the map is complete, unless every handle was preserved and the
-  map is the identity), plus the fingerprint of what was stored and the count of what the
-  public entry point would have refused, both accumulated **here** because this is the one pass
-  over the records a reader gets.
-
-  A frame whose sentence this build will not construct, or whose record `assert` refuses
-  as one that would answer wrongly (`storable-sentexes`), is **counted in `:refused` and
-  skipped**, so it reaches neither the store nor `sx-meta`.  Anything the deduction
-  streams hang off it therefore fails to resolve and is dropped by the pass that reads
-  them, which is the behaviour those passes already have for a dangling reference.
-  `:strength` is the frame's own, unnormalized: the dialects read it differently (in one
-  of ours it *is* the premise mark; in a foreign dump its own account of what rests on
-  what decides)."
+  :refused {…} :fingerprint {…} :naming {…}}`. `:embedding` lists the handles whose stored
+  content names another sentex. `:fingerprint` and `:naming` are accumulated on this one
+  pass. A frame the constructor will not build, or `assert` refuses, is counted in `:refused`
+  and skipped, so it reaches neither the store nor `sx-meta`. `:strength` is the frame's own,
+  unnormalized."
   [kb frames decode ours? tick! total]
   (let [records   (:records kb)
         seen      (volatile! {})         ; [sentence context] -> handle
@@ -490,17 +389,13 @@
         expanded  (volatile! {:frames 0 :records 0})
         extras    (volatile! [])         ; [first-form-handle record] per further form
         fprint    (fp/accumulator)]
-    ;; The sink marks each record that carries a strength, which only ours do, at its
-    ;; first frame's.  A dump id that collapses onto a handle already stored keeps the
-    ;; **strongest** of the strengths that landed there, an aggregate this write cannot
-    ;; know, so `mark-premises-by-strength` re-marks the handles where it differs once
-    ;; the whole stream is read.  Marking here and not there is what keeps a store whose
-    ;; mark is a column from writing every premise row twice, the second write dead on
-    ;; arrival.
+    ;; The sink marks each record that carries a strength, which only ours do, at its first
+    ;; frame's. A dump id that collapses onto a stored handle keeps the strongest strength, which
+    ;; `mark-premises-by-strength` re-marks once the whole stream is read, so a store whose mark
+    ;; is a column does not write every premise row twice.
     ;;
-    ;; The frame stream is closed beside the sink (`frames/closer`): `tick!` throws when a
-    ;; caller cancels and a duplicate handle throws below, and a frame seq only closes its
-    ;; file when it is consumed to the end or raises the failure itself.
+    ;; The frame stream is closed beside the sink (`frames/closer`): `tick!` throws on cancel and
+    ;; a duplicate handle throws below, and a frame seq only closes its file when consumed.
     (with-open [^java.io.Closeable sink   (cap/sentex-sink records {:premises? (boolean ours?)})
                 ^java.io.Closeable _stream (frames/closer frames)
                 r                          (progress/start ::store-sentexes
@@ -515,11 +410,8 @@
                         (do (vswap! collapsed inc) prior)
                         (let [hh (if (and ours? did)
                                    (do
-                                     ;; a handle is an identity, so a second frame claiming
-                                     ;; one already stored is a broken dump — and writing it
-                                     ;; would destroy the first record with nothing to show
-                                     ;; for it.  Equal content never reaches here; `seen`
-                                     ;; has already collapsed it.
+                                     ;; a handle is an identity, so a second frame claiming one already stored is a broken dump;
+                                     ;; equal content never reaches here (`seen` has collapsed it).
                                      (when (contains? @sx-meta did)
                                        (throw (ex-info (str "dump names handle " did " twice, "
                                                             "with different content")
@@ -540,20 +432,11 @@
           (let [fm    (as-asserted (decode frame))
                 _     (vswap! naming nm/tally (:sentence fm) (:context fm))
                 did   (:id fm)
-                ;; born carrying its strength, so the premise pass below has nothing to
-                ;; re-store: a premise **is** a sentex whose `:strength` is non-nil, and
-                ;; storing it strength-less and marking it after is two record writes per
-                ;; premise — 1.14M of them on OpenCyc, the first dead as the second lands.
-                ;; **Ours only**: in a foreign dump a frame's `:strength` is not the premise
-                ;; mark — that dialect's own account of what rests on what decides, and its
-                ;; reader applies it — so carrying it onto the record here would make every
-                ;; imported *derivation* a premise.
+                ;; born carrying its strength, so the premise pass has nothing to re-store. Ours only: a
+                ;; foreign frame's `:strength` is not the premise mark.
                 ;;
-                ;; A sentence this build's structural checks refuse yields no record at all,
-                ;; so the frame is counted and skipped rather than taking the load down with
-                ;; it.  Only around the construction, and only a refusal carrying a `:type`:
-                ;; a failure to *store* is this build's problem rather than the dump's, and
-                ;; so is any exception nobody chose to raise.
+                ;; A sentence this build's structural checks refuse yields no record, so the frame is counted
+                ;; and skipped, around the construction only and for a refusal carrying a `:type`.
                 recs  (try
                         (cond->> (storable-sentexes kb (:sentence fm) (:context fm)) ; id nil
                           (and ours? (:strength fm))
@@ -580,34 +463,12 @@
      :fingerprint (fprint) :naming @naming}))
 
 (defn- rewrite-embedded-handles!
-  "Rewrite the `(sentexHandle <dump-id>)` terms *inside stored content* to the handles
-  those records landed at.  A meta-sentex names the rule it qualifies by handle in its
-  own sentence, so the id map does not reach it, and a dump id left as it stands would
-  name whatever unrelated record this KB has minted at that number — an exception
-  silently attached to the wrong rule.  A reference the map cannot resolve is not left
-  dangling either: the meta-sentex is dropped, an exception on a rule that is not here
-  being an exception on nothing.
-
-  Only a **remapped** import runs this.  When the handles were preserved the id map is
-  the identity, so the embedded number already names the record it named in the source
-  and there is nothing to rewrite — which is the point of preserving them.
-
-  The rewrite can make two records one.  The sentex pass collapses by the sentence as
-  the dump spelled it, and two rules that collapsed there leave each meta-sentex naming
-  its own dump id: `(exceptWhen q (sentexHandle 7))` and `(exceptWhen q (sentexHandle
-  9))` are two keys until both ids resolve to the one rule.  So a rewritten record whose
-  canonical form an earlier record of this pass already holds is deleted and **merged**
-  onto it, the collapse the sentex pass would have made had the ids been resolved, and
-  the caller points the id map at the survivor (`follow-merged`).  Only records that
-  embed a handle can meet this way, since only their sentences change, and every one of
-  them is in `handles`.
-
-  Returns `{:rewritten n :dropped n :deleted #{handle} :merged {handle survivor}}`, and
-  the deleted handles are not a statistic.  They are records this import stored and has
-  now removed, while `old->new` — built from `sx-meta`, which a delete does not touch —
-  goes on resolving their dump ids: every later reference to one lands on a handle the
-  store no longer holds.  So the caller takes them out of the map (`forget-deleted`)
-  before anything reads it."
+  "Rewrite the `(sentexHandle <dump-id>)` terms inside stored content to the handles those
+  records landed at, for a remapped import only. A reference the map cannot resolve drops
+  the meta-sentex. A rewritten record whose canonical form an earlier record of this pass
+  holds is deleted and merged onto it (`follow-merged`). Returns `{:rewritten n :dropped n
+  :deleted #{handle} :merged {handle survivor}}`; the caller takes the deleted handles out of
+  the id map (`forget-deleted`)."
   [kb handles old->new]
   (let [records   (:records kb)
         rewritten (volatile! 0)
@@ -659,26 +520,11 @@
        :old->new (reduce (fn [m did] (update m did merged)) old->new moved)})))
 
 (defn- forget-deleted
-  "`sx-meta` and `old->new` with every dump id whose record `rewrite-embedded-handles!`
-  deleted taken out of both, and the set of ids that removes — `{:sx-meta m :old->new m
-  :orphaned #{dump-id}}`.
-
-  A meta-sentex is dropped because the rule it qualifies is not in this KB, and the drop
-  has to reach the id map or the import trades one dangling reference for another: the
-  handle *inside stored content* resolves, and every reference to the dropped record
-  itself resolves to a number nothing is stored at.  A justification assembled from one
-  rests on nothing, and no reader downstream can tell — a store answers a missing handle
-  the way it answers any handle it does not hold.
-
-  Which is the whole of the repair, because failing to resolve is a case both deduction
-  readers already handle: `import-justifications!` and a foreign reader's `replay-belief!`
-  each drop a justification whose reference comes back nil, and count it.  The id map is
-  where a deleted record has to stop existing.
-
-  It reaches `sx-meta` for the same reason one step over: the premise marks are read off
-  `sx-meta`, and a deleted handle in there is a premise the store declines to mark
-  (`mark-premise` will not mark a handle with no record) while the count reports it as
-  one."
+  "`sx-meta` and `old->new` with every dump id whose record `rewrite-embedded-handles!` deleted
+  taken out of both, and the set of ids that removes: `{:sx-meta m :old->new m :orphaned
+  #{dump-id}}`. A reference that fails to resolve is dropped and counted by
+  `import-justifications!` and a foreign reader's `replay-belief!`, and the premise marks
+  read `sx-meta`."
   [sx-meta old->new deleted]
   (if (empty? deleted)
     {:sx-meta sx-meta :old->new old->new :orphaned #{}}
@@ -708,43 +554,16 @@
 
 ;;; ── what rests on what ────────────────────────────────────────────────
 ;;
-;; Our own dump says this directly, which is most of what makes it ours: a justification
-;; is a justification rather than something to be classified, and a premise is a sentex
-;; whose `:strength` is non-nil rather than a marker record to be recognized.  A foreign
-;; dialect's account is read by its own reader (`vaelii.impl.foreign`), which is handed
-;; the id map and hands back the same three counts.
+;; Our own dump states justifications and premises directly. A foreign dialect's account is
+;; read by its own reader (`vaelii.impl.foreign`), which is handed the id map.
 
 (defn- assert-no-naf-justifications!
   "Refuse a dump whose `Justification` frame carries a non-empty `:out`
-  (`:naf-justification`), reading the stream for nothing else.
-
-  A `Justification` has no out-list: NAF is re-evaluated rather than stored
-  (docs/naf.md), and the relabel reads a justification's antecedents and its rule and
-  nothing else — `region-fixpoint`'s semi-naive warrant is that `valid?` is monotone in
-  `in`, which a justification invalidated by a datum *entering* is not.  A dump frame is
-  a field map, so it can carry an `:out` key, and a non-empty one names
-  negation-as-failure antecedents this build has nowhere to put: imported without them,
-  the justification would support its conclusion where the exporting KB's did not.
-  Refused rather than dropped: a dropped justification takes belief with it just as
-  silently.
-
-  **A pre-pass, because a refusal in the middle of a write is not a refusal.**  Read
-  from `import-justifications!`' own loop it fired after the whole sentex phase had
-  landed and after every preceding frame had been stored — and `import-dump` is not a
-  transaction, so the store kept the sentexes and an arbitrary prefix of the
-  justifications, with no premise marks and no `recover`.  `assert-empty-destination!`
-  then refused the retry until the operator cleared the KB by hand, for a dump this
-  build was never going to accept.  The frames come off a file, so they can be read
-  before the first write instead, which costs one extra streaming pass over
-  `justifications.nippy.stream` and buys a refusal the caller can act on.
-
-  Called by `land-belief-records!` for a dump of ours — the belief path is the only path
-  that reads this file at all.
-
-  **The stream is closed here**, refusal or not.  This pass exists to throw out of the
-  middle of a walk, and a frame seq only closes its file when it is consumed to the end
-  or raises the failure itself — so the one exit this function is written for is exactly
-  the one that would leave the descriptor open."
+  (`:naf-justification`), reading the stream for nothing else. NAF is re-evaluated, not
+  stored (docs/naf.md), and dropping the frame would take belief with it silently. A
+  pre-pass, because a refusal in the middle of a write leaves the sentexes stored and blocks
+  the retry. Called by `land-belief-records!` for a dump of ours. The stream is closed here,
+  refusal or not."
   [frames total]
   (with-open [_ (frames/closer frames)
               r (progress/start ::check-justifications
@@ -763,52 +582,18 @@
                          :consequence (:consequence frame) :justification (:id frame)}))))))
 
 (defn- import-justifications!
-  "Stream the `Justification` frames against the old→new id map.  Every handle a
-  justification names is remapped — its consequence, its antecedents, and its informant
-  when that is a rule handle rather than a label — and one it cannot resolve drops the
-  justification rather than rebuilding it against whatever record now sits at that
-  number.  A frame listing its rule among the antecedents as well stores the rule once,
-  as the informant (`jtms/->just`).
+  "Stream the `Justification` frames against the old->new id map. Every handle a
+  justification names (consequence, antecedents, and a rule-handle informant) is remapped,
+  and one it cannot resolve drops the justification. A frame listing its rule among the
+  antecedents stores it once, as the informant (`jtms/->just`). With `preserve?` the
+  justification keeps its dump handle. Antecedents land as a vector. A non-empty `:out` is
+  refused earlier, by `assert-no-naf-justifications!`.
 
-  A frame with a non-empty `:out` is refused, and by
-  `assert-no-naf-justifications!` before this phase runs rather than here: the
-  refusal has to land before the first record is written, and by the time this loop
-  reads a frame the sentexes are stored.
-
-  With `preserve?` the justification keeps its own dump handle as well.  Sentexes and
-  justifications are numbered from one counter, so preserving one kind and minting the
-  other would leave the minted ones colliding with the handles the other kind is holding
-  — and a justification handle is what `core/justification` and the web's justification
-  pages are addressed by.
-
-  Antecedents land as a **vector**, which is the form the engine's own write path
-  stores and `jtms/graph-just` normalizes to.  They are read as a set — order and
-  duplicates are immaterial to `has-justification?` — but storing one would leave an
-  imported record spelled differently from an asserted one, and a dump written from an
-  imported KB differing byte for byte from the dump it came from.
-
-  Returns `{:stored n :dropped n :dropped-orphaned n :ids {old-handle new-handle}}`; the
-  id map is what lets a *justification's* provenance be replayed, since `old->new` covers
-  the sentexes only.  `orphaned` is the dump ids `forget-deleted` took out of that map,
-  and it splits the drops in two: a dump that names a sentex it does not carry is a fact
-  about the dump, and a justification *this import* cost is a fact about the load — the
-  same nil at the same call site, and the summary reports them apart.
-
-  The split is on **every** reference that failed, not on any: a frame counts as the
-  load's only when each of its unresolved ids is one this load orphaned, which is exactly
-  the frame that would have resolved whole had those records stayed.  Counting a frame
-  that merely *names* an orphan hands the load every frame the dump had already lost for a
-  reason of its own, which on a dump that hangs deductions off sentexes it never carried
-  is several times the number the load is answerable for.
-
-  `:frames` is what the **stream yielded**, which is a different number from `:stored`
-  and from `:dropped` and is the only one a torn-file check can read: a truncated chunk
-  is indistinguishable from a clean EOF, so what `meta.edn` states is the sole witness
-  (`check-frame-count!`), and a frame this load dropped for an unresolvable reference is
-  not a torn file.
-
-  `jprint` is folded with each justification stored (`fingerprint/justification-hash`),
-  the half of a dump reasoning image's records fingerprint the sentex pass does not take."
+  Returns `{:stored n :dropped n :dropped-orphaned n :ids {old-handle new-handle}}`. The id
+  map lets a justification's provenance replay. `:dropped-orphaned` counts the frames whose
+  every unresolved id `forget-deleted` took out. `:frames` is what the stream yielded, the
+  number `check-frame-count!` reads. `jprint` is folded with each justification stored
+  (`fingerprint/justification-hash`)."
   [kb frames old->new orphaned preserve? tick! jprint total]
   (let [records (:records kb)
         remap   (fn [id] (if (integer? id) (get old->new id) id))
@@ -854,16 +639,10 @@
      :frames @frames-n}))
 
 (defn- mark-premises-by-strength
-  "Mark the premises of a dump of ours: a premise **is** a sentex whose `:strength` is
-  non-nil — the mark rides on the record in both backends, which is why the format needs
-  no premise stream.  Aggregated by handle (dedup can merge several dump ids onto one),
-  keeping the strongest.  Returns the count.
-
-  Only a handle whose aggregate differs from what its record was written with is marked
-  here; the sink marked the rest as it wrote them (`import-sentexes!`).  A handle's record
-  was written by the frame whose dump id it is, since ours keeps its ids, so that frame's
-  entry in `sx-meta` names the strength the record carries.  A handle no entry of its own
-  points at was written by a frame that collapsed elsewhere or by none, and is marked."
+  "Mark the premises of a dump of ours: a premise is a sentex whose `:strength` is non-nil.
+  Aggregated by handle, keeping the strongest. Returns the count. Only a handle whose
+  aggregate differs from what its record was written with is marked here; the sink marked the
+  rest (`import-sentexes!`)."
   [kb sx-meta]
   (let [records   (:records kb)
         by-handle (reduce (fn [acc [_ {:keys [handle strength]}]]
@@ -875,11 +654,9 @@
                     (let [{:keys [handle strength]} (get sx-meta h)]
                       (when (and strength (= h handle)) (strength-class strength))))
         stale     (into {} (remove (fn [[h s]] (= s (written h)))) by-handle)]
-    ;; through `cap/mark-premises`, which on a store that can mark many at once is a
-    ;; statement rather than a write per handle.  The aggregate is why this is a *batch*
-    ;; and not something the record write could have carried: which strength a handle
-    ;; ends at is not known until the whole stream is read.  A dump with no collapse
-    ;; leaves nothing stale, and makes no batch write.
+    ;; through `cap/mark-premises`, a statement and not a write per handle. A batch because the
+    ;; strength a handle ends at is not known until the whole stream is read; a dump with no
+    ;; collapse makes no batch write.
     (when (seq stale) (cap/mark-premises records stale))
     (count by-handle)))
 
@@ -906,23 +683,16 @@
   1000)
 
 (defn- import-provenance-frames!
-  "Replay the `provenance.nippy.stream` — `[handle map]` frames, the handle remapped.
-  Optional: a dump whose handles carry none writes no file.  Belief never reads
-  provenance, so this is annotation only.  Returns the count stored.
-
-  `handles` is the whole old→new map, sentexes **and** justifications: `add-provenance`
-  writes under whatever handle it is given, so a frame can name either kind, and one
-  this map cannot resolve is dropped rather than written under a number now holding
-  something else.  With `drop-principal?` a frame's `:principal` is dropped, and every other
-  key lands as written."
+  "Replay the `provenance.nippy.stream` `[handle map]` frames, the handle remapped. Optional.
+  `handles` is the whole old->new map, sentexes and justifications; a frame it cannot
+  resolve is dropped. With `drop-principal?` a frame's `:principal` is dropped. Returns the
+  count stored."
   [kb dir compression read-fn handles total drop-principal?]
   (let [^java.io.File f (io/file dir frames/provenance-file)]
     (if-not (.exists f)
       0
-      ;; Written a chunk at a time through `cap/put-all-provenance` — one statement per
-      ;; chunk on a store that can write many at once, and the same `put-provenance` per
-      ;; pair on one that cannot.  The stream stays streaming: a chunk is what is held,
-      ;; never the whole file, which on a corpus dump is a provenance map per record.
+      ;; Written a chunk at a time through `cap/put-all-provenance`; a chunk is what is held,
+      ;; never the whole file.
       (let [records (:records kb)
             n       (volatile! 0)
             ;; closed on the way out whether the stream ran to its end or a write threw
@@ -966,19 +736,10 @@
              nil)))))
 
 (defn- index-decision
-  "Whether the dumped index may be replayed, as `[:replay]` or `[:rebuild reason]`.
-
-  Three conditions, and each one is a way the entries could describe something other
-  than the records now in the store: a **layout** this build does not key its index in
-  (which would read as *empty* rather than as wrong), **records** that are not the ones
-  the entries were derived from, and **handles** that moved on the way in (a posting is a
-  set of handles, so a remap makes every one of them name a ghost).
-
-  The layout and records checks are `snapshot/index-mismatch` — the *same* validity core a
-  standalone snapshot image runs, so a dump's index and an image are one check rather than
-  two that could drift.  The handle check is the dump's own, ordered ahead of the records
-  one because a remapped import fails both — its stored-under fingerprint no longer matches
-  the dump's — and `:handles-remapped` is the diagnosis that names the cause."
+  "Whether the dumped index may be replayed, as `[:replay]` or `[:rebuild reason]`. Layout and
+  records are `snapshot/index-mismatch`, the check a mapped image runs; the handle check is
+  the dump's own and runs ahead of the records one, so a remapped import is diagnosed
+  `:handles-remapped`."
   [index-meta fingerprint handles-preserved?]
   (cond
     (nil? index-meta)        [:rebuild :absent]
@@ -987,27 +748,12 @@
             [:rebuild r] [:replay])))
 
 (defn- replay-index!
-  "Install the dumped entries into `kb`'s index, or report why not.  Returns nil on
-  success and a rebuild reason on failure.
-
-  Installed in bounded batches and **checked at the end** rather than realized first: an
-  index dump is several entries per record, so holding one to inspect it would cost more
-  heap than the records did.  A half-installed index is not left behind either way — the
-  caller's fallback is `reindex`, which clears before it rebuilds — so the check is
-  allowed to come after the writes, and what it has to catch is a stream that ends early
-  or does not read at all.  It cannot be a checksum of the entries themselves: they are
-  the thing being validated, and `index.edn` is what vouches for them.
-
-  The install itself is `snapshot/install-entries!` — the same one the mapped image's
-  `load-index!` runs, because a dump's index stream and a snapshot's index section are
-  the same install and two copies of it could refuse a different frame or count a
-  different number.  The file behind the stream is closed on the way out **however this
-  leaves**: a refused frame throws out of the middle of the walk, and the seq only
-  auto-closes on a failure it raises itself or on being consumed to the end.
-
-  `records-only?` leaves out the entries of the families the stored justifications
-  derive (`kv/justification-family-entry?`), since that path stores none; the count
-  checked is the stream's."
+  "Install the dumped entries into `kb`'s index, or report why not: nil on success, else a
+  rebuild reason. Installed in bounded batches through `snapshot/install-entries!` and
+  checked at the end for a stream that ends early or does not read. The file behind the
+  stream is closed however this leaves. `records-only?` leaves out the families the stored
+  justifications derive (`kv/justification-family-entry?`); the count checked is the
+  stream's."
   [kb dir compression read-fn expected records-only?]
   (let [read-n (volatile! 0)]
     (try
@@ -1033,16 +779,10 @@
         :entries-truncated))))
 
 (defn- install-index!
-  "Put the index in place: replay the dump's entries when they can be proved to describe
-  the records just stored, else rebuild from those records.  Returns
-  `{:index :replayed :entries n}` or `{:index :rebuilt :reason r}`.
-
-  A rebuild is logged at `:info` with its reason.  Discarding the cache is always safe,
-  which is what makes the fallback unremarkable — but a cache that silently stops being
-  used is a cache nobody maintains, so the log line is what makes a regression visible.
-  It is also what makes a failed *replay* safe to fall through: `reindex` clears the
-  index before rebuilding, so whatever a broken stream managed to install is wiped.
-  `records-only?` is `replay-index!`'s."
+  "Put the index in place: replay the dump's entries when they fit the records just stored,
+  else rebuild from those records. Returns `{:index :replayed :entries n}` or `{:index
+  :rebuilt :reason r}`. A rebuild is logged at `:info` with its reason, and `reindex` clears
+  the index first, so a failed replay is wiped. `records-only?` is `replay-index!`'s."
   [kb dir compression read-fn index-meta fingerprint preserved? on-progress records-only?]
   (let [[verdict reason] (index-decision index-meta fingerprint preserved?)
         rebuild (fn [r]
@@ -1066,46 +806,17 @@
 ;;; ── records-only (no belief) ──────────────────────────────────────────
 
 (defn- bulk-load-records-only!
-  "The `{:belief? false}` inline pass: for each sentex frame, re-canonicalize, store it,
-  and index it **in the same pass** — indexing the record already in hand rather than
-  storing everything and then re-reading it back through `reindex`, which on the `:disk`
-  record store re-pages every record from disk.
-
-  The records go through a `capabilities/sentex-sink`, which is that same `put-sentex` on
-  every store the engine ships and a bulk write on one that has one (`COPY`, over
-  Postgres).  It can be a *sink* rather than a batched put precisely because of the
-  sentence above: the handle is decided here and the sink is told it, so the index build
-  never waits for a batch to land.  Wrapped in `with-bulk-writes` so a `:memory`
-  index build is one `persistent!` instead of a `swap!` per fact (a no-op on `:disk-log`,
-  which runs its own batched WAL path).
-
-  No dedup map / `sx-meta`: each frame is stored once, so frames map 1:1 to handles and
-  each is indexed exactly once — identical to `reindex` folding over the live handles
-  (the oracle in the engine-dump reader's own tests).  A frame `assert` would expand is
-  the exception: it is stored and indexed once per form, its further forms after the
-  stream.  Two frames with one canonical form
-  therefore land as two records; a dump `export!` wrote holds no such pair, and the ones
-  that reach this path are in docs/naming.md.
-
-  Which is what lets this path preserve handles with no id map at all: with `preserve?`
-  each record is stored at its dump `:id` directly, so a handle a sentence *embeds*
-  (`(exceptWhen … (sentexHandle H))`) still names the record it named in the source.  A
-  frame with no `:id` is minted a handle, and the count of those is what the caller
-  reports — a corpus whose frames are unnumbered has no handles to preserve.
-
-  `index?` is what decides whether the inline index build happens at all.  It is the
-  fast path and the default, but a dump carrying a *replayable* index has a cheaper one
-  still — installing entries beats deriving them — so the caller turns it off when a
-  replay looks possible and installs afterwards.  Reports progress every `report-every`
-  frames.  Returns `{:sentexes n :frames n :rules n :minted n :expanded {:frames n
-  :records n} :refused {…} :fingerprint {…} :naming {…}}`, where `:sentexes` is what got
-  stored and `:frames` is what the stream yielded — the two differ by the refusals and by
-  the further forms of the expanded frames.
-
-  `:naming` folds `nm/tally` over the stored records, counts and classes only (the
-  spellings are `vaelii.bench.survey naming`'s).  `:refused` counts the frames this build
-  will not construct and the records `storable-sentexes` refuses (docs/naming.md, \"Whose
-  invariants: the two policies\")."
+  "The `{:belief? false}` inline pass: for each sentex frame, re-canonicalize, store and index
+  the record in the same pass. Records go through a `capabilities/sentex-sink` inside
+  `with-bulk-writes`. No dedup map and no `sx-meta`: frames map 1:1 to handles, and with
+  `preserve?` each record is stored at its dump `:id`. A frame with no `:id` is minted a
+  handle, and the count is reported. `index?` false skips the inline index build, when the
+  caller will replay the dump's index. Reports progress every `report-every` frames. Returns
+  `{:sentexes n :frames n :rules n :minted n :expanded {:frames n :records n} :refused {…}
+  :fingerprint {…} :naming {…}}`; `:sentexes` is what got stored and `:frames` what the
+  stream yielded. `:naming` folds `nm/tally` over the stored records, and `:refused` counts
+  the frames the constructor will not build and the records `storable-sentexes` refuses
+  (docs/naming.md, \"Whose invariants: the two policies\")."
   [kb frames decode preserve? index? report-every on-progress total]
   (let [records (:records kb)
         index   (:index kb)
@@ -1118,10 +829,8 @@
         expanded (volatile! {:frames 0 :records 0})
         extras  (volatile! [])            ; an expanded frame's further forms
         fprint  (fp/accumulator)
-        ;; a handle is an identity, so a dump naming one twice with different content
-        ;; is a broken dump, and storing the second frame would destroy the first
-        ;; record silently — the same refusal `import-sentexes!` makes, kept a BitSet
-        ;; (a bit per handle) so the streaming path stays streaming
+        ;; a dump naming a handle twice with different content is a broken dump; the same refusal
+        ;; `import-sentexes!` makes, kept in a BitSet so the streaming path stays streaming
         ids     (java.util.BitSet.)]
     ;; the frame stream closed beside the sink (`frames/closer`): a duplicate handle
     ;; throws out of the middle of the walk, and a frame seq only closes its file when it
@@ -1135,14 +844,10 @@
                                                            total)]
       (mem/with-bulk-writes (:backend index)
         (let [;; through a `sentex-sink`, which on every store the engine ships is
-              ;; `put-sentex` and the premise mark — the loop this was — and on a store
-              ;; that bulk-loads is its bulk path.  The handle is decided *here* either
-              ;; way, which is what lets the index build below stay inline: a sink is
-              ;; told the handle rather than asked for it.  `:premises? true`, since the
-              ;; stores keep the premise set as a handle set of its own and `recover` walks it —
-              ;; the record already holds the strength, so the mark is the set-add and
-              ;; never a second record write.  `frame?` is false for an expanded frame's
-              ;; further forms, which have no dump id and are not counted in `:minted`.
+              ;; `put-sentex` and the premise mark, or the store's bulk path. The handle is decided here,
+              ;; so the index build below stays inline. `:premises? true`: the record already holds the
+              ;; strength, so the mark is the set-add and never a second record write. `frame?` is false
+              ;; for an expanded frame's further forms, which are not counted in `:minted`.
               store!
               (fn [rec did frame?]
                 (let [h (if (and preserve? did)
@@ -1170,15 +875,9 @@
             (vswap! seen-n inc)
             (let [fm   (as-asserted (decode frame))
                   _    (vswap! naming nm/tally (:sentence fm) (:context fm))
-                  ;; born carrying its strength, ours only, exactly as the belief path
-                  ;; stores it: the premise mark rides on the record, and `recover` is
-                  ;; what turns this corpus into a believing KB later — a record stored
-                  ;; strength-less here would recover with **nothing** believed, every
-                  ;; handle a derivation with no justification to ground it
-                  ;;
-                  ;; Counted and skipped when this build's structural checks refuse the
-                  ;; sentence, exactly as on the belief path — the same entry point, and a bulk
-                  ;; path is the last place an all-or-nothing refusal pays for itself.
+                  ;; born carrying its strength, ours only, as on the belief path: a record stored
+                  ;; strength-less here would recover with nothing believed. Counted and skipped when this
+                  ;; build's structural checks refuse the sentence.
                   recs (try
                          (cond->> (storable-sentexes kb (:sentence fm) (:context fm))
                            (and preserve? (:strength fm))
@@ -1200,30 +899,12 @@
      :fingerprint (fprint) :naming @naming}))
 
 (defn- import-records-only!
-  "The `{:belief? false}` path: store + index every sentex in one streaming pass, no
-  justifications and no TMS — no JTMS node is created.  The corpus is stored and indexed
-  (browsable by term / functor / argument / context, `find-sentexes`, counts, `lookup`
-  levels 0-1) but not belief-filtered-queryable (`query` / `ask` read the empty TMS).
-  This is what lets a corpus far past what `recover`'s per-node relabel scales to still
-  be loaded.
-
-  **The premise marks are kept for a dump of ours, and only for one of ours** — the whole
-  of the difference, and the reason `:belief? :stored` exists.  Each record of ours is
-  born with its dump strength and listed in `premise-ids`, which adds no work per frame
-  and is what a later `recover` rebuilds belief from.  A **foreign** frame's `:strength`
-  is not the premise mark — that dialect's own account of what rests on what decides, and
-  only its `replay-belief!` reads it — so `preserve?` decides the strength as well as the
-  handle, and a foreign records-only import records no premise at all.  A later `recover`
-  over that store therefore believes **nothing**, and no re-import of the same dump on
-  this path will change that.  A foreign corpus that may want belief later wants
-  `:stored`, which reads the deduction stream and lands the marks.
-
-  Two of the three replay conditions are known **before** a record is stored — the layout
-  the entries are keyed in, and whether this dialect's handles will be preserved — so
-  this path decides upfront whether a replay is even possible.  If it is, the inline
-  index build is skipped and the entries are installed afterwards; if the fingerprint
-  then disagrees (a dump whose index does not match its own records) it falls back to a
-  full rebuild, which is the one case that pays for the record walk twice."
+  "The `{:belief? false}` path: store and index every sentex in one streaming pass, with no
+  justifications and no TMS. The premise marks are kept for a dump of ours and only for one
+  of ours: a foreign frame's `:strength` is not the premise mark, so a foreign records-only
+  import records no premise and a later `recover` believes nothing (`:belief? :stored` is the
+  route for a foreign corpus). This path decides upfront whether a replay is possible from the
+  layout and `preserve?`; a fingerprint mismatch afterwards falls back to a full rebuild."
   [kb dir meta compression read-fn decode preserve? report-every on-progress]
   (let [index-meta (read-index-meta dir)
         possible?  (and index-meta
@@ -1270,7 +951,7 @@
 
 (def ^:private import-opt-keys
   "Every key `import-dump` reads."
-  #{:belief? :report-every :on-progress :drop-principal?})
+  #{:belief? :report-every :on-progress :drop-principal? :reasoners})
 
 (def belief-modes
   "What `:belief?` may be, and what each one loads.
@@ -1284,16 +965,10 @@
    :stored "the same, minus the recover — belief is stored and not settled"
    false   "records and index only; no justification stream is read"})
 
-(defn- check-import-opts!
-  "Refuse an opts key `import-dump` does not read, an unknown `:belief?` value, and a
-  non-nil non-map `opts` — before `meta.edn` is even looked at.
-
-  Two quiet failures, and the value check exists for the second.  `:belief?` misspelt
-  (`{:beleif? false}`) takes the default, which is `true`, so a corpus chosen for the
-  records-only path runs the recovery it was chosen to skip.  And now that the option has
-  three values, a misspelt *value* does the same thing more quietly still: anything
-  truthy would otherwise mean `true`, so `{:belief? :store}` — one letter off `:stored` —
-  would run the recover rather than the load the caller asked for."
+(defn check-import-opts!
+  "Refuse an opts key `import-dump` does not read, an unknown `:belief?` value, and a non-nil
+  non-map `opts`, before `meta.edn` is looked at. A misspelt `:belief?` key or value would
+  otherwise take the default and run the recover the caller meant to skip."
   [opts]
   (opts/check! opts import-opt-keys "import-dump"
                (str "An option nothing reads takes the default in silence, which for"
@@ -1312,36 +987,45 @@
                          " and run the recover.")
                     {:type :unknown-option :mismatch :bad-value :option :belief?
                      :value (:belief? opts)
-                     :values (vec (sort-by pr-str (keys belief-modes)))}))))
+                     :values (vec (sort-by pr-str (keys belief-modes)))})))
+  (when (and (contains? opts :reasoners) (not= :stored (:reasoners opts)))
+    (throw (ex-info (str "unknown :reasoners value " (pr-str (:reasoners opts))
+                         " — import-dump reads :stored, which registers the dump's set")
+                    {:type :unknown-option :mismatch :bad-value :option :reasoners
+                     :value (:reasoners opts) :values [:stored]}))))
+
+(defn dump-reasoners
+  "The reasoners `kb` registers once the dump `meta` describes has landed: nil when `meta`
+  records no set or records `kb`'s own, and the dump's set under `:reasoners :stored` when
+  it holds every name `kb` registered.  Any other pair is refused (`:reasoner-mismatch`);
+  `import-dump` asks before the first write, and `vaelii.core/import!` registers the
+  answer after the recover."
+  [kb meta dir {want :reasoners}]
+  (when-let [dumped (some-> (:reasoners meta) set)]
+    (let [have (kb/reasoners-of kb)]
+      (cond
+        (= dumped have) nil
+        (and (= :stored want) (every? dumped have)) dumped
+        :else (throw (kb/reasoner-mismatch
+                      (str "the dump at " dir) dumped have
+                      (str "Register " (pr-str (vec (sort dumped)))
+                           " on the destination first, or import with :reasoners"
+                           " :stored to register the dump's set.")))))))
 
 (def ^:private content-refusals
-  "The `:type`s of the refusals of a dump's own content that a frame decides in the
-  middle of a record stream, after the frames before it are stored:
-
-    :duplicate-handle      a second frame claims a handle already stored
-    :no-foreign-reader     a frame that is not ours, with no reader to decode it; or a
-                           foreign reader map missing a field the import reads
-    :bad-foreign-manifest  the foreign manifests, read at the first frame that is not ours,
-                           do not read
-    :disallowed-class      a frame names a class (`vaelii.impl.io.thaw`)
-
-  A torn stream (`:truncated-dump`) is not here.  The frames before the tear are the
-  dump's own records, and the records-only path has stored and indexed them by the time
-  the count is compared."
+  "The `:type`s of the refusals of a dump's own content that a frame decides in the middle of
+  a record stream, after the frames before it are stored: `:duplicate-handle`,
+  `:no-foreign-reader` (also a foreign reader map missing a field the import reads),
+  `:bad-foreign-manifest` and `:disallowed-class` (`vaelii.impl.io.thaw`). A torn stream
+  (`:truncated-dump`) is not here."
   #{:duplicate-handle :no-foreign-reader :bad-foreign-manifest :disallowed-class})
 
 (defn- clearing-on-refusal
-  "Call `f`, the phase of an import that writes the records; when it throws a refusal in
-  `content-refusals`, empty `kb`'s record store and index, put back the `:no-belief`
-  hazard `hazards` holds (what the KB declared before the import noted its own), and
-  rethrow.  Any other throw is rethrown with the store as it stands.
-
+  "Call `f`, the phase of an import that writes the records. When it throws a refusal in
+  `content-refusals`, empty `kb`'s record store and index, put back the `:no-belief` hazard
+  `hazards` holds, and rethrow; any other throw is rethrown with the store as it stands.
   `import-dump` refuses a destination holding a sentex, so the wipe removes only what this
-  import wrote.  Its cost is the records the import stored, and the success path pays
-  nothing.  A pre-pass would decide the same refusals before the first write, and would
-  read and thaw the sentex stream, the largest file in a dump, a second time on every
-  import.  A wipe that itself fails is added to the refusal as suppressed, and the
-  refusal is what the caller receives."
+  import wrote. A wipe that fails is added to the refusal as suppressed."
   [kb hazards f]
   (try
     (f)
@@ -1355,7 +1039,9 @@
           (observe/note-change)
           (swap! (:unrecovered kb) #(merge (dissoc % :no-belief) hazards))
           (catch Throwable t (.addSuppressed e t))))
-      (throw e))))
+      (throw e))
+    ;; the records arrived past `kb/create-sentex`, or left
+    (finally (kb/forget-mint-rules! kb) (kb/forget-lazy-rules! kb))))
 
 (defn- land-belief-records!
   "The writes of a `{:belief? true|:stored}` import, in order: the sentex pass, the
@@ -1368,10 +1054,9 @@
   Returns what the summary reads."
   [kb dir meta compression read-fn decode ours? tick jprint drop-principal?]
   (let [replay-belief! (when-not ours? (dump-reader-field :replay-belief!))
-        ;; the last check that can be decided from the dump alone, and so the last one that
-        ;; can be decided before the first write: a `:out` frame refused from inside the
-        ;; justification loop refused a KB that was already holding every sentex the dump
-        ;; had (`assert-no-naf-justifications!`)
+        ;; the last check decidable from the dump alone, so the last before the first write: a `:out`
+        ;; frame refused inside the justification loop would refuse a KB already holding every sentex
+        ;; (`assert-no-naf-justifications!`)
         _ (when ours?
             (assert-no-naf-justifications!
              (read-fn (io/file dir frames/justification-file) compression)
@@ -1473,150 +1158,56 @@
       (recovery/recover-with-image kb bdir {:sentexes sentex-fp :justifications (jprint)}))))
 
 (defn import-dump
-  "Import a vaelii export dump from `dir` into the (empty) `kb` — one
-  `vaelii.impl.io.export` wrote, or one in a foreign dialect this build still carries a
-  reader for (`vaelii.impl.foreign`).
-
-  With `{:belief? true}` (the default) it lands in the state the engine's own restart path
-  produces: the record store populated from the re-canonicalized records + the
-  justifications + premise marks, the index rebuilt (`reindex`), belief recovered
-  (`recover`).  A dump carrying a reasoning image (`export!`'s `:belief?`) is installed in
-  place of the recover when the import kept every handle and the records it landed, the
-  source identity and the belief policies all equal the image's manifest; the summary's
-  `:reasoning-image` says which happened (`{:reasoning :installed}` or `{:reasoning
-  :recovered :reason r}`).
-
-  With `{:belief? false}` it stores + indexes every sentex but skips what rests on what,
-  the premise marks, and `recover` — the whole corpus is browsable / findable / countable
-  but not belief-queryable.  This is the path for a corpus past what `recover`'s per-node
-  relabel and the in-RAM JTMS scale to (`recover` resettles a region per premise and per
-  justification — millions of them would not finish).
-
-  With `{:belief? :stored}` it does everything `true` does **except the `recover`**: every
-  justification, premise mark and provenance entry is stored and the index is installed,
-  and the network is left empty for a `recover` somebody schedules later.  Two things make
-  this its own mode rather than a variant of either end.
-
-  Storing what rests on what and *settling* it are separable work, and only the second
-  fails to finish at corpus scale — so a corpus that cannot afford `recover` today should
-  not have to discard its justifications forever to say so.  And for a **foreign** dialect
-  the records-only path is not a deferral at all: `preserve?` is `(ours? meta)`, so no
-  strength is carried onto a record and no premise is marked, and a later `recover` over
-  that store rebuilds belief from nothing.  `:stored` is the only way a foreign corpus can
-  be loaded now and believed later.
-
-  What the KB answers in between is exactly what `{:belief? false}` answers — stored-side
-  reads work, every believed one is empty — and the browser says so
-  ([docs/web.md](../../../../docs/web.md), *Reading a KB that is not finished*).  The
-  difference is not in what it answers, it is in what it can become.
-
-  Reads `meta.edn` first and dispatches on it: the version is checked against its own
-  dialect's numbering, the destination must be empty, and only the `:records` /
-  `:records+index` variants are read.  `:pg-memory` and an unknown variant throw.
+  "Import a vaelii export dump from `dir` into the empty `kb`: one `vaelii.impl.io.export`
+  wrote, or a foreign dialect this build has a reader for (`vaelii.impl.foreign`). Reads
+  `meta.edn` first; the version is checked against its dialect's numbering and the
+  destination must be empty (`:pg-memory` and an unknown variant throw).
 
   `opts`: `{:belief? true|:stored|false :report-every n :on-progress f :drop-principal?
-  bool}`.  `:drop-principal? true` lands every provenance map without its `:principal`.  An
-  unknown `:belief?` **value** is refused by name, since anything truthy would otherwise mean
-  `true` and run the recover.  `:on-progress` is called
-  every `report-every` frames with `{:phase :done :total}` — the phases a dump has, in
-  order: `:sentexes`, then (on the belief path) `:justifications` for one of ours or
-  whatever phase a foreign reader reports, then either `:index-entries` (a replay) or
-  `:reindex` (a rebuild).  A callback that **throws** aborts the import where it stands,
-  which is how a caller cancels one; the KB is left holding what had already landed,
-  since an import is not a transaction.
+  bool}`. `:belief? true` (the default) lands in the state the restart path produces,
+  installing a dump's reasoning image in place of `recover` when every handle was kept and
+  the records, source identity and belief policies equal its manifest; `{:reasoning
+  :installed}` or `{:reasoning :recovered :reason r}` says which. `false` stores and indexes
+  every sentex and skips justifications, premise marks and `recover`. `:stored` does
+  everything `true` does except `recover`. An unknown `:belief?` value is refused by name.
+  `:drop-principal? true` lands provenance without `:principal`. `:on-progress` is called
+  every `report-every` frames with `{:phase :done :total}`; a callback that throws cancels
+  the import where it stands, and the KB keeps what landed.
 
-  **A dump refused for its own content leaves the store as it found it**, so the retry
-  needs no `clear!`.  Two mechanisms hold this.  The refusals that `meta.edn`, the reader
-  map and a pre-pass decide land before the first write: the version check, the empty
-  destination, the variant, a foreign reader with no `:replay-belief!`, and a non-empty
-  `:out` on a justification frame (`assert-no-naf-justifications!`).  The refusals a
-  frame decides in the middle of the sentex stream (`content-refusals`: a handle named
-  twice, a frame that is not ours with no reader for it, foreign manifests that do not
-  read, a frame naming a class) are met after the frames before it are stored, and the
-  import then empties the record store and the index before it rethrows
-  (`clearing-on-refusal`).  The destination held no sentex when the import began, so
-  the wipe removes only what this import wrote.  Any other failure — a cancelled
-  callback, a torn stream, a full disk, a store that stops — leaves the KB holding what
-  had already landed, as the paragraph above says.
+  A dump refused for its own content leaves the store as it found it (the refusals before the
+  first write, and `content-refusals` through `clearing-on-refusal`).
 
-  The summary reports the `:dialect` read and the `:handle-policy` used —
-  `:preserved` (every record is at the handle the dump gave it) or `:remapped` (with
-  `:collapsed`, how many frames canonicalized onto a handle already stored) — and what
-  became of the index: `{:index :replayed :entries n}` or `{:index :rebuilt :reason r}`
-  (`:absent` / `:layout-changed` / `:handles-remapped` / `:records-differ` /
-  `:entries-truncated`).  A caller cannot see any of it for itself, and the first two are
-  required for the third: an index entry is a posting of handles, so it can only be
-  replayed over a `:preserved` import.
-
-  `:naming` is the count of what this import stored that `assert` would have refused —
-  `{:checked n :refused n :by-class {…}}`, logged as a warning when it is not zero.
-  Neither import path runs the naming check (both build records directly, which is what
-  makes a corpus this size loadable at all), so the disagreement between the two entry points is
-  closed by *reporting* it: the operator who chose the bulk path learns the number while
-  the records go past, rather than from a re-assertion that throws a year later.
-
-  `:refused` is the same account for the entry point one over — `{:checked n :skipped n
-  :by-type {…}}`, also logged as a warning.  These are frames whose sentence this build
-  will not **construct**: the structural checks live inside the sentex constructor, so
-  there is no record to store when one fires, and the frame is skipped rather than taken
-  as a reason to abandon the load.  A rule an older build stored, or another engine's,
-  can be one a since-widened check refuses.  The frames `assert` refuses whose record
-  would answer wrongly — an open literal, a rule whose antecedent functor is a variable, a
-  malformed special-predicate declaration, a non-finite measure, an `exceptWhen` over a
-  fact, a sentex in a query context — are skipped and counted here too, under the `:type` `assert`
-  raises; an `(ist Ctx S)` frame is stored as S in Ctx, as `assert` stores it (the note
-  above `as-asserted`).  A rule frame `assert` would expand is stored as one record per
-  form, counted in `:expanded` as `{:frames n :records n}`.  `:sentexes` and `:frames`
-  differ by exactly these refusals, `:collapsed`, and the further forms `:expanded`
-  counts.
-
-  **A dropped meta-sentex is reported the same way, and so is what it takes with it.**  A
-  remapped import drops a meta-sentex whose embedded `(sentexHandle H)` names a rule this
-  dump does not carry (`:dropped-meta-sentexes`), which leaves `:orphaned-ids` dump ids
-  with no record to resolve to; every reference to one is dropped, and
-  `:dropped-justifications-orphaned` is how many justifications that cost — the ones whose
-  *every* unresolved reference is such an id, so they would have resolved whole had the
-  records stayed.  A subset of `:dropped-justifications`, which also counts the references
-  a dump makes to sentexes it never carried.  Reported apart because they are different
-  facts: the second is what the dump is like, the first is what this load did to it.
-
-  **Skipping is not repair.** A skipped rule is gone from the store, and every
-  justification, provenance entry and meta-sentex naming it fails to resolve and is
-  dropped in turn.  What the number buys is that the operator learns which records those
-  were from a summary, on a load that finished, instead of from a stack trace late into
-  one that did not."
+  The summary reports `:dialect`, `:handle-policy` (`:preserved`, or `:remapped` with
+  `:collapsed`), `:index` (`{:index :replayed :entries n}` or `{:index :rebuilt :reason r}`),
+  `:naming` (what `assert` would have refused, `{:checked n :refused n :by-class {…}}`),
+  `:refused` (`{:checked n :skipped n :by-type {…}}`, frames the constructor will not build
+  or whose record would answer wrongly), `:expanded`, `:dropped-meta-sentexes`,
+  `:orphaned-ids`, `:dropped-justifications` and `:dropped-justifications-orphaned`.
+  Skipping is not repair: whatever names a skipped rule is dropped in turn. See
+  docs/storage.md, \"Importing a dump\"."
   ([kb dir] (import-dump kb dir {}))
   ([kb dir {:keys [belief? report-every on-progress drop-principal?]
             :or   {belief? true report-every 500000 on-progress no-progress}
             :as   opts}]
    (check-import-opts! opts)
    (let [meta    (read-meta dir)
-         variant (:variant meta :records)]
-     (assert-supported-version! meta)
+         variant (check-dump! meta)]
      (assert-empty-destination! kb)
-     (when-not (#{:records :records+index} variant)
-       (throw (ex-info (str "unsupported dump variant " variant
-                            " — this importer reads :records / :records+index")
-                       {:type :unsupported-variant :variant variant})))
+     (dump-reasoners kb meta dir opts)
      (let [compression (or (:compression meta) :none)
-           read-fn     (stream-reader-for meta)
+           read-fn     (cond-> (stream-reader-for meta) *wrap-reader* (*wrap-reader*))
            decode      (frame-decoder)
            ;; what the KB declared before this import declares its own, which a refusal
            ;; of the dump's content puts back (`clearing-on-refusal`)
            hazards     (select-keys @(:unrecovered kb) [:no-belief])]
-       ;; Declared before the first write, because nothing downstream can work it out by
-       ;; reading: a load that skips the recover (`false`, `:stored`) leaves a store
-       ;; byte-for-byte identical to one a KB of `assert-inert` sentexes wrote, and the
-       ;; KB doing the loading has already had its belief noted clean by `open-kb` over
-       ;; the empty destination this load is about to fill.  Said here rather than at
-       ;; the end so it holds for the whole load, including one that throws part-way.
+       ;; Declared before the first write: a load that skips the recover (`false`, `:stored`)
+       ;; leaves a store identical to one of `assert-inert` sentexes, and `open-kb` has already noted
+       ;; the empty destination's belief clean. Said here so it holds when the load throws part-way.
        (when-not (true? belief?)
          (kb/note-hazards! kb {:no-belief true}))
-       ;; A bulk load accumulates index deltas monotonically, tripping the disk
-       ;; durability daemon's dead-ratio compaction trigger repeatedly; each firing
-       ;; rewrites the whole (growing) index under the backend lock, stalling the writer.
-       ;; Pause auto-compaction for the load and let the daemon compact once afterwards
-       ;; (a no-op on `:memory`, which registers no daemon).
+       ;; A bulk load trips the disk durability daemon's dead-ratio compaction repeatedly, each
+       ;; rewriting the growing index under the backend lock. Pause auto-compaction for the load;
+       ;; the daemon compacts once afterwards (a no-op on `:memory`).
        (dur/call-with-compaction-paused
         (fn []
           ;; `false` is the only value that skips the belief phases; `:stored` runs them
@@ -1641,16 +1232,10 @@
                    kb hazards
                    #(land-belief-records! kb dir meta compression read-fn decode ours?
                                           tick jprint drop-principal?))]
-              ;; put the index in place — the dump's own entries when they can be proved
-              ;; to describe these records, else rebuilt from them — and then recover the
-              ;; JTMS + taxonomy and settle belief.  Recovery reads the *records*, so
-              ;; whichever way the index arrived it is the same restart a durable KB makes.
-              ;;
-              ;; `:stored` stops here, and the boundary is this one call.  Everything above it
-              ;; is a write to the store; `recover` is the only step that builds in-memory
-              ;; state, so skipping it leaves a store a later `recover` reads exactly as it
-              ;; reads one a restart finds — which is what makes the settling schedulable
-              ;; rather than a condition of the load.
+              ;; put the index in place, the dump's own entries when they fit these records, else rebuilt
+              ;; from them, and then recover the JTMS and taxonomy and settle belief. `:stored` stops here:
+              ;; `recover` is the only step that builds in-memory state, so a later `recover` reads the
+              ;; store as a restart would.
               (let [idx (install-index! kb dir compression read-fn (read-index-meta dir)
                                         fingerprint kept? on-progress false)
                     img (when (true? belief?)

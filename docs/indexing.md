@@ -54,7 +54,7 @@ ints and keywords keep their type. The whole layout:
 | `[:rule-consequent :children [key]]` | set | the contexts that state such a rule |
 | `[:rule-consequent :handles [key ctx]]` | set | the handles of those rules stated in `ctx` |
 | `[:rule-antecedent-keys]` | set | every antecedent key some stored rule takes (keys, not handles) |
-| `[:rule-extent :count [kind]]` | integer | how many rules of `kind` are stored: `:rule` every rule, `:solve` the rules a solve reads |
+| `[:rule-extent :count [kind]]` | integer | how many rules of `kind` are stored: `:rule` every rule, `:solve` the rules a solve reads, `:lazy` the lazy-forward rules |
 | `[:rule-extent :children [kind]]` | set | the contexts that state such a rule |
 | `[:rule-extent :handles [kind ctx]]` | set | the handles of those rules stated in `ctx` |
 | `[:opposed :count [body]]` | integer | how many facts of `body`, either polarity, are stored while both polarities are |
@@ -90,6 +90,7 @@ ints and keywords keep their type. The whole layout:
 | `[:mint-in :count []]` | integer | how many records are filed as mints |
 | `[:mint-in :children []]` | set | the contexts holding a filed mint |
 | `[:mint-in :handles [ctx]]` | set | the handles of the mints filed in `ctx` |
+| `[:mint-rules]` | set | the `[kind handle]` of every stored rule of `kv/mint-rules` (pairs, not handles) |
 
 The registry's `:shape` ([below](#the-index-family-registry)) says which families keep
 explicit counters: the positional trie and the count tries, because a node's count
@@ -779,7 +780,7 @@ keyed by each distinct antecedent key or by the consequent's key:
 [:rule-antecedent :handles  [<key> <ctx>]] -> #{handles} those stated in ctx
 [:rule-consequent …]                       -> the same, by consequent key
 [:rule-antecedent-keys]                    -> #{keys}    every key some rule takes
-[:rule-extent :count    [<kind>]]          -> n          every rule (:rule), solve rules (:solve)
+[:rule-extent :count    [<kind>]]          -> n          every rule (:rule), solve rules (:solve), lazy (:lazy)
 [:rule-extent :children [<kind>]]          -> #{ctxs}    the contexts stating one
 [:rule-extent :handles  [<kind> <ctx>]]    -> #{handles} those stated in ctx
 ```
@@ -1184,7 +1185,7 @@ other path is the scoped-read check's walk over the targets the stored `except`s
 ## 10. The mint family
 
 A **mint** is a record a stored justification of an argument declaration concludes
-(`special/mint-informant?`), and the mint family files each one whose sentence is a
+(`kb/mint-informant?`), and the mint family files each one whose sentence is a
 membership `(T x)` or an edge `(genl x T)`, by `x` and by its context.  The settle's mint
 withdrawal reads it ([argtypes.md](argtypes.md#pruning-what-the-kb-says-more-specifically--vaelii_prune_subsumed_mints-on)).
 
@@ -1222,6 +1223,13 @@ is stored (`reads/stored-mint-count-global`), and its leaves answer the mints st
 as `[:opposed-in ctx]` does, and the read needs it: through `:mint` alone, the mints in a set of
 contexts cost a probe per mint term whatever the set
 ([defenses.md](defenses.md#the-mints-by-context-read-a-context-first-leaf)).
+
+`[:mint-rules]` holds the `[kind handle]` of each stored rule of `kv/mint-rules`, the
+inert rules the mints are justified under.  `index-sentex` posts it from the sentence in
+hand (`kv/mint-rule-kind`), and `unindex-sentex!` takes it out, so it rebuilds with the
+index at `reindex` and at a layout rebuild.  `kb/mint-rule-table` reads it once
+(`reads/as-stored-mint-rules`) and holds the map until a rule of `kv/mint-rules` is
+stored or removed or the stores are rewritten (`kb/forget-mint-rules!`).
 
 ## What the structural index does not reach
 

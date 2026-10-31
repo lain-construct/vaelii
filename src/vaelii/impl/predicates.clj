@@ -143,40 +143,23 @@
     :none})                   ; nothing is cached; the declaration is read back per use
 
 (def facet-contract
-  "What carrying a facet commits the declaration to — the closed vocabulary's own
-  contract, and what `check-facets` walks.  Keyed by facet, and **its keys are the
-  vocabulary**: `facets` below reads them, so a row is what makes a facet exist and
-  there is no second list to hold in step with this one.  Growing the vocabulary is
-  therefore one edit that cannot leave the implication unwritten — a keyword with no
-  row is not a facet whose meaning its first user decides, it is not a facet.
+  "What carrying a facet commits the declaration to, and what `check-facets` walks.  Keyed by
+  facet; the keys are the vocabulary (`facets` reads them), so a facet exists only with a row.
 
-    :implies  the facets carrying this one entails.  Each is a bug the repo has paid
-              for, stated as an implication rather than as a review item: `:convicts`
-              without `:reach` convicts at the entry point and misses everything stored before
-              it, permanently, in the declaration-last arrival order (#54);
-              `:arbitrable` without `:convicts` arbitrates a violation nothing raises;
-              `:derived` and `:migrates` without `:cached` name a derivation path for a
-              triple that does not exist; `:query-only` without `:answers` is a term
-              refused at the entry point and answered by nothing at all; `:retriggers` without
-              `:answers` posts a re-check for a goal no prover takes.
-    :lane?    is this a lane a mark **family** has to agree about.  The enforcement
-              lanes are: a family joined to one of them in one spelling and not another
-              fails silently in the arrival order that spelling was the only way into,
-              which is #52 and #54, one omission and two lanes.  So is `:answers`, for
-              the same reason seen from the query side — `provers/meta-constraint-shape`
-              is one table over the argument-constraint family, and a spelling missing
-              from it is answered from stored facts alone where its siblings are answered
-              up the `genl` closure.  `:retriggers` is not: a re-check posting is one line
-              inside one arm, aimed at what that arm's own conclusion changes.
-              `:query-only` and `:inert` are classifications of the whole term, which a
-              family read by anything at all cannot differ about.
+      :implies  the facets carrying this one entails: `:convicts` without `:reach` misses
+                everything stored before the declaration; `:arbitrable` without `:convicts`
+                arbitrates a violation nothing raises; `:derived` and `:migrates` without
+                `:cached` name a derivation path for a triple that does not exist;
+                `:query-only` without `:answers` is refused and answered by nothing;
+                `:retriggers` without `:answers` posts a re-check for a goal no prover takes.
+      :lane?    whether a mark family has to agree about the facet.  The enforcement lanes
+                and `:answers` are lanes (`provers/meta-constraint-shape` is one table over
+                the argument-constraint family).  `:retriggers` is not: it is one line inside
+                one arm.  `:query-only` and `:inert` classify the whole term.
 
-  An implication a term does not satisfy is not automatically a refusal: it is a
-  refusal *unless the entry records the exception*, in `:stops-short`.  Five entries carry
-  one today, over six facets: three terms convict with no reach, and three answer goals
-  about a predicate and post no re-check of their own.  Each reason is about the engine rather than about the
-  declaration, and the point of the field is that the reason is written where a validator
-  can hold it to being exactly the set that is owed."
+  An unsatisfied implication is a refusal unless the entry records the exception in
+  `:stops-short`: three terms convict with no reach and three answer goals about a predicate
+  and post no re-check of their own."
   {:cached     {:implies #{}                :lane? true}    ; special/entries gives it the integrate/disintegrate/rebuild triple
    :derived    {:implies #{:cached}         :lane? true}    ; …and that triple runs on the derivation path too (:derived?)
    :migrates   {:implies #{:cached}         :lane? true}    ; asserting it merges terms — kb/equality-predicates
@@ -200,32 +183,20 @@
   (set (keys facet-contract)))
 
 (def mark-families
-  "The families whose spellings must move together.  A family lives in more than one
-  lane and has twice been joined to only one (#52, #54), so the family is named once and
-  each spelling carries it.  `tax/functional-family-marks` and
-  `tax/arg-declaration-props` are this field read back.
+  "The families whose spellings must move together, named once so each spelling carries it.
+  `tax/functional-family-marks` and `tax/arg-declaration-props` are this field read back.
 
-  **`:functional`** is acted on by the *merge* lane (`special`'s `equate-*` entry points, where
-  two fillers of a functional slot are equated) and by the *candidate* lane
-  (`decide`'s candidate index and `special/offer-marked-existing`, where two unmergeable
-  fillers form a nogood the settle places).  Both lanes have to recognize the same spellings, and neither fails loudly
-  when it does not — the merge simply does not happen, or the clash simply is not
-  reported, in the one arrival order that route was the only way into.  Enrolling
-  `functionalInArg` by name in each place is what left #52 (the declaration-last merge
-  entry point held an exact-functor test) and #54 (the declaration arrived and swept nothing)
-  open at the same time, in different lanes, from the same omission.  So a third
-  spelling is added *here* and the lanes follow.
+  - `:functional` is acted on by the merge lane (`special`'s `equate-*` entry points) and by
+    the candidate lane (`decide`'s candidate index and `special/offer-marked-existing`).  Both
+    must recognize the same spellings, and neither fails loudly when it does not.  A third
+    spelling is added here and the lanes follow.
+  - `:argument-constraint` is the four declarations that constrain a predicate's argument
+    positions.  They are read as one (the descension asks per super-predicate whether it
+    declares anything, `special/entail-existing` sweeps three of them, `checks` pairs two) and
+    each is written at its own arity.
 
-  **`:argument-constraint`** is the four declarations that constrain a predicate's
-  argument positions.  They are read as one — the descension asks per super-predicate
-  whether it declares *anything*, `special/entail-existing` sweeps three of the four,
-  `checks` pairs two of them against each other — and each is written at its own arity,
-  which is why the family is the thing a reader names and the shape is not.
-
-  A family is **not** a storage kind.  `functional` stores under the `:functional`
-  prop where `functionalInArg` stores `[pred n]` pairs; the two have no common storage
-  to be listed by, only a common family and a common argument 1.  Keep `:family` and
-  `:storage` separate or #52 comes back with a new number."
+  A family is not a storage kind: `functional` stores under the `:functional` prop and
+  `functionalInArg` stores `[pred n]` pairs.  Keep `:family` and `:storage` separate."
   #{:functional :argument-constraint})
 
 ;; ---- entry constructors --------------------------------------------------
@@ -335,21 +306,12 @@
 ;; ---- the vocabulary answer -----------------------------------------------
 
 (defn- enforced
-  "`spec` plus `where` — the prose naming the code path that reads the term, which is
-  what `vocabulary/classification` answers with and what `core/interpreted` hands a KB author.
-
-  **Prose, and not generated prose.**  No facet set can produce
-  \"taxonomy/add-genl — the cached closure every membership, match and placement reads\",
-  and a sentence assembled from `#{:cached :convicts}` would be worse than none: the
-  audit exists so an author can be told *where* the enforcement is, which is the half of
-  the answer that stays a judgement.  What is no longer a judgement is the **class** —
-  `classification` reads that off `:facets`, so a term the engine demonstrably reads cannot be
-  called inert by writing different prose beside it.
-
-  Nil-tolerant, because the question is only asked about terms core.txt comments: the
-  grammar terms it does not comment (the query operators other than `different`) pass
-  through unchanged, and `vocabulary/audit` is what notices a
-  term the *ontology* names and this file answers for with nothing."
+  "`spec` plus `where`: the prose naming the code path that reads the term, which
+  `vocabulary/classification` answers with and `core/interpreted` hands a KB author.  The prose
+  is written by hand, since no facet set can name the path.  The class is read off `:facets` by
+  `classification`, so a term the engine reads cannot be called inert by different prose.
+  Nil-tolerant: grammar terms core.txt does not comment pass through, and `vocabulary/audit`
+  notices a term the ontology names and this file answers with nothing."
   [spec where]
   (cond-> spec where (assoc :enforced where)))
 
@@ -1354,9 +1316,9 @@
     ;; `empty` and `nonempty` partition `unary_predicate`.  The disjointness audit reads
     ;; both by name to decide whether a shared subtype witnesses an overlap.
     [['empty    (enforced (collection :notes "a unary predicate with no instance in the context the claim is stated in.")
-                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (empty c) is no overlap witness")]
+                          "integrity/subsumption-reading — a shared subtype for which a facts-only read answers (empty c) is no overlap witness")]
      ['nonempty (enforced (collection :notes "a unary predicate with at least one instance in the context the claim is stated in.")
-                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (nonempty c) is the :shared-spec witness")]]
+                          "integrity/subsumption-reading — a shared subtype for which a facts-only read answers (nonempty c) is the :shared-spec witness; provers/NonemptyProver — answers (nonempty c) for a type c with a believed member")]]
 
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
@@ -1571,6 +1533,7 @@
            [set/defaultRule  "sentex/peel-rule-wrapper — sets the conferred strength"]
            [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]
            [set/forwardOnlyRule "sentex/peel-rule-wrapper — sets the rule's direction"]
+           [set/lazyForwardRule "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/solveRule    "sentex/peel-rule-wrapper — adds :solve to the rule's engines"]
            [set/assumptionRule "sentex/peel-rule-wrapper — sets the rule's effect to :choose"]
            [set/hardConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :forbid"]
@@ -2065,63 +2028,37 @@
                             " predate it keep a conclusion the firings after it drop")]))))
 
 (defn check-facets
-  "Refuse at load a declaration whose facets do not add up — the check that turns wiring a
-  new predicate into both lanes of a family from a review item into a build failure.
+  "Refuse at load a declaration whose facets do not add up.  `above` carries what the layers
+  above this namespace enumerate, and the validator is called from `settle`'s namespace load,
+  the first place every facet's arm is visible:
 
-`above` carries what the layers above this one enumerate, because this namespace is the
-  bottom one: a namespace holding both the declarations and the arms could only sit at the
-  *top* of the stack, where `taxonomy` and `wff` could not read it.  So the facts that live
-  above arrive as arguments, and the validator is **called** from `settle`'s namespace
-  load, which is the first place every facet's arm is visible.
-
-  * `:recheck-subjects` — the functors that post exception re-checks through the shared
-    path (`special/declaration-subjects`) rather than from an arm of their own.
-  * `:family-lists` — `family -> {list-name functors}`, the lists that read a mark
-    family **as a family**.  Each must enumerate exactly that family.
-  * `:clash-checks` — `direction -> #{violation}`, the `try-assert` checks the layer
-    above resolves (`checks/fact-clash-checks`, `checks/declaration-clash-checks`).
+  - `:recheck-subjects`: the functors that post exception re-checks through the shared path
+    (`special/declaration-subjects`).
+  - `:family-lists`: `family -> {list-name functors}`, the lists that read a mark family as a
+    family.  Each must enumerate exactly that family.
+  - `:clash-checks`: `direction -> #{violation}`, the `try-assert` checks the layer above
+    resolves (`checks/fact-clash-checks`, `checks/declaration-clash-checks`).
 
   Seven rules, ten `:mismatch` values:
 
-  * a field value outside its closed vocabulary — a facet, a storage kind, a family, an
-    argument kind.
-  * `:cached` and a `:none` storage, or a storage and no `:cached`.  The two say the same
-    thing and cannot disagree.
-  * an `:arbitrable` term with no `:opposing-read` prose.  The third conjunct of
-    arbitrability — that the read the conviction is made through does not depend on the
-    belief the nogood moves — is not decidable from data, so the encoding is a
-    required claim.  `arity` carries the same field with the negative answer, which is
-    why it names a second sentex and is still not arbitrable.
-  * an `:inert` term carrying another facet or a storage.  The `inert` constructor makes
-    that unwritable; this is what says the constructor is still the only way in.
-  * a list that reads a family as a family and enumerates something else.  This is the
-    `:enumeration` rule of `special/check-declarations` at the family level, and it is the
-    one rule here with **no** `:stops-short` escape: where a facet is a claim that an
-    entry can answer for in prose, a list is a set sitting in another namespace, and two
-    enumerations of one fact do not get to disagree.  `quotedArg` is why it exists — the
-    entry point read it up `res/constraining-predicates` with its three siblings while
-    `provers/meta-constraint-shape` had no row for it, so one declaration meant one thing
-    to `assert` and another to `ask`.  The lane rule below caught that and offered a
-    record; a record is the wrong answer to two lists disagreeing.
-  * a `:clash-checks` entry naming a direction or a check `:clash-checks` does not hold
-    (`:clash-check`).
-  * a facet the entry is **committed to** and does not carry, by one of three rules —
-    `:implication` (`facet-contract`), `:family-lane` (a sibling spelling carries it) or
-    `:recheck` (it answers goals about a predicate and posts no re-check) — unless the
-    entry records the exception in `:stops-short`.  The record is held to being *exactly*
-    the owed set, in both directions, so it can neither be missing nor go stale.
+  - a field value outside its closed vocabulary (a facet, a storage kind, a family, an
+    argument kind);
+  - `:cached` with a `:none` storage, or a storage without `:cached`;
+  - an `:arbitrable` term with no `:opposing-read` prose (that the conviction's read does not
+    depend on the belief the nogood moves is not decidable from data);
+  - an `:inert` term carrying another facet or a storage;
+  - a list that reads a family as a family and enumerates something else.  This rule has no
+    `:stops-short` escape, since two enumerations of one fact may not disagree;
+  - a `:clash-checks` entry naming a direction or check that `:clash-checks` does not hold
+    (`:clash-check`);
+  - a facet the entry is committed to and does not carry, by `:implication`
+    (`facet-contract`), `:family-lane` (a sibling spelling carries it) or `:recheck` (it
+    answers goals about a predicate and posts no re-check), unless `:stops-short` records the
+    exception.  The record must equal the owed set exactly.
 
-  **What no rule can refuse** is a spelling dropped from its family outright: membership
-  is a stated fact, as `:inert` is, and every rule above is about spellings that *are*
-  enrolled agreeing with each other.  `predicates_test` asserts `tax/functional-family-marks`
-  as a literal for exactly that move.
-
-  Rule 1 of the registry — `:cached` implies the whole integrate / disintegrate / rebuild
-  triple — is **not** here.  It is `special/check-entries`, at the arm layer, where the
-  arms are visible and a `special` load proves it on its own; duplicating it here would
-  move the arm check to the top of the stack for nothing.
-
-  O(declarations), no KB, no I/O, no reflection: `check-entries` is the budget.  Returns
+  No rule refuses a spelling dropped from its family outright; `predicates_test` asserts
+  `tax/functional-family-marks` as a literal.  The `:cached` implies integrate / disintegrate
+  / rebuild rule is `special/check-entries`.  O(declarations), no KB, no I/O.  Returns
   `entries` unchanged so it can wrap a def."
   [entries {:keys [recheck-subjects family-lists clash-checks]}]
   (let [refuse (fn [mismatch msg data]

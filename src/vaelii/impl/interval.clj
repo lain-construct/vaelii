@@ -7,6 +7,7 @@
   See docs/time.md and docs/qcn.md."
   (:require [vaelii.impl.naming :as nm]
             [vaelii.impl.point :as pt]
+            [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.stp :as stp]
             [vaelii.impl.timepoint :as tp]))
@@ -123,13 +124,10 @@
                    :finishes #{:finishes} :finished-by #{:finished-by}
                    :equal #{:equal}}})
 
-(defn compose
-  "The composition of two relation sets: the union of the table entries over every
-  member pair."
-  [s1 s2]
-  (into #{}
-        (mapcat (fn [a] (mapcat (fn [b] (get-in allen-composition [a b])) s2)))
-        s1))
+(def compose
+  "The composition of two relation sets: the union of the `allen-composition` entries over every
+  member pair (`qcn/compose-by`)."
+  (qcn/compose-by allen-composition))
 
 (def allen-algebra
   "Allen's interval algebra as a `vaelii.impl.qcn` relation algebra."

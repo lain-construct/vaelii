@@ -302,9 +302,6 @@
 
 ;; ---- 7. a weighted bound: each head counts the weight a fact gives it ----
 
-(defn- refusal-type [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
-
 (deftest a-weighted-bound-is-a-marked-constraint-rule
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [load]
@@ -332,7 +329,7 @@
                      (list 'asp/atMostSum 9 '?c body)
                      (list 'asp/atMostSum -1 '?w '?c body)]]
           (testing (pr-str bad)
-            (is (= :not-well-formed (refusal-type #(v/assert kb bad 'CxUniverse))))
+            (is (= :not-well-formed (tu/refusal-type #(v/assert kb bad 'CxUniverse))))
             (is (= :not-well-formed (:type (first (v/check kb bad 'CxUniverse)))))))))))
 
 (defn- install-cargo!
@@ -440,4 +437,4 @@
             (install-cargo! kb 'CxBad load tons)
             (v/assert kb (list 'asp/atMostSum 4 '?w '?c (walk/postwalk-replace {'LOAD load} bound))
                       'CxBad {:strength :monotonic})
-            (is (= :not-well-formed (refusal-type #(label-one kb 'CxBad))))))))))
+            (is (= :not-well-formed (tu/refusal-type #(label-one kb 'CxBad))))))))))

@@ -27,28 +27,21 @@
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.disk.lock :as lock]
-            [vaelii.impl.kb :as kb])
-  (:import [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-mixed-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
+            [vaelii.impl.kb :as kb]
+            [vaelii.test-util :as tu]))
 
 (defn- with-tmp
   "Run `(f dir)` in a fresh temp directory, closing whatever disk stores were opened on
   it and deleting it afterwards."
   [f]
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-mixed-")]
     (try (f dir)
-         (finally (backend/close-dir! dir) (rm-rf! dir)))))
+         (finally (backend/close-dir! dir) (tu/rm-rf! dir)))))
 
 (defn- copy-dir!
   "Copy every file under `from` into a fresh temp directory, and return it."
   ^String [^String from]
-  (let [to   (tmpdir)
+  (let [to   (tu/tmpdir "vaelii-mixed-")
         root (.toPath (io/file from))]
     (doseq [^java.io.File f (file-seq (io/file from)) :when (.isFile f)]
       (let [dst (io/file to (str (.relativize root (.toPath f))))]
@@ -73,7 +66,7 @@
         (backend/close-dir! dir)
         (let [copy (copy-dir! dir)]
           (try (check! copy built)
-               (finally (backend/close-dir! copy) (rm-rf! copy))))))))
+               (finally (backend/close-dir! copy) (tu/rm-rf! copy))))))))
 
 (defn- populate!
   "A small KB exercising every derived structure the index holds: the trie (facts), the
@@ -121,11 +114,6 @@
       (is (instance? vaelii.impl.memory.MemoryKvBackend (:backend (:index kb)))
           ":index :memory won over :memory-columnar's columnar half"))))
 
-(defn- refusal
-  "The `ex-data` of the refusal `f` raises, or nil."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (defn- adapters-failing
   "Run `f` with each sibling adapter's namespace failing to load by throwing `(thrown)`.
   A `checkouts/` link or a `+with-` profile can put an adapter on this classpath, so an
@@ -160,23 +148,23 @@
   ;; implements from a pairing that is refused on purpose.
   (testing "a name nothing implements, on each of the four axes"
     (are [opts axis kind] (= {:mismatch :unknown-name :axis axis :kind kind}
-                             (select-keys (refusal #(v/open-kb opts)) [:mismatch :axis :kind]))
+                             (select-keys (tu/refusal-data #(v/open-kb opts)) [:mismatch :axis :kind]))
       {:backend :nonesuch}                  :backend :nonesuch
       {:records :nonesuch :index :memory}   :records :nonesuch
       {:records :memory :index :nonesuch}   :index   :nonesuch
       {:backend :memory :tms :nonesuch}     :tms     :nonesuch))
   (testing "a reserved spelling, which names the pairing to take instead"
     (is (= {:mismatch :reserved-name :axis :backend :kind :disk :instead :disk-log}
-           (select-keys (refusal #(v/open-kb {:backend :disk}))
+           (select-keys (tu/refusal-data #(v/open-kb {:backend :disk}))
                         [:mismatch :axis :kind :instead]))))
   (testing "and a pairing both halves of which are legal apart"
     (is (= {:mismatch :illegal-pair :axis :index :kind :disk-log}
-           (select-keys (refusal #(v/open-kb {:records :memory :index :disk-log}))
+           (select-keys (tu/refusal-data #(v/open-kb {:records :memory :index :disk-log}))
                         [:mismatch :axis :kind]))))
   (testing "a fork on one axis alone, which names the other half and :overlay for it"
     (are [opts axis kind]
          (= {:mismatch :illegal-pair :axis axis :kind kind :instead :overlay}
-            (select-keys (refusal #(v/open-kb opts)) [:mismatch :axis :kind :instead]))
+            (select-keys (tu/refusal-data #(v/open-kb opts)) [:mismatch :axis :kind :instead]))
       {:records :overlay :index :memory
        :base {:backend :memory} :overlay {:backend :memory}}  :index   :memory
       {:records :overlay :index :disk-log}                    :index   :disk-log
@@ -192,7 +180,7 @@
    absent
    #(do (are [opts records coord]
              (= {:type :missing-adapter :records records :coordinate coord}
-                (select-keys (refusal (fn [] (v/open-kb opts))) [:type :records :coordinate]))
+                (select-keys (tu/refusal-data (fn [] (v/open-kb opts))) [:type :records :coordinate]))
           {:backend :sqlite}                                :sqlite "com.vaelii/sqlite"
           {:backend :pg-memory :pg "jdbc:postgresql://h/d"} :pg     "com.vaelii/postgres")
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"com\.vaelii/sqlite"
@@ -282,7 +270,7 @@
   ;; is the bug this whole test is about.  So the key set is frozen here: it shrinks on purpose.
   (testing "and the key set is exactly the vocabulary"
     (is (= #{:backend :records :index :space :dir :pg :tms :recover?
-             :naming :base :base-stores :overlay :oplog?}
+             :naming :base :base-stores :overlay :oplog? :reasoners}
            kb/opt-keys))))
 
 (deftest a-store-value-outside-its-domain-is-refused
@@ -614,7 +602,7 @@
     (fn [dir]
       (populate! (v/open-kb {:backend :disk-memory :dir dir :recover? false}))
       (backend/close-dir! dir)
-      (rm-rf! dir)
+      (tu/rm-rf! dir)
       (let [kb (v/open-kb {:backend :disk-memory :dir dir :recover? :auto})]
         (is (zero? (v/sentex-count kb)) "the stale index went with the records")
         (is (empty? (v/sentexes-matching kb '(dog ?x) 'CxMixed)))
@@ -671,7 +659,7 @@
   ;; directory's exclusive lock) before the overlay bookkeeping is asked for, and a throw
   ;; after that returns no KB — so neither is closeable and the directory is unopenable for
   ;; the life of the JVM.
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-mixed-")]
     (try
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fork's own records cannot be :pg"
                             (v/open-kb {:backend :overlay
@@ -680,7 +668,7 @@
                                                   :pg {:dbtype "postgresql" :dbname "nope"}}})))
       (is (not (lock/held? (backend/canonical-dir dir)))
           "and nothing took the directory's lock on the way out")
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 ;; ---- the backend list's readers outside this process ---------------------
 

@@ -29,16 +29,13 @@
 (use-fixtures :once
   (fn [f]
     (let [kb (tu/fresh)]
-      ;; The world is loaded under the shipped cost RANKING whatever the run installed.
-      ;; Not a preference: incremental forward chaining over a growing prover extent is
-      ;; complete only because the ranking re-drives the join, so an unranked load leaves
-      ;; this world two `responsibleFor` conclusions short — and the `/chain` test below
-      ;; then derives them mid-test, where the neutrality fixture reads their arrival as a
-      ;; leak.  The incompleteness is real and is witnessed for its own sake by
-      ;; `order_independence_test/a-rule-over-a-growing-prover-extent-is-order-independent`;
-      ;; forcing the ranking here is what stops one baseline's gap being reported as this
-      ;; namespace's bug.  It forces the LOAD rather than the test because `/chain` runs on a job thread
-      ;; a `binding` does not reach.
+      ;; The world is loaded under the shipped cost RANKING whatever the run installed:
+      ;; incremental forward chaining over a growing prover extent is complete only because the
+      ;; ranking re-drives the join, so an unranked load leaves two `responsibleFor` conclusions
+      ;; to be derived mid-test, which the neutrality fixture reports as a leak
+      ;; (`order_independence_test/a-rule-over-a-growing-prover-extent-is-order-independent`).
+      ;; It forces the load and not the test because `/chain` runs on a job thread a `binding`
+      ;; does not reach.
       (-> kb tu/load-starter! world/load-into)
       (binding [tu/*kb* kb, *app* (web/app kb)] (f))
       (tu/clear-kb! kb))))
@@ -100,11 +97,10 @@
 
 ;; ---- the front page is bounded ------------------------------------------
 ;;
-;; It is the first page anyone opens against a KB whose size they did not choose, and
-;; the catalog will load an ontology with hundreds of thousands of genl edges.  So the
-;; trees open a level at a time and every list is paged — and each of those is a claim
-;; the tests have to hold, since a page that quietly renders everything looks identical
-;; on the shipped schema and dies on a real one.
+;; It is the first page anyone opens against a KB whose size they did not choose, and the
+;; catalog will load an ontology with hundreds of thousands of genl edges. The trees open a
+;; level at a time and every list is paged, and each is a claim a test holds, since a page
+;; that renders everything looks identical on the shipped schema.
 
 (defn- section
   "One `<h2>` section of a page, so an assertion about the type tree is not satisfied by
@@ -188,14 +184,11 @@
     (is (str/blank? (str/trim (:body (GET "/front/rows" "section=nonsense&offset=0")))))))
 
 (deftest the-front-page-survives-a-type-disjoint-from-itself
-  ;; `wff` refuses `(disjoint A A)` outright, so nothing this KB's *own* assert path stored
-  ;; can be one.  An **import** is the other way in: it stores re-canonicalized records
-  ;; without re-running those checks, and an imported ontology does say a type is disjoint
-  ;; from itself — that is how it says the type has no instances.  The browser reads what
-  ;; is **stored**, not what would be admitted, so the front page has to render it rather
-  ;; than 500 on it, and has to render *both* sides.
-  ;; injected at the **access** facade, which is the var the browser calls and the one an
-  ;; import would have filled: nothing in this KB's own assert path can produce one
+  ;; `wff` refuses `(disjoint A A)`, so this KB's own assert path cannot store one. An import
+  ;; can: it stores re-canonicalized records without those checks, and an imported ontology
+  ;; says a type is disjoint from itself to say it has no instances. The browser reads what is
+  ;; stored, so the front page has to render both sides and not 500.
+  ;; Injected at the access facade, the var the browser calls and an import would have filled.
   (let [real acc/sentexes-with-functor
         self {:id -1 :sentence '(disjoint nothing nothing) :context 'CxUniverse
               :strength :monotonic}]
@@ -231,15 +224,12 @@
               "the self-disjoint pair renders on a page of the continuation"))))))
 
 (deftest a-term-page-survives-a-compound-in-the-taxonomy
-  ;; The second half of the same story as the test above: a **type node need not be a
-  ;; symbol**.  An imported ontology names a collection it has no atomic name for with a
-  ;; function term — a NAT — and that is a `PersistentList`, which `compare` throws on
-  ;; instead of ordering.  So every list the browser sorts is sorted by *name*: it is what
-  ;; the list is read in, and it is the one ordering that exists for every term a KB can
-  ;; hold.  Injected at the taxonomy reads `describe` makes — which is what a term page
-  ;; asks for the graph it draws (docs/web.md) — because nothing the assert path stores is
-  ;; one.  All four are injected, because each sorts what it answers: the two **direct**
-  ;; edge reads, the separation enumeration, and the spec closure `:disjoint` walks.
+  ;; The second half of the same story: a type node need not be a symbol. An imported
+  ;; ontology names a collection with a function term (a NAT), a `PersistentList`, which
+  ;; `compare` throws on. So every list the browser sorts is sorted by name, the one ordering
+  ;; that exists for every term a KB can hold. Injected at the taxonomy reads `describe` makes
+  ;; (docs/web.md), in all four places that sort what they answer: the two direct edge reads,
+  ;; the separation enumeration, and the spec closure `:disjoint` walks.
   (let [nat        '(QuantityFn 5 Meter)
         real-types v/types
         real-specs v/specs
@@ -315,6 +305,30 @@
       (is (re-find #"CxNaturalWorld" (:body r)))
       (is (re-find #"stat-n" (:body r))))))
 
+(deftest a-term-page-opens-the-assert-form-on-each-missing-part-of-its-block
+  (let [body (:body (GET "/term" "q=parentOf"))]
+    (is (re-find #"Definitional block" body))
+    (is (re-find #"<dt>arg declarations</dt>" body))
+    (is (re-find #"tag-missing\">missing</span> <a class=\"action\" href=\"/assert\?text=%28\+parentOf%29\">add</a>"
+                 body)
+        "parentOf carries no relation property, and the link seeds the form with one")))
+
+(deftest a-predicates-arity-class-seed-names-the-class-of-its-arity
+  (let [seed (second (@#'web/block-parts :arity-class))]
+    (is (= ["(ternary_predicate p)" "(binary_predicate p)" "(  p)" "(unary_predicate t)"]
+           [(seed "p" {:role :predicate :arity 3}) (seed "p" {:role :predicate :arity 2})
+            (seed "p" {:role :predicate}) (seed "t" {:role :type})]))))
+
+(deftest ^:slow the-stats-page-tallies-the-definitional-blocks-as-a-read-job
+  (is (re-find #"action=\"/stats/blocks\"" (:body (GET "/stats"))))
+  (is (nil? (jobs/latest :blocks)) "a page load runs no tally")
+  (*app* {:request-method :post :uri "/stats/blocks" :scheme :http :params {} :headers {}})
+  (let [j    (jobs/wait (:id (jobs/latest :blocks)) 60000)
+        body (:body (GET "/stats"))]
+    (is (= :done (:status j)))
+    (is (re-find #"Definitional blocks" body))
+    (is (re-find #"<td>negative example</td><td class=\"num\">[1-9]" body))))
+
 (deftest the-front-page-opens-with-what-the-kb-is
   ;; A reader landing on an unfamiliar corpus asks how big it is before they ask anything
   ;; about its contents, so the answer belongs here and not only on /stats.  Four O(1) reads.
@@ -325,11 +339,10 @@
 
 ;; ---- what a page shows when the list is too long to be a list -----------
 ;;
-;; The whole rework: fifty of 13,196 contexts alphabetically, or fifty of 27,196 separated
-;; pairs, is not a short answer but an arbitrary sample of a long one.  Where a cheap
-;; ranking exists the page shows the top of it; where it does not, the list is capped and
-;; continues on scroll.  These drive the large-KB branches, which the shipped schema is
-;; three orders of magnitude too small to reach.
+;; Fifty of 13,196 contexts alphabetically, or fifty of 27,196 separated pairs, is an
+;; arbitrary sample of a long answer. Where a cheap ranking exists the page shows the top of
+;; it; otherwise the list is capped and continues on scroll. These drive the large-KB
+;; branches, which the shipped schema is too small to reach.
 
 (defn- segment
   "The slice of `body` starting at `marker`, clipped to the body — a section, without a
@@ -524,14 +537,11 @@
     (is (re-find #"· run \d+" body) "each dropped conclusion names its run")))
 
 (deftest a-violation-about-no-sentence-renders-without-a-nil-link
-  ;; Three of the ledger's kinds are about a *pair* or a *budget* rather than a dropped
-  ;; sentence, so they carry a `:detail` and no `:sentence` or `:context`: the
-  ;; cross-context `:disjoint` report and the sweep notices.  The row rendered both
-  ;; fields unconditionally, and `term-link`'s fallback arm links whatever it is handed
-  ;; — so each printed the text "nil" beside a live link to `/term?q=nil`.
-  ;;
-  ;; The sweep notice is the one written here: a `genlCx` edge joining two functional
-  ;; collisions under a budget of one cuts its merge sweep short.
+  ;; Three of the ledger's kinds are about a pair or a budget and not a dropped sentence, so
+  ;; they carry a `:detail` and no `:sentence` or `:context`: the cross-context `:disjoint`
+  ;; report and the sweep notices. The row printed the text "nil" beside a live link to
+  ;; `/term?q=nil` when it rendered both fields unconditionally. The sweep notice is the one
+  ;; written here: a `genlCx` edge joining two functional collisions under a budget of one.
   (let [kb tu/*kb*]
     (tu/with-terms [parentOf CxL CxR CxS Kid1 Kid2 MumA MumB MumC MumD]
       (v/assert kb (list 'functional parentOf) 'CxUniverse)
@@ -701,13 +711,12 @@
            labels))
     (is (= (count labels) (count (distinct labels))) "one heading per group"))
   (testing "a rule's two halves are two groups, the conclusion first"
-    ;; `parentOf` is concluded about by one rule and read by others — what a rule *says*
-    ;; about a term outranks what it needs of it.  `inverse` is symmetric, so its
-    ;; arguments are stored in sorted order, (inverse childOf parentOf), which puts
-    ;; `parentOf` at argument position 2 as well
+    ;; `birthYearOf` is concluded about by one rule and read by others — what a rule
+    ;; *says* about a term outranks what it needs of it.  `(termsRelated birthDate
+    ;; birthYearOf)` puts `birthYearOf` at argument position 2
     (is (= ["Argument position 1" "Argument position 2" "Rule conclusion" "Rule condition"
             "Nested elsewhere" "Predicate extent"]
-           (group-labels (:body (GET "/term" "q=parentOf"))))))
+           (group-labels (:body (GET "/term" "q=birthYearOf"))))))
   (testing "a term only ever read by a rule gets the condition group and not the other"
     (let [labels (group-labels (:body (GET "/term" "q=weightOf")))]
       (is (some #{"Rule condition"} labels))
@@ -913,16 +922,13 @@
       (is (re-find #"Sentexes by index" body) "the page is otherwise exactly the page"))))
 
 (deftest every-arrow-ends-on-a-node
-  ;; A picture that draws an arrow into empty space is worse than one that draws less.
-  ;; Checked structurally rather than trusted: each endpoint must land on some drawn box.
+  ;; A picture that draws an arrow into empty space is worse than one that draws less, so each
+  ;; endpoint must land on some drawn box.
   ;;
-  ;; **Two assertions per query, whatever the picture holds.**  An `is` per arrow made
-  ;; this namespace's assertion count a function of how much the KB happened to draw —
-  ;; add a `genl` edge to the shipped ontology and the count moves, which is exactly the
-  ;; signal the matrix takes for a run that skipped something
-  ;; (`config_expected_delta`, scripts/lib/suite-configs.sh).  Collecting the strays
-  ;; instead of asserting each endpoint also names them all at once rather than stopping
-  ;; the reader at the first.
+  ;; Two assertions per query, whatever the picture holds: an `is` per arrow would make this
+  ;; namespace's assertion count a function of how much the KB draws, which the matrix reads as
+  ;; a skipped test (`config_expected_delta`, scripts/lib/suite-configs.sh). Collecting the
+  ;; strays also names them all at once.
   (doseq [q ["animal" "dog" "Bob" "thing" "CxNaturalWorld"]]
     (let [svg   (svg-of (:body (GET "/term" (str "q=" q))))
           boxes (rects svg)
@@ -943,11 +949,10 @@
 
 ;; ---- what a term is, the page shows rather than restates ----------------
 ;;
-;; A term page used to open with three prose lines — Supertypes, Subtypes, Disjoint with
-;; — each a rendering of a `describe` reading.  They are gone: a supertype line renders
-;; `genl` sentexes the argument groups already list, and the one reading of a taxonomy a
-;; reader cannot get from those rows is *position*, which is the picture.  `describe`
-;; still answers all six readings for a caller that wants them (`describe_test`).
+;; A term page opens with no Supertypes, Subtypes or Disjoint-with prose lines: a supertype
+;; line renders `genl` sentexes the argument groups already list, and the one reading a
+;; reader cannot get from those rows is position, which is the picture. `describe` answers
+;; all six readings for a caller that wants them (`describe_test`).
 
 (deftest a-term-page-shows-its-taxonomy-rather-than-restating-it
   (let [body (:body (GET "/term" "q=dog"))]              ; dog is a mammal, and dog ⊥ cat
@@ -1838,7 +1843,7 @@
 
 (tu/deftest-kb the-sentex-page-of-a-defeated-denial-of-a-forced-monotonic-literal-names-the-literal
   (tu/with-terms [dog_kind cat_kind]
-    (let [s    (list 'disjoint dog_kind cat_kind)
+    (let [s    (list 'orthogonal dog_kind cat_kind)
           h    (v/assert kb s 'CxUniverse)
           d    (v/assert kb (list 'not s) 'CxUniverse {:strength :monotonic})
           body (:body (GET (str "/sentex/" d)))]
@@ -2082,7 +2087,7 @@
           (is (= 200 (:status (post "/kbs/unload" {"key" key}))))))
       (finally
         (cat/cancel! key)
-        (let [deadline (+ (System/currentTimeMillis) 120000)]
+        (let [deadline (+ (System/currentTimeMillis) (tu/load-budget-ms))]
           (while (and (cat/loading?) (< (System/currentTimeMillis) deadline))
             (Thread/sleep 20)))
         (cat/reset-registry!)))))

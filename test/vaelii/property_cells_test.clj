@@ -16,10 +16,10 @@
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.modal :as modal]
-            [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 
@@ -35,9 +35,6 @@
   (doto (v/open-kb (update tu/plain-memory-space :space conj ::probe tag))
     (tu/clear-kb!)
     (tu/load-core!)))
-
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- xs [results] (set (keep #(get % '?x) results)))
 
@@ -91,7 +88,7 @@
   penguin, Robin a plain bird.  Returns the penguin rule's handle — the defeater."
   [kb {:keys [bird penguin flies Tweety Robin]}]
   (v/assert kb (list 'genl penguin bird) C)
-  (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) C)
+  (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) C)
   (let [pr (v/assert-rule kb [(list penguin '?x)] (list 'not (list flies '?x)) C
                           {:direction :forward})]
     (v/assert kb (list penguin Tweety) C {:strength :monotonic})
@@ -127,7 +124,7 @@
   [kb {:keys [bird penguin flies Opus Cx]} order]
   (siblings! kb Cx)
   (v/assert kb (list 'exceptWhen (list penguin '?b)
-                     (default-rule [(list bird '?b)] (list flies '?b)))
+                     (tu/default-rule [(list bird '?b)] (list flies '?b)))
             Cx)
   (v/assert kb (list bird Opus) Cx)
   (let [steps {:penguin  #(v/assert kb (list penguin Opus) Cx)

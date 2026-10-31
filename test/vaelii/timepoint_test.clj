@@ -29,11 +29,10 @@
             [vaelii.impl.types.prover :as prover-types]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-reasoner :point :allen)
-                        (v/add-prover (pt/includes-instant-prover)))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-reasoner :point :allen)
+                                      (v/add-prover (pt/includes-instant-prover)))))
+(use-fixtures :each (tu/neutral))
 
 ;; ---- the worlds ---------------------------------------------------------
 

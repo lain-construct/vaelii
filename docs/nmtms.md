@@ -93,9 +93,10 @@ whatever strength it was written at (the `:mono` forced set below), so a `genlCx
 no firing's class ([reference.md](reference.md#decisions) 1 and 9).
 
 **Membership.** A predicate is forced-monotonic if and only if a nogood family reads its
-literals as grounds, or taking one of its literals OUT adds belief elsewhere. Each family names the literals it reads as grounds under `:grounds` in
+literals as grounds that never lose, or taking one of its literals OUT adds belief elsewhere. Each family names those literals under `:grounds` in
 `decide/registry`, and `decide/held-members` names the members no family reads, each with
-its reason. `decide/baseline-forced` is the union of the two, held on every KB whether or
+its reason. The membership family names none: its grounds, a type `genl` edge and a
+separation, are defeasible (below). `decide/baseline-forced` is the union of the two, held on every KB whether or
 not it loads the upper layer:
 
 | member | forced-monotonic because |
@@ -104,7 +105,6 @@ not it loads the upper layer:
 | `irreflexive`, `anti_symmetric` | grounds of the self and converse family |
 | `functional`, `functionalInArg`, `anti_transitive`, `asymmetric`, `negates` | grounds of the tuple-mark family |
 | `genl` between two arguments spelled as predicates of arity 2 or more ([naming.md](naming.md)) | grounds of the arity, self and converse, and tuple-mark families, which read the stored predicate edges |
-| `disjoint`, `covering`, `partition`, `sibling_disjoint`, `siblingDisjointException` | grounds of the membership family |
 | `orthogonal` | the one member of the related-types family's clash of it, which is a conflict and never a defeat |
 | `genlCx` | every context's ancestor set reads the stored edges |
 | `except` | taking one OUT un-hides its target, so what a reader hides would shrink ([reference.md](reference.md#decisions) 2 and 14) |
@@ -125,7 +125,16 @@ that see CxTra and not on the baseline.
 
 A `genl` between types stays defeasible, so a type edge admits exceptions: a placed
 `defeat` of one hides every placed nogood resting on it as a ground, at the defeat's
-vantage and below.
+vantage and below. A separation (`disjoint`, `covering`, `partition`, `sibling_disjoint`,
+`siblingDisjointException`) is defeasible in the same way. It keeps its written strength
+and is a ground of the membership nogood, whose verdict weighs the memberships alone. A
+separation loses as a member, beside its denial or in a related-types nogood
+([Declarations over related types](#declarations-over-related-types)), and a placed
+`defeat` of it hides every membership nogood resting on it at the defeat's vantage and
+below. A `:default` `(disjoint animal vehicle)` in CxUniverse therefore loses to a
+`:monotonic` denial stated in a fiction, the fiction's memberships clash with nothing
+there, and a `:monotonic` copy of the declaration in CxRealWorld stays believed
+(`catbus_test`).
 `transitiveInArg` is not forced-monotonic: the inherited family weighs a declaration as a member,
 read through belief (`inherit/positions`), and a declaration loses like any other member.
 A family's own grounds appear among the members of three nogood kinds only, and no
@@ -135,10 +144,11 @@ member of one is ever its loser: `:arity-descension`, whose members are all bind
 justified by the bindings stating the two lengths
 ([The nogood families](#the-nogood-families)).
 
-**A forced-monotonic ground keeps the placed reading unique.** A ground that could lose would
+**The grounds that can lose keep the placed reading unique.** A ground that could lose would
 let one placed `defeat` lose force through another, and two such nogoods, each one's loser a
-ground of the other, would give two readings. The forced-monotonic set rules that shape out
-([Why a read runs no rounds](#why-a-read-runs-no-rounds)).
+ground of the other, would give two readings. A type `genl` edge and a separation are the
+grounds that can lose, and each loses only in a nogood with no ground that can lose, which
+rules that shape out ([Why a read runs no rounds](#why-a-read-runs-no-rounds)).
 
 `decide/forced-monotonic?` is the one reader of membership. Every reader reads the
 **baseline forced-monotonic set** (`decide/global?`). A declaration stated in any
@@ -288,6 +298,12 @@ denial there defeats a `:default` inverse. Where the declaration is seen, a deni
 not refuse the declaration's retraction. An inert `(set/inert (inverse P Q))`, as
 `space.txt` states for each converse pair, is no premise and fires no rule, so no argument
 is typed through it.
+
+`core.txt` declares `(forced_monotonic_predicate reifiable_function)` and
+`(forced_monotonic_predicate unreifiable_function)`. Whether a function's applications are
+minted is definitional of the function, so no context or exception makes a mark false: a
+denial of either mark is held OUT, and the two marks stated of one function are a conflict
+rather than a defeat ([nat.md](nat.md)).
 
 **Retracting a declaration is refused where its predicate has no unforced semantics.**
 `retract!` and `edit!` refuse the retraction of the declarations `checks/uncleared-forcing`
@@ -472,8 +488,8 @@ strength copy rests on. What is left — the cost of the in-region work itself �
 one piece nothing on the protocol holds, and
 [defenses.md](defenses.md#locality-is-a-claim-about-every-representation) is where the
 shape that would break it is measured. The obligations a second network inherits are
-listed once, with the test that enforces each, in the protocol's own docstring
-(`src/vaelii/impl/jtms_protocol.clj`).
+listed once, with the test that enforces each, in
+[What a second network owes](#what-a-second-network-owes).
 
 The region is also **the answer to a question callers ask**, which is why `settle`
 publishes it rather than discarding it. Three readers want the same thing — a
@@ -671,7 +687,7 @@ over the same affected region, because that is the semantics of belief here and 
 implementation detail; what differs is where a node's premise flag, depth and adjacency
 live. What a second network owes — the fixpoint, atomicity to a concurrent reader, the
 containment `touched` promises, and holding no store — is enumerated with its enforcing
-test per item in the `Tms` docstring, which both implementations depend on. The dense network also
+test per item in [What a second network owes](#what-a-second-network-owes). The dense network also
 requires the reference namespace for two helpers (`jtms/graph-just`, `jtms/dissoc-all`), and the
 reference requires nothing of the dense one. `jtms_dense_oracle_test` compares the two in full after every step of randomized
 operation streams; plain `lein test` runs the whole engine through the default dense one,
@@ -771,6 +787,47 @@ relabel applies all-or-nothing), and order independence rests on a node's backwa
 `:supports` and forward `:consequences` naming the **same** edge set:
 [why both, and why they mean two implementations rather than one](defenses.md#two-tms-implementations-not-one).
 
+### What a second network owes
+
+Four obligations bind any `Tms` implementation. An implementation that misses one answers
+a query differently without throwing, so each has a test.
+
+1. **The same fixpoint over the same region.** A datum is believed when it is a premise
+   or has a valid justification (all antecedents believed). The label is recomputed over
+   the forward consequence closure of what changed, the rest held fixed as boundary. A
+   least fixpoint with a fixed boundary is unique, so the region fixpoint equals the
+   global one, and the same uniqueness is why locality costs no order independence.
+   `jtms_dense_oracle_test` compares the whole `-snapshot` after every step of a
+   randomized operation stream, because a divergence in a class or a block is invisible
+   to `-believed?` until a later operation reads it.
+2. **A mutation is atomic to a concurrent reader.** A reader sees the state wholly before
+   or wholly after a relabel ([storage.md](storage.md#the-single-writer-contract)). The
+   reference commits by compare-and-set on its state atom, the dense network by taking its
+   `StampedLock` for writing. `jtms_atomicity_test` runs against both. While a hold
+   (`-hold`) is open, a thread other than its owner reads the `:output`, `:blocked` and
+   `:superseded` roles as they stood when the hold began; the reference keeps its state
+   map from that moment, and the dense network records each label the first relabel after
+   it moves. `kb_concurrency_test` runs both.
+3. **The flips are inside the published set, and the touched set inside the region.**
+   `preview`, the consequence report and the change feed read `-touched` instead of
+   diffing the believed set, which would cost O(KB) per write
+   ([preview.md](preview.md), [feed.md](feed.md)). The touched set is a superset of the
+   flip set ([defenses.md](defenses.md)), so the obligation is containment, never
+   equality. The oracle test checks both containments on both networks after every step,
+   and `jtms_locality_test` measures the published touched set across graph sizes.
+4. **No store.** Every method takes the network plus integers and plain values, so
+   nothing crossing the boundary carries a record store, an index or a KB. A node holds no
+   reference to the sentex it labels: the network is resident, and a strong reference kept
+   every record reachable in RAM (the nodes reached 50% of the record store in
+   measurement). `-premise-strength`, which the class fixpoint reads per in-region node,
+   is a memory read on every representation, so locality holds for all of them. The
+   protocol's structure and both implementations' `ns` forms enforce this; a store-backed
+   network would owe a read-counting test of its own.
+
+The cost of the in-region work is on no obligation, because nothing at the boundary can
+hold it. `lein bench-jtms` and review hold it
+([defenses.md](defenses.md#locality-is-a-claim-about-every-representation)).
+
 ### Blocked justifications (`exceptWhen`)
 
 `:blocked` is a set of **justification ids** whose rule's exception currently holds,
@@ -791,8 +848,9 @@ with no other derivation is OUT and the retraction sweep deletes it
 an exception's answer. The interval between the rebuild and the next settle believes an
 excepted conclusion, and that settle withdraws it by replacing the set. The whole-graph
 `relabel` clears the blocked set and the supersession map, since neither can be recovered
-from the store, and `retract!` prunes swept justification ids from the blocked set so a
-stale id is never reapplied.
+from the store. The set names only stored justifications: `set-blocked` keeps no id the
+network does not hold, and each removal (`retract!`, `sweep!`, `drop-justification!`)
+prunes the ids it deletes.
 
 Both premises and justifications carry a **strength**: a premise its assumption strength
 (on the sentex record), a `Justification` a `strength` field (the defeat-class it
@@ -1854,19 +1912,22 @@ holds a loser whose consequence is a `disjoint` member.
 
 ### Declarations over related types
 
-A `disjoint` over two types one of which reaches the other through `genl` is a one-member
-nogood of the declaration, and a cover naming a part that a `disjoint` separates from its
-whole is a two-member nogood of the cover and the `disjoint` ([reference.md](reference.md#decisions),
-decision 8). The declarations are forced `:monotonic`, so each is a hard clash: `conflicts`
-lists it, every member stays believed, and no belief moves.
+A `disjoint` over two types one of which reaches the other through `genl` is a nogood of
+the declaration and the `genl` edges of one route between them, one nogood per route. A
+cover naming a part that a `disjoint` separates from its whole is a two-member nogood of
+the cover and the `disjoint` ([reference.md](reference.md#decisions), decision 8). Every
+member is weighed: a `:default` declaration loses to a `:monotonic` edge, a `:default`
+edge loses to a `:monotonic` declaration, two `:default` members are a dilemma, and
+an all-`:monotonic` nogood is a hard clash that `conflicts` lists.
 
 ```
-(genl dogw animalw)  (disjoint dogw animalw)  (dogw Fido)          ; {(disjoint dogw animalw)}
-(covering animalw dogw catw)  (disjoint dogw animalw)              ; {(covering …) (disjoint …)}
+(genl dogw animalw)  (disjoint dogw animalw)  (dogw Fido)    ; {(genl dogw animalw) (disjoint dogw animalw)}
+(covering animalw dogw catw)  (disjoint dogw animalw)        ; {(covering …) (disjoint …)}
 ```
 
 A cover states the edge from each part to its whole, so the `disjoint` of the second line
-is over related types too and reports its one-member clash beside the cover's. Both are
+is over related types too, and the route through the cover's part edge is the cover pair
+itself. Both are
 found from the declarations' own arguments, which the argument trie reads: the
 `disjoint`s naming a type at argument 1 or 2, and the `covering`, `separating` and
 `partition` facts naming a whole at argument 1. The candidate index keeps the `disjoint`s
@@ -1875,8 +1936,9 @@ declarations naming a type at or below the lower end of an edge that moved
 (`tax/moves-since`). A cover pair, a cover beside a `disjoint` separating its whole from a
 part, is read from the store when a placement asks for it, and the store and removal
 choke points queue its members when either side arrives or leaves. Each is placed as a nogood
-([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)), a `disjoint` with
-the `genl` edges relating its arguments as grounds and a cover pair with none.
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)) with no grounds:
+the routes of a `disjoint` are enumerated over the stored `genl` edges
+(`related/edge-routes`), and each route's edges are members beside the declaration.
 
 An `(orthogonal a b)` states that the two types are not disjoint and that neither is a
 `genl` of the other. It exempts nothing ([taxonomy.md](taxonomy.md#disjointness)), so it
@@ -1897,7 +1959,7 @@ of two supertypes that no `siblingDisjointException` the reader sees exempts. A 
 (disjoint alphaw betaw)  (siblingDisjointException alphaw betaw)            ; {(siblingDisjointException …)}
 ```
 
-The declaration is forced-monotonic, as `disjoint` is, so it is never the
+The `orthogonal` declaration is forced-monotonic, so it is never the
 loser of its nogood at any strength: the clash is a hard one `conflicts` lists, with the separating
 declarations under `:grounds`, every member left believed, and the pair reading both
 statuses (`:inconsistent`). The stored facts whose functor the unscoped `genl` closure
@@ -1917,7 +1979,7 @@ exception. A reader whose ancestor set states an exception
 exempting every separation that convicts the declaration does not believe an inherited
 placement of it (`related/exempt-at?`), as for a membership nogood
 ([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)).
-`reference_test/a-disjoint-over-related-types-is-a-hard-clash-of-the-declaration-in-every-order`
+`reference_test/a-disjoint-over-related-types-is-a-clash-of-the-declaration-and-the-edge-in-every-order`
 holds the `disjoint` over related types in every arrival order, and `orthogonal_test` holds
 the `orthogonal` clash of each route in both arrival orders of the declaration and what
 contradicts it.
@@ -2081,6 +2143,43 @@ One `read-clashes` call builds both readings from one pass over the stored `cont
 labeling solver re-sorts the dilemmas by priority then content for itself
 (`solve_test/the-result-does-not-depend-on-the-order-the-nogoods-arrive-in`).
 
+### Observation beats expectation
+
+A `:monotonic` observation beside a `:default` expectation it refutes is a nogood with a
+unique weakest member, so its placements store a `defeat` of the expectation and the
+nogood is neither a conflict nor a dilemma. The common case is an anomaly: a shared
+default, such as a rule's conclusion, refuted by what one context observed. Three reads
+report the decided nogood, each as a **defeat report**: `clash-report`'s shape with
+`:verdict :defeat`, `:placed-in` (the most general placement contexts that decide it, in
+content order), and `:loser` and `:winners`, each `{:handle :sentence :context
+:defeat-class :rules}`, where `:rules` names the rules whose firings conclude the side
+(`clashes/defeat-report-of`).
+
+| read | what it reports |
+|---|---|
+| `(conflicts kb {:defeats? true})` | every decided nogood beside the conflicts, in content order (`clashes/conflicts-and-defeats-of`) |
+| the change feed's `:defeats` | the decided nogoods whose `(contradicts …)` or `defeat` the settle placed ([feed.md](feed.md#a-defeat-arrives-as-a-report)) |
+| `argue`'s `:defeated-by` | the decided nogoods that defeat a stored asent at the argued context, with the verdict `:false` (`clashes/defeats-against`) |
+
+A nogood whose placements defeat different members stays a dilemma carrying `:vantages`
+([Vantages that disagree](#vantages-that-disagree)), and a defeat report is read only for
+a nogood whose placements defeat one member. The loser stays believed in every context
+above `:placed-in` ([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)),
+so an observation in a context below the expectation's moves no belief at the
+expectation's own context, and the feed's `:believed-removed` does not name the loser.
+The defeat report is the only feed entry naming that move.
+`constraint_nogood_test/a-decided-nogood-is-reported-by-content-and-an-undecided-one-is-not`
+holds the three cases below by content.
+
+Three expectations enter no nogood, and no read reports a defeat of one:
+
+- **A backward-only default.** A bare `implies` concludes nothing into the store, so an
+  observation denying its conclusion has no stored member to clash with. `argue` with a
+  `:max-depth` reads both sides provable and answers `:contradiction`.
+- **A retrieval-time `transitiveInArg` reading.** An inherited `:default` reading against
+  a stored denial is undercut and forms no nogood ([inherit.md](inherit.md#a-contrary-claim-against-a-known-true-one-is-a-contradiction-and-is-reported)).
+- **An evaluable.** A computed literal is stored nowhere, so no relabel carries it.
+
 ### A nogood placed as a conclusion
 
 `chain/place-nogood!` places a nogood the way a firing places its conclusion. Given the
@@ -2147,7 +2246,15 @@ in every arrival order (`inherited_clash_test`).
 and every consequence of it IN; `chain` reads no `defeat`. A read at a context `C` asks
 `exc/defeat-hidden-fn`, which walks the asked handle's justification ancestors, forces
 OUT each one a defeat in force at `C` names, and reads the handle's label with
-`jtms/region-in` over that support. At a reader whose ancestor set states no except and
+`jtms/region-in` over that support. The fixpoint reads the justifications concluding a
+handle of the support, and a handle it concludes queues again only those of them resting
+on it, so a read costs its support and not the dependents of the handles in it. Neither
+the fixpoint nor the second-route read (`exc/rerouted`) reads a premise's own
+justifications, which a premise seeded IN or forced OUT does not need, beyond the asked
+handle's; the reader's own reasons on a handle (`exc/reader-invalid`) are kept in the
+reader state's memo, so the reads of one clock stretch read each handle's justifications
+for them once.
+At a reader whose ancestor set states no except and
 no defeat reaching a statement of a permuting or `reifiable_function` mark
 (`exc/mark-hazard?`), on a KB that stores no forced-monotonic literal beside its denial
 (`exc/yielding-reads?`), the walk stops at a `:monotonic` handle, in a belief read and a
@@ -2220,8 +2327,9 @@ and `genlcx_move_oracle_test` check the reading against belief at every step
 (`test-util/verdict-violations`).
 
 **A pass's reader states.** A pass that reads many handles between its own writes binds
-`exc/*reader-states*` (`exc/with-reader-states`): the settle, the withheld-mint release,
-the argument-hold refresh and the argument-type pass over stored facts
+`exc/*reader-states*` (`exc/with-reader-states`): a write (`assert`, `edit!`), the settle,
+the withheld-mint release, the argument-hold refresh and the argument-type pass over
+stored facts
 (`special/call-with-pass-caches`, which `record-arg-types` and `record-arg-types!` run;
 an entailment whose mint the fact would leave as it is is passed over before its checks,
 `special/unchanged-mint?`, [argtypes.md](argtypes.md#the-pass-over-a-stored-kb)). It
@@ -2410,10 +2518,12 @@ forced-monotonic set keeps the defeat-dependency graph two deep:
 1. In a decided nogood every member but the loser is `:monotonic`, and a defeat hides a
    `:monotonic` handle only through a `respell` row, so a defeat loses force through
    another only by way of a ground or of a mark's defeat.
-2. Every ground is forced-monotonic except a `genl` edge between types, and
-   only the membership family takes one for a ground; `genlCx` witness edges are forced-monotonic.
-3. A stated type `genl` edge loses only in a nogood where it is a member: a negation pair or
-   an inherited nogood, neither of which has a ground that can lose.
+2. Every ground is forced-monotonic except a `genl` edge between types and a separation.
+   The membership family and the `orthogonal` clash take both for grounds, and the
+   `orthogonal` clash decides no loser; `genlCx` witness edges are forced-monotonic.
+3. A stated type `genl` edge or separation loses only in a nogood where it is a member: a
+   negation pair, an inherited nogood or a related-types nogood, none of which has a
+   ground that can lose.
 
 `placed_nogood_test` holds both two-deep shapes in every arrival order. Two sources go
 past them, and the next section describes the cycle they make.
@@ -2448,7 +2558,12 @@ defeat a read opens that no member has read yet and that rests on a member joins
 members, and the enumeration starts again, so each defeat that joins costs another
 enumeration. A member's read keeps in the read's memo every value that read no held
 member, the values of a cycle closed inside that read among them, and the reads after it
-take those values from the memo. A cycle nested in a member's read that rests on no
+take those values from the memo. A provisional value is kept too, under the index of the
+open defeat it met, until that defeat closes: a defeat many paths of one read reach is
+read once, and each later path takes its value and lowers its own mark to that index
+(`placed_nogood_test/a-cycle-s-discovery-reads-each-key-once-however-many-paths-reach-it`).
+A member's read under an assignment drops the provisional values it kept, as it drops its
+marks. A cycle nested in a member's read that rests on no
 member is therefore closed once per read. In the test's d nested rings of m members the
 reads are at most d · m · (2^m + 3m + 2)
 (`placed_nogood_test/a-cycle-nested-in-a-members-read-is-closed-once-per-read`). Each
@@ -2859,7 +2974,7 @@ another. These checks hold invariant 2 end to end:
 
 | step | `lein perf` checks |
 |---|---|
-| a write that reaches its own region: a fact derived through a defeasible rule, a negative fact with no positive twin, a membership, a membership in a type with a deep ancestor set, a length binding, a fact of a predicate with a declared arity, a durable append, a fact into an existing context NAT, a retraction naming no NAT | `defeasible-load`, `negation-load`, `membership-check`, `membership-under-deep-type`, `bound-type-load`, `arity-reach-trigger`, `durable-fact-append`, `context-nat-existing-context` (3.0×), `retract-nat-scaling` |
+| a write that reaches its own region: a fact derived through a defeasible rule, a negative fact with no positive twin, a membership, a membership in a type with a deep ancestor set, a length binding, a fact of a predicate with a declared arity, a durable append, a fact into an existing context NAT, a retraction naming no NAT, a retraction or a `genlCx` edge beside the context NATs it does not reach, a context NAT minted beside unrelated monads | `defeasible-load`, `negation-load`, `membership-check`, `membership-under-deep-type`, `bound-type-load`, `arity-reach-trigger`, `durable-fact-append`, `context-nat-existing-context` (3.0×), `retract-nat-scaling`, `context-nat-retract-beside-slices`, `context-nat-edge-beside-slices`, `context-nat-mint-beside-monads` |
 | a region delivered to a feed listener | `feed-listener-scaling` |
 | a write beside the standing definitional clashes, `P`/`¬P` dilemmas and merges it does not name, a `genl` edge separating nothing beside standing clashes, and a `genlCx` edge reaching nothing beside standing `P`/`¬P` dilemmas | `clash-arbitration` (3.0×), `negation-arbitration` (3.0×), `retract-merge-scaling` (3.0×), `except-merge-scaling` (4.0×), `taxonomy-edge-arbitration` (3.0×), `context-edge-arbitration` (3.0×) |
 | a `genl` edge deep in a chain, one `genl` edge or `inverse` declaration defeated and revived beside n `disjoint` declarations (the relabel and `refresh-beliefs`), and a `symmetric` mark defeated and revived below its facts beside the facts under another mark | `taxonomy-depth`, `taxonomy-belief-flip`, `flat-cache-belief-flip`, `permuting-mark-defeat-flip` |
@@ -2885,7 +3000,7 @@ built while a route question is open is not held, so a read that opens one build
 inside an ancestor set, which is the extent rather than the region. The sweep stops at
 `tax/*exposure-instance-budget*` instances (8192; the checks bind it to 100) and files a
 notice naming its trigger, so the cost is flat once the extent is larger than the budget
-and linear in the extent below it: `constraint-exposure-context-edge` and
+and linear in the extent below it (4096 sat within 3% of what the shipped ontology plus a 200-fact generated corpus enumerated, so a mid-size KB would have reached the cap by existing; 8192 restores the headroom): `constraint-exposure-context-edge` and
 `constraint-genl-mark-descent`, each 2.0× past the budget. A `genl` edge whose closure holds more than `inherit/crossing-closure-cap`
 terms (512) moves every predicate preserved along `genl` with no read per term:
 `genl-crossing-wide`, 3.0× past the cap.

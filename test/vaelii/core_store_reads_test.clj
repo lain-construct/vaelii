@@ -14,11 +14,6 @@
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
-(defn- refusal
-  "The ex-data `f` throws, or nil when it returns."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 ;; ---- store-state ------------------------------------------------------------
 
 (deftest store-state-reports-an-empty-store-and-then-a-believed-fact
@@ -41,7 +36,7 @@
 
 (deftest store-state-refuses-a-key-it-does-not-answer
   (tu/with-cleared-kb [kb tu/fresh]
-    (let [d (refusal #(v/store-state kb #{:network? :indexed?}))]
+    (let [d (tu/refusal-data #(v/store-state kb #{:network? :indexed?}))]
       (is (= :unknown-option (:type d)))
       (is (= [:indexed?] (:unknown d)) "the refusal names the key it does not answer"))))
 
@@ -58,7 +53,7 @@
   (is (= (config/web-dev?) (v/switch-value "VAELII_DEV"))))
 
 (deftest switch-value-refuses-a-name-the-build-reads-no-switch-under
-  (let [d (refusal #(v/switch-value "VAELII_NO_SUCH_SWITCH"))]
+  (let [d (tu/refusal-data #(v/switch-value "VAELII_NO_SUCH_SWITCH"))]
     (is (= :unknown-option (:type d)))
     (is (= :unknown-key (:mismatch d)))
     (is (= "VAELII_NO_SUCH_SWITCH" (:switch d) (:property d))
@@ -79,11 +74,11 @@
     (is (= {:format-version 1} (v/read-manifest (temp-file "{:format-version 1}")))))
   (testing "a manifest cut mid-form is refused as malformed"
     (is (= :malformed-manifest
-           (:type (refusal #(v/read-manifest (temp-file "{:format-version")))))))
+           (:type (tu/refusal-data #(v/read-manifest (temp-file "{:format-version")))))))
   (testing "a manifest past the byte bound is refused before it is read whole"
     (with-redefs [dfiles/manifest-bytes 8]
       (is (= :manifest-too-large
-             (:type (refusal #(v/read-manifest (temp-file "{:format-version 1 :pad \"xxxxxxxx\"}")))))))))
+             (:type (tu/refusal-data #(v/read-manifest (temp-file "{:format-version 1 :pad \"xxxxxxxx\"}")))))))))
 
 ;; ---- load-foreign! -----------------------------------------------------------
 
@@ -94,13 +89,13 @@
 (deftest load-foreign-refuses-a-kind-it-cannot-load-a-directory-for
   (tu/with-cleared-kb [kb tu/fresh]
     (testing "a kind no plugin declares"
-      (let [d (refusal #(v/load-foreign! kb :tmp-no-such-kind (io/file "/nowhere") {}))]
+      (let [d (tu/refusal-data #(v/load-foreign! kb :tmp-no-such-kind (io/file "/nowhere") {}))]
         (is (= :no-foreign-reader (:type d)))
         (is (= :tmp-no-such-kind (:kind d)))))
     (testing "a reader that declares no :load-dir!"
       (foreign/register :tmp-no-dir-kind `no-directory-reader)
       (try
-        (let [d (refusal #(v/load-foreign! kb :tmp-no-dir-kind (io/file "/nowhere") {}))]
+        (let [d (tu/refusal-data #(v/load-foreign! kb :tmp-no-dir-kind (io/file "/nowhere") {}))]
           (is (= :no-foreign-reader (:type d)))
           (is (= :tmp-no-dir-kind (:kind d))))
         (finally (foreign/unregister :tmp-no-dir-kind))))))
@@ -137,8 +132,8 @@
 
 (deftest install-memory-guard-refuses-an-option-it-does-not-read
   ;; the refusal lands before the listener is attached, so this installs nothing
-  (is (= :unknown-option (:type (refusal #(v/install-memory-guard! {:kbs (constantly nil)
-                                                                    :interval-ms 5}))))))
+  (is (= :unknown-option (:type (tu/refusal-data #(v/install-memory-guard! {:kbs (constantly nil)
+                                                                            :interval-ms 5}))))))
 
 ;; ---- the pure reads ----------------------------------------------------------
 

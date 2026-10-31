@@ -281,7 +281,8 @@ syncs a store after bringing its images up to this build ([operations.md](operat
 makes each change as its own `edit!` (`vaelii.host.sync/sync-each!`). The jobs page shows
 the plan's size, the change being made and how far along it is, and a cancel stops between
 two changes, each of which has settled; a rerun's plan is what is left. A refused addition
-is set aside and retried at the end rather than rolling everything back. A rule the engine
+is set aside and retried at the end rather than rolling everything back (the one-batch path pays one
+rollback per refusal). A rule the engine
 ships forward is added backward with the rest, so no new forward rule fires over the
 content as it lands, and turned forward in a second stage, one `forward` change per rule:
 on a corpus, the rule whose forward chaining is expensive is then the change the job
@@ -351,6 +352,37 @@ so the next request syncs the other loaded KBs to them. Only the starter writes 
 the closing `unary_predicate` batch) is logged as skipped and restored by that sync. No
 comparison runs while a job holds the writer, and the reading is taken again when a file
 sync finishes, so a sync's own writes are never written back.
+
+### A release's renames
+
+A release that renames, merges, re-means or retires a symbol records it as data, in
+`resources/renames/<version>.edn`, with `unreleased.edn` for the release being written:
+
+    {:renames {old new} :context-merges {CxOld CxNew} :re-meanings {sym "note"} :retired #{sym}
+     :api     {…}}
+
+The four top-level keys name KB vocabulary. `:api` takes the same keys for the public
+API, koinii's vars and the daemon's ops, which a caller's code rewrites; nothing in the
+engine reads it. `upgrade --sync` runs `vaelii.host.sync/rename!` before the sync, and
+the function composes every file in release order, a chain of renames followed to its
+last spelling. A premise naming a renamed symbol or a merged context, or stored in a
+merged context, is retracted and its rewrite asserted at the same strength, in one
+`edit!`, so belief follows the rewrite. A premise naming a re-meant or retired symbol is
+reported under `:renames` and left as it is, since a re-meaning needs its author to
+restate the premise. With no vocabulary row in any file, `rename!` reads no premise.
+After its load, `starter/load-into` logs at `:warn` each retired symbol a stored sentex
+names, with how many name it (`starter/warn-retired`), at one term-index read per retired
+symbol.
+
+No store records the release that wrote it, so every upgrade composes every file.
+`lein lint`'s E22 keeps that reading correct: a renamed-away, merged or retired symbol
+stays out of the shipped KB, and no rename lands on a symbol any file renames away or
+retires. A premise in an author's context that spells its own term as a release's old
+spelling is rewritten too. E22 also holds the changelog's newest section to its file,
+`unreleased.edn` until the cut dates the section: each qualified name or keyword on the
+`*Breaks:*` line of a Breaking entry that renames, merges, drops or retires has a row
+there. The files start after 0.30.0, and the releases up
+to it record their renames in the changelog only.
 
 ## Unloading never deletes an on-disk KB
 

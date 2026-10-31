@@ -38,15 +38,6 @@
   [exception antes conseq]
   (list 'exceptWhen exception (list 'set/defaultRule (vr/rule-sentence antes conseq))))
 
-(defn- refusal
-  "Assert, and return the `ex-data` of the refusal — nil if the assert went through.
-  Reading the data rather than catching bare `ExceptionInfo` is what distinguishes a
-  stratification refusal from a range-restriction or naming one, which would pass a
-  `thrown?` test for the wrong reason."
-  [kb sentence context]
-  (try (v/assert kb sentence context) nil
-       (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (defn- cycle-text [data] (str/join " " (:cycle data)))
 
 ;; ---- a node reached BOTH ways ------------------------------------------------
@@ -70,8 +61,8 @@
     (testing "the two positive rules are fine on their own — no exception exists yet"
       (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxMask {:direction :forward}))
       (is (v/assert kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxMask {:direction :forward})))
-    (let [data (refusal kb (except-rule (list r '?x) [(list q '?x)] (list p '?x))
-                        CxMask)]
+    (let [data (tu/assert-refusal-data kb (except-rule (list r '?x) [(list q '?x)] (list p '?x))
+                                       CxMask)]
       (testing "the excepted rule closes a cycle whose only negative route to the
                 closing edge runs through a node already reached positively"
         (is (= :not-stratified (:type data))))
@@ -121,6 +112,6 @@
   (tu/with-terms [a b c CxLoop]
     (is (v/assert kb (vr/rule-sentence [(list b '?x)] (list a '?x)) CxLoop {:direction :forward}))
     (is (v/assert kb (vr/rule-sentence [(list c '?x)] (list b '?x)) CxLoop {:direction :forward}))
-    (let [data (refusal kb (except-rule (list a '?x) [(list b '?x)] (list c '?x))
-                        CxLoop)]
+    (let [data (tu/assert-refusal-data kb (except-rule (list a '?x) [(list b '?x)] (list c '?x))
+                                       CxLoop)]
       (is (= :not-stratified (:type data))))))

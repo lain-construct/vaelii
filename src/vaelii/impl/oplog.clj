@@ -113,6 +113,13 @@
   "The inputs map of the frame `replay!` is running."
   nil)
 
+(def ^:dynamic *replay-batch*
+  "A volatile `replay!` binds for its extent, holding `[id m]`: the `:batch` id of the last
+  replayed `with-deferred-settle` frame, and `m`, a `java.util.HashMap` of the lazy-forward
+  re-joins that batch's frames owe its `:settle` frame, which `vaelii.core` binds as
+  `chain/*batch-rejoins*`."
+  nil)
+
 (defn- log-path ^String [dir] (str dir "/oplog/ops.log"))
 
 (defn- fresh-state [generation fsync]
@@ -201,14 +208,15 @@
      log)))
 
 (defn close-log!
-  "Fsync and close `log`, withdraw its durability registration, and latch it `:closed`."
+  "Fsync and close `log`, withdraw its durability registration, and latch it `:closed`.
+  A failed fsync still closes and latches it, and throws."
   [{:keys [^RandomAccessFile raf lock reg fault path]}]
   (dur/deregister! @reg)
   (locking lock
-    (when (.. raf getChannel isOpen)
-      (try (when-not @fault (f/force! raf false))
-           (finally (.close raf))))
-    (f/latch-closed! fault path)))
+    (try (when (.. raf getChannel isOpen)
+           (try (when-not @fault (f/force! raf false))
+                (finally (.close raf))))
+         (finally (f/latch-closed! fault path)))))
 
 (defn read-frames
   "The frames of `log` after its header, in append order, `:unusable` marks included."
@@ -371,7 +379,7 @@
   I/O failure — propagates, so the restore declines rather than answering for a KB that
   is missing the write."
   [kb frames]
-  (binding [*replaying?* true, feed/*enabled?* false]
+  (binding [*replaying?* true, feed/*enabled?* false, *replay-batch* (volatile! [nil (java.util.HashMap.)])]
     (with-open [r (progress/start ::replay "replay: run the logged operations" (count frames))]
       (doseq [{:keys [op args in]} frames]
         (progress/tick! r)

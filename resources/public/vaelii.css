@@ -510,6 +510,7 @@ header.site {
 .tag-unsupported { background: #999;    }  /* no believed justification         */
 .tag-not-stored  { background: #999;    }
 .tag-out         { background: #bbb;    }  /* generic not-believed marker        */
+.tag-missing     { background: #c0392b; }  /* a definitional-block part absent  */
 
 /* the "why not believed" detail box on the sentex page */
 .belief {
@@ -1334,6 +1335,12 @@ ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset:
   .with-graph .term-fig figcaption { contain: inline-size; }
   .with-graph .kb-graph-box { max-height: calc(100vh - 7rem); }
 }
+
+/* The term page's definitional block: one row per part, its label in a narrow column. */
+.def-parts { display: grid; grid-template-columns: max-content minmax(0, 1fr);
+             column-gap: 1rem; row-gap: .2rem; margin: .3rem 0 1rem; }
+.def-parts dt { color: var(--muted); }
+.def-parts dd { margin: 0; overflow-wrap: anywhere; }
 
 /* ---- redesign: collapsible proof, sticky/overflow safety --------------- */
 

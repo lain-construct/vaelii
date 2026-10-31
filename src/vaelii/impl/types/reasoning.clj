@@ -73,6 +73,12 @@
 ;; on a derivation alone (`special/note-unpremised!`).  The mints themselves are an index
 ;; family (docs/indexing.md, "The mint family").
 ;;
+;; `mint-rules` holds `{:gen n}`, and `:table`, the `{kind handle}` of the stored inert
+;; rule each argument declaration kind's mints are justified under, once a read fills it
+;; off the index's `[:mint-rules]` family (`kb/mint-rule-table`).  A store or removal of
+;; such a rule and a rewrite of the stores drop the table and move `:gen`
+;; (`kb/forget-mint-rules!`).
+;;
 ;; `nogood-candidates` is the candidate index of the nogood families,
 ;; `{:converse #{handle} :arity #{handle} … :inherited …}`: the stored ground binary tuples
 ;; under a converse mark with a stored converse, the arity, membership and related-types
@@ -92,7 +98,7 @@
                       settle-stats chain-stats preserved-clashes
                       supersessions qcn qcn-joined matches closures
                       respell except-moves
-                      mint-queues nogood-candidates arity-lengths])
+                      mint-queues mint-rules lazy-rules nogood-candidates arity-lengths])
 
 (defn of
   "The `Reasoning` value `kb` holds now."
@@ -171,6 +177,19 @@
   {:inline (fn [kb] `(:mint-queues (deref (:reasoning ~kb))))}
   [kb]
   (:mint-queues @(:reasoning kb)))
+
+(defn mint-rules
+  "`kb`'s `:mint-rules` atom."
+  {:inline (fn [kb] `(:mint-rules (deref (:reasoning ~kb))))}
+  [kb]
+  (:mint-rules @(:reasoning kb)))
+
+(defn lazy-rules
+  "`kb`'s `:lazy-rules` atom: `{:gen n}`, and `:any?` once `kb/stores-lazy-rule?` has read
+  whether the store holds a lazy-forward rule.  `kb/forget-lazy-rules!` drops `:any?`."
+  {:inline (fn [kb] `(:lazy-rules (deref (:reasoning ~kb))))}
+  [kb]
+  (:lazy-rules @(:reasoning kb)))
 
 (defn supersessions
   "`kb`'s `:supersessions` atom."

@@ -15,11 +15,8 @@
 (use-fixtures :once (tu/loaded tu/load-core!))
 (use-fixtures :each (tu/neutral))
 
-(defn- refusal
-  "The `:type` a thrown assert refused with, or ::stored when it did not throw."
-  [f]
-  (try (f) ::stored
-       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+(def ^:private refusal
+  (fn [f] (tu/refusal-type f ::stored)))
 
 (defn- mint
   "Assert an ordinary fact carrying the ground NAT `E`, and return the reified constant

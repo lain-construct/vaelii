@@ -80,6 +80,7 @@
             [vaelii.impl.decide.argument :as argument]
             [vaelii.impl.decide.arity :as arity]
             [vaelii.impl.except :as exc]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.modal :as modal]
@@ -104,29 +105,18 @@
             [vaelii.impl.violations :as violations]))
 
 (def cost-tiers
-  "First-answer cost tiers, cheapest first — one question: is the answer something
-  you **look up**, **compute**, or **search for**?  Qualitative, not milliseconds:
-  they name the *shape* of the work.  A per-prover millisecond estimate would be a
-  constant standing in for a number no implementation can compute, and a real
-  wall-clock budget cannot be checked against that.
+  "First-answer cost tiers, cheapest first: is the answer something you look up, compute, or
+  search for?  Qualitative, not milliseconds.
 
-    :lookup   a bounded single-step retrieval — an O(1) ground test, a cached
-              closure / metadata read, or one index hit (lazy to the first result)
-    :compute  a fixpoint over stored facts before the first answer (a closure)
-    :search   recursive backward chaining — open-ended proof search
+  - `:lookup`: a bounded single-step retrieval (an O(1) ground test, a cached closure or
+    metadata read, or one index hit).
+  - `:compute`: a fixpoint over stored facts before the first answer (a closure).
+  - `:search`: recursive backward chaining.
 
-  `cost-rank` turns a tier into its ordinal.  The union path orders applicable
-  provers by this rank (cheapest first, so a consumer taking one answer never pays
-  for a search when a lookup answers); `budget`'s `:max-cost` uses it as a ceiling —
-  `:lookup` runs bounded retrieval only, `:compute` allows a closure but no search.
-
-  **`:search` is unoccupied**, and by construction: no member of the registry expands a
-  rule, so nothing here opens a proof search and `:max-cost :compute` and `:max-cost
-  :search` currently select the same provers.  The tier stays because the ceiling is a
-  claim about *what a prover may cost*, not a census of the shipped ones — an application
-  prover that backchains belongs in it, and `add-prover` can supply one.  Rule expansion
-  itself is priced by the engine that does it (`core/query`'s `:max-depth`), which is a
-  bound rather than a tier."
+  `cost-rank` gives the ordinal.  The union path orders applicable provers by it, and
+  `budget`'s `:max-cost` uses it as a ceiling.  No registry member expands a rule, so `:search`
+  is unoccupied and `:max-cost :compute` and `:search` select the same provers; `add-prover`
+  can supply a searching one.  Rule expansion is bounded by `core/query`'s `:max-depth`."
   [:lookup :compute :search])
 
 (def cost-rank (into {} (map-indexed (fn [i t] [t i])) cost-tiers))
@@ -176,67 +166,34 @@
       (not (and calc (every? #(qkb/converse-entailed? calc pred %) qs))))))
 
 (defn shadowing-channels
-  "The ways this KB could reach `goal` that a **computed** prover does not read — the
-  set a conditionally-complete prover checks before claiming its answers are a
-  superset of everyone else's (see the completeness contract at the head of this file).
+  "The ways this KB could reach `goal` that a **computed** prover does not read: the set a
+  conditionally-complete prover checks before claiming its answers are a superset of everyone
+  else's (the completeness contract at the head of this file).  Each channel is found by
+  differencing the complete prover against every other applicable prover.
 
-  Five channels, each found by differencing: run the complete prover alone, run every
-  other applicable prover, and see what only the second answers.
+  - `:preserving`: an `(transitiveInArg P n R)` declaration licenses a claim about a tuple in
+    no stored fact, rule conclusion or constraint network.
+  - `:rules`: a rule whose consequent unifies with the goal (`concludes-goal?`).  A
+    `set/backwardRule` never fires forward and no registry member is one, so the claim must
+    be read in the scope that reaches the rule.  Not narrowed to backward rules: a forward
+    rule is absorbed only if the fixpoint ran to it (`{:chain? false}`, `:max-depth`).
+  - `:inverse`: a declared `(inverse P Q)` for a goal about `P`, unless the calculus owning
+    `P` owns `Q` and its converse table implies the pair (`unread-inverse?`).
+  - `:negates`: a `(not (Q …))` goal with `Q` at or below a side of a `negates` declaration
+    (`NegatesProver`).
+  - `:calendar`: an argument that is a calendar term (`(YearFn 2000)`, `DatetimeFn`,
+    `InstantFn`), which carries its ordering in its fields (`vaelii.impl.calendar`).  A pure
+    test on the goal's arguments.
 
-  * **`:preserving`** — an `(transitiveInArg P n R)` declaration licenses a claim about a
-    tuple that appears in no stored fact, in no rule conclusion and in no constraint
-    network, so nothing computed from those three can contain it.
-  * **`:rules`** — a rule whose consequent unifies with the goal (`concludes-goal?`).  A *forward*
-    rule's conclusion is stored when it fires and so is absorbed, but a
-    `set/backwardRule` never fires forward: its conclusion exists only while a
-    backchainer is looking for it, and no member of the registry is one.  So a complete
-    prover here is claiming a superset of what the *registry* answers, while the rule is
-    reached by an executor above it — and the claim has to be read in that scope or it
-    over-reaches: it would let a computed answer stand in for a leaf the node engine or
-    `prove` is about to expand a rule under.  Not narrowed to backward-only rules: a
-    forward rule is absorbed only if the fixpoint actually ran to it, which
-    `{:chain? false}` and `:max-depth` can both prevent, and being wrong here costs a
-    union rather than an answer.
-  * **`:inverse`** — a declared `(inverse P Q)` where the goal is about `P`, unless the
-    calculus owning `P` owns `Q` too and its converse table implies the pair
-    (`unread-inverse?`).  The taxonomy closures are keyed on their own functor, and a
-    calculus reads only its own vocabulary, so neither reads any other partner.
-  * **`:negates`** — a `(not (Q …))` goal with `Q` at or below a side of a `negates`
-    declaration.  The denial is read off the other side's tuples (`NegatesProver`),
-    which no calculus network holds.
-  * **`:calendar`** — an argument that is a **calendar term**: `(YearFn 2000)`,
-    `(MonthFn 2000 1)`, a `DatetimeFn` string, an `InstantFn` moment.  Such a term carries
-    its own ordering *in its fields*, and a term that appears in no stored fact appears in
-    no closure and in no constraint network either — so a calculus reading the store
-    entails nothing about the pair while correctly claiming to subsume every prover that
-    reads what it reads.  The structure is the source it does not read
-    (`vaelii.impl.calendar`).  A pure test on the goal's own arguments, and the cheapest
-    of the five: no index read, and no read at all for a goal naming no such term.
+  Absorbed, so not a channel: a stored fact, a merged term (rewritten into the goal first),
+  `symmetric` / `transitive` / `reflexive` over a calculus's own predicate, and `arg` type
+  inference and the metadata provers, which answer shapes no computed prover claims.
 
-  What is **absorbed**, and it is worth being exact since a missing entry here is a
-  missing answer:
-
-  * a **stored fact** is what the closures are built out of and what a calculus reads
-    into its network;
-  * a **merged term** is rewritten into the goal before any prover sees it, so an
-    equality reaches a computed prover already applied;
-  * `symmetric` / `transitive` / `reflexive` over a predicate a calculus owns, and an
-    `inverse` between two of its predicates that its converse table implies, are the
-    algebra's own composition and converse;
-  * `arg` type inference and the metadata provers answer goal shapes no computed
-    prover claims, so they are never shadowed in the first place.
-
-  Cheap by construction on four of the five: `inherit/positions` is behind a
-  root-intersection presence check on any declaration naming this predicate,
-  `tax/inverses-under` and `tax/negates-over` are one map read each on a KB declaring
-  no inverses or no negates, and
-  `datetime/time-term?` reads the goal's own arguments.
-  `res/concludes?` is the one that is not — it probes the consequent index per member of
-  `pred`'s spec closure until one holds a rule, so a goal no rule concludes costs O(specs)
-  index reads, and `cond->` evaluates every test rather than stopping at the first
-  channel found.  Its own docstring carries the number.  Where a rule concludes the
-  predicate, `concludes-goal?` then fetches the concluding rules until one consequent
-  unifies, so a goal no consequent unifies with costs one record fetch per concluding rule."
+  Cost: `inherit/positions` is behind a root-intersection presence check, `tax/inverses-under`
+  and `tax/negates-over` are one map read each, and `datetime/time-term?` reads the goal's
+  arguments.  `res/concludes?` probes the consequent index per member of `pred`'s spec closure
+  (O(specs) for a goal no rule concludes), and `concludes-goal?` then fetches concluding rules
+  until one unifies.  `cond->` evaluates every test."
   [kb goal context]
   (when (sequential? goal)
     (let [pred (nm/functor goal)]
@@ -252,33 +209,17 @@
 (defn sole-prover
   "The prover that may answer `goal` **alone**, or nil for the union path.
 
-  Two conditions, and they are asked of different parties.  A prover claims
-  `completeness` 100 — *for this goal shape, my answers subsume every prover whose
-  sources I read* — which is a claim it is competent to make about itself.  The engine
-  then asks the question no single prover can: **is there a source none of them reads**
-  (`shadowing-channels`)?  If so, nobody runs alone, whatever they claimed.
+  A prover claims `completeness` 100 for its goal shape, subsuming every prover whose sources
+  it reads.  The engine then asks whether a source none of them reads exists
+  (`shadowing-channels`); if so, nobody runs alone.  The guard lives here and not in each
+  prover, so a new channel is one edit and `add-prover` registrants are guarded.  Guarding
+  only moves a goal from one prover to the union, which includes the claimant, so every
+  claimant is asked alike, including unstorable goal shapes (`different`, `unknown`,
+  `thereExists`, `forall`, aggregates).
 
-  Putting the guard here rather than in each prover is what makes it hold.  A fourth
-  channel is one edit instead of one per claimant; a prover registered through
-  `add-prover` is guarded without its author knowing the mechanism exists; and no
-  prover has to reason about sources outside its own.
-
-  Guarding is **safe in one direction only, and it is the safe one**: it can move a
-  goal from one prover to the union, never the reverse, and the union path includes the
-  claimant — so a guard that fires unnecessarily costs a lazy prover that may never be
-  forced, while one that fails to fire loses an answer.  That asymmetry is why the
-  channels are asked of every claimant alike, including the ones whose goal shape is
-  unstorable (`different`, `unknown`, `thereExists`, `forall`, an aggregate): they need
-  no exemption, because for them no channel ever bears.
-
-  The channels are read **once per goal**, and only for a goal some prover claims: they
-  are a property of the goal and the KB, not of the prover asking, and with no claimant
-  the answer is the union whatever they hold.  A plain stored-fact literal has none, and
-  its channels cost an index probe per spec of its predicate.  Each claimant's estimate
-  is taken once and carried: `sort-by` re-evaluates its keyfn on **every comparison**,
-  and an estimate is a real count over the taxonomy rather than a constant.  The sort is
-  stable and the estimate is a function of the goal and the KB, so a tie still breaks
-  on registry order and not on when the comparison happened."
+  The channels are read once per goal and only for a goal some prover claims.  Each claimant's
+  estimate is taken once and carried, because `sort-by` re-evaluates its keyfn per comparison;
+  the sort is stable, so ties break on registry order.  See docs/inference.md."
   [kb applicable goal context]
   (let [claimants (filterv #(>= (budget/checked-call
                                  (fn [] (completeness % kb goal context)))
@@ -368,18 +309,11 @@
 
 ;; ---- disjointness -------------------------------------------------------
 
-;; An open disjointness goal is answered from the **declarations**, not from the
-;; vocabulary.  A `(disjoint x y)` declaration separates two subtrees, so the pairs it
-;; convicts are `specs(x) × specs(y)` and every answer is a subtype of something a
-;; declaration names (`tax/separating-partners`, `tax/separating-pairs`).  The answer set
-;; is therefore what `tax/disjoint?` says it is — that predicate is unchanged and still
-;; decides the ground goal — while what is *fed* to it is bounded by the declaration set
-;; rather than by the type count.  An imported ontology carries 132,391 types over 27,195
-;; declared pairs (docs/kbs.md, docs/taxonomy.md), and a term's own share of the second
-;; number is one or two.
-;;
-;; `distinct` because two declarations can convict one type and the vocabulary scan this
-;; replaces could not repeat an answer.
+;; An open disjointness goal is answered from the declarations, not the vocabulary.  A
+;; `(disjoint x y)` declaration convicts `specs(x) × specs(y)` (`tax/separating-partners`,
+;; `tax/separating-pairs`), so what is fed to `tax/disjoint?`, which still decides the ground
+;; goal, is bounded by the declaration set and not the type count (docs/taxonomy.md).
+;; `distinct` because two declarations can convict one type.
 
 (defn- disjoint-with
   "The types disjoint from `a` in `context`: every subtype of a type a visible
@@ -472,8 +406,9 @@
   "The `common-genl-goal` reading of a negated goal `(not (P result t1 …))` whose
   `result` is ground, else nil."
   [goal]
-  (when (and (rules/negative-literal? goal) (empty? (sx/free-vars goal)))
-    (common-genl-goal (second goal))))
+  (when (rules/negative-literal? goal)
+    (when-let [reading (common-genl-goal (second goal))]
+      (when (empty? (sx/free-vars goal)) reading))))
 
 (defrecord CommonGenlProver []
   Prover
@@ -502,26 +437,17 @@
 ;; ---- generic relation reasoners (predicate metadata) --------------------
 
 (defn- hop-patterns
-  "The one-hop lookup patterns for `node` under `pred`, each binding `?rv` to the
-  neighbour.  `dir` is `:succ` (node in argument 1) or `:pred` (node in argument 2).
+  "The one-hop lookup patterns for `node` under `pred`, each binding `?rv` to the neighbour.
+  `dir` is `:succ` (node in argument 1) or `:pred` (node in argument 2).
 
-  **One probe per visible `(inverse P' Q)` with `P'` at-or-below `pred`, plus the direct
-  one.**  `(P x y)` and `(Q y x)` are one edge recorded two ways, so a chain whose middle
-  hop was written on a partner is on the graph the walk sees rather than a break in it —
-  and a partner declared for a *sub-predicate* records a sub-predicate tuple, which is a
-  `pred` tuple by subsumption, so its spelling is a hop here too (`inverses-under`).
-  The partner set is empty for nearly every predicate, so the ordinary walk pays one map
-  read per node — and where a KB declares two partners both are probed, since answering
-  off one of them would put a hop's visibility at the mercy of which declaration landed
-  last.
-
-  The partner is probed with `matches-visible` on the swapped literal, **not** by
-  delegating a goal to the registry.  That keeps the step relation a function of the KB
-  alone — the property `vaelii.impl.literal-cache`'s docstring argues for at length — and
-  it is why a mutual `(inverse P Q)` + `(inverse Q P)` pair cannot cycle here the way
-  `solve-inverted` has to guard against.
-  A `P` declared its own inverse yields the two probes of a symmetric predicate, which is
-  what such a declaration says."
+  One probe per visible `(inverse P' Q)` with `P'` at or below `pred`, plus the direct one,
+  since `(P x y)` and `(Q y x)` are one edge recorded two ways and a partner of a
+  sub-predicate records a `pred` tuple by subsumption (`inverses-under`).  Every declared
+  partner is probed, so visibility does not depend on declaration order.  The partner is probed
+  with `matches-visible` on the swapped literal and not by delegating to the registry, so the
+  step relation is a function of the KB alone (`vaelii.impl.literal-cache`) and a mutual
+  inverse pair cannot cycle here.  A `P` declared its own inverse yields the two probes of a
+  symmetric predicate."
   [kb dir pred node context]
   (let [qs (sort (tax/inverses-under (reasoning/taxonomy kb) pred context))]
     (if (= dir :succ)
@@ -529,55 +455,32 @@
       (into [(list pred '?rv node)] (map #(list % node '?rv)) qs))))
 
 (defn- closure-key
-  "The key a walk's reach — and the neighbour sets it is built from — is held under.
+  "The key a walk's reach and its neighbour sets are held under, one function because three
+  sites must agree: the open ask that fills the cache and the closed pair that reads it from
+  either end.
 
-  One function because there are **three** construction sites and they have to agree: the
-  open ask that fills the cache, and the closed pair that reads it by membership from
-  either end.  Written out three times, adding a component to one of them turns every hit
-  into a miss and the only symptom is a slow test.
-
-  `[dir pred node context]` covers what the step relation reads — `inverses-under` is a
-  function of exactly `pred` and `context`.  The **belief mode** is the fifth, and it is
-  not covered by the clock: a `CxEverything` read walks the same four with the belief
-  filter off and moves nothing, so without it the two modes share one entry and whichever
-  ran first answers for both — an ordinary read reporting a defeated default.  Same
-  omission, and the same fix, as the literal cache's key.  The reading is the sixth and
-  seventh (`tax/*search*`, `tax/*network-belief*`): a firing's guard check reads a closed
-  goal's reach under the network reading, which reads no placed defeat.
-
-  `memo-neighbours` is deliberately **not** one of the three.  Its memo is bound per search
-  step (`observe/with-search-scope`) and so lives inside a single read, where the belief
-  mode cannot change; a blind read and an ordinary one never share one.  Keying it here
-  would put a `^:dynamic` deref in the walk's innermost loop — once per node — which is the
-  cost `res/belief-blind?` exists to keep out of exactly that loop."
+  `[dir pred node context]` covers what the step relation reads.  The belief mode is the
+  fifth, not covered by the clock: a `CxEverything` read moves nothing, so without it a blind
+  and an ordinary read share an entry.  The sixth and seventh are `tax/*search*` and
+  `tax/*network-belief*`.  `memo-neighbours` is not a site: its memo is bound per search step
+  (`observe/with-search-scope`), where the belief mode cannot change, and keying it here would
+  put a `^:dynamic` deref in the walk's innermost loop (`res/belief-blind?`)."
   [dir pred node context]
   [dir pred node context (res/belief-blind?) exc/*unscoped-own* tax/*search* tax/*network-belief*])
 
 (defn- memo-neighbours
-  "The neighbours of `node` under `pred` as `{neighbour #{handle}}` — the terms one hop
-  away, each with the handles of the stored sentexes that record the hop — cached in
-  `observe/*reach-memo*` when one is bound.  `dir` is `:succ` (node in argument 1) or
-  `:pred` (node in argument 2).
+  "The neighbours of `node` under `pred` as `{neighbour #{handle}}`: the terms one hop away,
+  each with the handles of the stored sentexes that record the hop, cached in
+  `observe/*reach-memo*` when one is bound.  `dir` is `:succ` (node in argument 1) or `:pred`
+  (node in argument 2).
 
-  The key stays `[dir pred node context]` and covers everything the step relation reads:
-  `inverses-under` is a function of exactly `pred` and `context`, both already in it — and
-  the belief mode is constant for this memo's whole life, which `closure-key` says why.  The
-  neighbours are keyed by **term**, so an edge recorded in both spellings — or reached
-  through both probes of a self-inverse predicate — is one member, and the spellings
-  gather in that member's handle set rather than making two.
-
-  **The handles are why this is a map and not a set.**  A closure answer supports a
-  forward firing (`SupportingProver`, below), and what it rests on is the edges it crossed
-  — which live nowhere but here, one hop at a time.  Every spelling of a hop is kept
-  rather than one chosen, because choosing would key the firing's justification on which
-  spelling arrived first; the protocol permits exactly this over-approximation and forbids the
-  omission.
-
-  Read with `matches-visible`'s `cached?` false, which is the whole of the walk's
-  relationship with the solution cache: a walk asks each node's literal once, so that
-  cache has no repeat here to serve, and one insertion per node would clear it wholesale
-  under a reader that does re-ask.  Why the argument and not the toggle is
-  `res/matches-visible`'s own."
+  The key `[dir pred node context]` covers what the step relation reads (`closure-key` gives
+  the belief mode).  Neighbours are keyed by term, so an edge recorded in both spellings is one
+  member whose handle set gathers every spelling.  The handles make this a map: a closure
+  answer supports a forward firing (`SupportingProver`) and rests on the edges it crossed, and
+  keeping every spelling avoids keying the justification on arrival order.  Read with
+  `matches-visible`'s `cached?` false, since a walk asks each literal once and an insertion
+  per node would clear the solution cache."
   [kb dir pred node context]
   (let [compute #(reduce (fn [m [h b]]
                            (if-let [rv (get b '?rv)]
@@ -620,15 +523,6 @@
                      (ends (list pred '?lv '?rv) '?lv)
                      (map #(ends (list % '?lv '?rv) '?rv) qs)))))
 
-(defn- reach [seed step]
-  (loop [result #{}, frontier (vec seed)]
-    (if (empty? frontier)
-      result
-      (let [x (peek frontier) frontier (pop frontier)]
-        (if (result x)
-          (recur result frontier)
-          (recur (conj result x) (into frontier (step x))))))))
-
 (defn- on-a-cycle
   "The nodes reachable from themselves under `step`, starting from `sources` — the answer
   to `(P ?x ?x)` for a declared-transitive `P`.
@@ -640,86 +534,31 @@
   connected component has more than one member, or when it has a self-edge, so Tarjan
   answers every source at once in O(V+E).
 
-  Iterative rather than recursive: a component's depth is a chain's length, and a 100k-node
-  `before` chain would take the JVM stack down.  The stack frames are `[node
-  successors-still-to-visit]`, which is the recursion made explicit."
+  Iterative (`graph/scc`): a 100k-node `before` chain would overflow a recursive walk."
   [sources step]
-  (let [index   (java.util.HashMap.)          ; node -> discovery index
-        low     (java.util.HashMap.)          ; node -> lowlink
-        on      (java.util.HashSet.)          ; nodes on the tarjan stack
-        stack   (java.util.ArrayDeque.)       ; the tarjan stack itself
-        cyclic  (volatile! (transient #{}))
-        counter (volatile! 0)]
-    (letfn [(component! [root]
-              ;; pop one SCC; it is cyclic when it has a second member — a singleton is
-              ;; cyclic only through a self-edge, which `push!` tests
-              (let [members (loop [acc []]
-                              (let [w (.pop stack)]
-                                (.remove on w)
-                                (if (= w root) (conj acc w) (recur (conj acc w)))))]
-                (when (> (count members) 1)
-                  (vswap! cyclic #(reduce conj! % members)))))
-            (visit! [v0]
-              (let [frames (java.util.ArrayDeque.)]
-                (letfn [(push! [v]
-                          (let [i    (vswap! counter inc)
-                                succ (vec (step v))]
-                            ;; the self-edge is read off the successors already in hand:
-                            ;; Tarjan does not see it (a singleton component is cyclic
-                            ;; only through one), and asking `step` a second time to find
-                            ;; it would double a walk's retrievals — the one thing the
-                            ;; walk's read path promises it does not do
-                            (when (some #(= v %) succ) (vswap! cyclic conj! v))
-                            (.put index v i) (.put low v i)
-                            (.push stack v) (.add on v)
-                            (.push frames (object-array [v (java.util.ArrayDeque.
-                                                            ^java.util.Collection succ)]))))]
-                  (push! v0)
-                  (while (not (.isEmpty frames))
-                    (let [^objects f (.peek frames)
-                          v          (aget f 0)
-                          ^java.util.ArrayDeque todo (aget f 1)]
-                      (if (.isEmpty todo)
-                        (do (.pop frames)
-                            (when (= (.get low v) (.get index v)) (component! v))
-                            (when-not (.isEmpty frames)
-                              (let [^objects p (.peek frames)
-                                    u          (aget p 0)]
-                                (.put low u (min (long (.get low u)) (long (.get low v)))))))
-                        (let [w (.poll todo)]
-                          (cond
-                            (not (.containsKey index w)) (push! w)
-                            (.contains on w)             (.put low v (min (long (.get low v))
-                                                                          (long (.get index w))))
-                            :else                        nil))))))))]
-      ;; every node with a self-edge has an outgoing edge, so `walk-sources` names it and
-      ;; the walk reaches it — testing at the push rather than per source therefore finds
-      ;; the same set, and finds it without a second read of anybody's neighbours
-      (doseq [s sources]
-        (when-not (.containsKey index s) (visit! s)))
-      (persistent! @cyclic))))
+  (let [cyclic (volatile! (transient #{}))]
+    ;; the self-edge is read off the successors already in hand: a singleton component
+    ;; is cyclic only through one, and asking `step` again would double the retrievals
+    (graph/scc sources
+               (fn [v]
+                 (let [succ (vec (step v))]
+                   (when (some #(= v %) succ) (vswap! cyclic conj! v))
+                   succ))
+               (fn [members]
+                 (when (> (count members) 1)
+                   (vswap! cyclic #(reduce conj! % members)))))
+    (persistent! @cyclic)))
 
 ;; ---- the closure answer cache ------------------------------------------
-;;
-;; `reach` is a fixpoint, and asking for one twice over an unmutated KB is the same
-;; question twice.  **This is the only layer that can answer the repeat**, and the reason
-;; is how `memo-neighbours` reads: a walk asks each node's neighbour literal once, so the
-;; per-literal solution cache has no repeat of a walk's to serve and is neither consulted
-;; nor filled by one (`res/matches-visible`, `cached?` false).  The walk is also
-;; where the time is — over a 40-member class it is
-;; 127 µs against the 15 µs of per-ask dispatch a closed one-hop goal pays too, and
-;; holding the answer puts a repeat at 52 µs, which is that dispatch plus the projection
-;; and nothing else (`lein bench-walk`).
-;;
-;; **Why this can be cached where a `solve-goal` answer cannot.**  `literal-cache`'s
-;; docstring gives the two properties a cached answer needs and `solve-goal` lacks: it
-;; must not be **tier**-dependent (`ask-capped` drops provers above a cost tier) and must
-;; not be **scope**-dependent (a held-values scope freezes what `observe/cached` returns).  A
-;; reach set is neither.  Dropping this prover means `solve` is never called, so the
-;; entry is never consulted rather than served across a tier it was not computed under;
-;; and the walk reads `matches-visible` and the taxonomy's own generation-keyed memos,
-;; never `observe/cached`, so no held read can hand it a frozen snapshot.  The entry is an answer of
-;; *this prover*, not of the registry.
+;; `reach` is a fixpoint, and this is the only layer that can answer a repeat: a walk asks
+;; each node's neighbour literal once, so the per-literal solution cache is neither
+;; consulted nor filled by one (`res/matches-visible`, `cached?` false).  A repeat costs
+;; 52 µs against 127 µs for the walk over a 40-member class (`lein bench-walk`).
+;; A reach set is neither tier-dependent nor scope-dependent, the two properties
+;; `literal-cache` requires and `solve-goal` lacks: dropping this prover means `solve` is
+;; never called, and the walk reads `matches-visible` and the taxonomy's generation-keyed
+;; memos, never `observe/cached`.  The entry is an answer of this prover, not of the
+;; registry.
 
 (def ^:dynamic *closure-answer-limit*
   "The most reach **members** one KB's closure cache holds before it is dropped
@@ -781,7 +620,7 @@
     (if-let [v (closure-hit kb k clock)]
       (do (caches/hit t) v)
       (caches/held-if-settled
-       #(caches/recomputed t (reach (step node) step))
+       #(caches/recomputed t (graph/reach-all (step node) step))
        (fn [v]
          (when (caches/tallying?)
            (when-let [old (get (:entries @(reasoning/closures kb)) k)]
@@ -809,29 +648,16 @@
       false)))
 
 (defn- support-parents
-  "One **breadth-first** walk out from `root`, recording for every node it reaches the
-  node it was first reached from and the handles of that hop —
-  `{node [parent #{handle}]}`, with `nil` as the parent of `root`'s own neighbours.
-
-  Breadth-first and not depth-first, and that is the whole of what bounds the support: the
-  first time a node is reached is along a **shortest** chain, so the handles walked back
-  from it are one path's worth rather than a wandering one's.  A chain is therefore at most
-  as long as the graph is deep, whatever order the edges arrived in.
-
-  The neighbour sets come from `memo-neighbours`, so this reads the same step relation the
-  reach walk does and — inside one search scope — off the same memo, paying no store read
-  for a node the reach already visited."
+  "One breadth-first walk out from `root`, recording for every node reached the node it was
+  first reached from and the handles of that hop: `{node [parent #{handle}]}`, with `nil` as
+  the parent of `root`'s own neighbours.  The first visit is along a shortest chain, so a
+  chain is at most as long as the graph is deep whatever the edge arrival order.  Neighbour
+  sets come from `memo-neighbours`, sharing its memo inside a search scope."
   [kb dir pred root context]
   (let [edges #(memo-neighbours kb dir pred % context)]
-    (loop [parents {} frontier (into clojure.lang.PersistentQueue/EMPTY
-                                     (map (fn [[n hs]] [n nil hs]))
-                                     (edges root))]
-      (if-let [[n p hs] (peek frontier)]
-        (if (contains? parents n)
-          (recur parents (pop frontier))
-          (recur (assoc parents n [p hs])
-                 (into (pop frontier) (map (fn [[m hs2]] [m n hs2])) (edges n))))
-        parents))))
+    (:tree (graph/bfs-tree (map (fn [[n hs]] [n [nil hs]]) (edges root))
+                           (fn [n _] (map (fn [[m hs2]] [m [n hs2]]) (edges n)))
+                           (constantly false)))))
 
 (defn- support-chain
   "The handles of the chain `support-parents` recorded from its root to `node`, or nil
@@ -965,82 +791,41 @@
          ;; inherent to a closure, not a missed optimization.
          (ground? a) (map (fn [y] {b y}) (cached-reach kb :succ pred a context fwd))
          (ground? b) (map (fn [x] {a x}) (cached-reach kb :pred pred b context back))
-         ;; One variable in **both** places — `(P ?x ?x)` — asks which nodes lie on a
-         ;; cycle, and binds one variable rather than two.  Stated rather than left to
-         ;; fall through, for the `Duplicate key` reason `TransitivityProver` gives above.
-         ;;
-         ;; Answered by one condensation rather than one closure per source: `reaches? x x`
-         ;; walks x's whole reach to *fail*, so the acyclic case — the ordinary one for a
-         ;; `before` or `tangiblePartOf` chain — would cost O(n²) to answer nothing.
-         ;; A printed key, never a bare `sort`: these are **terms**, and a term need not
-         ;; be `Comparable` — an unreifiable function application stays structural in
-         ;; argument position, so a binding can be a list, and a bare sort throws
-         ;; `ClassCastException` on a KB whose cycle relates two of them.  Printed form is
-         ;; the content key the rest of this file already ranks terms by, and it is printed
-         ;; through `nm/print-key` so an ambient `*print-length*` cannot elide two nested
-         ;; terms to one prefix and drop the order onto the source's handle set.
+         ;; `(P ?x ?x)` asks which nodes lie on a cycle and binds one variable.  It is written out
+         ;; for the `Duplicate key` reason `TransitivityProver` gives above, and answered by one
+         ;; condensation, since `reaches? x x` would walk the whole reach to fail on an acyclic chain.
+         ;; The sort key is a printed form (`nm/print-key`), because a binding can be a list and a
+         ;; bare sort throws on a non-`Comparable` term.
          (= a b) (map (fn [x] {a x})
                       ;; the key keeps a list-valued binding sortable; built once per term
                       (nm/sort-by-content-key nm/print-key compare
                                               (on-a-cycle (walk-sources kb pred context) fwd)))
-         ;; Both open: **nothing from here**, so the extent answers — the stored `pred`
-         ;; facts and those of its `genl` sub-predicates, through the ordinary match path
-         ;; like any other predicate.  `completeness` 70 is what makes that work: this is
-         ;; not the sole complete method, so the registry unions rather than running it
-         ;; alone, and an empty seq here is a contribution of none rather than an answer
-         ;; of none.
-         ;;
-         ;; The asymmetry with the arms above is deliberate and is the whole reason this
-         ;; arm is written out rather than left to fall through.  Those bound one end, so
-         ;; the work and the answer are both bounded by one node's reach.  This one is
-         ;; bounded by neither: the closure of a transitive relation is **quadratic** in a
-         ;; chain's length, so enumerating it for a 1M-node chain offers half a trillion
-         ;; pairs — not an answer a caller asked for but a process that does not come
-         ;; back.  Laziness does not rescue it either, since `reach` is a fixpoint and one
-         ;; pair costs a whole node's closure.  So the closure is computed for membership
-         ;; and for one bound end, and is never stored and never enumerated whole.
-         ;;
-         ;; A caller who does want it asks for it: `(P ?x ?x)` above for the cycle
-         ;; question, or one bound end per source term. A report read learns the closure
-         ;; was skipped through `*unenumerated*`.
+         ;; Both open: nothing from here, so the extent answers through the ordinary match path.
+         ;; `completeness` 70 makes the registry union rather than run this alone, so an empty seq
+         ;; is a contribution of none.  The closure of a transitive relation is quadratic in a
+         ;; chain's length, and `reach` is a fixpoint costing a whole node's closure per pair, so it
+         ;; is computed for membership and one bound end and never enumerated whole.  A report read
+         ;; learns of the skip through `*unenumerated*`.
          :else (do (when-let [a *unenumerated*]
                      (let [g? *in-guard*]
                        (swap! a #(cond-> (update % :all conj pred) g? (update :guarded conj pred)))))
                    [])))))
 
   SupportingProver
-  ;; **Both sets are empty, and that is a claim rather than an omission.**  The functors
-  ;; this answers are whatever a KB declared `(transitive P)` of, so they are a taxonomy
-  ;; read and not a constant a protocol with no `kb` argument could return.  The two
-  ;; readers that would take a fixed set ask the taxonomy instead —
-  ;; `chain/transitive-antecedent?` for which antecedent the join solves by walking, and
-  ;; `chain/transitive-rejoin-rules` for which rules an arriving edge owes a re-join.  What
-  ;; the protocol *does* carry is `solve-with-support`, which is reached through
-  ;; `solve-goal-with-support`'s `satisfies?` and needs no functor list at all.
+  ;; Both sets are empty: the functors this answers are those a KB declared
+  ;; `(transitive P)` of, a taxonomy read that a protocol with no `kb` argument cannot
+  ;; return.  `chain/transitive-antecedent?` and `chain/transitive-rejoin-rules` ask the
+  ;; taxonomy instead, and `solve-with-support` needs no functor list.
   (support-functors [_] #{})
   (support-sources  [_] #{})
   ;; The same solutions `solve` gives, in the same order, each carrying the handles of one
-  ;; chain of stored edges that reaches it.  The bindings come from the same `reach` /
-  ;; `reaches?` the plain arm uses — the closure cache included, so a supported ask costs
-  ;; the same walk — and the chain comes from one breadth-first pass with parent pointers,
-  ;; which shares `memo-neighbours` with it and so buys the parents for no extra store read
-  ;; inside a search scope.
-  ;;
-  ;; A **cycle** answer is the one arm whose chain is a round trip rather than a path, and
-  ;; it is walked per node rather than per source: `on-a-cycle` answers every source with
-  ;; one condensation, but the *edges* of a node's loop are not in the condensation, so the
-  ;; chain is taken by one breadth-first walk from that node back to itself.  Bounded by
-  ;; the nodes actually on a cycle, which is none for the acyclic chain this arm is usually
-  ;; asked about.
-  ;;
-  ;; Both arguments open answers nothing here, exactly as `solve` does, so there is no
-  ;; support to report for a closure nobody asked to enumerate.
-  ;;
-  ;; A chain of more than one stored handle rests on the **declaration** as well, since
-  ;; only `(transitive P)` makes two hops a pair, so the support names every believed
-  ;; statement of it that `context` sees (`declared-transitive-by`).  Placement reads the
-  ;; support's contexts, and a declaration stated apart from the hops licenses the pair
-  ;; only below both; the hops' own context, which does not see it, walks nothing.
+  ;; chain of stored edges.  The bindings come from the same `reach` / `reaches?`, closure
+  ;; cache included, and the chain from one breadth-first pass with parent pointers that
+  ;; shares `memo-neighbours`.  A cycle answer is walked per node, since the condensation
+  ;; holds no edges.  Both arguments open answers nothing, as in `solve`.  A chain of more
+  ;; than one handle also rests on the declaration, so the support names every believed
+  ;; `(transitive P)` that `context` sees (`declared-transitive-by`); a declaration stated
+  ;; apart from the hops licenses the pair only below both.
   (solve-with-support [_ kb goal context]
     (unblocked
      kb goal context
@@ -1087,7 +872,17 @@
     (inherit/with-memo
       ;; `:ambiguous` yields nothing; the claim walk stops at the `ask`'s deadline
       (binding [inherit/*deadline* budget/*deadline*]
-        (if (inherit/answers? kb goal context) [{}] [])))))
+        (if (inherit/answers? kb goal context) [{}] []))))
+  SupportingProver
+  (support-functors [_] #{})
+  (support-sources  [_] #{})
+  (solve-with-support [_ kb goal context]
+    (inherit/with-memo
+      (binding [inherit/*deadline* budget/*deadline*]
+        (if (inherit/answers? kb goal context)
+          (or (seq (map (fn [hs] [{} (set hs)]) (inherit/answer-readings kb goal context)))
+              [[{} #{}]])
+          [])))))
 
 (defrecord SymmetricProver []
   Prover
@@ -1182,41 +977,21 @@
 
 (def evaluable-predicates
   "Predicates a prover computes from its ground arguments rather than looks up.
-  `lessThan` / `greaterThan` are the **variable arity** arithmetic comparisons —
-  `(lessThan 1 2 3)` states the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
-  when *stored* (see `vaelii.impl.sentex`), but a caller may still ask it directly, so both
-  are answered here.
 
-  `integer` is the **unary** EDN-kind check: `(integer 5)` holds because 5 *is* an integer,
-  no stored fact needed.  It is a built-in for the same reason the comparisons are — the
-  kind is always present — and it is what lets the four sign-refined integer collections in
-  core.txt (`positive_integer` …) be defined by `defnSufficient` / `defnNecessary` conditions
-  built on `(integer ?x)` and resolved **by evaluation** at query time, at zero storage
-  cost: a sufficient condition with no stored conjunct expands to no forward rule
-  (docs/defns.md).
+  - `lessThan` / `greaterThan`: variable-arity arithmetic comparisons, `(lessThan 1 2 3)`
+    states 1 < 2 < 3.  `greaterThan` is folded to `lessThan` when stored (`vaelii.impl.sentex`)
+    and answered directly when asked.
+  - `integer`: the unary EDN-kind check, which lets the sign-refined integer collections in
+    core.txt resolve by evaluation (docs/defns.md).
+  - `string`, `number`, `boolean`, `keyword`, `character`: value kinds, answered only for a
+    literal argument (`literal-value-kind`).  A symbol or compound is left to the other
+    provers.
+  - `matchesPattern`: `(matchesPattern ?string ?pattern)` holds when the whole of the string
+    matches the regular expression, both ground; false for a non-string subject.  It runs
+    through `bounded-matches?`, so a backtracking pattern is a `:pattern-too-costly` refusal.
 
-  `string`, `number`, `boolean`, `keyword` and `character` are the other value kinds,
-  answered the same way but **only for a literal argument** (`literal-value-kind`):
-  `(string \"foo\")` holds, and `(not (number \"foo\"))` is proved, a literal's kind being
-  fixed.  A symbol or a compound
-  argument is left to the other provers, since a constant or a function application can
-  denote a number.
-
-  `matchesPattern` is the **binary** string-shape check: `(matchesPattern ?string ?pattern)`
-  holds when the whole of `?string` matches the regular expression `?pattern`, both ground
-  strings.  It is one kind further than `integer` — from \"what EDN kind is this\" to \"what
-  shape is this string\" — and it is the primitive a `defn` over a string subtype reads: a
-  `(defnSufficient ipv4_address (matchesPattern ?x \"…\"))` resolves by evaluation at query
-  time the way the sign-refined integer collections read `integer`.  `matchesPattern` answers
-  false for a non-string subject, so it needs no separate `(string ?x)` conjunct.  The
-  match runs through a step-limited wrapper (`bounded-matches?`), so a catastrophically-backtracking pattern
-  is a `:pattern-too-costly` refusal rather than an unbounded match that leaves the
-  completeness promise below dishonest.
-
-  A prover's own source list, and it stays one: the set is what `EvaluableProver` reads
-  its arguments *as*, not a claim about what any predicate is answered by.  The
-  declaration's half is the `:answers` facet each of the four carries, checked against
-  this set by `predicates_test`."
+  The set is what `EvaluableProver` reads its arguments as, not a claim about what answers a
+  predicate; the `:answers` facet of each is checked against it by `predicates_test`."
   (into '#{lessThan greaterThan integer matchesPattern} value-kind-predicates))
 
 (def ^:private ^:const match-step-budget
@@ -1490,21 +1265,14 @@
       (if ok [{}] []))))
 
 (defn admits-position?
-  "Does positive position `n` exist in a well-formed application of a relation with this
-  arity shape?  `true` when it certainly does, `false` when it certainly does not, `nil`
-  when the KB has not said.
+  "Does positive position `n` exist in a well-formed application of a relation with this arity
+  shape?  `true` when it does, `false` when it does not, `nil` when the KB has not said.
 
-  The one decision `admitsArgnum`, `checks/arg-position-problem` and — through that arm —
-  `quality`'s position census all read, so the query and the well-formedness refusal
-  cannot answer the same position two ways.  `variable?` is whether the relation reads a
-  chain of any length; `declared` is its exact declared arity, or nil where the KB has
-  none.
-
-  A variable-arity relation admits every positive position: its guaranteed positions
-  (one through its `arityMin`) and every higher one its long tuples reach are all
-  positions a well-formed application has.  A fixed-arity relation admits one through its
-  declared arity and no more.  A relation with neither a variable-arity mark nor a
-  declared arity leaves the question open."
+  `admitsArgnum`, `checks/arg-position-problem` and `quality`'s position census all read it, so
+  they cannot answer one position two ways.  `variable?` is whether the relation reads a chain
+  of any length; `declared` is its exact declared arity or nil.  A variable-arity relation
+  admits every positive position, a fixed-arity one one through its declared arity, and a
+  relation with neither leaves the question open."
   [variable? declared n]
   (cond
     (not (and (integer? n) (pos? n))) false
@@ -1772,6 +1540,59 @@
   (solve-with-support [_ kb goal context]
     (if-let [sup (expression-kind-support kb goal context)] [[{} sup]] [])))
 
+(defn- nonempty-type
+  "The type `(nonempty C)` asks about, `C` a constant symbol, or nil for any other goal."
+  [goal]
+  (when (and (sequential? goal) (= 2 (count goal)) (= 'nonempty (first goal)))
+    (let [c (second goal)]
+      (when (and (symbol? c) (not (sx/variable? c))) c))))
+
+(defn nonempty-witness
+  "The handles a believed member of the type `c` seen from `context` rests on, as a set,
+  or nil when `c` has none: the first in content order of the believed memberships `(S x)`
+  that `res/matches-visible` answers for `(c ?x)`, `S` being `c` or a subtype, and for a
+  subtype the first believed supporter of each `genl` edge on one path from `S` up to `c`
+  (`tax/genl-path-edges`).  A member whose path has an edge with no believed supporter
+  seen from `context` is passed over.  Reads one count per subtype of `c` first
+  (`reads/stored-count-with-functor`), and the visible extent of `c` in full when one is
+  positive."
+  [kb c context]
+  (let [tms   (reasoning/tms kb)
+        recs  (:records kb)
+        tx    (reasoning/taxonomy kb)
+        ckey  (fn [h] (let [r (p/get-sentex recs h)] [(sx/sentence-of r) (:context r)]))
+        least (fn [hs] (nm/min-by-content-key ckey (filter #(jtms/in? tms %) hs)))
+        route (fn [h]
+                (let [s (nm/functor (sx/sentence-of (p/get-sentex recs h)))]
+                  (if (= s c)
+                    #{h}
+                    (when-let [es (tax/genl-path-edges tx s c)]
+                      (let [ws (mapv (fn [[a b]] (least (tax/genl-edge-supporters tx a b context))) es)]
+                        (when (every? some? ws) (into #{h} ws)))))))
+        hs    (when (some #(pos? (reads/stored-count-with-functor (:index kb) %)) (tax/specs tx c context))
+                (into [] (comp (map first) (distinct) (filter #(jtms/in? tms %)))
+                      (res/matches-visible kb (list c '?x) context false)))]
+    (when (seq hs)
+      (or (route (nm/min-by-content-key ckey hs))
+          (some route (nm/sort-by-content-key ckey hs))))))
+
+(defrecord NonemptyProver []
+  Prover
+  (applicable?  [_ _ goal _]
+    (and (sequential? goal) (= 2 (count goal)) (= 'nonempty (first goal))))
+  (est-bindings [_ _ goal _] (if (nonempty-type goal) 1 deferred-est))
+  (cost         [_ _ _ _] :compute)
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (if (some-> (nonempty-type goal) (as-> c (nonempty-witness kb c context))) [{}] []))
+  SupportingProver
+  (support-functors [_] #{'nonempty})
+  (support-sources  [_] #{})
+  (solve-with-support [_ kb goal context]
+    (if-let [hs (some-> (nonempty-type goal) (as-> c (nonempty-witness kb c context)))]
+      [[{} hs]]
+      [])))
+
 ;; ---- result types: what a function application is ------------------------------
 
 (defn- result-type-goal?
@@ -1896,39 +1717,27 @@
 
 (defn evaluatable
   "A `Prover` wrapping the plain Clojure fn `f` as the evaluatable predicate/function
-  `pred` — the value `vaelii.core/add-evaluatable` registers.  Answers a goal by
-  **computing**, never by looking one up, in one of two shapes:
+  `pred`, the value `vaelii.core/add-evaluatable` registers.  It answers by computing, in one
+  of two shapes:
 
-  * **check** (no `:result`) — `(pred a …)` holds when `f` applied to the ground
-    arguments returns truthy, like `lessThan`.  Every argument must be ground.
-  * **result-binding** (`:result` names an output slot) — `(pred … ?out …)` binds `?out`
-    to `(f <the other, ground arguments>)`, like `evaluate`.  A ground output slot is
-    checked against the computed value instead of bound.
+  - **check** (no `:result`): `(pred a …)` holds when `f` applied to the ground arguments
+    returns truthy.  Every argument must be ground.
+  - **result-binding** (`:result` names an output slot): `(pred … ?out …)` binds `?out` to
+    `(f <the other, ground arguments>)`.  A ground output slot is checked against the value.
 
   `opts` (a map, or nil):
 
-  * `:result`       — `:first` (the `evaluate` convention), `:last`, or a 0-based index;
-                      its presence selects the result-binding shape.
-  * `:arity`        — the fn's **input** count (an int or a set of them), for `applicable?`
-                      to dispatch on; derived from `f` by reflection when omitted, which a
-                      variadic fn needs stated.
-  * `:cost`         — a `cost-tiers` keyword; `:lookup` by default.
-  * `:completeness` — 0..100; **100** by default, the authoritative-computation claim the
-                      built-in evaluables make (`sole-prover` still guards it against a
-                      shadowing rule/inverse the KB adds).  Drop it to 50 for a predicate a
-                      KB also stores facts under, so the computed answers *augment* the
-                      stored ones instead of standing alone.
+  - `:result`: `:first`, `:last`, or a 0-based index; its presence selects result-binding.
+  - `:arity`: the fn's input count (an int or a set), derived by reflection when omitted; a
+    variadic fn needs it stated.
+  - `:cost`: a `cost-tiers` keyword, `:lookup` by default.
+  - `:completeness`: 0..100, 100 by default (`sole-prover` still guards it).  Use 50 for a
+    predicate a KB also stores facts under.
 
-  Registered through `add-prover`, so a wrapped fn is an ordinary member of the registry:
-  it answers a direct `ask` / `query` goal, and — because the node engine's leaf **is**
-  the registry — it discharges a conjunct or a rule antecedent inside a `query` with a
-  `:max-depth`, appearing as a `:leaf` in a `{:proof? true}` derivation.  **Forward
-  materialization reaches it too**: `vaelii.impl.chain/deferred-antecedent?` treats a
-  registered evaluatable as a deferred antecedent, computing it through this registry the
-  way it computes the built-in `vaelii.impl.sentex/deferred-predicates`, so `ask` agrees
-  with `query` on a forward rule with an evaluatable antecedent.  One path does not reach
-  it, by the existing engine's design rather than this wrapper's: the DFS `prove`, whose
-  leaf is the stored facts.  See the query-engine section of docs/inference.md."
+  Registered through `add-prover`, so it answers `ask` / `query` goals and discharges a
+  conjunct or antecedent in a `query` with a `:max-depth`.  Forward materialization reaches
+  it through `vaelii.impl.chain/deferred-antecedent?`.  The DFS `prove` does not, since its
+  leaf is the stored facts (docs/inference.md, query-engine section)."
   ([pred f] (evaluatable pred f nil))
   ([pred f {:keys [result arity] cost-tier :cost complete :completeness
             :or {cost-tier :lookup complete 100}}]
@@ -1980,22 +1789,15 @@
     e))
 
 (defn evaluatable-est-override
-  "An `:est-override` for `vaelii.impl.plan/order` that costs only `preds` — a KB's
-  registered evaluatable functors (`evaluatable-preds`) — and returns nil for every
-  other goal so the index model ranks the rest.  A goal costs what its `EvaluatableFn`'s
-  `est-bindings` gives, read under the plan's bindings (`est-under`): `deferred-est`
-  while an input is unbound, else one, so the planner runs the generators that bind its
-  inputs first and the computation lands with every input ground.
+  "An `:est-override` for `vaelii.impl.plan/order` that costs only `preds`, a KB's registered
+  evaluatable functors (`evaluatable-preds`), and returns nil for every other goal.  A goal
+  costs what its `EvaluatableFn`'s `est-bindings` gives under the plan's bindings
+  (`est-under`): `deferred-est` while an input is unbound, else one, so the binders run first.
 
   Forward chaining (`vaelii.impl.chain/planned-join`) plans with this so a registered
-  evaluatable antecedent is placed after its binders — the self-deferral the built-in
-  evaluables get for free from canonical antecedent order, which the static
-  `deferred-predicates` set drives and a per-KB evaluatable is not in.  Scoped to the
-  evaluatables on purpose: forward chaining's leaf is the stored facts (`*matcher*`),
-  for which the index model is the right cost, so every other goal is left to it.
-
-  Nil when `preds` is empty, and `planned-join` then plans with `support-est-override`
-  alone."
+  evaluatable antecedent follows its binders, as the built-in `deferred-predicates` do by
+  canonical order.  Scoped to evaluatables because forward chaining's leaf is the stored facts
+  (`*matcher*`).  Nil when `preds` is empty."
   [kb preds]
   (when (seq preds)
     (let [ps (filterv #(and (instance? EvaluatableFn %) (contains? preds (:pred %))) (registry kb))]
@@ -2181,35 +1983,18 @@
            false))))
 
 (defn- table-read
-  "One reading of the unit table: `[values handles]`, where `values` is the bindings of
-  `ks` that every believed match of `pat` visible from `context` **agrees** on — nil when
-  there is no match and nil when two of them disagree — and `handles` names the
-  declarations it was read from.  One `matches-visible` read, belief- and
-  context-filtered.
+  "One reading of the unit table: `[values handles]`, where `values` is the bindings of `ks`
+  that every believed match of `pat` visible from `context` **agrees** on, nil when there is no
+  match or two disagree, and `handles` names the declarations read.  One `matches-visible`
+  read.
 
-  Agreement rather than the first match, because the first is whichever the index yields,
-  which is a handle order: a unit declaring two conversion factors would convert by
-  whichever was written first, and the same knowledge loaded in the other order would
-  give a different number out of the same KB.  The unit table therefore takes the rule
-  the rest of the engine takes for a reading stated twice over —
-  `duration/interval-length-with-support` on two lengths, `stp/endpoints-with-support` on two
-  starts: a disagreement is declined, not
-  adjudicated.  Restating one declaration in several contexts of the ancestor set is not a
-  disagreement; the matches carry the same bindings and collapse to one.
-
-  `ks` is a vector because a `conversionFactor` names a base **and** a factor, and the two
-  are one reading: taking the base from one declaration and the factor from another would
-  convert into a unit nothing said it converts to.
-
-  The handles are **every** declaration the reading was taken over, not one of them, and
-  for the reason the value is an agreement: the reading is a property of the *set*, since
-  a second declaration that agrees collapses into it while a second that disagrees
-  declines it outright.  So the set is what a conclusion drawn through this table rests on,
-  and naming one member of it would be naming whichever the index yielded first.
-  Over-approximating in that direction is the deliberate half of the trade: retracting one
-  of two agreeing declarations withdraws a conclusion the survivor would still license,
-  where naming only the survivor would make belief depend on which declaration arrived
-  first — the worse of the two (docs/nmtms.md)."
+  Agreement and not the first match, since the first is handle order.  A disagreement is
+  declined, not adjudicated, as in `duration/interval-length-with-support` and
+  `stp/endpoints-with-support`.  The same declaration in several contexts collapses to one.
+  `ks` is a vector because a `conversionFactor` names a base and a factor that are one
+  reading.  `handles` is every declaration read: retracting one of two agreeing declarations
+  withdraws a conclusion the survivor would license, which is preferred to belief depending on
+  arrival order (docs/nmtms.md)."
   [kb pat context ks]
   (let [ms (res/matches-visible kb pat context)
         vs (into #{} (map (fn [m] (mapv #(get (second m) %) ks))) ms)]
@@ -2217,49 +2002,28 @@
       [(first vs) (into #{} (map first) ms)])))
 
 (def unit-table-predicates
-  "The two predicates a measure is normalized through — what `normalize-quantity` reads,
-  and therefore what a conclusion drawn from a measure comparison rests on besides the
-  facts that bound the measures.
-
-  A prover's own source list, and the one place a prover's answer has to be reconciled
-  with *stored facts* — so the tempting move is a `:support-source` field on the
-  declaration, telling a KB author these rows are required.  It stays here, for two
-  reasons that are the same ones the header gives.  Neither predicate is grammar:
-  core.txt's own test for belonging is subject matter, and `dimensionOf` is named there as
-  the example that fails it — both live in `kb/upper/measure.txt`, where their
-  `comment` sentexes already say they are read by the quantity provers.  And the reading
-  that matters is **live**: `support-source-preds` asks the registry, so a prover
-  arriving through `add-prover` contributes its sources and a declaration field would be
-  blind to it."
+  "The two predicates a measure is normalized through: what `normalize-quantity` reads, and
+  what a conclusion drawn from a measure comparison rests on besides the facts that bound the
+  measures.  A prover's own source list, kept here and not as a `:support-source` field on the
+  declaration: neither predicate is grammar (both live in `kb/upper/measure.txt`), and
+  `support-source-preds` asks the registry live, so a prover added through `add-prover`
+  contributes its sources."
   '#{dimensionOf conversionFactor})
 
 (defn normalize-quantity-with-support
-  "Resolve a ground measure to `[[dimension lo-base hi-base] handles]` — its dimension and
-  its magnitude bounds converted **direct-to-base** (one multiply, no chaining), together
-  with the declarations the conversion was read from.  A point `(QuantityFn N U)` has
-  `lo-base = hi-base`; an interval keeps both bounds.
+  "Resolve a ground measure to `[[dimension lo-base hi-base] handles]`: its dimension and its
+  magnitude bounds converted direct-to-base (one multiply, no chaining), with the declarations
+  the conversion was read from.  A point `(QuantityFn N U)` has `lo-base = hi-base`.
 
-  * **Dimension** is `(dimensionOf U ?d)`, or **U itself** when the unit declares none —
-    so two measures in the *same unit* are always comparable (their dimension is that
-    unit) while two distinct undeclared units are not (their dimensions differ).  A
-    declared `dimensionOf` is what lets separate units share one dimension and compare.
-  * **Base magnitude** is `N × (conversionFactor U ?base ?factor)`, the factor
-    defaulting to `1` when the unit declares none (it is then its own base).  Every unit
-    of one dimension must convert to a *single* base unit for the magnitudes to line up
-    — the direct-to-base contract, no transitive chaining.
+  - Dimension is `(dimensionOf U ?d)`, or `U` itself when the unit declares none, so two
+    measures in the same unit always compare and two distinct undeclared units do not.
+  - Base magnitude is `N × (conversionFactor U ?base ?factor)`, the factor defaulting to `1`.
+    Every unit of one dimension must convert to a single base unit.
 
-  A unit the KB declares **twice over and differently** has declared nothing: both reads
-  go through `table-read`, so such a unit falls back to being its own dimension and its
-  own base rather than converting by whichever declaration is indexed first.  Nothing is
-  answered wrongly and nothing is answered differently in another load order — the price
-  is that the unit compares only against itself, which is what a KB that cannot say how
-  long a Furlong is has actually told the engine.
-
-  The handles are **empty** when the unit declares neither, and that is not a gap: the two
-  fallbacks are what the *absence* of a declaration means, and an absence is not a sentex
-  a retraction can take away.  A declaration arriving later does change the answer, and it
-  is `SupportingProver`'s `support-sources` that puts it in front of the rules concerned
-  rather than a handle here."
+  Both reads go through `table-read`, so a unit declared twice and differently falls back to
+  being its own dimension and base.  The handles are empty when the unit declares neither,
+  since an absence is not a sentex a retraction can take away; `SupportingProver`'s
+  `support-sources` covers a declaration arriving later."
   [kb measure context]
   (let [[lo hi unit] (case (first measure)
                        QuantityFn         (let [[_ n u] measure]   [n n u])
@@ -2306,6 +2070,18 @@
   behind it."
   [kb unit context]
   (first (base-unit-with-support kb unit context)))
+
+(defn measure-with-support
+  "A ground measure as `[[[dimension base-unit] lo-base hi-base] handles]`:
+  `normalize-quantity-with-support` with its dimension paired with the unit its
+  magnitudes are in (`base-unit-with-support`), and the declarations of both reads.  Two
+  measures compare only under one `[dimension base-unit]` key, so a unit with no
+  `conversionFactor`, its own base at factor 1, compares with itself and with no other
+  unit of its dimension."
+  [kb measure context]
+  (let [[[dim lo hi] nsup] (normalize-quantity-with-support kb measure context)
+        [base bsup]        (base-unit-with-support kb (last measure) context)]
+    [[[dim base] lo hi] (into nsup bsup)]))
 
 (defn- tolerance-scale
   "The decimal scale the tolerance grid sits on — the places `*quantity-tolerance*`
@@ -2367,11 +2143,12 @@
 (defn- q>= [a b] (>= a (- b *quantity-tolerance*)))
 
 (defn- measures-hold?
-  "Does comparison `pred` hold between two normalized measures `[dim lo hi]`?  The
-  interval reading is **necessary** (definite): the comparison holds only when it holds
-  of every point of each interval, which collapses to ordinary number comparison for a
-  point (`lo = hi`).  A **dimension mismatch is never comparable** — the guard yields nil
-  (⇒ the goal fails); it never throws."
+  "Does comparison `pred` hold between two measures `[key lo hi]` (`measure-with-support`)?
+  The interval reading is **necessary** (definite): the comparison holds only when it
+  holds of every point of each interval, which collapses to ordinary number comparison for
+  a point (`lo = hi`).  A **key mismatch is never comparable** — a dimension, or a base
+  unit, the two do not share — and the guard yields nil (⇒ the goal fails); it never
+  throws."
   [pred [d1 lo1 hi1] [d2 lo2 hi2]]
   (when (= d1 d2)
     (case pred
@@ -2381,6 +2158,21 @@
       quantityLessThanOrEqual    (q<= hi1 lo2)
       quantityGreaterThanOrEqual (q>= lo1 hi2)
       nil)))
+
+(defn measures-agree?
+  "Can the ground measures `a` and `b` denote one magnitude, read at `context`: both
+  measures, normalized under one `[dimension base-unit]` key (`measure-with-support`),
+  with bounds that meet within `*quantity-tolerance*`.  Two points agree when they are
+  equal, a point and an interval when the interval holds the point, and two intervals
+  when they overlap.  False for anything that is not a measure.  The functional check
+  and the tuple placement read it, so a functional slot holding `(QuantityFn 20
+  Kilogram)` and `(QuantityFn 20000 Gram)` holds one value (docs/quantity.md)."
+  [kb a b context]
+  (boolean
+   (when (and (measure? a) (measure? b))
+     (let [[k1 lo1 hi1] (first (measure-with-support kb a context))
+           [k2 lo2 hi2] (first (measure-with-support kb b context))]
+       (and (= k1 k2) (q<= lo1 hi2) (q<= lo2 hi1))))))
 
 (defrecord QuantityProver []                     ; measure comparison over the unit table
   Prover
@@ -2395,8 +2187,8 @@
   (solve [_ kb goal context]
     (let [[pred a b] goal]
       (if (measures-hold? pred
-                          (normalize-quantity kb a context)
-                          (normalize-quantity kb b context))
+                          (first (measure-with-support kb a context))
+                          (first (measure-with-support kb b context)))
         [{}] [])))
 
   SupportingProver
@@ -2412,8 +2204,8 @@
     ;; that holds only because a gram is a thousandth of a kilogram rests on the gram's
     ;; row *and* the kilogram's, and retracting either is what un-holds it.
     (let [[pred a b] goal
-          [na sa] (normalize-quantity-with-support kb a context)
-          [nb sb] (normalize-quantity-with-support kb b context)]
+          [na sa] (measure-with-support kb a context)
+          [nb sb] (measure-with-support kb b context)]
       (if (measures-hold? pred na nb) [[{} (into sa sb)]] []))))
 
 ;; ---- negation as failure: unknown / thereExists / forall / closed extents ----
@@ -2573,35 +2365,18 @@
     (solve-goal-with kb (registry kb) (sx/desugar-forall-literal goal) context)))
 
 ;; ---- evaluative defnSufficient: prove membership by evaluating the condition ----
-;; `(defnSufficient Coll C)` says the condition `C` on the member `?x` is enough for
-;; membership.  Its forward materialization (`sentex/defn-companion-rules`) is a rule
-;; `(implies C (Coll ?x))` that fires only when a stored conjunct of `C` binds the member
-;; — so a `C` built from **computed** predicates alone (`integer`, `lessThan`, an
-;; `add-evaluatable` check) derives no member: a built-in one expands to no rule, and a
-;; registered evaluatable's rule has no conjunct to bind the member.  This prover
-;; closes that at query time: on `(Coll a)` it finds `Coll`'s visible defnSufficient
-;; conditions, substitutes the queried member `a` for `?x`, and asks whether the condition
-;; holds through the registry — which *evaluates* the computed predicates against `a`.
+;; A `(defnSufficient Coll C)` whose condition `C` is built from computed predicates alone
+;; (`integer`, `lessThan`, an `add-evaluatable` check) derives no member forward, since its
+;; companion rule (`sentex/defn-companion-rules`) fires only when a stored conjunct binds the
+;; member.  On `(Coll a)` this prover substitutes `a` for `?x` in `Coll`'s visible conditions
+;; and asks whether the condition holds through the registry, which evaluates them
+;; (`conjunction-derivable?`, level 6, no backchaining).  It augments the fact prover and the
+;; forward rule (completeness 50); a believed condition is deduped.
 ;;
-;; Level-6 (`conjunction-derivable?` over the registry, no backchaining), so its reach
-;; matches the forward rule's: a conjunctive condition is joined, and each conjunct is
-;; answered by the evaluables, the facts and the closures — the same evaluator
-;; `unknown` / `thereExists` / `exceptWhen` read.  It **augments** the fact prover and the
-;; forward rule (completeness 50): a condition that *is* believed is answered identically
-;; through `FactProver` and deduped, so this only adds the computed case.
-;;
-;; **Positive membership descends to a spec's sufficient.**  `(Coll a)` is provable
-;; when `Coll`'s own defnSufficient passes OR a **spec**'s does — a spec is more specific,
-;; below `Coll` on the genl edges (`(genl spec Coll)`), and its members are `Coll`s.  So
-;; the walk descends the spec ancestor set (`tax/specs`, which is reflexive — it includes `Coll`
-;; itself, folding the own-sufficient and the spec-sufficient cases into one iteration).
-;;
-;; A passing sufficient admits even against a failing OWN necessary — sufficient is
-;; authoritative, the resulting inconsistency documented not arbitrated.  But a failing
-;; necessary of a *strict genl* fast-fails the query (`genl-necessary-fails?`): on a
-;; consistent KB the broadest disqualifier is checked most-general-first and the walk
-;; rejects before the sides or the sufficient are ever evaluated.  The negation prover (a
-;; failing necessary proves ¬member) is the converse build, below.
+;; Positive membership descends to a spec's sufficient over `tax/specs`, which is reflexive.
+;; A passing sufficient admits even against a failing own necessary (the inconsistency is
+;; documented, not arbitrated), but a failing necessary of a strict genl fast-fails the
+;; query (`genl-necessary-fails?`).  The negation prover is the converse build, below.
 
 (def ^:private ^:dynamic *defn-stack*
   "The collections a defn prover solve is already inside — the re-entry guard shared by the
@@ -2936,17 +2711,13 @@
 (defn definition-inconsistencies
   "Query-only definitional inconsistencies over the finite ground `candidate-terms`.
 
-  Returns one witness per `[collection term]` for which the definition provers can
-  answer both `(collection term)` and `(not (collection term))`: some own-or-spec
-  sufficient condition passes, the collection's own necessary condition fails, and
-  no strict-genl necessary fast-fails the positive query.  Each witness carries every
-  passing sufficient and failing necessary declaration involved.
-
-  Collections are not supplied or guessed.  They are the finite visible population
-  induced by `defnSufficient` declarations and their `genl` ancestors, exactly the
-  collections the positive prover can reach.  `candidate-terms` is a finite set of ground
-  terms, which `vaelii.impl.integrity/kb-integrity` checks.  Reads only; stores and
-  belief are untouched."
+  Returns one witness per `[collection term]` for which the definition provers can answer both
+  `(collection term)` and `(not (collection term))`: some own-or-spec sufficient condition
+  passes, the collection's own necessary condition fails, and no strict-genl necessary
+  fast-fails the positive query.  Each witness carries every passing sufficient and failing
+  necessary declaration involved.  The collections are those induced by `defnSufficient`
+  declarations and their `genl` ancestors.  `vaelii.impl.integrity/kb-integrity` supplies
+  `candidate-terms`.  Reads only."
   [kb candidate-terms context max-results]
   (let [query-colls (sufficient-definition-collections kb context)]
     (loop [pairs (seq (for [coll   (sort-by nm/print-key query-colls)
@@ -3095,22 +2866,29 @@
 ;; `P`.  No denial is stored per fact: the declaration and the believed tuple are read at
 ;; the query (docs/taxonomy.md, "Predicate metadata").
 
+(defn- negated-form
+  "The tuple `(Q a …)` a `(not (Q a …))` goal denies, its functor a symbol, else nil."
+  [goal]
+  (when (rules/negative-literal? goal)
+    (let [lit (second goal)]
+      (when (and (sequential? lit) (symbol? (first lit)) (seq (rest lit)))
+        lit))))
+
 (defn- negated-tuple
   "The ground tuple `(Q a …)` a ground `(not (Q a …))` goal denies, its functor a
   symbol, else nil."
   [goal]
-  (when (and (rules/negative-literal? goal) (empty? (sx/free-vars goal)))
-    (let [lit (second goal)]
-      (when (and (sequential? lit) (symbol? (first lit)) (seq (rest lit)))
-        lit))))
+  (when-let [lit (negated-form goal)]
+    (when (empty? (sx/free-vars goal)) lit)))
 
 (defrecord NegatesProver []
   Prover
   ;; A ground `(not (Q a …))` for a `Q` at or below a side of a `negates` declaration the
   ;; reader sees.  Ground for `DisjointnessNegationProver`'s reason.
   (applicable? [_ kb goal context]
-    (boolean (when-let [lit (negated-tuple goal)]
-               (seq (tax/negates-over (reasoning/taxonomy kb) (first lit) context)))))
+    (boolean (when-let [lit (negated-form goal)]
+               (and (seq (tax/negates-over (reasoning/taxonomy kb) (first lit) context))
+                    (empty? (sx/free-vars goal))))))
   (est-bindings [_ _ _ _] 1)                    ; a ground test
   (cost         [_ _ _ _] :lookup)              ; one bounded subquery per partner
   ;; Augments a stored `(not (Q a …))` (FactProver) and the other negation provers.
@@ -3164,17 +2942,14 @@
          :out)))
 
 (defn- measure-bounds
-  "The values as one dimension's `[unit [lo hi]...]`, or nil when they are not all
-  measures of a single dimension.  The unit is the base of the **content-least** value's
-  unit (`nm/min-by-content-key`), so a table naming two bases for one dimension renders
-  in one unit whatever the arrival order (docs/quantity.md)."
+  "The values as `[base-unit [lo hi]...]`, or nil when they are not all measures under one
+  `[dimension base-unit]` key (`measure-with-support`), the key a comparison requires."
   [kb values context]
   (when (every? measure? values)
-    (let [norms (mapv #(normalize-quantity kb % context) values)
-          dims  (into #{} (map first) norms)]
-      (when (= 1 (count dims))
-        [(base-unit-of kb (nm/min-by-content-key identity (map last values)) context)
-         (mapv (fn [[_ lo hi]] [lo hi]) norms)]))))
+    (let [ms   (mapv #(first (measure-with-support kb % context)) values)
+          keys (into #{} (map first) ms)]
+      (when (= 1 (count keys))
+        [(second (first keys)) (mapv (fn [[_ lo hi]] [lo hi]) ms)]))))
 
 (defn- reduce-numbers
   "The reduction of a non-empty numeric value list, over the values sorted so a float
@@ -3322,20 +3097,11 @@
 ;; ---- type inference from arg-constrained usage -----------------------
 
 (defn- believed-sentexes-with
-  "The sentexes naming `term` that `context` **can see and does believe** — the term
-  index read, filtered the way a retrieval is.
-
-  The visibility half is `res/visible-supporter-fn`, which is belief, `genlCx`
-  inheritance and the stored `except`s in one memoized predicate, and which is **nil**
-  for a nil or `?var` context — the unscoped read, where belief alone decides, exactly
-  as it does everywhere else.  Scoping matters here because what is inferred from a
-  usage is only as visible as the usage: a reader that cannot see `(eats Muffet Bone1)`
-  must not learn from it that `Bone1` is food, or a sibling theory's facts type terms
-  for a context that was never told them.  A scoped read also drops a spelling `context`
-  has retired (`res/retired-for?`), as `res/without-retired` does for a match.
-
-  Lazy, and it has to be: `inferred-types` streams this so a ground membership test
-  stops at the first witness."
+  "The sentexes naming `term` that `context` can see and does believe: the term index read,
+  filtered as a retrieval is.  Visibility is `res/visible-supporter-fn` (belief, `genlCx`
+  inheritance and stored `except`s), nil for a nil or `?var` context, where belief alone
+  decides.  A scoped read drops a spelling `context` has retired (`res/retired-for?`).  Lazy,
+  so `inferred-types` stops at the first witness."
   [kb term context]
   (let [visible? (res/visible-supporter-fn kb context)
         live?    (or visible? #(jtms/in? (reasoning/tms kb) %))
@@ -3373,29 +3139,17 @@
         [[]])))
 
 (defn- type-derivations
-  "Every derivation of a type an individual `x` must have because it fills an
-  arg-constrained argument of a believed relation, as `[type usage c P' T']`: the type,
-  the believed sentex `(P .. x@n ..)`, and the `:instance` entry `c` of
-  `res/arg-constraints-at` covering position `n` — an `(arg P' n T')`, or an
-  `(argAndRest P' m T')` / `(args P' T')` reaching `n` — where `P'` is `P` or a
-  super-predicate and `type` is `T'` or a supertype of it.  This is arg read the other
-  way — as an inference, not only a constraint (e.g. Muffet eats Bone1 and eat's 2nd
-  argument is food, so Bone1 is food).
+  "Every derivation of a type an individual `x` must have because it fills an arg-constrained
+  argument of a believed relation, as `[type usage c P' T']`: the type, the believed sentex
+  `(P .. x@n ..)`, and the `:instance` entry `c` of `res/arg-constraints-at` covering position
+  `n` (an `(arg P' n T')`, or an `(argAndRest P' m T')` / `(args P' T')` reaching `n`), where
+  `P'` is `P` or a super-predicate and `type` is `T'` or a supertype.  This is `arg` read as
+  an inference: Muffet eats Bone1 and eat's 2nd argument is food, so Bone1 is food.
 
-  **Whose declarations count is the reader `assert` uses**, read through the argnum
-  chokepoint (`res/arg-constraints-at`): `P`'s own, and those of the super-predicates the
-  asking context can see, since a `(genl fatherOf parentOf)` edge makes every `fatherOf`
-  tuple a `parentOf` tuple.  The two readings of one declaration must agree about that or
-  a claim `assert` refuses for being ill-typed is one `ask` cannot type at all.  The
-  chokepoint holds a predicate's constraints for one stretch of the change clock, so a
-  term used in many tuples of one predicate reads its declarations once.
-
-  **And the usage counts only where it can be seen.**  Both sides of the inference are
-  read from the asking context — the declaration through `matches-visible`, the tuple
-  through `believed-sentexes-with` — so a fact stated in a context the reader does not
-  inherit from types nothing for it, exactly as that fact answers nothing for it.
-
-  Lazy, so a ground membership test stops at the first derivation of the type it seeks."
+  The declarations are the reader `assert` uses (`res/arg-constraints-at`), `P`'s own and the
+  visible super-predicates', so `ask` types what `assert` refuses for being ill-typed.  The
+  declaration (`matches-visible`) and the tuple (`believed-sentexes-with`) are both read from
+  the asking context.  Lazy, so a ground membership test stops at the first derivation."
   [kb x context]
   (for [s (believed-sentexes-with kb x context)
         :let [sen (:sentence s) pred (nm/functor sen) as (vec (nm/args sen))]
@@ -3526,64 +3280,31 @@
          [(cond (pvar? t) {t (first d)} (pvar? x) {x a} :else {}) sup])))))
 
 ;; ---- the argument-type meta-predicates, answered up genl ----------------
+;; `(arg petMammal 1 animal)` succeeds off a stored `(arg petMammal 1 mammal)` when
+;; `(genl mammal animal)`, as `check` walks it, so `assert` and `ask` agree.  A bounded
+;; closure walk answers here instead of declaring the meta-predicates `transitiveInArg`,
+;; which would route every `arg`/`genlArg` lookup through the preservation prover.
 ;;
-;; `(arg petMammal 1 animal)` succeeds off a stored `(arg petMammal 1 mammal)`
-;; when `(genl mammal animal)` — the same generalization `check` walks internally, so
-;; `assert` and `ask` agree.  Answered HERE, a bounded closure walk, rather
-;; than by declaring the meta-predicates `transitiveInArg`: that routes every one of the
-;; KB's very many `arg`/`genlArg` lookups through the general preservation prover and
-;; its chaining sweeps — a per-query cost the subsystem's presence check exists to avoid,
-;; since almost no predicate is preserved.  A stored `(transitiveInArgInverse arg …)` turns
-;; that presence check true for the most-queried predicates there are.
-;;
-;; The predicate position reaches DOWN (a constraint on a super binds its
-;; specializations — `constraining-predicates` is the super-predicate up-walk `check`
-;; uses).  A type position's direction is its variance.  An *unconditional* type reaches
-;; UP (a stored subtype constraint answers its supertypes — `genl?`): `arg`/`genlArg`
-;; position 3 and `interArg`'s target position 5.  `interArg`'s *trigger* position
-;; 3 is the antecedent of a conditional, so it is contravariant and reaches DOWN: a
-;; stored `(interArg P n animal m U)` already convicts every `mammal`-trigger fact (a
-;; mammal is an animal), so it answers the narrower `(interArg P n mammal m U)` but
-;; never the wider `(… n thing m U)`, which would convict the non-animals `check` never
-;; touches.  Getting the trigger backwards is both unsound (the widening) and incomplete
-;; (the narrowing) against what `check` enforces — the same `assert`/`ask` agreement
-;; is about.  On-demand and non-materializing, so it follows belief with no cache and
-;; `sentexes-matching` still shows only what was stored.  `arity` is NOT here: a
-;; sub-predicate may carry a signature of its own, and the answer would need the forward
-;; `arity`⇒type cycle a backward prover cannot fire; `arity/relation-length` still
-;; holds a silent sub-predicate to its supers.
+;; The predicate position reaches down (`constraining-predicates`).  An unconditional type
+;; reaches up: `arg`/`genlArg` position 3 and `interArg`'s target position 5.  `interArg`'s
+;; trigger (position 3) is contravariant and reaches down: a stored `(interArg P n animal m U)`
+;; answers `(interArg P n mammal m U)` and never `(… n thing m U)`.  The reverse is unsound
+;; and incomplete against `check`.  On-demand and non-materializing, so it follows belief.
+;; `arity` is not here: a sub-predicate may carry its own signature, and
+;; `arity/relation-length` holds a silent one to its supers.
 (def ^:private meta-constraint-shape
-  "By functor: the goal-list index of the predicate, the position-number indices that
-  must match a stored declaration exactly, the type indices that reach UP `genl`
-  (covariant — a stored subtype answers its supertypes) and those that reach DOWN
-  (contravariant — a stored supertype answers its subtypes).  Only `interArg`'s
-  trigger is contravariant; its target and the unconditional `arg`/`genlArg` type are
-  covariant.  The homogeneity constraints `interArgs` / `interArgAndRest` hold their type
-  in `:fixed`, since one type that is both trigger and target has both variances and so
-  reaches neither way.
+  "By functor: the goal-list index of the predicate, the position-number indices that must
+  match a stored declaration exactly, the type indices that reach UP `genl` (covariant) and
+  those that reach DOWN (contravariant).  Only `interArg`'s trigger is contravariant.  The
+  homogeneity constraints `interArgs` / `interArgAndRest` hold their type in `:fixed`, since
+  one type that is trigger and target reaches neither way.
 
-  **The whole `:argument-constraint` family, `quotedArg` included.**  Which predicates'
-  declarations speak for a tuple is `res/constraining-predicates`, and
-  `checks/declaration-reader` already asks it for all four — so a `quotedArg` on a
-  super-predicate refuses a sub-predicate's tuple at the entry point.  Leaving the mention twin
-  out here made `ask` disagree with that entry point about one declaration, which is the exact
-  gap this table was written to close for the other three: `(quotedArg pAge 1 integer)`
-  is entailed by a stored `(quotedArg pAge 1 positive_integer)`, the term written there
-  being held to the narrower kind, and the covariance is `arg`'s for `arg`'s reason — a
-  declared type at or below the queried one satisfies the query.
-
-  Answering `quotedArg` is **not** entailing it.  Nothing is minted from a `quotedArg`
-  and nothing can be: the kind of a written term is computed from the term, so there is
-  no membership to draw (docs/argtypes.md, \"The quoted twin\").  This table is about
-  which stored declarations *answer a goal*, which is a different question and the one
-  all four share.
-
-  The one functor list in this file that sits on both sides of the line: the **variance** is
-  this prover's own reading of a declaration it answers, and stays beside the prover
-  reading it; the **key set** is enrolment, and is `meta-constraint-functors`, held to the
-  `:argument-constraint` family by `predicates/check-facets`'s `:family-list` rule.  A
-  spelling in the family and not in the keys is one declaration meaning one thing to
-  `assert` and another to `ask`."
+  The table covers the whole `:argument-constraint` family, `quotedArg` included, so `ask`
+  agrees with `checks/declaration-reader` and the entry point.  Answering `quotedArg` is not
+  entailing it: nothing is minted from one (docs/argtypes.md, \"The quoted twin\").  The
+  variance is this prover's reading and stays here; the key set is enrolment,
+  `meta-constraint-functors`, held to the family by `predicates/check-facets`'s
+  `:family-list` rule."
   '{arg      {:pred 1 :fixed [2] :types-up [3]}
     genlArg     {:pred 1 :fixed [2] :types-up [3]}
     quotedArg   {:pred 1 :fixed [2] :types-up [3]}
@@ -3661,42 +3382,21 @@
 ;; ---- rules (backward chaining through the engine) -----------------------
 
 (defn candidate-rules
-  "Rules concluding the goal's predicate **or a spec of it**, restricted to the
-  backward-capable ones — the consequent index is complete, so it also holds
-  forward-only and inert rules.  A rule concluding a subtype answers a supertype goal
-  (`res/concluding-rule-handles` intersects `specs` with the consequent index), and
-  `subsuming-unify` binds the goal variable to the subtype instance.
+  "Rules concluding the goal's predicate or a spec of it, restricted to the
+  backward-capable ones (the consequent index also holds forward-only and inert rules).  A
+  rule concluding a subtype answers a supertype goal (`res/concluding-rule-handles`), and
+  `subsuming-unify` binds the goal variable to the subtype instance.  Each carries its
+  `exceptWhen` guard (`parse-rule`).
 
-  Each carries its `exceptWhen` guard (`parse-rule`), so a rule that would conclude
-  the goal but whose exception holds is discarded *after* the argument is built —
-  matching what forward chaining does before placing the conclusion.
+  A rule is not a candidate when the asking context cannot see it (`res/rule-visible-from?`),
+  when the KB no longer believes it (`res/rule-believed?`), or when a believed visibility
+  `except` hides it from the asking context (`exc/hidden-fn`, built once per goal and nil when
+  nothing is hidden).
 
-  A rule the asking context cannot see is not a candidate (`res/rule-visible-from?`):
-  a rule is a sentex, inherited by the ordinary `genlCx` ancestor set like everything
-  else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
-  consequent index posts on storage, so belief is asked of the record here exactly as
-  forward chaining asks it of a trigger.  Nor is one a believed visibility `except`
-  hides from the asking context (`exc/hidden-fn`): forward chaining sweeps the
-  conclusions of a hidden rule, and a backward pass that rebuilt them through the
-  same rule would answer from knowledge the context deliberately removed.  The
-  predicate is built once per goal and is nil for the almost-every-KB that hides
-  nothing, so the common path pays one deref.
-
-  **In content order**, `[sentence context]` under `nm/compare-form`.  The index answers
-  in handle-set order, which is assertion order, and two consumers *truncate* on this
-  list: `prove-within`'s `:max-results` stops the DFS partway through the rules it would
-  have expanded, and the node engine's frontier is filled from `children`, which walks it.
-  So without an order here the same knowledge in two arrival orders answers a capped query
-  with two different answer sets — order independence, broken by the one thing that is
-  never allowed to break it (docs/nmtms.md).
-
-  The key needs no memo, which is why there is none: the sentence **is** the key, already
-  a field on the record, and `compare-form` walks two forms in place rather than printing
-  either.  So the sort builds one two-element vector per candidate and allocates nothing
-  else — against a `print-key` per rule, which would be a String per candidate per
-  comparison were it not decorated first.  `:context` joins it because one sentence stated
-  in two contexts is two rules, and a key that could not tell them apart would drop the
-  tie back onto the handle."
+  The result is in content order, `[sentence context]` under `nm/compare-form`, since the index
+  answers in handle order and `prove-within`'s `:max-results` and the node engine's frontier
+  truncate on this list (docs/nmtms.md).  The sentence is the key, so nothing is memoized;
+  `:context` joins it because one sentence stated in two contexts is two rules."
   [kb goal context]
   (when (sequential? goal)
     (let [hidden? (exc/hidden-fn kb context)
@@ -3718,7 +3418,7 @@
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver) (->CommonGenlProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
-   (->EvaluableProver) (->ExpressionKindProver) (->ResultTypeProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
+   (->EvaluableProver) (->ExpressionKindProver) (->NonemptyProver) (->ResultTypeProver) (->ArgPositionProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->DisjointnessNegationProver)
@@ -3735,6 +3435,49 @@
    (->FactProver) (->MetaConstraintProver) (->ArgTypeProver)])
 
 (defn registry [kb] (if-let [pv (:provers kb)] @pv default-provers))
+
+;; ---- the optional reasoners ----------------------------------------------
+;; Resolved at runtime by name, so loading this namespace loads none of the leaf
+;; algebras (docs/qcn.md).  `vaelii.core/reasoners` and `add-reasoner` are the public
+;; surface; a KB records the names it registered (`vaelii.impl.kb/add-reasoners!`).
+
+(def reasoner-vars
+  "The reasoners a KB can register by name, and the var holding each one's constructor.
+  `vaelii.core/reasoner` documents each one."
+  '{:rcc8        vaelii.impl.space/spatial-prover
+    :cardinal    vaelii.impl.orientation/orientation-prover
+    :relative    vaelii.impl.relative/relative-prover
+    :distance    vaelii.impl.distance/distance-prover
+    :allen       vaelii.impl.interval/allen-prover
+    :point       vaelii.impl.point/point-prover
+    :duration    vaelii.impl.duration/duration-prover
+    :metric-time vaelii.impl.stp/stp-prover
+    :sign        vaelii.impl.sign/sign-prover
+    :calendar    vaelii.impl.calendar/calendar-prover
+    :includes-instant vaelii.impl.point/includes-instant-prover
+    :brave-cautious vaelii.impl.asp.prover/brave-cautious-prover})
+
+(defn reasoner-names
+  "The names of the optional reasoners, sorted."
+  []
+  (vec (sort (keys reasoner-vars))))
+
+(defn check-reasoner-name!
+  "`nm`, or a refusal naming the reasoners there are.  `:unknown-option`: naming a
+  reasoner that does not exist is a bad argument from a caller, never something a
+  sentence can be checked into."
+  [nm]
+  (when-not (contains? reasoner-vars nm)
+    (throw (ex-info (str "no such reasoner: " (pr-str nm) " — want one of "
+                         (str/join ", " (map pr-str (reasoner-names))))
+                    {:type :unknown-option :mismatch :bad-value :reasoner nm
+                     :known (reasoner-names)})))
+  nm)
+
+(defn reasoner
+  "The prover the reasoner named `nm` registers, or `check-reasoner-name!`'s refusal."
+  [nm]
+  ((requiring-resolve (reasoner-vars (check-reasoner-name! nm)))))
 
 ;; ---- which provers are even worth asking ---------------------------------
 
@@ -3967,27 +3710,16 @@
         (into (keep (fn [h] (:context (p/get-sentex recs h)))) also))))
 
 (defn source-contexts
-  "Every context worth answering a support-carrying goal at, given `preds` — the contexts
-  holding one of those facts (`held-contexts`), and the contexts where two or more of them
-  meet (`tax/meet-closure`).
+  "Every context worth answering a support-carrying goal at, given `preds`: the contexts
+  holding one of those facts (`held-contexts`), and the contexts where two or more of them meet
+  (`tax/meet-closure`).  A caller passes the whole registry's sources (`support-source-preds`),
+  which over-approximates harmlessly and shares one read across a run.
 
-  A caller passes the whole registry's sources (`support-source-preds`) rather than one
-  prover's, which over-approximates in the harmless direction: a context that holds only
-  some *other* prover's source reads nothing here and answers nothing, and the one read is
-  shared across every computed antecedent of a run.
-
-  `qcn-kb/reader-contexts` written for a prover that is not a calculus, and the same
-  argument holds it: a reading is what a **reader** sees, and a reader sees the whole
-  `genlCx` ancestor set above it — so a context inheriting two contexts closes a metric network
-  neither closes alone, and that entailment exists for no other reader.  Answering the
-  goal at a *wildcard* context instead would read every context's facts into one reading,
-  which is not any reader's, and would license a firing on facts no context sees together.
-
-  **Resident** on the KB's `:qcn` atom, keyed by the change clock, since the meet closure
-  compares every pair of the held contexts.
-
-  `also` names further handles whose contexts are parties to the meet: the declarations a
-  reading needs beside its facts, which a reader sees only where they meet the facts."
+  A reading is what a reader sees through its `genlCx` ancestor set, so a context inheriting
+  two contexts closes a metric network neither closes alone (`qcn-kb/reader-contexts`).  A
+  wildcard context would read every context into one reading that no reader has.  Resident on
+  the KB's `:qcn` atom, keyed by the change clock.  `also` names further handles whose contexts
+  are parties to the meet: declarations a reading needs beside its facts."
   ([kb preds] (source-contexts kb preds nil))
   ([kb preds also]
    (observe/cached
@@ -4004,6 +3736,34 @@
         (comp cat (remove nil?))
         (concat (for [a subs, b (tax/direct-genls-global tx a)] (tax/edge-contexts tx :genl [a b]))
                 (for [b supers, a (tax/direct-specs-global tx b)] (tax/edge-contexts tx :genl [a b])))))
+
+(defn nonempty-contexts
+  "The contexts a forward join asks the ground `(nonempty C)` `g` at, or nil for any other
+  goal: `source-contexts` over `preds` with the subtypes of `C` added, so every context
+  holding a member reads the answer, and the contexts stating a `genl` edge into one of
+  those subtypes are parties to the meet.  The subtypes are read over every context, and
+  each context asks the answer from its own vantage."
+  [kb preds g]
+  (when-let [c (nonempty-type g)]
+    (let [tx (reasoning/taxonomy kb)
+          ss (tax/specs-global tx c)]
+      (tax/meet-closure tx (into (held-contexts kb (into (set preds) ss) nil)
+                                 (adjacent-edge-contexts tx nil ss))))))
+
+(defn nonempty-source?
+  "Can `s` arriving, leaving or moving in belief move what a registered `NonemptyProver`
+  answers?  True of a membership `(T x)` of a ground term in a constant type, of a
+  sentence installing a `genl` edge (`tax/installed-edges`) and of a `genlCx` edge.  A
+  shape test and a scan of the registered supporters; no index read."
+  [kb s]
+  (boolean
+   (and (seq? s)
+        (let [f (first s)]
+          (or (and (= 2 (count s)) (symbol? f) (not (sx/variable? f)) (not= sx/not-functor f)
+                   (sx/ground-term? (second s)))
+              (= 'genlCx f)
+              (and (contains? tax/edge-installing-functors f) (seq (tax/installed-edges s)))))
+        (some #(instance? NonemptyProver %) (:provers (support-summary kb))))))
 
 (defn- supporter-contexts
   "The contexts stating a supporter of one of the taxonomy keys `ks`, believed or not; a
@@ -4114,19 +3874,11 @@
 (defn solve-goal-with
   "Raw solution bindings for `goal` in `context` from an explicit prover list.
 
-  Lazy: provers are ordered by `cost` tier and expanded one at a time, so the
-  cheapest first-answer prover is consulted first and an expensive one is never
-  invoked at all if the consumer stops early.  (The complete-prover branch runs one
-  prover, so its laziness is whatever that prover returns.)
-
-  When several *complete* provers apply — rare, since the complete provers claim
-  pairwise-disjoint goal shapes — the one with the fewest `est-bindings` runs, a
-  real count rather than a constant.
-
-  `res/lazy-mapcat`, not `mapcat`: the ordinary one would realize a whole chunk of
-  the prover list and so call *every* applicable prover's `solve` before yielding
-  the first solution — which is precisely the cost the cheapest-first ordering is
-  there to avoid."
+  Lazy: provers are ordered by `cost` tier and expanded one at a time, through
+  `res/lazy-mapcat` (`mapcat` would realize a chunk and call every applicable `solve`), so an
+  expensive prover is never invoked if the consumer stops early.  The complete-prover branch
+  runs one prover.  When several complete provers apply, the one with the fewest
+  `est-bindings` runs."
   [kb provers goal context]
   (dispatch-provers kb provers goal context #(solve % kb goal context)))
 
@@ -4150,21 +3902,14 @@
     (map (fn [b] [b #{}]) (solve pr kb goal context))))
 
 (defn solve-goal-with-support
-  "`solve-goal`'s support-carrying twin: each solution as `[bindings support]`, where
-  `support` is the handles of the stored sentexes the answer was read from
-  (`SupportingProver`), empty for any other prover (`answers-with-support`).
+  "`solve-goal`'s support-carrying twin: each solution as `[bindings support]`, where `support`
+  is the handles of the stored sentexes the answer was read from (`SupportingProver`), empty
+  for any other prover (`answers-with-support`).
 
-  Forward chaining is the caller.  A backward chainer discharges an antecedent and forgets
-  it; a forward firing *stores* a conclusion, and what it stored has to be withdrawable —
-  so the join needs the handles the answer rested on, and needs them beside the bindings
-  they came with rather than by asking a second time (a second read is a second moment,
-  and the two could disagree).
-
-  Same dispatch as `solve-goal`, so the two agree about which prover answers: the sole
-  complete prover when there is one, else the applicable provers cheapest-first, lazily,
-  deduped.  Deduped on the **pair**, so one binding reached by two provers with different
-  support survives as both — two routes to one conclusion are two justifications, which is
-  what the TMS already reads them as."
+  Forward chaining is the caller: a firing stores a conclusion that must be withdrawable, and
+  the handles must come with the bindings in one read.  The dispatch is `solve-goal`'s: the
+  sole complete prover, else the applicable provers cheapest-first, lazily.  Deduped on the
+  pair, so one binding reached with different support survives as two justifications."
   [kb goal context]
   (dispatch-provers kb (registry kb) goal context #(answers-with-support % kb goal context)))
 
@@ -4222,24 +3967,14 @@
     (map second (res/matches-visible kb (list pred b a) context))))
 
 (defn- solve-inverted
-  "Solutions for the inverted spelling of `(pred a b)` — the partner predicate with
-  the arguments swapped — through the engine over a restricted prover list:
+  "Solutions for the inverted spelling of `(pred a b)`, the partner predicate with the
+  arguments swapped, through the engine over a prover list minus `InverseProver`, so a mutual
+  `(inverse P Q)` + `(inverse Q P)` cannot re-enter.  The delegation composes with the other
+  metadata provers (transitive, symmetric, reflexive) and facts.
 
-  * minus `InverseProver`, so a mutual `(inverse P Q)` + `(inverse Q P)` declaration
-    cannot re-enter P-via-Q-via-P;
-  Rules concluding the partner predicate are reached when a backward search expands
-  them; what the delegation buys is composition with the *other* metadata provers
-  (transitive, symmetric, reflexive) and facts.
-
-  **Every declared partner of the predicate or a sub-predicate of it, not one.**
-  Nothing refuses a second `(inverse P R)` beside a standing `(inverse P Q)`, and
-  answering off whichever the taxonomy happened to hold would make a goal's answer a
-  function of declaration order — so each partner is asked and the solutions are
-  unioned, deduped like any other multi-prover union.  A partner of a *sub-predicate*
-  is in the set for the subsumption reason `inverses-under` states: its spelling holds
-  sub-predicate tuples, and those answer the super-predicate's goal.
-
-  A `(not (pred a b))` goal asks `(not (Q b a))` of each partner `inverted-partners` names."
+  Every declared partner of the predicate or a sub-predicate (`inverses-under`) is asked and the
+  solutions are unioned and deduped, so the answer does not depend on declaration order.  A
+  `(not (pred a b))` goal asks `(not (Q b a))` of each partner `inverted-partners` names."
   [kb goal context]
   (let [neg? (sx/negation? goal)
         [_ a b] (if neg? (second goal) goal)
@@ -4250,21 +3985,15 @@
          distinct)))
 
 (defn est-goal
-  "How many bindings the registry expects to produce for `goal`, or **nil** when it
-  has no authoritative answer.
+  "How many bindings the registry expects to produce for `goal`, or **nil** when it has no
+  authoritative answer.
 
-  Only a *complete* prover's estimate is returned, and deliberately so.  This mirrors
-  `solve-goal-with`: when a complete prover exists the engine runs it *alone*, so its
-  estimate is the whole cost of the goal.  When none does, the engine unions partial
-  provers over the index, and their estimates are guesses about a fan-out the index
-  models better — so nil, and `vaelii.impl.plan` uses its own count-aware model
-  instead.  Returning a partial prover's number here would replace a measurement with
-  a constant (`ArgTypeProver` answers 3 for everything).
-
-  One partial estimate is returned: `deferred-est`, from an applicable `SupportingProver`
-  that computes the goal from an argument still open, `(argN ?t 1 ?f)` before `?f` is
-  bound.  The index counts no row of a computed answer, so its model would run the goal
-  first and prune the branch; at `deferred-est` the goal waits for its binders."
+  Only a complete prover's estimate is returned, mirroring `solve-goal-with`, which runs it
+  alone.  With none, the engine unions partial provers over the index, whose model
+  `vaelii.impl.plan` uses instead (`ArgTypeProver`'s constant 3 would replace a measurement).
+  The one partial estimate is `deferred-est`, from an applicable `SupportingProver` that
+  computes the goal from an open argument, `(argN ?t 1 ?f)` before `?f` is bound, so the goal
+  waits for its binders."
   [kb goal context]
   (let [applicable (applicable-provers kb (registry kb) goal context)]
     (if-let [complete (sole-prover kb applicable goal context)]
@@ -4278,22 +4007,15 @@
 
 (defn registry-est-override
   "`est-goal` as the `:est-override` a backward chainer plans with (`res/prove-from`,
-  `res/initial-prove-stack`) — for an executor whose **leaf is the registry**, and only
-  such an executor.
+  `res/initial-prove-stack`), for an executor whose leaf is the registry and only such an
+  executor.  The index model is wrong for that leaf: a `genl` conjunct costs the cached
+  closure's size and not the stored edges the trie counts.  A chainer whose leaf is the stored
+  facts passes nothing.
 
-  The index is the wrong cost model for that leaf: a `genl` conjunct is answered from the
-  cached closure, so what it costs is the closure's size, not the handful of stored edges
-  the trie can count — and the index model would rank the literal that fans out over a
-  whole type hierarchy as the *cheapest* in the conjunction.  A chainer whose leaf is the
-  stored facts passes nothing here, because for that leaf the index model is right.
-
-  Memoized on the goal, which is sound in both directions: `est-goal` reads only the
-  goal (kb and context are fixed for the run), and a query mutates nothing that could
-  make an entry stale.  A goal at `deferred-est` is read under the bound variables it
-  holds (`est-under`), memoized on the goal and those variables.  Without the memo
-  `plan/order` re-estimates every remaining literal on every pick, so a k-antecedent
-  rule pays a full registry `applicable?` sweep plus a candidate-rule re-parse O(k²)
-  times."
+  Memoized on the goal (`est-goal` reads only the goal; a query mutates nothing), or on the goal
+  and its bound variables for a goal at `deferred-est` (`est-under`).  Without the memo
+  `plan/order` re-estimates every remaining literal on every pick, O(k²) registry sweeps for k
+  antecedents."
   [kb context]
   (let [est   (memoize (fn [goal] (est-goal kb goal context)))
         under (memoize (fn [goal bound]
@@ -4317,31 +4039,18 @@
 ;; to run the check.
 
 (defn condition-normalizer
-  "A `ground-goal -> ground-goal` rewriting a block condition's substituted conjunct to
-  the normal form `context` answers under — every symbol to the representative that
-  context elects, then the schematic equations it can see — or nil when the KB holds no
-  merge and no equation and there is nothing to rewrite.
-  `vaelii.impl.levels/engine-goal` does this for a level-6 read and `kb/rewrite-goal`
-  for a query; a block condition is the same question and takes the same preparation.
+  "A `ground-goal -> ground-goal` rewriting a block condition's substituted conjunct to the
+  normal form `context` answers under (every symbol to the representative that context
+  elects, then the schematic equations it can see), or nil when the KB holds no merge and no
+  equation.  `vaelii.impl.levels/engine-goal` and `kb/rewrite-goal` prepare a level-6 read and
+  a query the same way.
 
-  Both halves of the condition need it, and for the same reason.  The **bindings** a
-  firing substitutes in are what it matched when it fired, and a merge does not go back
-  and edit a justification — so a firing that bound `?c` to `C3` still says `C3` after
-  `(sameAs C2 C3)` has retired that spelling, and the conjunct asks about a term the KB
-  no longer answers under.  The conjunct's **own constants** are stored as the rule was
-  written, so `(exceptWhen (mskip MOne) …)` can name `MOne` after the merge.  Either way
-  what comes back is an empty result that reads as *not excepted* and *not derivable* — the
-  loudest way this can go wrong, since an unanswerable exception does not hold and the
-  rule fires, and an `unknown` about a term with an answer under its representative
-  reports absent.
-
-  Scoped to `context`, the scoping every other class read takes: a merge that context
-  cannot see must not rename what its own condition asks about.  One predicate for the
-  whole conjunction, since deciding visibility costs a record fetch per equality
-  supporter.  A goal `res/goal-held-as-spelled?` exempts — `different`, and a positive
-  equation — is exempt here exactly as it is in `kb/rewrite-goal`: mapping its arguments
-  onto one representative is the question it exists to answer, and its prover reads the
-  closure itself."
+  Both the bindings a firing substituted in and the conjunct's own constants may name a
+  spelling a later merge retired, and an unrewritten goal then reads as *not excepted* and
+  *not derivable*.  The rewrite is scoped to `context`: a merge it cannot see must not rename
+  the condition.  One visibility predicate serves the whole conjunction.  A goal
+  `res/goal-held-as-spelled?` exempts (`different`, a positive equation) is exempt here as in
+  `kb/rewrite-goal`."
   [kb context]
   (let [tx (reasoning/taxonomy kb)]
     (when-not (and (nil? (tax/merged-term-pred tx)) (empty? (tax/rewrite-rules tx)))
@@ -4578,24 +4287,15 @@
   (project goal (solve-goal-with kb (cost-capped-provers kb goal context max-cost) goal context)))
 
 (defn plan
-  "The applicable provers for a goal, their estimates, and — the part a reader
-  debugging a missing answer needs first — **which of them actually run**.
+  "The applicable provers for a goal, their estimates, and which of them actually run.
 
-  Applicable is not the same as consulted.  When one prover may answer the goal alone
-  every other applicable prover is *shadowed*: reported, never invoked, contributing
-  nothing.  A plan that listed them without saying so would describe a union that is not
-  happening.  So each entry carries `:runs?`, and a shadowed one carries
-  `:shadowed-by` naming the prover that displaced it.
-
-  The converse case is reported too, and from outside it is the one that looks like a
-  bug.  A prover can claim `completeness` 100 and still not run alone, because a source
-  none of the applicable provers reads bears on this goal — so every claimant runs in
-  the union instead.  Those entries carry `:guarded-by` naming the channels
-  (`shadowing-channels`), which is the difference between *the union is happening* and
-  *the union is happening for this reason*.
-
-  Entries are in the order the engine would consult them: a single complete prover,
-  else cheapest `cost` tier first."
+  When one prover may answer the goal alone, every other applicable prover is shadowed:
+  reported, never invoked.  Each entry carries `:runs?`, and a shadowed one carries
+  `:shadowed-by` naming the prover that displaced it.  A prover that claims `completeness` 100
+  but does not run alone, because a source none of the applicable provers reads bears on the
+  goal, carries `:guarded-by` naming the channels (`shadowing-channels`).  Entries are in the
+  order the engine would consult them: a single complete prover, else cheapest `cost` tier
+  first."
   [kb goal context]
   ;; Each estimate is asked once and carried, and the channels once for the goal — a
   ;; plan that re-asked them per decision would cost several times what it reports on.

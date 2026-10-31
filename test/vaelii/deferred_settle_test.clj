@@ -11,13 +11,9 @@
             [vaelii.core :as v]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
-            [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- except-rule [exception antes conseq]
-  (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
 
 ;; ---- same belief as per-assert -------------------------------------------
 ;; The excepted binding (Opus) has its conclusion placed while `(bird Opus)` is
@@ -28,7 +24,7 @@
 (tu/deftest-kb deferred-settle-reaches-the-same-belief-as-per-assert
   (tu/with-terms [bird penguin flies Tweety Opus CxBird]
     (v/with-deferred-settle kb
-      (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+      (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
                 CxBird)
       (v/assert kb (list bird Tweety) CxBird)
       (v/assert kb (list bird Opus) CxBird)
@@ -48,7 +44,7 @@
 
 (tu/deftest-kb deferral-postpones-the-exception-sweep-to-the-batch-end
   (tu/with-terms [bird penguin flies Opus CxBird]
-    (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+    (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
               CxBird)
     (v/assert kb (list bird Opus) CxBird)
     (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))
@@ -173,7 +169,7 @@
 
 (tu/deftest-kb nested-deferred-settle-composes
   (tu/with-terms [bird penguin flies Opus CxBird]
-    (v/assert kb (except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
+    (v/assert kb (tu/except-rule (list penguin '?b) [(list bird '?b)] (list flies '?b))
               CxBird)
     (v/assert kb (list bird Opus) CxBird)
     (v/with-deferred-settle kb

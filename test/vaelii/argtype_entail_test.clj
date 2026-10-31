@@ -20,6 +20,9 @@
             [vaelii.impl.decide.argument :as argument]
             [vaelii.impl.except :as exc]
             [vaelii.impl.inherit :as inherit]
+            [vaelii.impl.kb :as kb]
+            [vaelii.impl.kv :as kv]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
@@ -87,14 +90,6 @@
 
 (defn- believed? [kb sentence ctx] (some? (entailed kb sentence ctx)))
 
-(defn- permutations
-  [coll]
-  (if (< (count coll) 2)
-    (list coll)
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 ;; ---- the headline --------------------------------------------------------
 
 (tu/deftest-kb a-declaration-entails-the-type-it-constrains
@@ -132,9 +127,99 @@
               sup (first (:support w))]
           (is (some? th) "the type is stored")
           (is (false? (:premise? w)) "and derived, not asserted")
-          (is (= 'arg (:informant sup)) "the declaring predicate is the informant")
+          (is (= (get (kb/mint-rule-table kb) 'arg) (:informant sup))
+              "the informant is the `arg` kind's inert rule")
+          (is (= (v/readable-sentence (v/sentex kb (:informant sup))) (:rule sup)))
           (is (= #{fh dh} (set (map :handle (:because sup))))
               "resting on the triggering fact and the declaration, and nothing else"))))))
+
+(defn- mint-informants
+  "`{:symbol n :rule n :off-kind [j …]}` over every justification `kb` stores: the ones
+  whose informant is a declaring kind's symbol, the ones under a rule of
+  `kv/mint-rules`, and those of the second whose antecedents hold no declaration of
+  the rule's kind."
+  [kb]
+  (let [kinds (set (keys kv/mint-rules))
+        js    (for [h (tu/sentex-ids kb), j (v/supporting-justifications kb h)] j)
+        rule  (filter #(kb/mint-informant? kb (:informant %)) (filter #(integer? (:informant %)) js))
+        decl? (fn [j]
+                (let [k (kb/mint-kind kb (:informant j))]
+                  (some #(let [s (:sentence (v/sentex kb %))]
+                           (and (seq? s) (= k (first s))))
+                        (:antecedents j))))]
+    {:symbol   (count (filter #(contains? kinds (:informant %)) js))
+     :rule     (count rule)
+     :off-kind (vec (remove decl? rule))}))
+
+(deftest every-mint-of-the-starter-is-justified-under-its-kinds-rule
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (tu/load-starter! kb)
+    (tu/with-terms [rel big_thing Ann Bob]
+      (with-entailing
+        (v/assert kb (list 'arg rel 1 big_thing) 'CxUniverse)
+        (v/assert kb (list rel Ann Bob) 'CxUniverse))
+      (let [m (mint-informants kb)]
+        (is (zero? (:symbol m)) "no mint names its declaring predicate")
+        (is (pos? (:rule m)))
+        (is (= [] (:off-kind m)) "each rests on a declaration of its rule's kind")
+        (is (= (set (keys kv/mint-rules)) (set (keys (kb/mint-rule-table kb))))
+            "the starter stores every kind's rule, from core.txt")))))
+
+(tu/deftest-kb every-mint-record-arg-types-draws-is-justified-under-its-kinds-rule
+  (tu/with-terms [rel big_thing small_thing Ann Bob CxWorld]
+    (a-context kb CxWorld)
+    (a-type kb big_thing CxWorld)
+    (with-entailing
+      (v/assert kb (list 'arg rel 1 big_thing) CxWorld)
+      (v/assert kb (list 'genlArg rel 2 big_thing) CxWorld)
+      (v/bulk-assert-facts! kb [(list rel Ann small_thing) (list rel Bob small_thing)] CxWorld)
+      (is (pos? (:recorded (v/record-arg-types kb))))
+      (let [m (mint-informants kb)]
+        (is (zero? (:symbol m)))
+        (is (pos? (:rule m)))
+        (is (= [] (:off-kind m)))))))
+
+(tu/deftest-kb a-kb-without-the-rule-stores-it-with-its-first-declaration
+  (tu/with-terms [animal parentOf Fred Mary CxWorld]
+    (a-context kb CxWorld)
+    (let [rule-of #(get (kb/mint-rule-table kb) 'arg)]
+      (is (nil? (rule-of)) "a fresh KB holds no mint rule")
+      (without-entailing
+       (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+       (is (some? (rule-of)) "the declaration stores it, under either reading"))
+      (with-entailing
+        (v/assert kb (list parentOf Fred Mary) CxWorld)
+        (let [h (rule-of)
+              s (v/sentex kb h)]
+          (is (some? h))
+          (is (= ['CxUniverse :default] [(:context s) (:strength s)]))
+          (is (v/in? kb h))
+          (is (= h (v/handle-of kb (kv/mint-rules 'arg) 'CxUniverse))
+              "the stored rule is `core.txt`'s sentence")
+          (is (= #{h} (set (map :informant (v/supporting-justifications
+                                            kb (v/handle-of kb (list animal Fred) CxWorld))))))
+          (is (= :mint-rule (try (v/retract! kb h) nil
+                                 (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+              "and refuses its retraction, which the next mint would undo"))))))
+
+(tu/deftest-kb a-rule-stored-while-the-table-fills-stays-in-the-table
+  ;; The reader's index read answers what the index held before the writer stored `arg`'s
+  ;; rule, and the writer runs between that read and the reader's install (testing.md,
+  ;; "Traps").
+  (tu/with-terms [animal parentOf CxWorld]
+    (a-context kb CxWorld)
+    (kb/forget-mint-rules! kb)
+    (let [real  reads/as-stored-mint-rules
+          wrote (atom false)]
+      (with-redefs [reads/as-stored-mint-rules
+                    (fn [index]
+                      (let [pre (real index)]
+                        (when (compare-and-set! wrote false true)
+                          (without-entailing (v/assert kb (list 'arg parentOf 1 animal) CxWorld)))
+                        pre))]
+        (kb/mint-rule-table kb))
+      (is @wrote "the writer ran inside the reader's fill")
+      (is (= (v/handle-of kb (kv/mint-rules 'arg) 'CxUniverse) (get (kb/mint-rule-table kb) 'arg))))))
 
 ;; ---- both directions reach one KB ---------------------------------------
 
@@ -587,13 +672,11 @@
         (is (believed? kb (list animal Muffet) CxWorld))))))
 
 (tu/deftest-kb a-subsumer-resting-on-the-mint-does-not-keep-it
-  ;; `(awake Fido)`, `(alert Fido)`, `(calm Fido)` and `(fed Fido)` are derived from the
-  ;; mint by forward rules and sit under `animal`, so each subsumes it while resting on it.
-  ;; The `genl` edge arriving last makes `(dog Fido)` a subsumer that rests on nothing
-  ;; minted, and that one withdraws the mint, as the order stating the edge first
-  ;; withholds it.  The subsumption search meets the term's types in hash order, so four
-  ;; rows of fresh names make it near certain that one row meets a resting subsumer
-  ;; before `(dog Fido)`.
+  ;; `(awake Fido)`, `(alert Fido)`, `(calm Fido)` and `(fed Fido)` are derived from the mint
+  ;; by forward rules and sit under `animal`, so each subsumes it while resting on it. The
+  ;; `genl` edge arriving last makes `(dog Fido)` a subsumer resting on nothing minted, which
+  ;; withdraws the mint. The subsumption search meets the term's types in hash order, so four
+  ;; rows of fresh names make it near certain that one row meets a resting subsumer first.
   (with-pruning
     (dotimes [_ 4]
       (tu/with-terms [animal dog awake alert calm fed eats Fido Bone CxWorld]
@@ -713,12 +796,11 @@
       (is (v/genl? kb wheel_kind physical_thing CxWorld) "and the closure still answers"))))
 
 (tu/deftest-kb a-minted-edge-gives-way-to-a-route-a-declaration-installs
-  ;; The route of `a-minted-edge-gives-way-to-a-longer-route` with its first edge
-  ;; installed by a `separating` declaration rather than stated: `wheel_kind →
-  ;; axle_kind` comes from the declaration, `axle_kind → physical_thing` is stated.  The
-  ;; declaration's edge is a route like a stated one, so the minted `wheel_kind →
-  ;; physical_thing` is withheld when the declaration is there first, withdrawn when it
-  ;; arrives second, and drawn again when it leaves.
+  ;; The route of `a-minted-edge-gives-way-to-a-longer-route` with its first edge installed by
+  ;; a `separating` declaration: `wheel_kind -> axle_kind` comes from the declaration and
+  ;; `axle_kind -> physical_thing` is stated. The minted `wheel_kind -> physical_thing` is
+  ;; withheld when the declaration is first, withdrawn when it arrives second, and drawn again
+  ;; when it leaves.
   (doseq [declaration-first? [true false]]
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [physical_thing wheel_kind spoke_kind axle_kind partType CxWorld]
@@ -787,7 +869,7 @@
               th  (entailed kb (list dog Rex) CxWorld)
               sup (first (:support (tu/why-root kb th)))]
           (is (some? th) "the type at argument 2 is a stored, believed membership of argument 1")
-          (is (= 'argArg (:informant sup)))
+          (is (= 'argArg (kb/mint-kind kb (:informant sup))) "under the `argArg` rule")
           (is (= #{fh dh} (set (map :handle (:because sup))))
               "resting on the fact and the declaration")
           (v/retract! kb dh)
@@ -798,7 +880,7 @@
   ;; The declaration, the fact, and the retraction of the binding that gives the named
   ;; type two arguments.  With the retraction last the fact names a type that is not
   ;; mintable yet, so it waits on its own handle and is minted when the binding leaves.
-  (doseq [order (permutations [:declaration :fact :type])]
+  (doseq [order (tu/permutations [:declaration :fact :type])]
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [kindOf dog Rex CxWorld]
         (with-entailing
@@ -815,7 +897,7 @@
 ;; argument 2 and no other tuple, in every order of the declaration and two tuples, one
 ;; holding 3 and one holding 4.  The membership rests on the declaration.
 (tu/deftest-kb an-inter-arg-equal-types-the-tuples-its-value-triggers-in-every-order
-  (doseq [order (permutations [:declaration :three :four])]
+  (doseq [order (tu/permutations [:declaration :three :four])]
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [grants t Rex Fido CxWorld]
         (with-entailing
@@ -829,7 +911,7 @@
                 :four        (v/assert kb (list grants Fido 4) CxWorld)))
             (is (= [true false] (mapv #(believed? kb (list t %) CxWorld) [Rex Fido])) (str (vec order)))
             (is (= 'interArgEqual
-                   (:informant (first (:support (tu/why-root kb (v/handle-of kb (list t Rex) CxWorld))))))
+                   (kb/mint-kind kb (:informant (first (:support (tu/why-root kb (v/handle-of kb (list t Rex) CxWorld)))))))
                 (str (vec order)))
             (v/retract! kb @dh)
             (is (not (believed? kb (list t Rex) CxWorld))
@@ -875,7 +957,7 @@
 ;; binding's retraction releases the mint, across a recover too.  An individual's name
 ;; mints nothing in any order.
 (tu/deftest-kb a-result-arg-types-a-minted-constant-in-every-order
-  (let [orders (permutations [:declaration :write :type])
+  (let [orders (tu/permutations [:declaration :write :type])
         rows   (concat (for [o orders] [o :kind true])
                        (for [o orders] [(concat o [:recover]) :kind true])
                        (for [o orders] [(concat (butlast o) [:recover (last o)]) :kind true])
@@ -1184,7 +1266,7 @@
               [order [standing {:tt  (believed? kb (list tt Bee) CxDown)
                                 :sub (some? (v/handle-of kb (list sub Bee) CxDown))}]])))))))
 
-(def ^:private chain-orders (permutations [:cx :sub-decl :pred :acc-decl :fact]))
+(def ^:private chain-orders (tu/permutations [:cx :sub-decl :pred :acc-decl :fact]))
 
 (defn- one-reading?
   "Every order reached the KB that derives both memberships, and retracting the context
@@ -1596,12 +1678,10 @@
       (is (= want (mint-clash order strength))))))
 
 (tu/deftest-kb a-derived-declaration-mints-what-its-text-reload-mints
-  ;; A declaration a forward rule derives reaches the stored facts through
-  ;; `entail-existing`, after the clashing membership is believed; the text export
-  ;; reloads the same content in content order, where the declaration is derived before
-  ;; the fact arrives.  The two hold the same sentences and believe the same ones.  arg
-  ;; is forced-monotonic, so the rule concluding it reads a forced-monotonic marker
-  ;; too: a firing from an antecedent off it would be void.
+  ;; A declaration a forward rule derives reaches the stored facts through `entail-existing`
+  ;; after the clashing membership is believed; the text export reloads the same content in
+  ;; content order, where the declaration is derived first. The two believe the same sentences.
+  ;; `arg` is forced-monotonic, so the rule concluding it reads a forced-monotonic marker.
   (let [build #(tu/isolated-fresh)
         dir   (.toFile (Files/createTempDirectory "argtype-clash" (make-array FileAttribute 0)))
         rows  (fn [kb pick]
@@ -1675,7 +1755,7 @@
   storing a believed `(tt A)`, whether every context at or below one of them reads it
   and no other context does, and the contexts storing it once the edge is retracted."
   [[fact-cx decl-cxs held _ _]]
-  (for [order (permutations (into [:fact :edge] (map-indexed (fn [i _] i) decl-cxs)))]
+  (for [order (tu/permutations (into [:fact :edge] (map-indexed (fn [i _] i) decl-cxs)))]
     (tu/with-neutral-kb [kb tu/fresh]
       (tu/with-terms [rel tt A B CxTop CxMid CxLow CxL CxR CxJoin]
         (with-entailing
@@ -1720,7 +1800,7 @@
           (for [order (cons [:fact :decl]
                             (filter #(< (.indexOf ^java.util.List % :edge)
                                         (.indexOf ^java.util.List % :unedge))
-                                    (permutations [:fact :decl :edge :unedge])))]
+                                    (tu/permutations [:fact :decl :edge :unedge])))]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [rel tt dog A B CxTop CxL CxR CxJ CxK]
                 (binding [argument/*assertive-arg-types?*  true
@@ -1758,7 +1838,7 @@
           [cxs want after] [[[:mid] #{:mid} [#{}]]
                             [[:mid :top] #{:top} [#{:mid} #{}]]]]
     (let [readings
-          (for [order (permutations (into [:fact :decl] cxs))]
+          (for [order (tu/permutations (into [:fact :decl] cxs))]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [rel sup tt carnivore A B CxTop CxMid]
                 (binding [argument/*assertive-arg-types?*  true
@@ -1807,7 +1887,7 @@
           (for [order (filter #(< (.indexOf ^java.util.List % :fact)
                                   (.indexOf ^java.util.List % :ex1)
                                   (.indexOf ^java.util.List % :ex2))
-                              (permutations [:fact :decl :ex1 :ex2]))]
+                              (tu/permutations [:fact :decl :ex1 :ex2]))]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [rel tt A B CxTop CxMid CxLow]
                 (with-entailing
@@ -1898,12 +1978,9 @@
           "the quality report names each declaration with its predicate's stored extent"))))
 
 (tu/deftest-kb a-symmetric-fact-mints-over-its-stored-spelling
-  ;; `(symmetric relates)` stores `(relates a b)` and `(relates b a)` as one sentex, so
-  ;; the declaration a mint rests on is read off that one spelling.  Read off the
-  ;; spelling written, the fact arriving after `(genlArg relates 1 kind)` drew
-  ;; `(genl b kind)` over position 2 or position 1 by how it was written, while the
-  ;; declarations arriving after the fact read the stored spelling — two justifications
-  ;; for one content, and a text export reloading in content order kept the other one.
+  ;; `(symmetric relates)` stores `(relates a b)` and `(relates b a)` as one sentex, so the
+  ;; declaration a mint rests on is read off the stored spelling in every arrival order; a text
+  ;; export reloading in content order must keep the same justification.
   (tu/with-terms [kind relates a_kind b_kind CxWorld]
     (let [run (fn [fact-first? fact]
                 (tu/with-neutral-kb [kb tu/fresh]
@@ -2005,7 +2082,7 @@
                           [['(genlArg partition 1 top) '(argAndRestGenl partition 2 top)]
                            (fn [r s w] (list 'partition w r s))]]]
     (let [results
-          (for [order (permutations [:decl :bind :sep :fact])]
+          (for [order (tu/permutations [:decl :bind :sep :fact])]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [animal gladdenOf saddenOf outputOf Cal Dee CxWorld top_t]
                 (with-entailing
@@ -2031,7 +2108,7 @@
   ;; the separation's mint puts parentOf under top_t, and the two CxUniverse bindings
   ;; are one pair, which names its members and no path (docs/taxonomy.md, "Arity")
   (let [results
-        (for [order (permutations [:decl :bind :own :sep])]
+        (for [order (tu/permutations [:decl :bind :own :sep])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [animal parentOf childOf Cal Dee CxWorld top_t]
               (with-entailing
@@ -2065,7 +2142,7 @@
   ;; the same question the other way round and gets the same answer in all six —
   ;; `every-arrival-order-prunes-the-same-way`.
   (let [results
-        (for [order (permutations [:decl :fact :type])]
+        (for [order (tu/permutations [:decl :fact :type])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
               (with-mints-kept
@@ -2094,7 +2171,7 @@
   ;; `entail-existing`, and `(genl animal thing)` last mints when the settle releases the
   ;; declaration that could not mint before its type reached `thing`.
   (let [results
-        (for [order (permutations [:type :decl :fact :member :rule])]
+        (for [order (tu/permutations [:type :decl :fact :member :rule])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [animal noted kindUnder wolf Rex Zoo CxWorld]
               (with-entailing
@@ -2119,7 +2196,7 @@
   ;; as it is stored, and the merge arriving last migrates the mint with the fact.  The
   ;; reading is taken under the merge and again after retracting it.
   (let [results
-        (for [order (permutations [:decl :fact :merge])]
+        (for [order (tu/permutations [:decl :fact :merge])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [person ownerOf Kip Kipper Rex CxWorld]
               (with-entailing
@@ -2143,15 +2220,13 @@
         (str "the membership varied by arrival order: " (pr-str results)))))
 
 (tu/deftest-kb every-arrival-order-prunes-the-same-way
-  ;; The same orders with the `genl` edge that makes `dog` more specific than `animal` among
-  ;; them.  Whether the KB *keeps* the minted `(animal Fred)` is then a question about what
-  ;; it believes rather than about what arrived first: with pruning on the mint is withheld
-  ;; where `(dog Fred)` and the edge came before it and withdrawn where either came after,
-  ;; with every mint kept it holds the same justifications in every order, and each reading
-  ;; ends its twenty-four orders at one KB.
+  ;; The same orders with the `genl` edge that makes `dog` more specific than `animal`. With
+  ;; pruning on, the mint is withheld where `(dog Fred)` and the edge came before it and
+  ;; withdrawn where either came after; with every mint kept, every order holds the same
+  ;; justifications. Each reading ends its twenty-four orders at one KB.
   (doseq [prune? [true false]]
     (let [results
-          (for [order (permutations [:edge :decl :fact :type])]
+          (for [order (tu/permutations [:edge :decl :fact :type])]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
                 (binding [argument/*assertive-arg-types?*  true
@@ -2185,7 +2260,7 @@
   ;; each fact that entails it, the withheld one included, whichever arrives first.
   (tu/with-terms [kindOf nested mid kind marker marker2 Zoo top_t]
     (let [results
-          (for [order (permutations [:route :fact :marker])]
+          (for [order (tu/permutations [:route :fact :marker])]
             (tu/with-neutral-kb [kb tu/fresh]
               (with-pruning
                 (doseq [s [(list 'genlArg kindOf 1 top_t) (list 'genlArg nested 1 top_t)
@@ -2200,7 +2275,9 @@
                     :fact   (v/assert kb (list kindOf kind Zoo) 'CxUniverse)
                     :marker (v/assert kb (list marker kind) 'CxUniverse)))
                 [order (support-by-content kb (list 'genl kind top_t) 'CxUniverse)])))]
-      (is (some #(= 'genlArg (first %)) (second (first results))))
+      (is (some #(and (seq? (first %)) (some #{'genlArg} (flatten (first %))))
+                (second (first results)))
+          "a justification under the `genlArg` mint rule")
       (is (= 1 (count (set (map second results))))
           (str "the record's justifications varied by arrival order: " (pr-str results))))))
 
@@ -2211,7 +2288,7 @@
   (doseq [[prune? want] [[true  [{:animal false :dog true :fact true} {:animal true :dog true :fact true}]]
                          [false [{:animal true :dog true :fact true} {:animal true :dog true :fact true}]]]]
     (let [results
-          (for [order (permutations [:edge :decl :fact :type])]
+          (for [order (tu/permutations [:edge :decl :fact :type])]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [animal dog cat parentOf Fred Mary CxWorld]
                 (binding [argument/*assertive-arg-types?*  true
@@ -2245,7 +2322,7 @@
   ;; kept, every order holds it on the same justifications.
   (doseq [prune? [true false]]
     (let [results
-          (for [order (permutations [:cx :decl :fact :type])]
+          (for [order (tu/permutations [:cx :decl :fact :type])]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [animal dog parentOf Fred Mary CxWorld CxDogs]
                 (binding [argument/*assertive-arg-types?*  true
@@ -2276,7 +2353,7 @@
   ;; as a stated one is.  A binary fact beside it puts `Fred` at argument 1 of a predicate
   ;; no subtype test reads.
   (let [results
-        (for [order (permutations [:rule :decl :fact :marker])]
+        (for [order (tu/permutations [:rule :decl :fact :marker])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [animal dog puppy parentOf likes Fred Mary]
               (with-pruning
@@ -2346,7 +2423,7 @@
               setup [(list 'genl vdog 'thing) (list 'unary_predicate vneeds)]]
           (is (= #{{:decl [true true] :fact [true false]
                     :violations #{[(list vneeds 5) :arg-type]}}}
-                 (into #{} (map #(held-reading kb setup ss %)) (permutations [:decl :fact])))
+                 (into #{} (map #(held-reading kb setup ss %)) (tu/permutations [:decl :fact])))
               (str "entailing " entail?))
           (let [hs (mapv #(v/assert kb % 'CxUniverse) (concat setup [(ss :fact) (ss :decl)]))
                 why (v/why-not kb (ss :fact) 'CxUniverse)]
@@ -2372,7 +2449,7 @@
               sh (mapv #(v/assert kb % 'CxUniverse)
                        [(list 'genlCx CxLow 'CxUniverse) (list 'unary_predicate vneeds)])]
           (is (= #{false}
-                 (into #{} (for [order (permutations [:decl :edge :fact])]
+                 (into #{} (for [order (tu/permutations [:decl :edge :fact])]
                              (let [hs (mapv #(apply v/assert kb (ss %)) order)
                                    in (boolean (v/believed? kb (v/handle-of kb (list vneeds 5) CxLow) CxLow))]
                                (doseq [h (rseq hs)] (v/retract! kb h))
@@ -2401,7 +2478,7 @@
         (is (= #{(if held?
                    {:decl [true true] :fact [true false] :violations #{[(ss :fact) kind]}}
                    {:decl [true true] :fact [true true] :violations #{}})}
-               (into #{} (map #(held-reading kb setup ss %)) (permutations [:decl :fact])))
+               (into #{} (map #(held-reading kb setup ss %)) (tu/permutations [:decl :fact])))
             (pr-str [decl t-of v sub]))))))
 
 ;; The edge `(genl vmid vk)` places the declared type `vdog`, two steps below it, under a
@@ -2489,7 +2566,7 @@
           ss    {:decl (list 'arg vneeds 1 vdog) :fact (list vneeds Rex Tom)
                  :other (list vcat Rex) :own (list vdog Rex)}
           every (fn [] (into #{} (map #(held-reading kb setup ss %))
-                             (permutations [:decl :fact :other :own])))]
+                             (tu/permutations [:decl :fact :other :own])))]
       (is (= #{{:decl [true true] :fact [true false] :other [true true] :own [true true]
                 :violations #{[(list vneeds Rex Tom) :arg-type]}}}
              (tu/without-entailing (every)))

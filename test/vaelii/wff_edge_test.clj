@@ -27,17 +27,12 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- ex-type
-  "The `:type` on the ex-info a thunk throws, or nil if it does not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
-
 ;; ---- genlCx: the cycle branch --------------------------------------
 
 (tu/deftest-kb genlCx-rejects-a-context-seeing-itself
   (tu/with-terms [CxAlpha]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'genlCx CxAlpha CxAlpha) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'genlCx CxAlpha CxAlpha) 'CxUniverse)))
         "a context that genlCxs itself")))
 
 (tu/deftest-kb genlCx-rejects-a-cycle-through-another-context
@@ -53,7 +48,7 @@
     (is (not (v/sees? kb CxAlpha CxBeta)) "one-way before any loop")
     (testing "the edge that would close the loop is refused, with the cycle error type"
       (is (= :not-well-formed
-             (ex-type #(v/assert kb (list 'genlCx CxAlpha CxBeta) 'CxUniverse)))))
+             (tu/refusal-type #(v/assert kb (list 'genlCx CxAlpha CxBeta) 'CxUniverse)))))
     (testing "and the refused edge changed nothing: the one-way answer stands"
       (is (not (v/sees? kb CxAlpha CxBeta)))
       (is (v/sees? kb CxBeta CxAlpha))
@@ -65,20 +60,20 @@
 (tu/deftest-kb genlCx-rejects-a-non-context-argument
   (tu/with-terms [CxAlpha]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'genlCx CxAlpha 'PlainIndividual) 'CxUniverse))))))
+           (tu/refusal-type #(v/assert kb (list 'genlCx CxAlpha 'PlainIndividual) 'CxUniverse))))))
 
 ;; ---- the checkers with no tests at all ----------------------------------
 
 (tu/deftest-kb disjoint_metatype-must-mark-a-metatype-not-an-individual
   (tu/with-terms [Muffet animal_species]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'disjoint_metatype Muffet) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'disjoint_metatype Muffet) 'CxUniverse)))
         "an individual is not a metatype")
     (testing "and it takes exactly one argument"
       ;; :naming — disjoint_metatype is snake_case, so a second argument is refused at
       ;; the naming check, upstream of the `wff` arity check
       (is (= :naming
-             (ex-type #(v/assert kb (list 'disjoint_metatype animal_species 'Extra) 'CxUniverse)))))))
+             (tu/refusal-type #(v/assert kb (list 'disjoint_metatype animal_species 'Extra) 'CxUniverse)))))))
 
 (tu/deftest-kb the-predicate-properties-reject-an-individual-argument
   ;; All six route through `prop-problems`.  A predicate dropped from that `case`
@@ -86,7 +81,7 @@
   (tu/with-terms [Muffet]
     (doseq [prop '[transitive symmetric reflexive functional
                    decontextualized_predicate forced_decontextualized_predicate]]
-      (is (= :not-well-formed (ex-type #(v/assert kb (list prop Muffet) 'CxUniverse)))
+      (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list prop Muffet) 'CxUniverse)))
           (str prop " must reject an individual")))))
 
 (tu/deftest-kb the-predicate-properties-take-exactly-one-argument
@@ -97,55 +92,55 @@
     (doseq [prop '[transitive symmetric reflexive functional
                    decontextualized_predicate forced_decontextualized_predicate]]
       (is (= (if (str/includes? (name prop) "_") :naming :not-well-formed)
-             (ex-type #(v/assert kb (list prop tangiblePartOf otherPred) 'CxUniverse)))
+             (tu/refusal-type #(v/assert kb (list prop tangiblePartOf otherPred) 'CxUniverse)))
           (str prop " takes one argument")))))
 
 (tu/deftest-kb inverse-relates-two-predicates
   (tu/with-terms [parentOf childOf Muffet]
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'inverse Muffet childOf) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'inverse Muffet childOf) 'CxUniverse)))
         "an individual in argument 1")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'inverse parentOf Muffet) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'inverse parentOf Muffet) 'CxUniverse)))
         "an individual in argument 2")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'inverse parentOf) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'inverse parentOf) 'CxUniverse)))
         "and it takes two")))
 
 (tu/deftest-kb arg-checks-the-shape-of-all-three-arguments
   (tu/with-terms [parentOf person Muffet]
-    (is (nil? (ex-type #(v/assert kb (list 'arg Muffet 1 person) 'CxUniverse)))
+    (is (nil? (tu/refusal-type #(v/assert kb (list 'arg Muffet 1 person) 'CxUniverse)))
         "argument 1 is not held to a spelling: a function has argument positions like a
          predicate does and is spelled like an individual, so no spelling test separates
          the two — and a constraint on a term that never heads a sentence is inert")
-    (is (nil? (ex-type #(v/assert kb (list 'arg (list 'RoleFn parentOf) 1 person)
-                                  'CxUniverse)))
+    (is (nil? (tu/refusal-type #(v/assert kb (list 'arg (list 'RoleFn parentOf) 1 person)
+                                          'CxUniverse)))
         "a relation may be denoted by a NAT rather than named, and that is a term too")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'arg 7 1 person) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'arg 7 1 person) 'CxUniverse)))
         "but a number is no kind of term for a relation to be")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'arg parentOf 0 person) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'arg parentOf 0 person) 'CxUniverse)))
         "the position is 1-based, so 0 is out of range")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'arg parentOf 'one person) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'arg parentOf 'one person) 'CxUniverse)))
         "and it must be an integer")
     (is (= :not-well-formed
-           (ex-type #(v/assert kb (list 'arg parentOf 1 Muffet) 'CxUniverse)))
+           (tu/refusal-type #(v/assert kb (list 'arg parentOf 1 Muffet) 'CxUniverse)))
         "argument 3 must be a type, not an individual")
     (testing "a well-formed arg is accepted"
-      (is (nil? (ex-type #(v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)))))))
+      (is (nil? (tu/refusal-type #(v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)))))))
 
 ;; ---- the ex-info :type contract ----------------------------------------
 
 (tu/deftest-kb a-naming-violation-is-typed-naming
   (tu/with-terms [dog Muffet]
-    (is (= :naming (ex-type #(v/assert kb (list dog Muffet) 'SomewhereElse)))
+    (is (= :naming (tu/refusal-type #(v/assert kb (list dog Muffet) 'SomewhereElse)))
         "a context that does not start with Cx")))
 
 (tu/deftest-kb a-non-ground-fact-is-typed-not-ground
   (tu/with-terms [mortal]
-    (is (= :not-ground (ex-type #(v/assert kb (list mortal '?x) 'CxUniverse))))))
+    (is (= :not-ground (tu/refusal-type #(v/assert kb (list mortal '?x) 'CxUniverse))))))
 
 (tu/deftest-kb a-disjointness-clash-is-a-disjoint-nogood
   ;; Everything in one context, like the arg test below: the constraint checks
@@ -193,7 +188,7 @@
 
 (tu/deftest-kb a-malformed-special-predicate-is-typed-not-well-formed
   (tu/with-terms [dog Muffet]
-    (is (= :not-well-formed (ex-type #(v/assert kb (list 'genl dog Muffet) 'CxUniverse)))
+    (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'genl dog Muffet) 'CxUniverse)))
         "genl relates types, and Muffet is an individual")))
 
 (tu/deftest-kb the-error-payload-carries-more-than-the-type
@@ -221,6 +216,6 @@
   (tu/with-terms [bird flies]
     (let [before (tu/sentex-ids kb)]
       (is (= :naming
-             (ex-type #(v/assert kb (vr/rule-sentence [(list bird '?x)] (list flies '?x))
-                                 'SomewhereElse))))
+             (tu/refusal-type #(v/assert kb (vr/rule-sentence [(list bird '?x)] (list flies '?x))
+                                         'SomewhereElse))))
       (is (= before (tu/sentex-ids kb)) "a refused rule stores nothing"))))

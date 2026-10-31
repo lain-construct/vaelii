@@ -17,6 +17,8 @@
 
 ;; A fresh KB per test: the upper layer, CxChange for the event-calculus tests, and the
 ;; prover registered.
+;; The KB is built per test because a test registers reasoners, which a KB shared
+;; across tests would keep.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core-with! '[[CxChange "middle"]])

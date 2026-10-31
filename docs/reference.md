@@ -123,6 +123,11 @@ believed?(W, S, C) = S is in believed(W, C)
      believed `disjoint` separates from `A` with every `genl` edge on both sides
      `:monotonic`; grounds the declaration, the `disjoint` and the `genl` routes
      ([taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it));
+   - **related types**: a believed `(disjoint A B)` where `A` reaches `B` through `genl`
+     at `C`, or the reverse, and the believed edges of one route between them, members
+     all, one nogood per route; a believed `covering` naming a part that a believed
+     `disjoint` separates from its whole, and that `disjoint`, two members
+     ([nmtms.md](nmtms.md#declarations-over-related-types));
    - **inherited**: a stored `(not (P … A …))` beside a claim `(P … W …)` that a believed
      `(transitiveInArgInverse P n genl)` carries down a `genl` path from `W` to `A`, when
      every part of that reading is `:monotonic`; the members are the denial, the general
@@ -222,13 +227,14 @@ page that holds it.
     forced-monotonic antecedents (decision 17). A `genl` between types stays defeasible,
     so a type edge admits exceptions. Section:
     [taxonomy.md](taxonomy.md#predicate-metadata).
-11. **Can a definitional declaration be `:default`, denied or derived?** `disjoint`,
-    `covering`, `partition`, `sibling_disjoint`, `orthogonal`, `siblingDisjointException`
-    and the arity bindings are forced-monotonic (invariant 6), so a ground goes OUT only by
-    retraction and no verdict is re-asked because its ground moved. A tuple that breaks
-    its arity binding is held inert in the `:out` forced set at every context and forms no
-    nogood ([taxonomy.md](taxonomy.md#arity)). A defeasible disjointness is written as a
-    `:default` rule concluding a denial, which forms a negation nogood. Sections:
+11. **Can a definitional declaration be `:default`, denied or derived?** `orthogonal`
+    and the arity bindings are forced-monotonic (invariant 6), so each goes OUT only by
+    retraction. A tuple that breaks its arity binding is held inert in the `:out` forced
+    set at every context and forms no nogood ([taxonomy.md](taxonomy.md#arity)). A
+    separation (`disjoint`, `covering`, `partition`, `sibling_disjoint`,
+    `siblingDisjointException`) may be `:default`, denied or derived. It keeps its written
+    strength, a stronger denial defeats it at the denial's vantage, and a membership
+    nogood resting on it is hidden where that defeat is in force. Sections:
     [taxonomy.md](taxonomy.md#disjointness) and
     [taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order).
 12. **Can an `except` be derived or defeated?** No (invariant 7). An `except` that targets
@@ -306,12 +312,13 @@ members of the forced-monotonic set and the mechanism that holds each are
    `(not S)` is. A refusal remains only where it reads the sentence alone: naming (which
    reads the sentence's own argument count), groundness and the v1 fragment. A clash that
    reads other stored content, such as `(disjoint a b)` over two `genl`-related types,
-   is a stored hard clash that `conflicts` lists (`checks/refuses-assert?`). A tuple an
+   is stored and placed as a nogood (`checks/refuses-assert?`). A tuple an
    `irreflexive` or `anti_symmetric` mark convicts, or whose length breaks its predicate's
-   arity binding, is stored for the settle to place as a nogood. A declaration over
-   `genl`-related types is a one-member hard clash of the declaration, and a cover naming
-   a part a `disjoint` separates from its whole a two-member one of the cover and the
-   `disjoint` ([nmtms.md](nmtms.md#declarations-over-related-types)).
+   arity binding, is stored for the settle to place as a nogood. A `disjoint` over
+   `genl`-related types is a nogood of the declaration and the `genl` edges of one route
+   relating its arguments, and a cover naming a part a `disjoint` separates from its
+   whole is a two-member one of the cover and the `disjoint`
+   ([nmtms.md](nmtms.md#declarations-over-related-types)).
 4. **A merge needs monotonic evidence on every side.** A `functional` or
    `functionalInArg` collision between two symbol fillers, or an `anti_symmetric`
    converse pair of symbols, merges the two terms only when every member is
@@ -329,13 +336,17 @@ members of the forced-monotonic set and the mechanism that holds each are
    `(forced_monotonic_between_predicates genl)`, so a merge `special/equate-under-edge`
    derives over such an edge, and a claim `discovery/preserving-moves` re-opens through
    it, move only when the edge is stored or retracted.
-6. **Every definitional declaration is forced-monotonic.** `disjoint`, `covering`,
-   `partition`, `sibling_disjoint` and `arity` are never a loser, a denial of one loses
-   to it, and one is derived only from forced-monotonic antecedents, so a ground goes OUT
-   only by retraction. An `arity` violation is a one-member nogood with the declaration as
-   its ground, and two predicates a `genl` edge relates whose bindings differ are a hard
-   clash ([taxonomy.md](taxonomy.md#arity)). v1 admits `disjoint` and `covering`;
-   `partition`, `sibling_disjoint` and `arity` stay outside it.
+6. **An arity binding is forced-monotonic, and a separation is not.** `arity` is never a
+   loser, a denial of it loses to it, and it is derived only from forced-monotonic
+   antecedents, so it goes OUT only by retraction. An `arity` violation is a one-member
+   nogood with the declaration as its ground, and two predicates a `genl` edge relates
+   whose bindings differ are a hard clash ([taxonomy.md](taxonomy.md#arity)). `disjoint`,
+   `covering`, `partition`, `sibling_disjoint` and `siblingDisjointException` keep their
+   written strength. Each is a defeasible ground of the membership nogood, as a type
+   `genl` edge is, and the membership verdict weighs the memberships alone. A separation
+   loses as a member: beside its denial, or in a related-types nogood with the `genl`
+   edges or the cover it clashes with (invariant 3). v1 admits `disjoint` and
+   `covering`; `partition`, `sibling_disjoint` and `arity` stay outside it.
 7. **`except` is forced-monotonic.** An `except` is asserted and retracted, derived only
    from forced-monotonic antecedents and never defeated, and an `except` that targets an
    `except` still hides it. `except` is outside v1. No settle resolution defeats an
@@ -387,15 +398,16 @@ by the world extractor with `:unsupported`, so the generator cannot produce one.
 | `unknown` in a rule antecedent | yes | [naf.md](naf.md) |
 | `exceptWhen` | yes | [exceptions.md](exceptions.md) |
 | negation nogoods | yes | [nmtms.md](nmtms.md#soft-prioritized-contradictions-the-settle-layer) |
-| `disjoint` | yes, forced-monotonic (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
+| `disjoint` | yes, defeasible (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
 | `functional`, `functionalInArg` | yes, symbol fillers included, except the all-`:monotonic` merge (invariant 4) | [taxonomy.md](taxonomy.md#predicate-metadata) |
 | `irreflexive`, `anti_symmetric` | yes, as nogoods (invariant 2) | [taxonomy.md](taxonomy.md#predicate-metadata) |
-| a `:default` write of a mark, `disjoint`, `covering` or a predicate `genl` | yes, kept `:default` and never a loser (invariants 2, 5 and 6) | [taxonomy.md](taxonomy.md#predicate-metadata) |
-| a denial of `genlCx`, a mark, a declaration or a predicate `genl` | yes, believed, and defeated at either strength beside the literal it denies (invariants 1, 2, 5 and 6) | [nmtms.md](nmtms.md#the-forced-monotonic-set) |
+| a `:default` write of a mark or a predicate `genl` | yes, kept `:default` and never a loser (invariants 2 and 5) | [taxonomy.md](taxonomy.md#predicate-metadata) |
+| a denial of `genlCx`, a mark or a predicate `genl` | yes, believed, and defeated at either strength beside the literal it denies (invariants 1, 2 and 5) | [nmtms.md](nmtms.md#the-forced-monotonic-set) |
+| a denial of `disjoint` or `covering` | yes, a negation nogood weighed as any other: a `:monotonic` denial defeats a `:default` separation, and two `:default` sides are a dilemma (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
 | a rule concluding a forced-monotonic predicate | yes, its firings stored and held void (decision 17) | [taxonomy.md](taxonomy.md#what-a-rule-may-conclude-and-what-it-reaches) |
 | `anti_transitive` | yes | [nmtms.md](nmtms.md#a-nogood-is-a-set-anti_transitive-has-three-members) |
 | `negates` | yes, as nogoods over two tuples; a declaration's length clash is not modelled | [taxonomy.md](taxonomy.md#predicate-metadata) |
-| `covering` | yes, forced-monotonic (invariant 6) | [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it) |
+| `covering` | yes, defeasible (invariant 6) | [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it) |
 | `transitiveInArgInverse` along `genl`, one position | yes, decision 5 | [inherit.md](inherit.md) |
 | equality: `rewriteOf`, `sameAs`, `equals` | no | [equality.md](equality.md) |
 | supersession | no | [equality.md](equality.md), [nmtms.md](nmtms.md#the-set-membership-states-a-node-can-hold) |
@@ -406,8 +418,8 @@ by the world extractor with `:unsupported`, so the generator cannot produce one.
 | the qualitative calculi | no | [qcn.md](qcn.md) |
 | NATs | no | [nat.md](nat.md) |
 | quantities | no | [quantity.md](quantity.md) |
-| `disjoint_metatype`, `sibling_disjoint` | no; `sibling_disjoint` is forced-monotonic (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
-| `partition`, `separating` | no; `partition` is forced-monotonic (invariant 6) | [taxonomy.md](taxonomy.md#partition-and-separating-add-no-separation-mechanism-of-their-own) |
+| `disjoint_metatype`, `sibling_disjoint` | no; `sibling_disjoint` is defeasible (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
+| `partition`, `separating` | no; `partition` is defeasible (invariant 6) | [taxonomy.md](taxonomy.md#partition-and-separating-add-no-separation-mechanism-of-their-own) |
 | `arity` | no; forced-monotonic, and a tuple breaking a binding is inert (invariant 6) | [taxonomy.md](taxonomy.md#arity) |
 | the ASP solver | no | [asp.md](asp.md), [labeling.md](labeling.md) |
 | `asymmetric` | yes, as the `asymmetric` family; forced-monotonic (invariant 2) | [inherit.md](inherit.md#asymmetric-p) |

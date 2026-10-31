@@ -9,13 +9,9 @@
   (retracting the premise a default rested on) versus defeat."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
-
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 ;; ---- 1. defeat propagates through a downstream strict rule --------------
 
@@ -26,7 +22,7 @@
   (let [bird (tu/tmp-type) animal (tu/tmp-type)
         flies (tu/tmp-pred) airborne (tu/tmp-pred) sky (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'CxUniverse)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (v/assert-rule kb [(list flies '?x)] (list airborne '?x) 'CxUniverse {:direction :forward})   ; strict, feeds off the default
     (v/assert kb (list bird sky) 'CxUniverse)
     (testing "the default and its strict consequence both hold"
@@ -109,7 +105,7 @@
   (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)]
     (v/assert kb (list 'genlCx 'CxA 'CxRoot) 'CxUniverse)
     (v/assert kb (list 'genlCx 'CxB 'CxRoot) 'CxUniverse)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxRoot)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxRoot)
     (v/assert kb (list bird tweety) 'CxA)
     (v/assert kb (list bird tweety) 'CxB)
     (testing "the default fires into both sibling contexts"
@@ -130,7 +126,7 @@
   ;; supported by that premise, so retraction SWEEPS it from the stores entirely.
   (let [bird (tu/tmp-type) animal (tu/tmp-type) flies (tu/tmp-pred) sky (tu/tmp-ind)]
     (v/assert kb (list 'genl bird animal) 'CxUniverse)
-    (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
     (let [bird-h (v/assert kb (list bird sky) 'CxUniverse)]
       (is (seq (v/sentexes-matching kb (list flies sky) 'CxUniverse)))
       (let [flies-h (v/handle-of kb (list flies sky) 'CxUniverse)]

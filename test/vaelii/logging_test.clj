@@ -90,6 +90,13 @@
                   (with-out-str (trove/log! {:level :warn :id ::probe :data {:k 1}})))
       "a call without a message prints its id and data at any level"))
 
+(deftest drops-holds-for-no-backend-and-for-a-level-under-the-dial-only
+  (v/set-log-level :warn)
+  (is (logging/drops? :info))
+  (is (not (logging/drops? :warn)))
+  (binding [trove/*log-fn* nil] (is (logging/drops? :error)))
+  (binding [trove/*log-fn* (fn [& _] nil)] (is (not (logging/drops? :trace)))))
+
 (deftest an-illegal-level-is-refused-and-the-dial-does-not-move
   (v/set-log-level :warn)
   (doseq [bad [:verbose "debug" :DEBUG nil :off]]

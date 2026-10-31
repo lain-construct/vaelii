@@ -41,7 +41,7 @@ Argument positions name the one kind that fills them (life.txt, society.txt):
 
 ```clojure
 (arg eats 2 food)
-(arg birthYearOf 2 integer)
+(arg birthDate 2 uninterrupted_time)
 (arg speaks 2 language)
 ```
 
@@ -115,10 +115,10 @@ its inverse rather than asserted beside it (life.txt):
 
 `(parentOf Ann Tom)` answers `(childOf Tom Ann)` through the inverse prover, and retracting
 the one withdraws the other. `fatherOf` and `motherOf` are narrower relations, not second
-encodings, and CxKinship bridges each to the primitive in one direction:
+encodings, and CxKinship places each under the primitive with its arguments exchanged:
 
 ```clojure
-(set/forwardRule (implies (and (fatherOf ?child ?father)) (parentOf ?father ?child)))
+(genlInverse fatherOf parentOf)
 ```
 
 A Davidsonian event encoding and an n-ary predicate for the same happening are the
@@ -163,7 +163,9 @@ implied by an intersection, a cover or a chain of edges, or a `disjoint` implied
 partition or by two types' placements. An argument declaration is not dropped for being
 derivable: each relation declares each of its positions, even where a `genl` parent's
 declaration gives the type ([ch. 18](18-argument-types.md#each-position-declared-on-the-relation)).
-Two exceptions apply, and each is marked with a `;;` note saying which one:
+Two exceptions apply. A stated `genl` or `disjoint` kept under one is marked with an
+`(acknowledgedFinding :derivable-stated-edge S "reason")` record naming the sentence and
+the exception, and any other kept sentence with a `;;` note saying which one:
 
 - **Implementation.** The engine needs the fact stated, because it reads the fact directly
   and does not derive it, or because the fact must hold in a context that cannot see the
@@ -231,5 +233,5 @@ entails it, and drop it or mark which exception applies. Keep every `arg`, `genl
 `quotedArg` that types a position of its own relation. `kb-integrity` with
 `:categories #{:derivable-stated-edge}` reports each stated `genl` or `disjoint` with
 another supporter, as `:path` (an edge chain that reaches the same pair), `:also-stated-by`
-or `:separated-by`. For every comment, delete each clause that a definitional assertion
-already states.
+or `:separated-by`, and carries the reason of its acknowledgment as `:acknowledged`. For
+every comment, delete each clause that a definitional assertion already states.

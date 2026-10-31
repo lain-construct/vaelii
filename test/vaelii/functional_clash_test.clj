@@ -24,12 +24,6 @@
   "A fresh starter KB per arm, so each strength is compared on the same baseline."
   [] (doto (tu/fresh) (tu/load-starter!)))
 
-(defn- refusal
-  "The `ex-data` of the refusal `f` throws, or nil when it stores."
-  [f]
-  (try (f) nil
-       (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (defn- held?
   "Is `sentence` stored in `context` and believed?"
   [kb sentence context]
@@ -61,7 +55,7 @@
 (deftest try-assert-refuses-a-second-number-value-of-a-functional-predicate
   (with-functional-slot [kb]
     (v/try-assert kb (list statusOf Pr 1) CxThe)
-    (let [r (refusal #(v/try-assert kb (list statusOf Pr 2) CxThe))]
+    (let [r (tu/refusal-data #(v/try-assert kb (list statusOf Pr 2) CxThe))]
       (is (= :definitional-clash (:type r)))
       (is (= :functional (:violation r)))
       (is (= [(list statusOf Pr 1)] (mapv :sentence (:clashes-with r)))
@@ -112,7 +106,7 @@
     (testing (str "both values " strength)
       (with-functional-slot [kb]
         (v/try-assert kb (list statusOf Pr Draft) CxThe {:strength strength})
-        (let [r (refusal #(v/try-assert kb (list statusOf Pr Open) CxThe {:strength strength}))]
+        (let [r (tu/refusal-data #(v/try-assert kb (list statusOf Pr Open) CxThe {:strength strength}))]
           (is (= :definitional-clash (:type r)))
           (is (= :functional (:violation r)))
           (is (nil? (v/handle-of kb (list statusOf Pr Open) CxThe)))
@@ -152,7 +146,7 @@
       (with-functional-slot [kb]
         (v/assert kb (denial Draft Open) CxThe {:strength denial-strength})
         (v/try-assert kb (list statusOf Pr Draft) CxThe {:strength strength})
-        (let [r (refusal #(v/try-assert kb (list statusOf Pr Open) CxThe {:strength strength}))]
+        (let [r (tu/refusal-data #(v/try-assert kb (list statusOf Pr Open) CxThe {:strength strength}))]
           (is (= :definitional-clash (:type r)))
           (is (nil? (v/handle-of kb (list statusOf Pr Open) CxThe)))))))
   (testing "values :monotonic, via assert"
@@ -213,7 +207,7 @@
     (testing (str "values " strength ", via try-assert")
       (with-disjoint-values [kb]
         (v/try-assert kb (list statusOf Pr Draft) CxThe {:strength strength})
-        (let [r (refusal #(v/try-assert kb (list statusOf Pr Open) CxThe {:strength strength}))]
+        (let [r (tu/refusal-data #(v/try-assert kb (list statusOf Pr Open) CxThe {:strength strength}))]
           (is (= :definitional-clash (:type r)))
           (is (nil? (v/handle-of kb (list statusOf Pr Open) CxThe)))))))
   (testing "values :monotonic, via assert"

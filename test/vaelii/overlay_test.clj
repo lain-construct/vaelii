@@ -26,25 +26,18 @@
             [vaelii.impl.overlay.frozen :as frozen]
             [vaelii.impl.overlay.kv :as okv]
             [vaelii.impl.overlay.mount :as mount]
+            [vaelii.impl.overlay.rebase :as rebase]
             [vaelii.impl.overlay.store :as ostore]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
             [vaelii.kv-backend-test :as kvt]
             [vaelii.test-util :as tu])
-  (:import [java.io File]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
+  (:import [java.io File]))
 
 ;; Own space numbers, outside the suite's block, so a fork never shares a store with
 ;; another test — and one per role, since a fork is two KBs' worth of stores.
 (defn- base-opts  [n] {:backend :memory :space [::base n]})
 (defn- fork-opts  [n] {:backend :memory :space [::fork n]})
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-overlay-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
 
 ;; ---- what a base looks like, so a change to it is visible -----------------
 
@@ -151,7 +144,7 @@
                          (catch clojure.lang.ExceptionInfo e (ex-data e))))))
       (finally (v/clear! base))))
   (testing "two :disk halves naming one directory, refused by path before either opens"
-    (let [dir  (tmpdir)
+    (let [dir  (tu/tmpdir "vaelii-overlay-")
           spec {:backend :disk-log :dir dir :recover? false}]
       (try
         (let [e (try (v/open-kb {:backend :overlay :base spec :overlay spec :recover? false})
@@ -160,9 +153,9 @@
           (is (= :base-is-overlay (:type (ex-data e))))
           (is (re-find #"both are :disk at" (ex-message e)))
           (is (empty? (.list (File. dir))) "no lock, index/ or records/ is left behind"))
-        (finally (disk/close-dir! dir) (rm-rf! dir)))))
+        (finally (disk/close-dir! dir) (tu/rm-rf! dir)))))
   (testing "an open :disk base handed over as :base-stores, its own half the same directory"
-    (let [dir  (tmpdir)
+    (let [dir  (tu/tmpdir "vaelii-overlay-")
           spec {:backend :disk-log :dir dir :recover? false}]
       (try
         (let [b (v/open-kb spec)
@@ -172,7 +165,7 @@
                      (catch clojure.lang.ExceptionInfo e e))]
           (is (= :base-is-overlay (:type (ex-data e))))
           (is (re-find #"resolve to one store" (ex-message e))))
-        (finally (disk/close-dir! dir) (rm-rf! dir)))))
+        (finally (disk/close-dir! dir) (tu/rm-rf! dir)))))
   (testing "an open :memory base handed over as :base-stores, its own half the same space"
     ;; each memory open is a new store instance over the space's one state atom
     (let [spec {:backend :memory :space [::selffork-stores] :recover? false}
@@ -518,7 +511,7 @@
   ;; inherited one), so it has to be as durable as the fork is.  Close the fork's stores
   ;; and mount them again: a deleted inherited record must stay deleted.
   (let [base (fresh-base 8)
-        dir  (tmpdir)]
+        dir  (tu/tmpdir "vaelii-overlay-")]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
@@ -537,7 +530,7 @@
         (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay)))))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! base)))))
 
 (deftest a-durable-fork-remounted-over-a-grown-base-is-refused
@@ -549,7 +542,7 @@
         base  (fresh-base n)
         grown (populate! (doto (v/open-kb {:backend :memory :space [::grown n] :recover? false})
                            (v/clear!)))
-        dir   (tmpdir)]
+        dir   (tu/tmpdir "vaelii-overlay-")]
     (try
       (let [f  (v/fork base {:backend :disk-log :dir dir})
             _  (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
@@ -574,16 +567,16 @@
                  (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay))))
           (v/close! f2)))
       (testing "a fork that minted nothing remounts over a grown base"
-        (let [dir2 (tmpdir)]
+        (let [dir2 (tu/tmpdir "vaelii-overlay-")]
           (try
             (v/close! (v/fork base {:backend :disk-log :dir dir2}))
             (let [f3 (v/fork grown {:backend :disk-log :dir dir2})]
               (is (contains? (sentences (v/sentexes-matching f3 '(dog ?x) 'CxOverlay)) '(dog Flo)))
               (v/close! f3))
-            (finally (disk/close-dir! dir2) (rm-rf! dir2)))))
+            (finally (disk/close-dir! dir2) (tu/rm-rf! dir2)))))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! grown)
         (v/clear! base)))))
 
@@ -596,7 +589,7 @@
         base  (fresh-base n)
         grown (populate! (doto (v/open-kb {:backend :memory :space [::grown n] :recover? false})
                            (v/clear!)))
-        dir   (tmpdir)]
+        dir   (tu/tmpdir "vaelii-overlay-")]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/retract! f (v/handle-of f '(ownerOf Ann Muffet) 'CxOverlay))
@@ -612,7 +605,7 @@
           (v/close! f2)))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! grown)
         (v/clear! base)))))
 
@@ -624,7 +617,7 @@
         base  (fresh-base n)
         grown (populate! (doto (v/open-kb {:backend :memory :space [::grown n] :recover? false})
                            (v/clear!)))
-        dir   (tmpdir)]
+        dir   (tu/tmpdir "vaelii-overlay-")]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/reindex f)
@@ -635,7 +628,7 @@
                                   (catch clojure.lang.ExceptionInfo e e))))))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! grown)
         (v/clear! base)))))
 
@@ -652,7 +645,7 @@
         base   (mk ::order-a '[(dog Ace) (dog Bo)])
         same   (mk ::order-same '[(dog Ace) (dog Bo)])
         turned (mk ::order-turned '[(dog Bo) (dog Ace)])
-        dir    (tmpdir)
+        dir    (tu/tmpdir "vaelii-overlay-")
         h      (v/handle-of base '(dog Ace) 'CxOverlay)]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
@@ -669,7 +662,7 @@
           (is (= [h] (:handles (ex-data e))))))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (doseq [kb [base same turned]] (v/clear! kb))))))
 
 (deftest a-fork-whose-digests-sit-under-the-alternate-key-is-checked-on-remount
@@ -719,7 +712,7 @@
   ;; without a `:dir` of its own the directory could not be handed on short of exiting
   ;; the JVM.  A second open of the same directory is the proof the lock came back.
   (let [base (fresh-base 9)
-        dir  (tmpdir)]
+        dir  (tu/tmpdir "vaelii-overlay-")]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
@@ -738,7 +731,7 @@
         (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay)))))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! base)))))
 
 ;; ---- the empty-base degeneracy, at KB level -------------------------------
@@ -828,7 +821,7 @@
   ;; is the fork's own to rebuild, so a stale sentinel rebuilds from the fork's own
   ;; records rather than refusing.
   (let [base (fresh-base 9)
-        dir  (tmpdir)]
+        dir  (tu/tmpdir "vaelii-overlay-")]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
         (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
@@ -848,7 +841,7 @@
               "and the sentinel is current")))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! base)))))
 
 (deftest a-durable-base-under-a-moved-key-layout-is-refused-rather-than-mounted
@@ -857,7 +850,7 @@
   ;; every query whose keys moved answers nothing.  The repair the layout check makes elsewhere is
   ;; a clear-and-rebuild, which is a write, and a base is mounted read-only: so this arm
   ;; refuses and names the directory to open as a KB of its own first.
-  (let [dir    (tmpdir)
+  (let [dir    (tu/tmpdir "vaelii-overlay-")
         ;; a fresh fork space per call: the clear below marks the fork's space cleared
         ;; for the process, so a fork reopened on it would hide this base
         forked (fn []
@@ -890,7 +883,7 @@
         (is (= (pr-str {:index-layout kv/index-layout-version})
                (slurp (str dir "/index/layout.edn"))))
         (is (= :mounted (forked)) "after which the fork mounts"))
-      (finally (disk/close-dir! dir) (rm-rf! dir)))))
+      (finally (disk/close-dir! dir) (tu/rm-rf! dir)))))
 
 (deftest a-durable-fork-remount-keeps-its-removals-and-its-merged-counts
   ;; The fork's own index half is its *delta* over the base — copy-on-write counters
@@ -903,7 +896,7 @@
   ;; `:recover? false` — rebuilds nothing, the inherited fact the fork retracted stays
   ;; retracted, and the root count is the merged one.
   (let [base   (fresh-base 10)
-        dir    (tmpdir)
+        dir    (tu/tmpdir "vaelii-overlay-")
         owned  '(ownerOf Ann Muffet)
         logged (atom [])
         rebuilt #{::kb/fork-index-coverage-rebuilt ::kb/fork-index-layout-rebuilt}
@@ -940,14 +933,14 @@
         (check! (remount!)))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! base)))))
 
 (deftest a-fork-whose-own-index-lost-its-tail-is-rebuilt-on-remount
   ;; the damaged twin of the healthy remount above: the own half's log is shorter than
   ;; its clean marker recorded, so the coverage check rebuilds the merged index
   (let [base   (fresh-base 11)
-        dir    (tmpdir)
+        dir    (tu/tmpdir "vaelii-overlay-")
         logged (atom [])]
     (try
       (let [f (v/fork base {:backend :disk-log :dir dir})]
@@ -966,7 +959,7 @@
             "every fork-local fact is served again"))
       (finally
         (disk/close-dir! dir)
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (v/clear! base)))))
 
 ;; ---- what the capability entry points read off a fork ----------------------------
@@ -1047,6 +1040,17 @@
       (v/close! g)
       (is (contains? (held) (:space (fork-opts 14))) "a named space outlives the close"))
     (clear-fork-space! 14)
+    (v/clear! base)))
+
+(deftest a-fork-whose-construction-throws-drops-its-engine-space
+  (let [base   (fresh-base 13)
+        held   #(set (concat (keys @@#'mem/record-spaces) (keys @@#'mem/index-spaces)))
+        before (held)
+        thrown (try (with-redefs [kb/register-reasoners! (fn [& _] (throw (ex-info "boom" {})))]
+                      (v/fork base))
+                    nil
+                    (catch clojure.lang.ExceptionInfo e (ex-message e)))]
+    (is (= ["boom" []] [thrown (vec (remove before (held)))]))
     (v/clear! base)))
 
 (defn- fork-over
@@ -1243,3 +1247,146 @@
             (p/clear-records! base)
             (p/clear-records! inner)
             (p/kv-clear! meta)))))))
+
+;; ---- replacing the base --------------------------------------------------
+
+(defn- dump-of
+  "An export dump in a fresh directory of a cleared `:memory` KB on space `sp` holding
+  `(dog x)` for each of `names`, asserted in the order given."
+  [sp names]
+  (let [src (doto (v/open-kb {:backend :memory :space sp :recover? false}) v/clear!)
+        out (str (tu/tmpdir "vaelii-overlay-") "/dump")]
+    (doseq [n names] (v/assert src (list 'dog n) 'CxOverlay {:strength :monotonic}))
+    (v/export! src out)
+    (v/clear! src)
+    out))
+
+(defn- dogs [kb] (sentences (v/sentexes-matching kb '(dog ?x) 'CxOverlay)))
+
+(defn- stop-at [phase]
+  (fn [p] (when (= phase p) (throw (ex-info "stopped" {:phase p})))))
+
+(deftest a-rebase-stopped-before-the-replay-asserts-the-forks-writes-at-the-next-open
+  ;; the hook's throw leaves the directory as a crash at that phase leaves it
+  (doseq [[phase base-dogs] [[:emptied '#{(dog Muffet)}]
+                             [:refilled '#{(dog Muffet) (dog Bolt)}]]]
+    (testing (name phase)
+      (let [dir  (tu/tmpdir "vaelii-overlay-")
+            d1   (dump-of [::rebase-src phase 1] '[Muffet Fido])
+            d2   (dump-of [::rebase-src phase 2] '[Bolt Fido Muffet])
+            opts {:backend :overlay
+                  :base    {:backend :disk-log :dir (str dir "/base")}
+                  :overlay {:backend :disk-log :dir (str dir "/own")}}]
+        (try
+          (let [f (v/open-kb opts)]
+            (v/import! f d1 {:rebase? true})
+            (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic :creator 'Ann})
+            (v/retract! f (v/handle-of f '(dog Fido) 'CxOverlay))
+            (is (= {:phase phase}
+                   (ex-data (try (binding [rebase/*phase-hook* (stop-at phase)]
+                                   (v/import! f d2 {:rebase? true}))
+                                 nil
+                                 (catch clojure.lang.ExceptionInfo e e)))))
+            (is (rebase/pending? f) "the stopped rebase left its marker")
+            (v/close! f)
+            (disk/close-dir! (str dir "/base")))
+          (let [f (v/open-kb opts)]
+            (try
+              (is (= (conj base-dogs '(dog Rex)) (dogs f))
+                  "the fork's own fact is back and the base premise it retracted stays retracted")
+              (is (= 'Ann (:creator (v/provenance f (v/handle-of f '(dog Rex) 'CxOverlay)))))
+              (is (not (rebase/pending? f)) "and the marker is gone")
+              (finally (v/close! f) (disk/close-dir! (str dir "/base")))))
+          (finally
+            (tu/rm-rf! dir)
+            (tu/rm-rf! (str (.getParent (java.io.File. ^String d1))))
+            (tu/rm-rf! (str (.getParent (java.io.File. ^String d2))))))))))
+
+(defn- parked-or-done?
+  "Has `t` parked on a lock or a condition, or finished?  A rebase hook that waits for this
+  lets a read the rebase does not hold off answer from the fork as the phase leaves it."
+  [^Thread t]
+  (contains? #{Thread$State/WAITING Thread$State/TIMED_WAITING Thread$State/BLOCKED
+               Thread$State/TERMINATED}
+             (.getState t)))
+
+(deftest a-read-during-a-rebase-answers-the-fork-before-the-rebase-or-after-it
+  (doseq [backend [:memory :disk-log] phase [:emptied :refilled]]
+    (testing (str (name backend) " " (name phase))
+      (let [dir  (tu/tmpdir "vaelii-overlay-")
+            d1   (dump-of [::reader-src backend phase 1] '[Muffet Fido])
+            d2   (dump-of [::reader-src backend phase 2] '[Bolt Fido Muffet])
+            half (fn [k] (if (= :memory backend)
+                           {:backend :memory :space [::reader k phase]}
+                           {:backend :disk-log :dir (str dir "/" (name k))}))
+            f    (v/open-kb {:backend :overlay :base (half :base) :overlay (half :own)})
+            read (promise)
+            t    (doto (Thread. ^Runnable #(deliver read (dogs f))) (.setDaemon true))]
+        (try
+          (v/import! f d1 {:rebase? true})
+          (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+          (let [before (dogs f)]
+            (binding [rebase/*phase-hook*
+                      (fn [p] (when (= phase p)
+                                (.start t)
+                                (while (not (parked-or-done? t)) (Thread/onSpinWait))))]
+              (v/import! f d2 {:rebase? true}))
+            (let [after (dogs f)]
+              (is (not= before after) "the rebase changes the answer")
+              (is (contains? #{before after} (deref read 10000 ::timeout)))))
+          (finally
+            (.join t 10000)
+            (v/clear! f)
+            (v/close! f)
+            (when (= :disk-log backend) (disk/close-dir! (str dir "/base")))
+            (tu/rm-rf! dir)
+            (tu/rm-rf! (str (.getParent (java.io.File. ^String d1))))
+            (tu/rm-rf! (str (.getParent (java.io.File. ^String d2))))))))))
+
+(deftest a-read-during-the-replay-of-an-earlier-rebases-writes-answers-the-fork-after-it
+  (let [dir  (tu/tmpdir "vaelii-overlay-")
+        ds   (mapv #(dump-of [::pending-reader %1] %2) [1 2 3] '[[Muffet Fido] [Bolt Fido] [Max Fido]])
+        f    (v/open-kb {:backend :overlay
+                         :base    {:backend :disk-log :dir (str dir "/base")}
+                         :overlay {:backend :disk-log :dir (str dir "/own")}})
+        read (promise)
+        t    (doto (Thread. ^Runnable #(deliver read (dogs f))) (.setDaemon true))]
+    (try
+      (v/import! f (ds 0) {:rebase? true})
+      (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (binding [rebase/*phase-hook* (stop-at :refilled)]
+                     (v/import! f (ds 1) {:rebase? true}))))
+      (is (rebase/pending? f))
+      (binding [rebase/*phase-hook*
+                (fn [p] (when (= :pending p)
+                          (.start t)
+                          (while (not (parked-or-done? t)) (Thread/onSpinWait))))]
+        (v/import! f (ds 2) {:rebase? true}))
+      (is (= '#{(dog Max) (dog Fido) (dog Rex)} (dogs f)))
+      (is (= (dogs f) (deref read 10000 ::timeout)))
+      (finally
+        (.join t 10000)
+        (v/clear! f)
+        (v/close! f)
+        (disk/close-dir! (str dir "/base"))
+        (tu/rm-rf! dir)
+        (run! #(tu/rm-rf! (str (.getParent (java.io.File. ^String %)))) ds)))))
+
+(deftest an-on-replayed-fn-that-throws-ends-the-rebase-with-the-forks-writes-asserted
+  (let [ds (mapv #(dump-of [::replayed-throw %1] %2) [1 2] '[[Muffet] [Bolt Muffet]])
+        f  (v/open-kb {:backend :overlay
+                       :base    {:backend :memory :space [::replayed-throw :base]}
+                       :overlay {:backend :memory :space [::replayed-throw :own]}})]
+    (try
+      (v/import! f (ds 0) {:rebase? true})
+      (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+      (is (= "replayed" (try (v/import! f (ds 1) {:rebase? true
+                                                  :on-replayed (fn [_ _] (throw (ex-info "replayed" {})))})
+                             nil
+                             (catch clojure.lang.ExceptionInfo e (ex-message e)))))
+      (is (= '#{(dog Bolt) (dog Muffet) (dog Rex)} (dogs f)))
+      (finally
+        (v/clear! f)
+        (v/close! f)
+        (run! #(tu/rm-rf! (str (.getParent (java.io.File. ^String %)))) ds)))))

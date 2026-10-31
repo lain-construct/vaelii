@@ -23,11 +23,18 @@
       diff a.txt b.txt          # the namespace whose count moved
 
   One line per namespace, tab-separated, prefixed `NSCOUNT` so it survives a grep out of
-  a log that is otherwise full of ticks and timings."
+  a log that is otherwise full of ticks and timings.
+
+  `VAELII_TEST_VERDICTS` installs the per-test counterpart, `install-verdicts!`: one
+  `TESTVERDICT` line per test var, which `lein test-red` inverts (scripts/test-selector.sh)."
   (:require [clojure.test :as t]))
 
 (defn- assertions ^long [c]
   (+ (long (:pass c 0)) (long (:fail c 0)) (long (:error c 0))))
+
+(defn- failures ^long []
+  (let [c (when t/*report-counters* @t/*report-counters*)]
+    (+ (long (:fail c 0)) (long (:error c 0)))))
 
 (defn- emit!
   "Print through a writer over `System/out` rather than `*out*`: `lein test` rebinds the
@@ -52,4 +59,27 @@
       (emit! (format "NSCOUNT\t%s\t%d"
                      (ns-name (:ns m))
                      (assertions (when t/*report-counters* @t/*report-counters*))))))
+  :installed)
+
+(defn install-verdicts!
+  "Wrap `clojure.test/report`'s `:begin-test-var` and `:end-test-ns` so each test var
+  prints `TESTVERDICT <ns/name> pass|fail`.  A var's tally runs from its
+  `:begin-test-var` to the next one or to its namespace's end, so a failure an `:each`
+  fixture reports after the body counts against the test it ran after."
+  []
+  (let [begin  (get-method t/report :begin-test-var)
+        end-ns (get-method t/report :end-test-ns)
+        open   (atom nil)
+        close! (fn []
+                 (when-let [[v n] @open]
+                   (reset! open nil)
+                   (emit! (format "TESTVERDICT\t%s\t%s" v
+                                  (if (= n (failures)) "pass" "fail")))))]
+    (defmethod t/report :begin-test-var [m]
+      (close!)
+      (when begin (begin m))
+      (reset! open [(symbol (:var m)) (failures)]))
+    (defmethod t/report :end-test-ns [m]
+      (close!)
+      (when end-ns (end-ns m))))
   :installed)

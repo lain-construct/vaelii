@@ -30,15 +30,6 @@
   [exception antes conseq]
   (list 'exceptWhen exception (list 'set/defaultRule (vr/rule-sentence antes conseq))))
 
-(defn- refusal
-  "Assert, and return the `ex-data` of the refusal — nil if the assert went through.
-  Reading the data rather than catching bare `ExceptionInfo` is what distinguishes a
-  stratification refusal from a range-restriction or naming one, which would pass a
-  `thrown?` test for the wrong reason."
-  [kb sentence context]
-  (try (v/assert kb sentence context) nil
-       (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 (defn- cycle-text [data] (str/join " " (:cycle data)))
 
 ;; ---- cycles through negation are refused ---------------------------------
@@ -50,8 +41,8 @@
   (tu/with-terms [base p q CxCyc]
     (is (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
         "the first rule is fine: nothing concludes its exception's predicate yet")
-    (let [data (refusal kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
-                        CxCyc)]
+    (let [data (tu/assert-refusal-data kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
+                                       CxCyc)]
       (testing "the rule closing the cycle is refused, and says so"
         (is (= :not-stratified (:type data))))
       (testing "the refusal names the cycle"
@@ -66,7 +57,7 @@
   (tu/with-terms [base p q r CxCyc]
     (is (v/assert kb (except-rule (list r '?x) [(list base '?x)] (list p '?x)) CxCyc))
     (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) CxCyc {:direction :forward}))
-    (let [data (refusal kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxCyc)]
+    (let [data (tu/assert-refusal-data kb (vr/rule-sentence [(list q '?x)] (list r '?x)) CxCyc)]
       (testing "the third rule closes a cycle with one negative edge in it"
         (is (= :not-stratified (:type data)))))))
 
@@ -75,8 +66,8 @@
   ;; is a one-rule cycle.  It is refused on its *first* assert, which is only
   ;; possible because the graph counts the rule being added — it is not stored yet.
   (tu/with-terms [base p CxSelf]
-    (let [data (refusal kb (except-rule (list p '?x) [(list base '?x)] (list p '?x))
-                        CxSelf)]
+    (let [data (tu/assert-refusal-data kb (except-rule (list p '?x) [(list base '?x)] (list p '?x))
+                                       CxSelf)]
       (is (= :not-stratified (:type data))))))
 
 (tu/deftest-kb two-cycles-through-one-rule-name-the-same-cycle-in-either-arrival-order
@@ -91,9 +82,9 @@
                        (v/assert kb r CxCyc {:direction :forward}))
                      (let [by-label (into {} (for [r [short long]]
                                                [(str "rule#" (v/handle-of kb r CxCyc)) r]))
-                           data     (refusal kb (except-rule (list q '?x) [(list base '?x)]
-                                                             (list p '?x))
-                                             CxCyc)]
+                           data     (tu/assert-refusal-data kb (except-rule (list q '?x) [(list base '?x)]
+                                                                            (list p '?x))
+                                                            CxCyc)]
                        (doseq [r [short long]] (v/retract! kb (v/handle-of kb r CxCyc)))
                        (mapv #(get by-label % %) (:cycle data))))
           ;; each pass allocates fresh handles, and the two cycles' order in a hash set
@@ -112,7 +103,7 @@
     (v/assert kb (list 'genl penguin flightless) CxBird)
     (is (v/assert kb (except-rule (list flightless '?x) [(list base '?x)] (list p '?x))
                   CxBird))
-    (let [data (refusal kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird)]
+    (let [data (tu/assert-refusal-data kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxBird)]
       (testing "concluding a *subtype* of the exception's predicate closes the cycle"
         (is (= :not-stratified (:type data)))))))
 
@@ -137,9 +128,9 @@
                                   (list 'not (list flies '?x)))
                   CxNeg)
         "the first rule is fine: nothing concludes its exception's predicate yet")
-    (let [data (refusal kb (vr/rule-sentence [(list birdy '?x) (list 'not (list flies '?x))]
-                                             (list grounded '?x))
-                        CxNeg)]
+    (let [data (tu/assert-refusal-data kb (vr/rule-sentence [(list birdy '?x) (list 'not (list flies '?x))]
+                                                            (list grounded '?x))
+                                       CxNeg)]
       (testing "reading the negation the excepted rule concludes closes the cycle"
         (is (= :not-stratified (:type data)))
         (is (str/includes? (cycle-text data) (str grounded)))))))
@@ -204,8 +195,8 @@
     (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
     (let [before-sx (tu/sentex-ids kb)
           before-dd (tu/justification-ids kb)
-          data      (refusal kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
-                             CxCyc)]
+          data      (tu/assert-refusal-data kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
+                                            CxCyc)]
       (is (= :not-stratified (:type data)))
       (is (= before-sx (tu/sentex-ids kb))    "no sentex was stored")
       (is (= before-dd (tu/justification-ids kb)) "no justification was stored")

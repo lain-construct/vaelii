@@ -13,12 +13,13 @@
   (:import (clojure.lang ExceptionInfo)))
 
 (defn- registry-kb
-  "A fresh vocabulary KB with the koinii registry vocabulary loaded."
-  []
-  (tu/load-dumped! (tu/fresh) :koinii/registry
+  "Load the upper layer and the koinii registry vocabulary into `kb`, and return `kb`."
+  [kb]
+  (tu/load-dumped! kb :koinii/registry
                    #(doto % (tu/load-core!) (id/load-registry))))
 
-(use-fixtures :each (tu/neutral-fresh registry-kb))
+(use-fixtures :once (tu/loaded registry-kb))
+(use-fixtures :each (tu/neutral))
 
 (defn- admin-verify
   "A deployment's verify-fn: no agent passes, and `AdminRoot` passes as an admin with the

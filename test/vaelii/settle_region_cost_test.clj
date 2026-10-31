@@ -42,9 +42,11 @@
             [vaelii.impl.decide.negation :as negation]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
+            [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.settle-phases :as phases]
             [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
@@ -398,6 +400,23 @@
         (is (empty? (filter #(= sx/except-functor (second %))
                             (calls-to #'reads/believed-with-functor
                                       #(v/assert kb '(srm_plain SrmAfterExcepts) 'CxUniverse {}))))))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest a-settles-loops-over-no-items-schedule-no-timer
+  (let [kb      (tu/isolated-fresh)
+        start   progress/start
+        timer?  #(instance? java.util.concurrent.Future
+                            (.get ^java.util.concurrent.atomic.AtomicReference (:timer %)))
+        started (atom [])]
+    (try
+      (with-redefs [progress/start (fn [id label total & opts]
+                                     (let [r (apply start id label total opts)]
+                                       (swap! started conj [id total (timer? r)])
+                                       r))]
+        (v/assert kb '(srm_plain SrmNoReporter) 'CxUniverse {}))
+      (let [empty-loops (filter #(= 0 (second %)) @started)]
+        (is (some #(= ::settle/withdraw-retired (first %)) empty-loops))
+        (is (not-any? peek empty-loops)))
       (finally (tu/clear-kb! kb)))))
 
 ;; ---- the placement settle a recover closes with -----------------------------

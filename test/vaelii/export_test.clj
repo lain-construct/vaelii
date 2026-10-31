@@ -27,26 +27,18 @@
             [vaelii.impl.types.sentex :as sentex-types]
             [vaelii.test-util :as tu])
   (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+           (java.nio.file Files)))
 
 ;;; ── temp directories ──────────────────────────────────────────────────
 
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-export-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
-
 (defn- with-dirs*
   "Run `(f dir…)` on `n` fresh temp directories, deleting them afterwards.  An export
-  destination is `rm-rf!`'d by the test before use, since the ordinary case is a
+  destination is `tu/rm-rf!`'d by the test before use, since the ordinary case is a
   directory that does not exist yet and that is the one exercising `mkdirs`."
   [n nm f]
-  (let [dirs (mapv #(temp-dir (str nm "-" %)) (range n))]
+  (let [dirs (mapv #(tu/temp-dir "vaelii-export-" nm "-" % "-") (range n))]
     (try (apply f dirs)
-         (finally (doseq [d dirs] (rm-rf! d))))))
+         (finally (doseq [d dirs] (tu/rm-rf! d))))))
 
 ;;; ── reading a dump back ───────────────────────────────────────────────
 
@@ -142,7 +134,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (with-dirs* 1 "codec"
       (fn [dir]
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         ;; :zstd is a codec the importer *reads* and the writer does not write
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unknown compression"
                               (export/export! kb dir {:compression :zstd})))
@@ -156,7 +148,7 @@
       (build! kb t)
       (with-dirs* 1 "shapes"
         (fn [dir]
-          (rm-rf! dir)
+          (tu/rm-rf! dir)
           (let [summary (export/export! kb dir {:compression :none :chunk-size 3})
                 {:keys [meta sentexes justifications provenance]} (dump dir)]
 
@@ -214,7 +206,7 @@
       (build! kb t)
       (with-dirs* 1 "awkward"
         (fn [dir]
-          (rm-rf! dir)
+          (tu/rm-rf! dir)
           (export/export! kb dir {:compression :gzip})
           (let [{:keys [sentexes justifications provenance]} (dump dir)
                 by-id (into {} (map (juxt :id identity)) sentexes)
@@ -288,7 +280,7 @@
         (fn [& dirs]
           (let [by-codec (into {}
                                (map (fn [codec dir]
-                                      (rm-rf! dir)
+                                      (tu/rm-rf! dir)
                                       ;; several chunks, so a per-chunk container is exercised
                                       (export/export! kb dir {:compression codec :chunk-size 4})
                                       [codec (dump dir)])
@@ -308,7 +300,7 @@
       (v/bulk-assert-facts! kb [(list likes Ann Bob)] CxPlain)
       (with-dirs* 1 "noprov"
         (fn [dir]
-          (rm-rf! dir)
+          (tu/rm-rf! dir)
           (let [summary (export/export! kb dir {:compression :none})]
             (is (zero? (:provenance summary)))
             (is (not (.exists (io/file dir "provenance.nippy.stream")))
@@ -325,7 +317,7 @@
       (build! kb t)
       (with-dirs* 3 "declineprov"
         (fn [with-dir without-dir store-dir]
-          (rm-rf! with-dir) (rm-rf! without-dir)
+          (tu/rm-rf! with-dir) (tu/rm-rf! without-dir)
           (let [with*    (export/export! kb with-dir {:compression :none})
                 without  (export/export! kb without-dir {:compression :none
                                                          :provenance? false})
@@ -369,8 +361,8 @@
   (let [t (fresh-terms)]
     (with-dirs* 3 "parity"
       (fn [mem-dir disk-dir store-dir]
-        (rm-rf! mem-dir)
-        (rm-rf! disk-dir)
+        (tu/rm-rf! mem-dir)
+        (tu/rm-rf! disk-dir)
         (tu/with-cleared-kb [mem-kb #(doto (v/open-kb tu/plain-memory-space)
                                        (tu/clear-kb!))]
           ;; Both KBs run the network the run selects: the meta records whether a belief
@@ -433,7 +425,7 @@
   ;; or a `vec` over the handle seq fetches all 200k before the first boundary.
   (with-dirs* 1 "stream"
     (fn [dir]
-      (rm-rf! dir)
+      (tu/rm-rf! dir)
       (let [fetches    (volatile! 0)
             boundaries (volatile! 0)
             chunk-size 1000
@@ -460,7 +452,7 @@
       (build! kb t)
       (with-dirs* 1 "cancel"
         (fn [dir]
-          (rm-rf! dir)
+          (tu/rm-rf! dir)
           (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cancelled"
                                 (export/export! kb dir
                                                 {:chunk-size 1
@@ -480,7 +472,7 @@
   (tu/with-neutral-kb [kb tu/fresh]
     (with-dirs* 1 "opt-keys"
       (fn [^File dir]
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (testing "export! refuses the misspelt key before the directory exists"
           (let [e (is (thrown? clojure.lang.ExceptionInfo
                                (export/export! kb dir {:varient :records+index})))]
@@ -493,7 +485,7 @@
                                 (export/export! kb dir :gzip))))))
     (with-dirs* 1 "import-opt-keys"
       (fn [^File dir]
-        (rm-rf! dir)
+        (tu/rm-rf! dir)
         (tu/with-terms [dog Muffet Rex CxKeys]
           (v/assert kb (list dog Muffet) CxKeys)
           (v/assert kb (list dog Rex) CxKeys))
@@ -513,6 +505,27 @@
                                          :on-progress (fn [_] (swap! seen inc))})]
               (is (map? s))
               (is (pos? @seen) "the callback ran at the named cadence"))))))))
+
+(deftest a-dump-carries-its-reasoner-set-and-an-import-under-another-is-refused
+  (tu/with-neutral-kb [kb tu/fresh]
+    (with-dirs* 1 "reasoners"
+      (fn [^File dir]
+        (tu/rm-rf! dir)
+        (tu/with-terms [EarlyEvent MidEvent LateEvent]
+          (v/add-reasoner kb :allen)
+          (v/assert kb (list 'before EarlyEvent MidEvent) 'CxUniverse)
+          (v/assert kb (list 'before MidEvent LateEvent) 'CxUniverse)
+          (v/export! kb (str dir))
+          (is (= [:allen] (:reasoners (imp/read-meta dir))))
+          (tu/with-cleared-kb [target #(tu/isolated-fresh)]
+            (testing "a destination registering no reasoner is refused before a write"
+              (let [d (try (v/import! target (str dir)) nil
+                           (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+                (is (= {:type :reasoner-mismatch :stored [:allen] :requested []} d))
+                (is (zero? (:sentexes (tu/content-count target))))))
+            (testing ":reasoners :stored registers the dump's set after the import"
+              (v/import! target (str dir) {:reasoners :stored})
+              (is (v/ask? target (list 'before EarlyEvent LateEvent) 'CxUniverse)))))))))
 
 (deftest an-export-destination-that-is-a-file-is-refused
   ;; A dump is a directory of streams plus the `meta.edn` that vouches for them, so a

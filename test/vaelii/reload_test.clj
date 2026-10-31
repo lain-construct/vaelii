@@ -15,16 +15,14 @@
 
   The reloads leave the engine reloaded for every test that runs after this one in the
   same JVM, which is the state the development browser runs in after an edit."
-  (:require [clojure.java.io :as io]
-            [clojure.test :refer [deftest is testing]]
+  (:require [clojure.test :refer [deftest is testing]]
             [vaelii.browser.reload :as reload]
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu])
-  (:import [java.io File]
-           [java.nio.file Files]
+  (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
 (def ^:private cx 'CxUniverse)
@@ -70,9 +68,6 @@
   [kb]
   (mapv class [(:records kb) (:index kb) (reasoning/tms kb)]))
 
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
-
 (deftest an-engine-reload-leaves-a-loaded-kb-answering
   (tu/with-snapshot-platform
     (let [dir     (str (Files/createTempDirectory "vaelii-reload-" (into-array FileAttribute [])))
@@ -104,7 +99,7 @@
                     (exercise! kb)))))))
         (finally
           (doseq [kb (vals kbs)] (v/close! kb))
-          (rm-rf! dir))))))
+          (tu/rm-rf! dir))))))
 
 (deftest no-request-reloads-while-the-reloader-is-busy
   (let [reloads (atom 0)

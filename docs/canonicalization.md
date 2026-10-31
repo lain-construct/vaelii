@@ -2,8 +2,9 @@
 
 - **Covers:** how a sentence's variable names, antecedent order, symmetric and commuting
   arguments at any depth, a declared function's nested, repeated and absorbed arguments,
-  and comparison direction fold to one stored handle, and how a conjunctive
-  consequent or a disjunctive antecedent unfolds into several.
+  and comparison direction fold to one stored handle, how a conjunctive
+  consequent or a disjunctive antecedent unfolds into several, and how a reference to a
+  stored sentex becomes its handle.
 - **Not here:** which spellings are legal for a predicate, individual, type or context →
   [naming.md](naming.md); how the canonical form becomes the trie key →
   [indexing.md](indexing.md).
@@ -62,6 +63,8 @@ position is operational rather than logical:
   `matchesPattern`, `different`, `unknown`, the six value kinds (`integer`, `string`,
   `number`, `boolean`, `keyword`, `character`), the five quantity comparisons, and the
   five aggregation operators.
+  A deferred literal ordered ahead of the literal that binds its variables is inapplicable and
+  the rule silently stops firing, so `(evaluate ?z (+ ?x ?y))` stays after its binders.
 - The **recursive** literal of a recursive rule. Reordering it could turn a
   right-recursive rule left-recursive, which the backward chainers cannot execute.
 
@@ -145,6 +148,19 @@ the row leaves the network with its record and no justification names a handle w
 record. Between two rows the fold has no other reason to separate — both bare premises,
 or both a rule's conclusion — the **lower handle** survives: it is the row the KB would be
 holding had the declaration come first, which is the claim being restored.
+Nothing keys belief on the handle number. It fixes which of two handles a caller can still
+name, so `(retract! h1)` means the same thing in both orders.
+
+The extent is `P`'s own stored rows and the rows applying `P` below the literal, not its
+spec subtree. `res/kb-sentex` reads the mark off the literal's exact functor, and a `genl`
+edge below a symmetric predicate does not make the sub-predicate symmetric
+(`constraint_descension_test`), so a row re-spelled at a sub-predicate would be stored the
+other way round by the next assertion. The migration reads storage and not belief: a mirrored
+pair whose rows are defeated merges as a believed pair does, because a spelling is not a
+claim and reading belief would leave the migration missing when the defeat lifts. The cost is
+one posting-list read, plus a record fetch and a canonicalization per row and a store probe
+per row out of order; a predicate marked before it has facts costs one index cardinality
+read.
 
 The argument-type mints a moved row triggers are the one thing resting on it that reads its
 spelling: each mint names the declaration of the position its argument held. So once the
@@ -459,11 +475,12 @@ alone.
 direction is written, so like `not`/`implies` it canonicalizes **into the record**. The
 wrappers state two things, and the record holds them as two fields plus `:defeasible`:
 
-- `:engines` — which engines run the rule, a subset of `#{:forward :backward :solve}`.
-  `#{:backward}` for a bare `implies` (the tractable default, since forward chaining
-  materializes a conclusion per match), `#{:forward :backward}` for `set/forwardRule`,
-  `#{:forward}` for `set/forwardOnlyRule` (forward-chains and never backchains), `#{}` for
-  `set/inertRule`; `set/solveRule` adds `:solve` to whichever of these the rule has, so a
+- `:engines` — which engines run the rule, a subset of `#{:forward :backward :lazy
+  :solve}`. `#{:backward}` for a bare `implies` (the tractable default, since forward
+  chaining materializes a conclusion per match), `#{:forward :backward}` for
+  `set/forwardRule`, `#{:forward}` for `set/forwardOnlyRule` (forward-chains and never
+  backchains), `#{:backward :lazy}` for `set/lazyForwardRule`
+  ([inference.md](inference.md#a-lazy-forward-rule)), `#{}` for `set/inertRule`; `set/solveRule` adds `:solve` to whichever of these the rule has, so a
   solve runs it as a normal rule ([solving.md](solving.md)).
 - `:effect` — what the head is: `:derive` for a truth, `:choose` for a
   `set/assumptionRule`'s choice, `:forbid` / `:penalize` for a hard / soft constraint's
@@ -621,6 +638,53 @@ literal whose second argument happens to be a list. The refusals above read the 
 positions `nm/applied-literals` descends, so the argument stays a term in every rule
 position as well: `(likes ?x (or A B))` is accepted under `not` or `unknown` in an
 antecedent, and as a conclusion.
+
+## A reference to a stored sentex
+
+A position a believed `quotedArg` or `quotedArgAndRest` declaration types
+`sentex_handle_term`, and a position of a `target_following_predicate` that a believed
+`(arg P n sentence)` declares, holds a **reference**: the sentence of a stored sentex, which
+the assert entry point replaces with that sentex's `(sentexHandle H)`
+(`assert-entry/resolve-references`, the positions from `res/reference-positions`). `(ist Cx S)` names `S` in `Cx`, and a bare `S`
+names it in the context the meta-sentex is written in. The lookup is the dedup lookup
+`assert` makes for `S` (`assert-entry/stored-handle`, one trie leaf), so either spelling of
+a symmetric `S` finds the one stored sentex, and no reference creates one. A handle term in
+the position is kept as written, and a reference inside `S` is resolved before `S` is. An
+`(except S)` names `S` this way. At the rule position of an `exceptWhen` only `(ist Cx R)`
+is a reference, since a bare rule there is the inline exception wrapper
+([exceptions.md](exceptions.md)).
+
+```clojure
+(arg sentenceNote 1 sentence)
+(target_following_predicate sentenceNote)
+(orthogonal electronic_device machine)
+(sentenceNote (orthogonal machine electronic_device) "A desktop is both.")
+;; stored: (sentenceNote (sentexHandle H) "A desktop is both."), H the orthogonal fact
+```
+
+- A reference no stored sentex answers is refused `:unresolved-reference`, naming the
+  `:reference` and the `:context` it was looked up in. A text load retries the refused
+  form in its next round, so a reference above its target in a file loads.
+- A reference to a rule `assert` stores as several (a conjunctive consequent, a
+  disjunctive antecedent) is refused `:unresolved-reference`: no one stored sentex is the
+  rule. Name one of the stored rules instead.
+- The meta-sentex follows its target, as every target-following meta does: retracting the
+  target retracts it, and an `except` of the target leaves it stored.
+- The assert entry point reads the declarations only for a predicate the taxonomy marks
+  `:declares-quoted-arg`, `:declares-quoted-arg-and-rest` or `:target-following`, so an
+  assert of any other predicate reads no index posting for them (`assert_cost_test`).
+- `handle-of` resolves a reference as `assert` does, and `check` reports the refusal.
+- A function term at any argument position is read at its function's own reference
+  positions (`res/reference-term?`): with `(quotedArg MarkFn 1 sentex_handle_term)`, an
+  argument `(MarkFn (ist Cx S))` is stored as `(MarkFn (sentexHandle H))`.
+- `export-text!` writes a handle at a reference position back as `(ist Cx S)`, `S` the
+  target's sentence ([kbs.md](kbs.md#text-you-exported-yourself)), inside a function term
+  as well. A record naming a handle at another position has no text and is counted in
+  `:skipped`.
+
+A fact stored before the declarations made its position a reference position keeps the
+sentence it was stored with; the declarations do not migrate it. A rule's literal is not
+resolved, and a conclusion it derives stores its argument as written.
 
 ## What the shape checks cost
 

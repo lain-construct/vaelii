@@ -22,11 +22,10 @@
             [vaelii.impl.interval :as iv]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (iv/allen-prover))
-                        (v/add-reasoner :brave-cautious))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (iv/allen-prover))
+                                      (v/add-reasoner :brave-cautious))))
+(use-fixtures :each (tu/neutral))
 
 (defn- default-rule [ante conseq]
   (list 'set/defaultRule (list 'set/forwardRule (list 'implies ante conseq))))

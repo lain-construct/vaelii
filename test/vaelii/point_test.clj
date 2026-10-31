@@ -13,11 +13,10 @@
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test, with the opt-in prover registered; the algebra tests need none.
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (pt/point-prover)))))
+;; One KB per namespace, with the opt-in prover registered; the algebra tests need none.
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (pt/point-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 

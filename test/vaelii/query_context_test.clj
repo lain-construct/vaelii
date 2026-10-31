@@ -135,60 +135,56 @@
 
 (tu/deftest-kb cxinference-reads-the-edgeless-context-holding-a-computed-answer
   ;; one unrelated edge, so the lattice is not empty and the read does not fall back to
-  ;; the unscoped one; RCC-8 registered for the calculus row, and the registry restored
-  ;; after, since a prover is not KB content the fixture resets
+  ;; the unscoped one; RCC-8 registered for the calculus row
   (tu/without-entailing
    (tu/with-terms [CxA CxZ psym ptr pinv qinv pdi qdi prefl tt1 tt2 tt3 pm pa pb pti ptd pce
                    tw tp1 tp2 tds tdn A B C D E F R1 R2 R3]
      (v/assert kb (list 'genlCx CxZ 'CxUniverse) 'CxUniverse)
-     (let [registry @(:provers kb)]
-       (try
-         (v/add-reasoner kb :rcc8)
-         (doseq [[label facts goal also]
-                 [["the mirror of a symmetric fact"
-                   [(list 'symmetric psym) (list psym B A)] (list psym A B)]
-                  ["two hops of a transitive predicate"
-                   [(list 'transitive ptr) (list ptr A B) (list ptr B C)] (list ptr A C)]
-                  ["the partner spelling of an inverse"
-                   [(list 'inverse pinv qinv) (list qinv B A)] (list pinv A B)]
-                  ["a denial through a known-true inverse"
-                   [(list 'set/monotonic (list 'inverse pdi qdi)) (list 'not (list qdi B A))]
-                   (list 'not (list pdi A B))]
-                  ["two genl edges" [(list 'genl tt1 tt2) (list 'genl tt2 tt3)] (list 'genl tt1 tt3)]
-                  ["an argument type read up genl" [(list 'arg pm 1 tt1)] (list 'arg pm 1 tt3)]
-                  ["a separation read down genl" [(list 'disjoint tt2 'number)] (list 'disjoint tt1 'number)]
-                  ;; the mark's lifted copy in CxUniverse answers too
-                  ["a reflexive pair" [(list 'reflexive prefl)] (list prefl A A) ['CxUniverse]]
-                  ["an open membership a declaration types"
-                   [(list 'arg pm 1 tt1) (list pm B C)] (list tt1 '?x)]
-                  ["a denial read off a negates declaration"
-                   [(list 'negates pa pb) (list pb A B)] (list 'not (list pa A B))]
-                  ["a claim carried up genl by transitiveInArg"
-                   [(list 'transitiveInArg pti 2 'genl) (list pti A tt1)] (list pti A tt2)]
-                  ["a denial carried down genl by transitiveInArgInverse"
-                   [(list 'transitiveInArgInverse ptd 1 'genl) (list 'not (list ptd tt2 A))]
-                   (list 'not (list ptd tt1 A))]
-                  ;; a number, which `ArgTypeProver` does not type, so its usage names no reader
-                  ["the part a covering leaves"
-                   [(list 'covering tw tp1 tp2) (list tw 5) (list 'not (list tp1 5))] (list tp2 5)]
-                  ["a denial under a closed extent"
-                   [(list 'closed_extent_predicate pce)] (list 'not (list pce A))]
-                  ["a computed sufficient condition"
-                   [(list 'defnSufficient tds (list 'greaterThan '?x 10))] (list tds 20)]
-                  ["a computed necessary condition that fails"
-                   [(list 'defnNecessary tdn (list 'greaterThan '?x 10))] (list 'not (list tdn 3))]
-                  ["an RCC-8 composition"
-                   [(list 'nonTangentialProperPart R1 R2) (list 'nonTangentialProperPart R2 R3)]
-                   (list 'nonTangentialProperPart R1 R3)]
-                  ;; last: the merge it makes is of terms no other row names
-                  ["two hops of sameAs" [(list 'sameAs D E) (list 'sameAs E F)] (list 'sameAs D F)]]]
-           (doseq [f facts] (v/assert kb f CxA))
-           (doseq [s [:fan :post-hoc]]
-             (is (= (into #{CxA} also)
-                    (set (map vantage/witness-key
-                              (binding [vantage/*strategy* s] (v/query kb goal 'CxInference)))))
-                 (str label ", " s))))
-         (finally (reset! (:provers kb) registry)))))))
+     (v/add-reasoner kb :rcc8)
+     (doseq [[label facts goal also]
+             [["the mirror of a symmetric fact"
+               [(list 'symmetric psym) (list psym B A)] (list psym A B)]
+              ["two hops of a transitive predicate"
+               [(list 'transitive ptr) (list ptr A B) (list ptr B C)] (list ptr A C)]
+              ["the partner spelling of an inverse"
+               [(list 'inverse pinv qinv) (list qinv B A)] (list pinv A B)]
+              ["a denial through a known-true inverse"
+               [(list 'set/monotonic (list 'inverse pdi qdi)) (list 'not (list qdi B A))]
+               (list 'not (list pdi A B))]
+              ["two genl edges" [(list 'genl tt1 tt2) (list 'genl tt2 tt3)] (list 'genl tt1 tt3)]
+              ["an argument type read up genl" [(list 'arg pm 1 tt1)] (list 'arg pm 1 tt3)]
+              ["a separation read down genl" [(list 'disjoint tt2 'number)] (list 'disjoint tt1 'number)]
+              ;; the mark's lifted copy in CxUniverse answers too
+              ["a reflexive pair" [(list 'reflexive prefl)] (list prefl A A) ['CxUniverse]]
+              ["an open membership a declaration types"
+               [(list 'arg pm 1 tt1) (list pm B C)] (list tt1 '?x)]
+              ["a denial read off a negates declaration"
+               [(list 'negates pa pb) (list pb A B)] (list 'not (list pa A B))]
+              ["a claim carried up genl by transitiveInArg"
+               [(list 'transitiveInArg pti 2 'genl) (list pti A tt1)] (list pti A tt2)]
+              ["a denial carried down genl by transitiveInArgInverse"
+               [(list 'transitiveInArgInverse ptd 1 'genl) (list 'not (list ptd tt2 A))]
+               (list 'not (list ptd tt1 A))]
+              ;; a number, which `ArgTypeProver` does not type, so its usage names no reader
+              ["the part a covering leaves"
+               [(list 'covering tw tp1 tp2) (list tw 5) (list 'not (list tp1 5))] (list tp2 5)]
+              ["a denial under a closed extent"
+               [(list 'closed_extent_predicate pce)] (list 'not (list pce A))]
+              ["a computed sufficient condition"
+               [(list 'defnSufficient tds (list 'greaterThan '?x 10))] (list tds 20)]
+              ["a computed necessary condition that fails"
+               [(list 'defnNecessary tdn (list 'greaterThan '?x 10))] (list 'not (list tdn 3))]
+              ["an RCC-8 composition"
+               [(list 'nonTangentialProperPart R1 R2) (list 'nonTangentialProperPart R2 R3)]
+               (list 'nonTangentialProperPart R1 R3)]
+              ;; last: the merge it makes is of terms no other row names
+              ["two hops of sameAs" [(list 'sameAs D E) (list 'sameAs E F)] (list 'sameAs D F)]]]
+       (doseq [f facts] (v/assert kb f CxA))
+       (doseq [s [:fan :post-hoc]]
+         (is (= (into #{CxA} also)
+                (set (map vantage/witness-key
+                          (binding [vantage/*strategy* s] (v/query kb goal 'CxInference)))))
+             (str label ", " s)))))))
 
 ;; ---- the two implementations must agree ---------------------------------
 

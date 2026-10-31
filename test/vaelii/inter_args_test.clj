@@ -26,12 +26,6 @@
   (fn [f] (tu/without-entailing (f)))
   (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
-(defn- ex-type
-  "The `:type` a write thunk meets: its refusal, or the argument conviction its fact is
-  held inert under (`tu/write-type`)."
-  [f]
-  (tu/write-type tu/*kb* f))
-
 (defn- check-message
   "The message of the first problem `tu/check-or-conviction` reads for a sentence, or nil."
   [kb sentence context]
@@ -62,11 +56,11 @@
         [a b c] dogs [p q] plants]
     (v/assert kb (list 'interArgs rel animal) 'CxUniverse)
     (testing "a known animal beside a known plant is refused at every length"
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel a p) 'CxUniverse))))
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel a b p) 'CxUniverse))))
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel a b c a p) 'CxUniverse)))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel a p) 'CxUniverse))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel a b p) 'CxUniverse))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel a b c a p) 'CxUniverse)))))
     (testing "the trigger may sit after the target"
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel p q a) 'CxUniverse)))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel p q a) 'CxUniverse)))))
     (testing "an application of animals alone stores at every length"
       (is (v/assert kb (list rel a b) 'CxUniverse))
       (is (v/assert kb (list rel a b c) 'CxUniverse))
@@ -112,9 +106,9 @@
     (testing "and an animal there triggers nothing in the suffix"
       (is (v/assert kb (list rel a p q) 'CxUniverse)))
     (testing "a mixed suffix is refused, whatever sits at position 1"
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel p a q) 'CxUniverse))))
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel a b p) 'CxUniverse))))
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel p b a b a q) 'CxUniverse)))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel p a q) 'CxUniverse))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel a b p) 'CxUniverse))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel p b a b a q) 'CxUniverse)))
           "to the actual end of a long application"))
     (testing "the message names the start"
       (is (re-find (re-pattern (str "\\(interArgAndRest from 2, position 2 of " rel
@@ -135,7 +129,7 @@
     (v/assert kb (list plant P) 'CxUniverse)
     (testing "within the arity the homogeneity constraint binds"
       (is (v/assert kb (list rel A B) 'CxUniverse))
-      (is (= :inter-arg-type (ex-type #(v/assert kb (list rel A P) 'CxUniverse)))))
+      (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list rel A P) 'CxUniverse)))))
     (testing "and a third argument is still an inert tuple, stored and read OUT"
       (is (tu/stored-in-clash? kb (list rel A B A) 'CxUniverse)))))
 
@@ -252,7 +246,7 @@
     (v/assert kb (list 'interArgs super animal) 'CxUniverse)
     (v/assert kb (list 'variable_arity_predicate sub) 'CxUniverse)
     (v/assert kb (list 'genl sub super) 'CxUniverse)
-    (is (= :inter-arg-type (ex-type #(v/assert kb (list sub a p) 'CxUniverse))))
+    (is (= :inter-arg-type (tu/kb-write-type #(v/assert kb (list sub a p) 'CxUniverse))))
     (is (re-find (re-pattern (str "declared of " super))
                  (check-message kb (list sub a p) 'CxUniverse)))))
 
@@ -283,14 +277,14 @@
 (tu/deftest-kb the-declaration-is-well-formedness-checked
   (let [rel (tu/tmp-pred)]
     (testing "the start is a positive integer"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'interArgAndRest rel 0 'thing) 'CxUniverse))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'interArgAndRest rel -1 'thing) 'CxUniverse))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'interArgAndRest rel 'notAnInt 'thing) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'interArgAndRest rel 0 'thing) 'CxUniverse))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'interArgAndRest rel -1 'thing) 'CxUniverse))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'interArgAndRest rel 'notAnInt 'thing) 'CxUniverse)))))
     (testing "the type is a type, not an individual"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'interArgs rel (tu/tmp-ind)) 'CxUniverse))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'interArgAndRest rel 2 (tu/tmp-ind)) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'interArgs rel (tu/tmp-ind)) 'CxUniverse))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'interArgAndRest rel 2 (tu/tmp-ind)) 'CxUniverse)))))
     (testing "the subject is a relation, not a number"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'interArgs 5 'thing) 'CxUniverse)))))
+      (is (= :not-well-formed (tu/kb-write-type #(v/assert kb (list 'interArgs 5 'thing) 'CxUniverse)))))
     (testing "the message names the form"
       (is (re-find #"interArgAndRest start position must be a positive integer"
                    (check-message kb (list 'interArgAndRest rel 0 'thing) 'CxUniverse))))))

@@ -240,14 +240,18 @@
 
 (def ^:private menu-forced-functors
   "The functors of the writes `fact-write` draws that are forced-monotonic:
-  the `genlCx` edge and every `declaration`."
-  '#{genlCx disjoint covering functional functionalInArg anti_symmetric irreflexive
-     anti_transitive negates})
+  the `genlCx` edge and every `declaration` but the separations."
+  '#{genlCx functional functionalInArg anti_symmetric irreflexive anti_transitive negates})
+
+(def ^:private menu-denied-functors
+  "The functors whose writes `fact-write`'s `:forced-denial` denies: the forced-monotonic
+  ones and the separations, which a denial defeats like a type `genl` edge."
+  (into menu-forced-functors '#{disjoint covering}))
 
 (defn- fact-write
   "One non-rule write drawn from the menu: a `genlCx` edge, a `genl` edge or its denial, a
   membership or its denial, a tuple or its denial, a declaration, a denial of a forced-monotonic
-  write (one among `acc`, the writes drawn before it, when there is one), or a
+  write or a separation (one among `acc`, the writes drawn before it, when there is one), or a
   `violation` of a mark among `acc`.  Every write takes a random strength."
   [rng {:keys [contexts types individuals predicates] :as pools} acc]
   (let [ctx   #(pick rng contexts)
@@ -271,7 +275,7 @@
       :tuple         (write (fix-self (tuple rng (pick rng predicates) pools)) (ctx))
       :tuple-denial  (write (list 'not (fix-self (tuple rng (pick rng predicates) pools))) (ctx))
       :declaration   (write (declaration rng pools) (ctx))
-      :forced-denial (let [prior (filterv #(contains? menu-forced-functors (first (:sentence %)))
+      :forced-denial (let [prior (filterv #(contains? menu-denied-functors (first (:sentence %)))
                                           acc)
                            s     (if (seq prior)
                                    (:sentence (pick rng prior))

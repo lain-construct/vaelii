@@ -37,6 +37,7 @@
 (defonce ^:private record-spaces   (atom {}))
 (defonce ^:private record-counters (atom {}))
 (defonce ^:private index-spaces    (atom {}))
+(defonce ^:private space-reasoners (atom {}))
 
 (defn- space-atom
   "The state atom for `space` in `registry`, created once on first use so two stores
@@ -184,7 +185,21 @@
   (let [had? (contains? @record-spaces space)]
     (swap! record-spaces dissoc space)
     (swap! record-counters dissoc space)
+    (swap! space-reasoners dissoc space)
     had?))
+
+(defn recorded-reasoners
+  "The reasoner names recorded for the records in `space`, as a set, or nil when none
+  were recorded (`vaelii.impl.kb/add-reasoners!`).  `drop-record-space!` forgets them;
+  `clear-records!` keeps them, as a disk store's `reasoners.edn` outlives a wipe."
+  [space]
+  (get @space-reasoners space))
+
+(defn record-reasoners!
+  "Record `names` as the reasoner set of the records in `space`."
+  [space names]
+  (swap! space-reasoners assoc space (set names))
+  nil)
 
 ;; ---- index KV backend ----------------------------------------------------
 ;; One map keyed by the structured key vectors, holding a Long at each counter key

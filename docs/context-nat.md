@@ -145,15 +145,20 @@ argument is `R`-**below** the other's is the spec, and `genlCx` the more general
 The upper layer's `time.txt` states all three, so a KB that loads it reads `CxTimeFn`
 contexts with no declaration of its own ([time.md](time.md#a-context-at-a-time-cxtimefn-and-the-monad)).
 It also states `(contextArgSubrelation CxTimeFn 1 genlMonad)`, so two applications that
-differ only in the first argument are ordered by a stated `genlMonad` between the two
-contexts there. Each
-declaration orders one position, so two contexts that differ at both are ordered only
-through a third context, differing from each at one position, that has been minted.
+differ only in the first argument are ordered by `genlMonad` between the two contexts
+there. Two contexts that differ at several declared positions are ordered by the
+**product**: the one whose every differing argument is below the other's is the spec, and
+no third context differing from each at one position takes part. `(CxTimeFn CxA (MonthFn
+2000 1))` is a spec of `(CxTimeFn CxB (YearFn 2000))` when `CxA` is `genlMonad`-below
+`CxB`, whether or not `(CxTimeFn CxA (YearFn 2000))` exists. Two contexts that differ at a
+position no declaration names are not ordered.
 A function of the user's own takes the same declarations, stated by the user.
 
 `vaelii.impl.context-nat` reads the declarations and the context NATs of `F` from the
-store, groups the contexts into **siblings** (same expression but for argument `pos`), and
-for each sibling pair whose `pos` arguments stand in `R` **materializes** the `genlCx` edge.
+store, groups the contexts that agree on every undeclared argument, and for each ordered
+pair whose differing arguments each stand in a declared `R` **materializes** the `genlCx`
+edge. Its justification names the two `natFormula` maps, the declaration at each differing
+position and the evidence there, one justification per choice of declaration.
 The edge is a **justified** derived sentex, made the way `special/deduce-lift` makes a
 decontextualized copy — `find-or-create-sentex`, `special/derived-sentex-added` (which
 reaches the `genlCx` closure and posts the re-check triggers), then a JTMS justification
@@ -178,15 +183,46 @@ edge, and the settle's drain runs the sweeps for it as for an asserted or a conc
 declaration or a revival re-runs it over every pair of a function's contexts; a second
 route to an edge already believed moves no label and is no move.
 
-**Every arrival order converges.** Three things can arrive last, and each has an arm. A
-declaration arriving after the contexts sweeps every pair of them (`reconcile-function`); a
-context arriving after a declaration is swept when it is minted, over the pairs it is in;
+**Every arrival order converges within eight levels of slice nesting**, the producer's
+round cap below. Three things can arrive last, and each has an arm
+(`reconcile-arrival`). A declaration arriving after the contexts sweeps every pair of them;
+a context arriving after a declaration is swept when it is minted, over the pairs it is in;
 and an `(R a b)` **evidence fact** arriving after both sweeps the pairs ordered `a` below `b`
 in the functions declared to order by `R` (`functions-ordered-by`), which is the arm a
-comparator dimension never needs and a stored-fact one cannot do without. A fact stored into
-a context that already exists creates no pair and sweeps nothing, so its cost does not grow
-with the context's siblings (`lein perf`'s `context-nat-existing-context`); a mint costs one
-oracle call per sibling. The maintenance hook sits beside the correspondence
+comparator dimension never needs and a stored-fact one cannot do without. A `genlCx` edge
+from `a` to `b` is the evidence of the closure oracle below: it sweeps the pairs whose
+argument at a `genlMonad`-ordered position is at or below `a` on one side and at or above
+`b` on the other.
+
+An arrival is an assert or a belief move. A write entry point binds
+`special/*producer-moves*`, which collects the `genlCx` edges its settles' context-move
+drain reads, the datums a settle pass revives, and each derived sentex by its functor.
+Once the write has settled, `context-nat/reconcile-moves` reads the edges and the
+believed sentences whose functor the producer reads (`declared-heads`). An
+edge a rule concludes is therefore swept as an asserted one is, and so is a declaration or
+an evidence fact a rule concludes or a retraction revives. The settle after a `formula`
+declaration releases or holds a rule (`nat-maintenance/reconcile-formula-positions`) is read
+the same way. A computed edge that leaves belief has
+its pair asked again, since a second route can hold it. A computed edge that enters belief
+sweeps as an asserted one does: an edge from `k1` to `k2` orders a context whose argument
+is `k1` below the one with `k2` there. Each level of nesting takes one more round, and the
+producer reads the moves of at most eight settles per pass
+(`nat-maintenance/max-producer-rounds`), and a write that also moves a `formula` position
+runs a second pass. A pass that reaches the cap logs
+`:vaelii.impl.nat-maintenance/producer-rounds`, and the slices nested below the last level
+it ordered stay unordered. An `except` or a `defeat` a teardown removes gives its target
+back with no relabel, so its target is read as an arrival.
+
+A fact stored into a context that already exists creates no pair and sweeps nothing
+(`lein perf`'s `context-nat-existing-context`), and a retraction that moves no context and
+revives nothing reads no context NAT (`context-nat-retract-beside-slices`). A mint and an
+edge read the contexts they can order through the term index. A mint reads, at the least
+declared position no comparator orders, the contexts holding a term the closure or a stored
+fact relates to its own (`context-nat-mint-beside-monads`), and then costs one oracle call
+per differing position for each of them that agrees with it at every undeclared position;
+a function whose every declared position a comparator orders has all of its contexts read.
+An edge reads the contexts holding a term at or below its sub, and only when there are
+some, those at or above its super (`context-nat-edge-beside-slices`). The maintenance hook sits beside the correspondence
 reconcile at the tail of `assert` and behind the same presence check, `nat/any-reified-constants?`:
 the in-memory `reifiable_function` marks, then one O(1) `natFormula` functor count, since a
 context slot mints with no declaration. A KB that has minted nothing pays that count and
@@ -199,12 +235,23 @@ a prover search to decide `R` ([naf.md](naf.md)). `R` is resolved only by a **bo
 oracle:
 
 - a registered **pure structural comparator**, keyed on the sub-relation — the datetime one
-  answers `subintervalOf` between two `DatetimeFn` terms by reading their shape; or
-- a **believed stored `(R a b)` fact**, when no comparator applies.
+  answers `subintervalOf` between two `DatetimeFn` terms by reading their shape. A
+  comparator that answers is the position's only route;
+- else the **`genlCx` closure**, for `genlMonad`. A monad's time is `Forever`, so a monad
+  that sees another is `genlMonad`-below it. The oracle reads one path from the first
+  argument up to the other, as the first argument sees it (`tax/reach-support`, which
+  expands neighbours in name order), and the supporters of its edges justify the computed
+  edge; and
+- each **believed stored `(R a b)` fact**. A stated `(genlMonad A B)` orders the slices
+  along `A` and `B` this way, and places neither monad under the other, so two stated
+  `genlMonad` facts in a row order no slice along the first monad below one along the
+  third.
 
-A comparator answer is a pure function of the two expressions, already carried by the
-`natFormula` antecedents, so it contributes no extra supporter; a stored fact contributes
-its own handle, so defeating it withdraws the edge.
+Each route that holds gives the edge its own justification (`r-evidence`), so the arrival
+order of a path and a stated fact decides none of them, and retracting one leaves the edge
+believed under its handle. A comparator answer is a pure function of the two expressions,
+already carried by the `natFormula` antecedents, so it contributes no extra supporter; a
+stored fact contributes its own handle, so defeating it withdraws its route.
 
 A backward rule answers a query and not the oracle. `time.txt`'s rules put
 `(TimeIntersectionFn A B)` inside `A` and inside `B` by `subintervalOf`, so a query asks
@@ -343,6 +390,9 @@ nothing until the expression is used again.
   `vaelii.impl.datetime` and nothing else, and they agree exactly — `b`'s fields being a
   prefix of `a`'s is the same claim as `a`'s bounds lying inside `b`'s, so the `genlCx`
   edge this page produces and the `subintervalOf` the clock answers hold of the same pairs.
+- **The closure oracle reads one path.** A second `genlCx` path between the same monads
+  adds no route to a slice edge, so retracting the path the oracle read re-derives the edge
+  under a new handle. Belief is the same in either arrival order within the round cap.
 
 ## Where it lives
 
@@ -361,12 +411,16 @@ nothing until the expression is used again.
   and the context-slot shape checks (`context-shape-problem` on a write,
   `read-context-shape-problem` on a read).
 - `vaelii.impl.nat-maintenance` — the producer's call site on the assert path
-  (`reconcile-assert`), its revival re-run on `retract!` / `edit!`
-  (`reconcile-revivals!`), the merges a computed or revived edge licenses, and
+  (`reconcile-assert`), its re-run over a teardown's belief moves on `retract!` / `edit!`
+  (`reconcile-revivals!`) and at a deferred batch's close (`reconcile-moves!`), the merges
+  a computed or revived edge licenses, and
   `collect-orphans!`, which collects both kinds of constant in one sweep.
 - `vaelii.impl.wff` — the `contextArgSubrelation` well-formedness check.
-- `vaelii.impl.context-nat` — the producer, the comparator registry, and
-  `functions-ordered-by`, the evidence-arrived-last arm of the stored-fact oracle.
+- `vaelii.impl.context-nat` — the producer, the comparator registry, `reconcile-arrival`
+  and `reconcile-moves`, and `functions-ordered-by`, the evidence-arrived-last arm of the
+  stored-fact oracle.
+- `vaelii.impl.special` — `*producer-moves*`, the belief moves a write records for the
+  producer.
 - `vaelii.impl.datetime` — the calendar containment comparator, over the ISO strings and
   the three calendar constructors alike, and beside it the half-open `bounds` the calendar
   clock reads a term's two moments out of ([time.md](time.md)).

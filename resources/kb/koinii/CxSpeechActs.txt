@@ -32,7 +32,9 @@
 ;; (open-world) until a context that also sees the registry activates it.  Each
 ;; act's other positions declare `thing`: each holds a sentex handle (sentexHandle H),
 ;; which the engine mints with no result type, or a proposition, and a narrower type
-;; would convict every meta-sentex the app writes.
+;; would convict every meta-sentex the app writes.  A handle position also declares
+;; `(quotedArg P n sentex_handle_term)`, so a text KB writes it as the (ist Cx S)
+;; reference assert resolves (docs/canonicalization.md).
 
 (genlCx CxSpeechActs CxUniverse)  ; CxSpeechActs speaks CxUniverse's vocabulary
 
@@ -60,6 +62,7 @@
 (arg answers 1 registered_agent)
 (arg answers 2 thing)
 (arg answers 3 thing)
+(quotedArg answers 3 sentex_handle_term)
 (target_following_predicate answers)
 
 (comment disputes
@@ -68,6 +71,7 @@
 (set/monotonic (instance_relation_predicate disputes))
 (arg disputes 1 registered_agent)
 (arg disputes 2 thing)
+(quotedArg disputes 2 sentex_handle_term)
 (target_following_predicate disputes)
 
 (comment endorses
@@ -76,6 +80,7 @@
 (set/monotonic (instance_relation_predicate endorses))
 (arg endorses 1 registered_agent)
 (arg endorses 2 thing)
+(quotedArg endorses 2 sentex_handle_term)
 (target_following_predicate endorses)
 
 (comment justifies
@@ -84,6 +89,7 @@
 (arg justifies 1 registered_agent)
 (arg justifies 2 thing)
 (arg justifies 3 thing)
+(quotedArg justifies 3 sentex_handle_term)
 (target_following_predicate justifies)
 
 ;; ---- ballots: a response act a policy COUNTS rather than merely records ----
@@ -94,6 +100,7 @@
 (set/monotonic (instance_relation_predicate votesFor))
 (arg votesFor 1 registered_agent)
 (arg votesFor 2 thing)
+(quotedArg votesFor 2 sentex_handle_term)
 (target_following_predicate votesFor)
 
 (comment votesAgainst
@@ -102,6 +109,7 @@
 (set/monotonic (instance_relation_predicate votesAgainst))
 (arg votesAgainst 1 registered_agent)
 (arg votesAgainst 2 thing)
+(quotedArg votesAgainst 2 sentex_handle_term)
 (target_following_predicate votesAgainst)
 
 ;; ---- retraction: the engine operation, named for completeness ----
@@ -122,6 +130,7 @@
 (set/monotonic (instance_relation_predicate notUnderstood))
 (arg notUnderstood 1 registered_agent)
 (arg notUnderstood 2 thing)
+(quotedArg notUnderstood 2 sentex_handle_term)
 
 (comment refuse
          "(refuse ?agent (sentexHandle ?received)) records that ?agent will not act on the received edge ?received. Same shape and placement as notUnderstood, and also UNMARKED, for the same reason. It records the refusal and nothing more; no rule reads it.")
@@ -129,6 +138,7 @@
 (set/monotonic (instance_relation_predicate refuse))
 (arg refuse 1 registered_agent)
 (arg refuse 2 thing)
+(quotedArg refuse 2 sentex_handle_term)
 
 ;; ---- placement: the mark every koinii placement writes ----
 

@@ -1,38 +1,20 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.integrate
-  "Store mutation is the boundary: the two choke points everything that stores or
-  removes a sentex must pass through.
+  "Store mutation is the boundary: the choke points everything that stores or removes a
+  sentex passes through, so exceptWhen's re-check queue is never skipped. The table of what
+  each special predicate means is in `vaelii.impl.special`.
 
-  Fourth layer of the engine stack (kb <- checks <- special <- integrate <- chain
-  <- settle): the table of what each special predicate *means* lives below in
-  `vaelii.impl.special`; what lives here is the guarantee that its arms — and the
-  exception re-check queue they feed — are never skipped.  exceptWhen correctness
-  depends on every mutation path posting a re-check.  Scattering that call across the
-  mutation sites makes a missed one invisible — the failure mode is stale excepted
-  conclusions, silently, and the next mutation path (a bulk load, a new merge) is one
-  forgotten call from that bug.  So the sequence is stated once per direction:
+    sentex-added     integrate through the table and queue the re-check: the assert
+                     path's reflection of a sentex that just landed
+    sentex-removed!  disintegrate, unindex, delete the record and queue the re-check: the
+                     one teardown, shared by `retract!` and the excepted-conclusion sweep
+    symmetrize-      re-spell the rows stored before a late `(symmetric P)` mark, folding
+      existing       a mirrored pair into one; moves a record without moving a handle
 
-    sentex-added     integrate through the table + queue the re-check — the assert
-                     path's reflection of a sentex that just landed (storage and
-                     indexing having happened in `kb/create-sentex`, which is the
-                     store-side half of the same boundary)
-    sentex-removed!  disintegrate + unindex + delete the record + queue the
-                     re-check — the one teardown, shared by `retract!` and the
-                     excepted-conclusion sweep
-    symmetrize-      the third direction, and the only one that moves a record
-      existing       without moving a handle: a late `(symmetric P)` mark re-spelling
-                     the rows stored before it and folding a mirrored pair into one
-                     (see the section at the foot of this namespace)
-
-  The derivation path's twin (`special/derived-sentex-added`) sits beside the table
-  instead, because the equality arms are themselves derivation sites and must reach
-  it from below.  The triggers that are *not* store mutations stay explicit at
-  their own sites: a taxonomy edge change (posted inside the genl / genlCx
-  arms — the trigger is the closure moving, not the sentex), rule indexing (posted
-  in `special/index-rule-sentex` — the trigger is the rule gaining an exception to
-  evaluate), and `recover` (nothing about blocking survives a restart, so it
-  re-queues everything wholesale)."
+  `special/derived-sentex-added` is the derivation path's twin. Triggers that are not store
+  mutations (a taxonomy edge change, rule indexing, `recover`) post their re-checks at their
+  own sites. See docs/exceptions.md and docs/canonicalization.md."
   (:require [vaelii.impl.decide :as decide]
             [vaelii.impl.discovery :as discovery]
             [vaelii.impl.except :as exc]
@@ -50,49 +32,28 @@
             [vaelii.impl.types.reasoning :as reasoning]))
 
 (def ^:dynamic *removed-sink*
-  "A volatile holding a vector of the sentexes that have left the store, or nil — the
-  default, and the removal choke point records nothing.
-
-  What a caller needs when it must act on **the region a teardown touched** rather than
-  on the whole KB.  `core`'s reified-NAT orphan sweep is the one that does: an orphaned
-  constant is one some departing sentex stopped referencing, so the constants those
-  sentexes named are the whole of what it has to ask about.  The removals are not all in
-  one place — the dependency-directed sweep produces some, the settle that follows
-  produces more (`settle/sweep-excepted!`), and the sweep's own retractions produce more
-  again — so recording them where every removal already passes is what makes the
-  narrowed question equal to the whole-KB one.
-
-  A volatile rather than an atom: the engine is single-writer, and this sits on the
-  teardown path."
+  "A volatile holding a vector of the sentexes that have left the store, or nil (the default:
+  the removal choke point records nothing). Callers that act on the region a teardown
+  touched read it, such as `core`'s reified-NAT orphan sweep. Every removal passes the
+  choke point, so the narrowed question equals the whole-KB one (docs/nat.md). A volatile
+  because the engine is single-writer."
   nil)
 
 (defn removal-sink
-  "The sink to record a teardown's removals into: the bound one when there is one, a
-  fresh volatile otherwise.  **Reused rather than shadowed**, so a nested teardown
-  appends to the record its caller is still reading — which is what lets the orphan
-  sweep see what its own retractions removed, and so find a cascade.
-
-  `want?` false answers **nil**, and a nil sink is the one that records nothing.  The
-  record is read by the reified-NAT sweep, the meta cascade, and a settle reading the
-  defeats it removed (`settle/defeat-moves`) and the terms whose memberships it removed
-  (`settle/region-terms`), and it is not free: it retains every sentex
-  a teardown removes for as long as the teardown runs, which on a cascade is the whole
-  cascade held in a vector.  The caller passes the presence check its readers consult
-  (`nat/any-reified-constants?`, a stored `defeat`), so a KB with none of them pays the
-  retention of nothing at all."
+  "The sink to record a teardown's removals into: the bound one when there is one, a fresh
+  volatile otherwise, so a nested teardown appends to the record its caller is reading.
+  `want?` false answers nil, which records nothing. The record retains every removed sentex
+  for the teardown's length, so the caller passes the presence check its readers consult
+  (`nat/any-reified-constants?`, a stored `defeat`)."
   ([] (removal-sink true))
   ([want?] (when want? (or *removed-sink* (volatile! [])))))
 
 (defn sentex-added
-  "Everything that must happen because a sentex just landed in the store as a
-  premise: reflect it into the caches through the special-predicate table, and
-  queue the exception re-check its arrival may have flipped.  Returns what the
-  table walk returns — the `{:new :superseded :violations}` migration map for an
-  equality sentex, nil otherwise.
-
-  Runs whether or not the sentex is newly created: re-asserting an existing
-  sentence re-adds premise support, which can flip belief, so the re-check must be
-  posted either way (the cache adds are refcounted and idempotent)."
+  "Reflect a sentex that just landed as a premise into the caches through the
+  special-predicate table, and queue the exception re-check its arrival may flip. Returns
+  the table walk's result: the `{:new :superseded :violations}` migration map for an
+  equality sentex, nil otherwise. Runs whether or not the sentex is new, since
+  re-asserting adds premise support."
   [kb sentex handle]
   (let [result (special/integrate-sentex kb sentex handle)]
     (special/recheck-on-sentence kb (sx/sentence-of sentex))
@@ -133,6 +94,8 @@
     (special/recheck-defeat-target kb sentex)
     ;; ...and the candidates of the nogood families the settle places
     (decide/note-candidate! kb sentex false)
+    (kb/note-mint-rule-moved! kb sentex)
+    (kb/note-lazy-rule-moved! kb sentex)
     ;; ...and the mint family, the remove half of `special/entail-arg-type`'s add, and
     ;; the departure the settle re-derives withheld mints from
     (special/retire-mint! kb sentex)
@@ -150,30 +113,14 @@
 
 ;; ## The spellings a permuting mark folded
 ;;
-;; A permuting mark sorts a literal's arguments on the way in, so the row a fact is
-;; stored at need not be spelled the way it was written: `(bRel Zed Amy)` under
-;; `(symmetric bRel)` is stored as `(bRel Amy Zed)`, and its mirror asserted beside it
-;; dedups to the same row.  While the mark holds that is exactly right — the two
-;; spellings are one proposition.  When the mark goes, a KB that never held it has one
-;; row per spelling written, each answering as written, and the store has to be able to
-;; become that KB.  Nothing in the row's sentence, premise mark or justifications says
-;; which spellings were written, so the row records them: the provenance entry
-;; `spellings-key` holds `{:premise {written strength} :derived {jid written}}` — one
-;; entry per premise assertion at its own class, and one per rule firing whose
-;; conclusion the sort moved.  `chain/reconcile-spellings!` reads it when a mark leaves
-;; and puts each piece back at the row its spelling now canonicalizes to.
-;;
-;; **Only a piece spelled otherwise than its row is recorded**, so a predicate nothing
-;; permutes writes no record and a permuting one pays a provenance write for the facts
-;; the sort actually moved.  The premise map is the exception to that: once it exists it
-;; lists every premise assertion, the stored spelling's included, because a premise mark
-;; is one class on one row and cannot say which of two spellings brought it.  A
-;; `:derived` entry naming a justification that has since gone is ignored; a `:premise`
-;; map on a row that is no longer a premise is stale and the next assertion replaces it.
-;;
-;; Provenance because it is the per-handle record every store already keeps durably, so
-;; a restart reads the spellings back with no new store method.  `core/provenance`
-;; leaves the entry out: it is the store's bookkeeping, not a field a caller wrote.
+;; A permuting mark sorts a literal's arguments on the way in, so the row a fact is stored
+;; at need not be spelled as written. The row records the written spellings in the
+;; provenance entry `spellings-key`, `{:premise {written strength} :derived {jid written}}`,
+;; which `chain/reconcile-spellings!` reads when the mark leaves. Only a piece spelled
+;; otherwise than its row is recorded, except that an existing premise map lists every
+;; premise assertion. A `:derived` entry naming a gone justification is ignored; a
+;; `:premise` map on a row that is no longer a premise is replaced by the next assertion.
+;; `core/provenance` leaves the entry out.
 
 (def spellings-key
   "The provenance key a row's written spellings are recorded under."
@@ -301,11 +248,12 @@
                                       (tax/meet-orders tax pred))))))
 
 (defn- rule-justification?
-  "Is `jid` a rule firing — a justification whose informant is a rule handle?  Only a
-  firing's written spelling is recorded; every other justification restates a row it
-  rests on, and follows that row wherever its spelling puts it."
+  "Is `jid` a rule firing — a justification whose informant is a rule handle other than
+  an argument-type mint's inert rule (`special/firing-informant?`)?  Only a firing's
+  written spelling is recorded; every other justification restates a row it rests on,
+  and follows that row wherever its spelling puts it."
   [kb jid]
-  (integer? (:informant (jtms/justification (reasoning/tms kb) jid))))
+  (special/firing-informant? kb (:informant (jtms/justification (reasoning/tms kb) jid))))
 
 (defn- written-out
   "Row `h`'s record with every piece that is spelled `stored` only implicitly written
@@ -325,20 +273,11 @@
 
 ;; ## A `symmetric` mark arriving after the facts
 ;;
-;; The third store mutation, and the only one that moves a record without moving a
-;; handle.  `(symmetric P)` is not a constraint mark — its effect is
-;; **canonicalization**, the argument sort `res/kb-sentex` puts every `P` literal
-;; through — so its retroactive half is not a sweep that convicts but a *storage
-;; migration*: the rows stored before it have to end up spelled the way the rows stored
-;; after it are, or the same knowledge in two arrival orders leaves two physical
-;; sentexes for one proposition and the second retraction of the pair has nothing to
-;; retract (vaelii#61).
-;;
-;; It lives here rather than beside the other retroactive arms in `special` because it
-;; removes and re-stores records, and the store-mutation boundary is this namespace's whole
-;; subject.  Both callers sit above it: `assert-entry/assert-one` for a written declaration and
-;; `chain/place-fact-conclusion` for a derived one, exactly as the two call
-;; `special/equate-existing`.
+;; The third store mutation, and the only one that moves a record without moving a handle.
+;; The retroactive half of `(symmetric P)` is a storage migration: the rows stored before
+;; the mark end up spelled as the rows stored after it are (docs/canonicalization.md). It
+;; lives here because it removes and re-stores records. `assert-entry/assert-one` and
+;; `chain/place-fact-conclusion` call it, as they call `special/equate-existing`.
 
 (defn- rewritten
   "Written-spelling record `rec` for a row about to be spelled `stored`, each written
@@ -383,20 +322,13 @@
         (p/mark-premise (:records kb) survivor s)))))
 
 (defn- fold-dependents!
-  "Re-hang every justification that uses `doomed` as an antecedent on `survivor`, so the
-  conclusions drawn through the row about to leave keep a witness across the fold rather
-  than being swept and re-derived.  Same informant, same bindings, same strength — only
-  the antecedent moves, and it moves to the row saying the same thing.
-
-  A justification whose consequence is already `survivor` is skipped: rewritten it would
-  name the survivor among its own antecedents, and a datum that grounds itself is
-  groundable for ever.  Idempotent through `has-justification?`.
-
-  Copied from the **record**, not from the network: the network keeps `graph-just`, which
-  drops the firing's `:bindings` because belief never reads them — and the two things that
-  do, an `exceptWhen` query and a NAF antecedent, re-evaluate per firing off the stored
-  record.  A copy taken from the graph would leave the fold's justifications unable to
-  answer either."
+  "Re-hang every justification that uses `doomed` as an antecedent on `survivor`: same
+  informant, bindings and strength, only the antecedent moves. A justification whose
+  consequence is already `survivor` is skipped, since rewritten it would name `survivor`
+  among its own antecedents and a datum that grounds itself stays believed after its real
+  support goes. Idempotent through `has-justification?`.
+  Copied from the record, not the network, because the network drops a firing's `:bindings`,
+  which an `exceptWhen` query and a NAF antecedent re-evaluate."
   [kb doomed survivor]
   (let [tms  (reasoning/tms kb)
         recs (:records kb)]
@@ -417,23 +349,13 @@
           (note-derived-spelling! kb (:consequence j) nid w))))))
 
 (defn- fold-supports!
-  "Re-hang every justification that **concludes** `doomed` on `survivor`, so a row a rule
-  derived can leave the fold the way a bare premise does.  Same informant, same
-  antecedents, same bindings, same strength — only the consequence moves, and it moves to
-  the row saying the same thing.
-
-  The consequence-side twin of `fold-dependents!`, and it is what lets `symmetrize-row!`
-  fold a mirrored pair both of whose rows a rule concluded.  Nothing about a
-  justification is deleted here: it is copied onto the survivor, and `fold-row!`'s
-  `take-out!` drops the originals with `doomed`.
-
-  A justification naming `survivor` among its own antecedents is skipped: retargeted it
-  would conclude a datum from itself, and a datum that grounds itself is groundable for
-  ever.  Skipping it loses no belief, because the row it concluded is the one leaving.
-  Idempotent through `has-justification?`, and read from the **record** for
-  `fold-dependents!`' reason — the network drops a firing's `:bindings`, which an
-  `exceptWhen` query and a NAF antecedent re-evaluate from.  Returns `{jid copy}`, so the
-  caller can carry each firing's written spelling onto its copy."
+  "Re-hang every justification that concludes `doomed` on `survivor`: same informant,
+  antecedents, bindings and strength, only the consequence moves. The twin of
+  `fold-dependents!`, so `symmetrize-row!` can fold a pair a rule concluded. Copies; the
+  originals go with `doomed` in `fold-row!`'s `take-out!`. Skips a justification naming
+  `survivor` among its antecedents: retargeted, it would conclude `survivor` from itself,
+  and skipping loses no belief because the row it concluded is leaving. Idempotent; read
+  from the record. Returns `{jid copy}`."
   [kb doomed survivor]
   (let [tms  (reasoning/tms kb)
         recs (:records kb)]
@@ -481,14 +403,9 @@
 
 (defn take-out!
   "Take stored row `h` out of the network and the store: drop its premise mark and every
-  justification concluding it, retract it, and remove from the store what that swept,
-  then the row itself when it is still stored (an inert sentex is no network datum).
-  `core/retract!`'s storage half, for a caller inside a write or a settle that runs its
-  own follow-through.
-
-  The justifications go first: a row a rule concluded is still groundable after the
-  retraction, and deleting its record would leave its node and every justification naming
-  it in the network, each naming a handle with no record."
+  justification concluding it, retract it, remove what that swept, then the row itself when
+  still stored (an inert sentex is no network datum). `core/retract!`'s storage half. The
+  justifications go first, so no node or justification names a handle with no record."
   [kb h]
   (let [tms  (reasoning/tms kb)
         recs (:records kb)]
@@ -502,19 +419,10 @@
 
 (defn- fold-row!
   "Fold the mirrored row `doomed` into `survivor` and take it out of the store: the
-  justifications that conclude it, its premise mark, the conclusions drawn through it,
-  and the handle-naming metas that would otherwise be left pointing at a record nothing
-  holds.
-
-  Then `jtms/retract!`, which is what `core/retract!` runs and does the same work here —
-  drops the premise, relabels the region, and sweeps the row now that nothing is left
-  resting on it — with the swept records handed to the removal choke point above.  A row
-  the sweep leaves behind goes through that choke point directly, `core/retract!`'s other
-  branch: an **inert** sentex (`assert-inert`) was never a TMS datum, so the retraction
-  no-ops over it.
-
-  `fold-supports!` runs **first**, so the survivor holds a copy of each justification
-  concluding the row before `take-out!` drops the originals."
+  justifications concluding it, its premise mark, the conclusions drawn through it and the
+  handle-naming metas. `fold-supports!` runs first, so the survivor holds a copy of each
+  justification concluding the row before `take-out!` drops the originals. Swept records go
+  to the removal choke point."
   [kb doomed survivor witness rewrite]
   ;; read before anything moves: the doomed row's pieces, spelled as it wrote them, go to
   ;; the survivor with everything else it hands over
@@ -610,33 +518,13 @@
     (f)))
 
 (defn- symmetrize-row!
-  "Bring one stored row of a newly symmetric predicate into the argument order its
-  readers read (`spelling-plan`'s home, the canonical order while every reader believes
-  the mark): `move-row!`'s result, or nil when it is spelled so already.
-
-  With no mirror stored the row is simply re-spelled where it lies.  Nothing else moves,
-  which is why the lone case costs no handle: a caller holding it can still retract it,
-  and the mirror asserted later now dedups to it instead of storing a second row.  With
-  one stored, the pair folds into a single row and that row is re-spelled if it needs it.
-
-  **Which of the pair survives is decided from what supports it, and only then from the
-  handle.**  A row that is only a premise leaves cleanly, because `jtms/retract!` is
-  exactly the sweep that takes it, so it is preferred as the one to go.  A row a rule
-  concluded leaves through `fold-supports!`, which copies the justifications naming it
-  as their consequence onto the survivor before the row's own go — belief is recomputed
-  from the justifications, never edited around them, and a copy onto the row saying the
-  same thing edits nothing.  Between two rows the fold has no other reason to separate,
-  the **lower** handle survives: it is the row the KB would hold had the declaration been
-  written first, which is the claim being restored.  Nothing keys belief on the number;
-  what keys on it is which of two handles a caller can still name, and answering that with
-  the earlier one is what makes the issue's `(retract! h1)` mean the same thing in both
-  orders.
-
-  **A pair both of whose rows a rule concluded folds too**, on that same lower-handle
-  rule.  It takes two rules concluding one proposition's two spellings under a predicate
-  nothing had yet declared symmetric, and left unfolded it is the defect this arm exists
-  to close: the mark arriving first leaves one record and the mark arriving last leaves
-  two, each believed, so the proposition is matched twice."
+  "Bring one stored row of a newly symmetric predicate into the argument order its readers
+  read: `move-row!`'s result, or nil when it is spelled so already. With no mirror stored the
+  row is re-spelled where it lies. With one stored, the pair folds into one row, re-spelled
+  if needed. A row that is only a premise is preferred as the one to go; a row a rule
+  concluded leaves through `fold-supports!`; between two rows the fold cannot separate, the
+  lower handle survives. A pair both rule-concluded folds too. See docs/canonicalization.md,
+  \"A mark arriving after the facts migrates them\"."
   [kb planner sx witness]
   (let [ctx          (:context sx)
         [want ents]  (spelling-plan kb planner (:sentence sx) ctx)]
@@ -649,27 +537,12 @@
   (symmetrize-row! kb planner sx witness))
 
 (defn- recanonicalizing-subject
-  "The predicate whose stored facts a declaration re-spells, or nil when `sentence` is not
-  one that moves a spelling.  Seven spellings reach one sweep:
-
-  * `(symmetric P)` — the two arguments of a binary `P` sort.
-  * `(commutativeInArgAndRest P f)`, `(commutativeInArgs P p …)` and `(commutative P)` —
-    the arguments inside the component named sort, at any arity.
-  * `(associative F)`, `(idempotent F)` and `(meetFunctionOf F R)` — a ground application
-    of `F` below the literal is reshaped (`sx/canonical-term`).
-
-  `(commutative P)` installs the group `[:rest 1]` at its own arm (`special/arms`), so it
-  re-spells `P`'s stored facts exactly as the other two spellings do and is asked about
-  here on the same terms.  The sugar used to be absent, because a core.txt rule derived
-  `(commutativeInArgAndRest P 1)` from it and that conclusion reached this sweep through
-  `chain/place-fact-conclusion`.  That rule is inert now, so the mark carries the sweep
-  itself.
-
-  The mark must also be **installed**, not merely written: a declaration the taxonomy has
-  not taken up re-spells nothing, and asking here is what keeps the walk off a store the
-  arriving sentex does not actually move.
-
-  The mark is read unscoped: the fold decides the stored key, which every reader
+  "The predicate whose stored facts a declaration re-spells, or nil when `sentence` moves no
+  spelling. Seven spellings reach one sweep: `(symmetric P)`; `(commutativeInArgAndRest P
+  f)`, `(commutativeInArgs P p …)` and `(commutative P)`, which sort the arguments of the
+  named component; and `(associative F)`, `(idempotent F)` and `(meetFunctionOf F R)`, which
+  reshape a ground application of `F` below the literal (`sx/canonical-term`). The mark must
+  be installed, and is read unscoped because the fold decides the stored key every reader
   shares."
   [kb sentence]
   (when (and (sequential? sentence) (symbol? (nm/functor sentence)))
@@ -721,49 +594,14 @@
                  hs))))
 
 (defn commute-existing
-  "When a declaration that *re-spells* arrives — `symmetric`, or either commutativity
-  relation — bring the named predicate's **already stored** facts into the argument order
-  the declaration puts every later one in.  `commute-predicate`'s result — the rows whose
-  spelling moved, which are new content to every rule that reads the canonical one, and
-  the mints their spellings drew — or nil when `sentence` declares nothing that moves a
-  spelling.
-
-  A declaration has to reach the facts already stored exactly as it reaches the facts that
-  follow, which is `equate-existing`'s rule and holds here for a blunter reason: the entry point
-  *sorts* a symmetric literal's arguments, so a declaration arriving second leaves the KB
-  holding `(P b a)` where a KB told the same things in the other order holds `(P a b)` —
-  and if both spellings were written, two rows for one proposition, each retractable
-  without the other (vaelii#61).  Written the ordinary way — declaration first, then the
-  facts — this finds an empty extent and costs one index cardinality read.
-
-  **Shape: the storage migrates, rather than an alias recording that two rows mean one.**
-  Both answer the issue; they differ in what a *restart* sees.  An alias is derived state,
-  so it has to be rebuilt on every `recover` from records that still spell the fact two
-  ways, and every reader — matching, retraction, the TMS, the handle entry points — has to
-  consult it for ever after.  Migrating instead leaves the records themselves canonical,
-  so `recover` reads a store that needs no reconciling and no reader learns a new rule.
-  The price is that it is a write, and retracting the mark does not undo it by itself:
-  what makes the mark leaving answerable is the record each moved row keeps of the
-  spellings it was written in (`spellings-key`), which `chain/reconcile-spellings!` reads
-  to split the rows back apart.
-
-  **The extent is `P`'s own stored rows and the rows applying `P` below the literal
-  (`rows-spelled-by`), not its spec subtree.**  `res/kb-sentex` reads
-  the mark off the literal's exact functor — a `genl` edge below a symmetric predicate
-  does not make the sub-predicate symmetric, and `constraint_descension_test` holds that
-  line — so a row this arm re-spelled at a sub-predicate would be one the entry point stores the
-  other way round on the very next assertion.
-
-  **Stored, never believed.**  A mirrored pair whose rows are currently defeated merges
-  exactly as a believed one does, for `equate-existing`'s reason: a spelling is not a
-  claim, and reading belief here would leave the migration missing when the defeat lifts
-  — belief depending on the order the defeat and the declaration arrived in.
-
-  On a KB with a large extent under the newly marked predicate this costs one posting-list
-  read plus a record fetch and a canonicalization per row, and a store probe per row that
-  is out of order.  That is the same shape `equate-existing` pays and the same bound: it
-  is a declaration reaching the facts, so it is linear in the facts it reaches, and a
-  predicate marked before it has any is free."
+  "When a declaration that re-spells arrives (`symmetric`, or either commutativity relation),
+  bring the named predicate's already stored facts into the argument order it puts every
+  later one in. Returns `commute-predicate`'s result (the rows whose spelling moved, which
+  are new content to every rule reading the canonical one, and the mints their spellings
+  drew), or nil when `sentence` moves no spelling. The storage migrates rather than an alias
+  recording that two rows mean one. The extent is `P`'s own stored rows and the rows applying
+  `P` below the literal (`rows-spelled-by`), not its spec subtree. Read from storage, never
+  belief. Linear in the facts it reaches. See docs/canonicalization.md."
   [kb sentence witness]
   (when-let [p (recanonicalizing-subject kb sentence)]
     (commute-predicate kb p witness)))

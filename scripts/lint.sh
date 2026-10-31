@@ -30,6 +30,8 @@
 #                 scripts/prose-baseline.txt (CONTRIBUTING §3.10)
 #   - derived     every stateful def under impl/ and every Reasoning field has a
 #                 derived-state register row, or a reason in its allowlist
+#   - doc-size    docstring lines past the 8th and comment lines per file, against
+#                 the per-file budget in scripts/doc-size-baseline.txt
 #
 #   lein lint               # the clean report
 #   VERBOSE=1 lein lint     # also dump each check's full output, pass or fail
@@ -114,6 +116,7 @@ summary() {
     unused)     s="$(grep -oE '[0-9]+ known.*' "$o" | head -1)" ;;
     prose)      s="$(grep -oE '[0-9]+ of [0-9]+ allowed, [0-9]+ files remaining' "$o" | head -1)" ;;
     derived)    s="$(grep -oE '[0-9]+ stateful defs \([0-9]+ registered' "$o" | head -1)" ;;
+    doc-size)   s="$(grep -oE '[0-9]+ excess docstring lines, [0-9]+ comment lines' "$o" | head -1)" ;;
   esac
   echo "${s:-ok}"
 }
@@ -273,12 +276,13 @@ lane_c() {
   check shellcheck -- bash scripts/lint-shellcheck.sh
   check prose      -- python3 scripts/check-prose.py
   check derived    -- python3 scripts/check-derived-state.py
+  check doc-size   -- python3 scripts/check-doc-size.py
 }
 
 # The order the report reads in, which is NOT a lane's order: rows print here,
 # each waiting for its own lane to reach it.
 readonly -a CHECKS=(glossary versions links drift conflicts
-                    kondo cljfmt shellcheck reflect unused prose derived)
+                    kondo cljfmt shellcheck reflect unused prose derived doc-size)
 
 lint_run() {
   printf '%slint%s\n' "$BOLD" "$RST"

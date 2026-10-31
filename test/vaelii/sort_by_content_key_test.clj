@@ -430,9 +430,9 @@
 
   A **display** listing orders rows on a page, or the nodes of a search tree a page draws:
   nothing is read off the order but the eye, and the handle is the one key a reader sees
-  printed beside the row it ordered.  A **handle-set identity** sorts a vector of handles
-  to name the *set* they form — `dispute-id`'s pair is a key two callers holding it either
-  way round must spell the same way, and sorting the integers is what makes one spelling.
+  printed beside the row it ordered.  A **set identity** sorts an id to name the *set* it
+  holds — `dispute-key` sorts a dispute id, a vector of digest strings two callers holding
+  it in either order must spell the same way, and the pattern reads its `id` as a handle.
   Neither decides a belief, a witness, a placement or a report's sides.
 
   One allowlist for both scans below, for the reason the printed one is shared: they are
@@ -442,7 +442,6 @@
     "(sort-by :id (into [] (take ego-scan) (v/sentexes-matching kb pattern '?ctx)))"
     "(sort-by :id (vals @(:nodes sess)))"
     "(sort-by-once (juxt comment-first (comp print-key :context) :id) sentexes)"
-    "(sort (:handles entry))"
     "(vec (sort id))"})
 
 (defn- handle-keyed-orderings

@@ -1,79 +1,24 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.quality
-  "Readings about the **knowledge**, where the rest of the instrumentation reads the
-  engine — `readings` below is the table, and what each one asks is: which rules never fire, how skewed the predicate extents are, how deep the rule
-  graph's chains reach, how much of the taxonomy is connected to anything, which argument
-  declarations name a position their predicate does not have, which rules another rule
-  already covers, and which rule pairs would contradict each other if both fired.
+  "Readings about the knowledge, where the rest of the instrumentation reads the engine:
+  which rules never fire, how skewed the predicate extents are, how deep the rule graph's
+  chains reach, how much of the taxonomy is connected, which argument declarations name a
+  position their predicate lacks, which rules another rule already covers, and which rule
+  pairs would contradict each other if both fired. `readings` is the table.
 
-  Three of those readings count a check this namespace does not own: taxonomy coverage,
-  the stranded declarations and the rule clashes are `vaelii.impl.integrity`'s
-  `taxonomy-coverage`, `stranded-declarations` and `clash-pairs`, the code behind
-  kb-integrity's `:taxonomy-island`, `:stranded-declaration` and rule-clash categories,
-  called here over the whole KB.  The subsumption reading pairs integrity's `rule-rows`.
-
-  `settle-stats` and `chain-stats` answer *how the engine ran*.  These answer *whether the
-  knowledge is any good*, which is the question the author of a large KB has and the one
-  nothing else here asks.  None of it is a required check: a threshold on somebody's ontology
-  is not a build failure, and `lein perf` checks the engine while this reports on the
-  content.
-
-  **Every reading comes off state that already exists, and nothing new is indexed.**  A
-  `rule -> firings` index would be a second copy of the JTMS adjacency to keep in step,
-  which is the failure class the taxonomy's single `:support` map exists to avoid.  So the
-  cost is
-  `O(terms + rules + firings + ancestor pairs + declarations × super-predicates
-  + candidate rule pairs)` and never
-  `O(sentexes)` — the **vocabulary and the rule set**, which on a KB of a million facts
-  about a hundred individuals is a hundred-odd names and a few hundred rules.  **Ancestor
-  pairs and not edges**, which is the term
-  worth spelling out: `taxonomy-coverage` reads each type's whole `genl` up-closure to find
-  the root, so a chain of V types costs Θ(V²) where it has V−1 edges.  Vocabulary-sized on
-  any ontology anybody writes, which is the claim that matters, and not an edge count:
-
-  - **One walk over the term-name set**, and one is the number: the functor names come off it
-    by filter, and the type-shaped names come off *those* rather than off the term-name set a
-    second time.  Measured at 8x the terms for 8x the cost, so the walk is the term the
-    formula above leads with.
-  - **Three O(1) index reads per functor name** — the stored extent off the count-aware
-    trie, and the rule postings *both* ways.  That is everything the extent and chain
-    readings need, and it is where the rule handles come from, so nothing on this pass
-    reaches the record store at all — the record reads are the listed rules' and the two
-    rule-hygiene readings' below.
-  - **The firing census reads each rule's own `:consequences` adjacency**, the candidate
-    set `jtms/restrength-informant*` uses, and never scans the justification map.  On a
-    store of millions of justifications that difference is the report existing or not.
-  - **The chain depth condenses strongly-connected components first.**  A KB's rule graph
-    is cyclic in the ordinary case — `(genl ?a ?b) & (genl ?b ?c) => (genl ?a ?c)` alone
-    makes it so — so memoizing a *path* re-explores the reachable subgraph along every one
-    of them.  Memoize the component.
-  - **The declaration census enumerates the declarations** and asks each what binds its own
-    predicate's length, rather than asking every predicate what declares it.  That is a map
-    read where the predicate carries a length of its own and one arity read per
-    super-predicate where it inherits one, which is the `× super-predicates` above and the
-    one term of the formula that is not flat.  It is also the second reader of the record
-    store, for the declarations themselves — vocabulary, and therefore few.
-  - **The two rule-hygiene readings are the third**, and the one that reads a record per
-    *rule*: a rule's antecedents, its consequent and its four availability slots live on
-    the record and nowhere else, so `+ rules + candidate pairs` is what they add.  A pair
-    is a candidate only where the consequent index says one rule could conclude what the
-    other does, and the two properties they read run only when the KB declares any
-    (`marked-groups`), so a KB whose rules conclude different things pays the grouping and
-    stops.
-
-  Every count is of what is **stored**.  A believed extent is O(n) per predicate
-  (`vaelii.core/count-with-functor` says why), which would turn an O(predicates) report
-  into an O(sentexes) one — and stored-vs-believed is exactly the distinction an author
-  wants to see rather than have chosen for them.  Two readings consult belief anyway: the
-  firing census, because \"fired and every conclusion defeated\" is a category and not a
-  rounding error, and the declaration census, because a disbelieved declaration constrains
-  nothing for a reason that has nothing to do with the position it names.  The two
-  rule-hygiene readings are as-stored about the *rules* and belief-following about the
-  *declarations* they read, which `rules read against each other` below argues."
+  Taxonomy coverage, the stranded declarations and the rule clashes are
+  `vaelii.impl.integrity`'s `taxonomy-coverage`, `stranded-declarations` and `clash-pairs`,
+  called over the whole KB; the subsumption reading pairs integrity's `rule-rows`. No reading
+  is a required check. Every reading comes off state that exists, so the cost is
+  `O(terms + rules + firings + ancestor pairs + declarations × super-predicates + candidate
+  rule pairs)` and never `O(sentexes)`. Every count is of what is stored, except the firing
+  census and the declaration census, which consult belief. See docs/quality.md, \"One pass,
+  and nothing new indexed\"."
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [vaelii.impl.except :as exc]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.integrity :as integrity]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
@@ -111,22 +56,12 @@
   (and (symbol? t) (or (nm/predicate? t) (nm/type-symbol? t))))
 
 (defn- vocabulary-pass
-  "The stored extent per predicate, plus `rule -> antecedent predicates` and
-  `rule -> consequent predicate`, in one walk over the vocabulary's functor names.
-
-  `:type-names` rides along: every type-shaped name is lowercase-initial and so is already
-  in this filter's answer, which is what keeps the taxonomy reading from walking the term-name
-  set a second time — the set is the report's one superlinear term and it is walked
-  once.
-
-  **Every read here is an as-stored one, and both halves need to be.**  The extent is a
-  cardinality, which the index answers and belief cannot narrow without a walk per
-  predicate — the skew reading is about how the *knowledge* is shaped, not about what
-  survived the last settle.  The rule postings are as-stored for a sharper reason: what
-  `firing-census` sorts them into is *never fired* and *fired with every conclusion
-  defeated*, so a believed entry point would drop from the census exactly the rules the report
-  exists to name, and the two counts beside them would come back zero on the KB with the
-  most to answer for."
+  "The stored extent per predicate, plus `rule -> antecedent predicates` and `rule ->
+  consequent predicate`, in one walk over the vocabulary's functor names. `:type-names`
+  rides along, so the taxonomy reading does not walk the term-name set a second time. Every
+  read is as-stored: the extent is a cardinality, and `firing-census` sorts the rule postings
+  into never-fired and fired-with-every-conclusion-defeated, which a believed read would
+  drop."
   [kb progress!]
   (let [idx   (:index kb)
         preds (into [] (filter functor-name?) (reads/stored-terms-global idx))
@@ -294,34 +229,10 @@
   "Tarjan's strongly-connected components, iterative — the recursive spelling overflows
   the stack on a graph a rule set is entitled to have.  Returns a vector of node sets."
   [g]
-  (let [nodes (into #{} (concat (keys g) (mapcat val g)))]
-    (loop [stack (vec nodes), idx {}, low {}, on #{}, s [], out [], counter 0, work []]
-      (cond
-        (seq work)
-        (let [[v state] (peek work)]
-          (case state
-            :enter
-            (if (contains? idx v)
-              (recur stack idx low on s out counter (pop work))
-              (recur stack (assoc idx v counter) (assoc low v counter) (conj on v)
-                     (conj s v) out (inc counter)
-                     (into (conj (pop work) [v :exit])
-                           (map (fn [w] [w :enter])) (get g v #{}))))
-            :exit
-            (let [lo  (reduce (fn [a w] (if (contains? on w)
-                                          (min a (get low w (get idx w)))
-                                          a))
-                              (get low v) (get g v #{}))
-                  low (assoc low v lo)]
-              (if (= lo (get idx v))
-                (let [[component s'] (split-with #(not= % v) (reverse s))
-                      component      (conj (vec component) v)]
-                  (recur stack idx low (reduce disj on component)
-                         (vec (reverse (rest s'))) (conj out (set component)) counter (pop work)))
-                (recur stack idx low on s out counter (pop work))))))
-        (seq stack)
-        (recur (pop stack) idx low on s out counter [[(peek stack) :enter]])
-        :else out))))
+  (let [out (volatile! [])]
+    (graph/scc (into #{} (concat (keys g) (mapcat val g))) #(get g % #{})
+               #(vswap! out conj (set %)))
+    @out))
 
 (defn- component-depths
   "Longest path to a leaf, per condensed component, on an **explicit** stack: the
@@ -414,17 +325,10 @@
 
 ;; ---- rules read against each other ---------------------------------------
 ;;
-;; The five readings above ask about a rule's relation to the **KB** — whether it fired,
-;; how deep its chain runs.  The two below ask about a rule's relation to **another
-;; rule**, which is the one question in the census that needs the rules themselves and
-;; not their index postings: one record read per rule, and a unification per candidate
-;; not their index postings: one record read per rule (`integrity/rule-rows`, read once
-;; for both), and a unification per candidate pair.  So these two add
-;; `O(rules + candidate pairs)` to the report and no term that grows with what the KB
-;; stores.  The clash pairing is `vaelii.impl.integrity`'s, whose comment says how it reads;
-;; subsumption below reads the same way: the rules as stored, a rule the KB currently
-;; disbelieves still being a rule somebody wrote, and the declarations it consults
-;; following belief.
+;; The two readings below relate a rule to another rule, so they read one record per rule
+;; (`integrity/rule-rows`, read once for both) and unify per candidate pair: they add
+;; `O(rules + candidate pairs)`. Rules are read as stored, and the declarations they
+;; consult follow belief (docs/quality.md).
 
 (defn- freezing
   "`[freeze unfreeze]` over a rule's variables: each replaced by a namespaced symbol no
@@ -464,19 +368,10 @@
   (if (empty? e2) (empty? e1) (every? (set e1) e2)))
 
 (defn- available-at-least?
-  "Is `r1` at least as **available** as `r2` — could every firing of `r2` have been one of
-  `r1`?  Three slots decide it, and each is a way one rule reaches where the other does
-  not:
-
-  - **engines**, since a backward rule forward-chains nothing and an inert rule chains in
-    neither engine (`engines-cover?`);
-  - **defeasibility**, since a default cannot stand in for a strict rule — its conclusion
-    is defeated exactly where the strict one's stands;
-  - **effect**, since a choice or constraint rule does not chain at all: each is a
-    *choice* or a *nogood* for a solve (docs/solving.md) and part of the rule's identity.
-
-  What it does not read is the rule sentex's own **strength**, which says how the rule is
-  defeated rather than where it runs."
+  "Is `r1` at least as available as `r2`: could every firing of `r2` have been one of `r1`?
+  Three slots decide it: engines (`engines-cover?`), defeasibility (a default cannot stand
+  in for a strict rule), and effect (a choice or constraint rule does not chain,
+  docs/solving.md). The rule sentex's own strength is not read."
   [r1 r2]
   (and (engines-cover? (:engines r1) (:engines r2))
        (or (not (:defeasible r1)) (:defeasible r2))
@@ -530,25 +425,13 @@
                   e1)))))
 
 (defn- subsumption
-  "Does `r1` subsume `r2` — is there one substitution σ over `r1`'s variables with
-  `ante(r1)σ ⊆ ante(r2)` and `conseq(r1)σ = conseq(r2)`?  σ as `readable-substitution`
-  writes it, or nil.
-
-  **Predicate-genl aware in both halves, and in opposite directions.**  An antecedent of
-  `r1` on `P` is covered by an antecedent of `r2` on a *spec* of `P`, because whatever
-  satisfies the spec satisfies `P` — `match1`'s fan, asked of a pattern instead of a
-  fact.  A consequent of `r1` on a *spec* of `r2`'s covers it, because concluding the
-  subtype answers every goal the supertype would; a consequent on a **super** does not
-  cover, which is the half a reader expects to be symmetric and is not.  Both are
-  `subsuming-unify`, which is where the direction lives.
-
-  Asked from `r2`'s context, and `r1` must be visible there: a rule covered by one it
-  cannot see is not covered.
-
-  **`(count ante(r1)) > (count ante(r2))` is pruned**, and it is the one case the reading
-  under-reports: σ may collapse two of `r1`'s antecedents onto one of `r2`'s, so a rule
-  with more antecedents can still subsume.  A missing hit is the safe direction for a
-  report that names redundancies."
+  "Does `r1` subsume `r2`: is there one substitution σ over `r1`'s variables with
+  `ante(r1)σ ⊆ ante(r2)` and `conseq(r1)σ = conseq(r2)`? Returns σ as
+  `readable-substitution` writes it, or nil. An antecedent of `r1` on `P` is covered by one
+  of `r2` on a spec of `P`; a consequent of `r1` on a spec of `r2`'s covers it, and one on a
+  super does not (`subsuming-unify`). Asked from `r2`'s context, and `r1` must be visible
+  there. `(count ante(r1)) > (count ante(r2))` is pruned, which under-reports where σ
+  collapses two antecedents onto one."
   [kb r1 r2]
   (let [context (:context r2)]
     (when (and (not= (:handle r1) (:handle r2))
@@ -576,17 +459,10 @@
     (into [] (mapcat #(get index [(:polarity r2) %])) reach)))
 
 (defn- subsumed-rules
-  "Which stored rules another stored rule already covers.
-
-  An exact duplicate cannot be here: two rules identical up to variable names, antecedent
-  order or a symmetric argument order are **one handle** (docs/canonicalization.md).  So
-  every hit is either a redundancy or a deliberate specialization — a rule written for the
-  narrow case beside the general one — and **the reading cannot tell them apart**, because
-  the difference is in what the author meant rather than in what the KB holds.  It names
-  the pair and the substitution and leaves the judgement.
-
-  Content-ordered on both loops, so the capped list is a function of the rules and not of
-  the order they were written in."
+  "Which stored rules another stored rule already covers. An exact duplicate is one handle
+  (docs/canonicalization.md), so every hit is a redundancy or a deliberate specialization,
+  which the reading cannot tell apart; it names the pair and the substitution.
+  Content-ordered on both loops, so the capped list does not depend on write order."
   [kb rows limit progress!]
   (let [index   (integrity/by-consequent rows)
         ordered (nm/sort-by-content-key :sort-key compare rows)
@@ -642,23 +518,17 @@
 ;; ---- the readings, as a table --------------------------------------------
 
 (def ^:private readings
-  "One row per reading, in the order the report prints them — the data half, holding what
-  a reading is *called* and never what renders it.  The arms are `render-arms`, below the
-  helpers they need, and `check-readings!` joins the two at load.
+  "One row per reading, in the order the report prints them: what a reading is called, never
+  what renders it. The arms are `render-arms`, and `check-readings!` joins the two at load.
 
-    :key    what `census` answers under, and what `report` reads.
-    :title  the `##` heading, so a section cannot be headed one thing here and another
-            where it is written.
-    :shape  the sub-key whose presence says a map really is a census answer, or absent for
-            a reading the shape test does not ask about.  A reading gains a `:shape` only
-            when a census map without it is no longer a census map, which is a decision
-            about stored reports rather than about the reading — see `check-report-shape!`.
+    :key    what `census` answers under and `report` reads
+    :title  the `##` heading
+    :shape  the sub-key whose presence says a map is a census answer, or absent; a reading
+            gains a `:shape` only when a census map without it stops being one
+            (`check-report-shape!`)
 
-  Everything downstream is read off this: `census` is refused a key with no row
-  (`reading-map`), `report` walks it, and the shape test is the `:shape` column.  Written
-  out, the three would be the same seven names in three places, and the failure that
-  leaves is the quiet one — a reading `census` answers and `report` has no section for
-  renders as *absence*, which reads exactly like a KB with nothing to report."
+  `census` refuses a key with no row (`reading-map`), `report` walks the table, and the
+  shape test is the `:shape` column."
   [{:key :rules        :title "Rules that never fire"                        :shape :total}
    {:key :extents      :title "Predicate extent skew"                        :shape :predicates}
    {:key :chains       :title "Chain depth over the rule graph"              :shape :rules}
@@ -881,21 +751,11 @@
    :clashes      render-clashes})
 
 (defn- check-readings!
-  "Refuse at load a readings table and a set of arms that do not agree.
-
-  A reading with a row and no arm would print a heading over nothing; an arm with no row
-  would never be reached, since `report` walks the table.  Neither is visible from a test
-  that renders a KB, because both are about a reading the suite does not have — which is
-  every reading on the day it is added.
-
-  **Takes both halves**, rather than reading the two vars beside it, so a test can drive
-  it over halves that disagree.  A validator called only by its own namespace's load has
-  run every branch it will ever run against a table that passes, and nothing then says it
-  would refuse: a `remove` written the wrong way round reads exactly like a table with
-  nothing wrong.  Returns the table, as `predicates/check-facets` does.
-
-  Refuses under `:bad-table-entry` discriminated by `:mismatch`, as
-  `predicates/check-facets`, `config/check-switches!` and `kb/check-backends!` do."
+  "Refuse at load a readings table and a set of arms that do not agree: a reading with no arm
+  would print a heading over nothing, and an arm with no row is never reached. Takes both
+  halves, so a test can drive it over halves that disagree. Returns the table. Refuses under
+  `:bad-table-entry` discriminated by `:mismatch`, as `predicates/check-facets`,
+  `config/check-switches!` and `kb/check-backends!` do."
   [readings render-arms]
   (let [keys-of (into #{} (map :key) readings)]
     (doseq [k (sort (remove render-arms keys-of))]
@@ -932,15 +792,8 @@
 
 (defn- check-report-shape!
   "Refuse a map that is not a census answer, naming the readings whose presence says it is.
-
-  A page of zeros and dashes is what a caller who passed the wrong map would otherwise be
-  handed, and it is indistinguishable from a report of an empty KB.
-
-  The test asks only for the readings carrying a `:shape`, and the three without one are
-  the point rather than an oversight: **a census answer from before a reading existed is
-  still a census answer**, and refusing to render one would turn a stored report into an
-  unreadable one.  So a new reading is added without a `:shape`, and gains one only if
-  there comes a day when a map lacking it is no longer a report."
+  Only readings carrying a `:shape` are asked, so a census answer from before a reading
+  existed still renders."
   [quality]
   (let [shaped (filterv :shape readings)]
     (when-not (and (map? quality)
@@ -954,21 +807,11 @@
                        :keys (when (map? quality) (vec (sort (keys quality))))})))))
 
 (defn report
-  "The `census` map as Markdown — the readings in `readings`' order, each under its own
-  `:title`, the counts first and the lists after.  A map that is not a census answer is
-  refused (`:not-a-report`); which readings decide that is `check-report-shape!`.
-
-  A section is written when its key is there and omitted when it is not, so a stored
-  answer from before a reading existed still renders.  The table is what makes the
-  omission a *decision*: a key `census` answers reaches this walk or is refused at
-  `census` (`reading-map`), and a row with nothing to render it fails the build
-  (`check-readings!`).  Neither was true when the sections were written out — a reading
-  with no section rendered as absence, which reads exactly like a KB with nothing to
-  report.
-
-  A listed declaration's reason line is the `:message` the census carries rather than a
-  second derivation of it, which would be the same sentence written twice, free to drift
-  on either side."
+  "The `census` map as Markdown: the readings in `readings`' order, each under its `:title`,
+  counts first and lists after. A map that is not a census answer is refused
+  (`:not-a-report`; `check-report-shape!`). A section is written when its key is present, so
+  a stored answer from before a reading existed still renders. A listed declaration's reason
+  line is the `:message` the census carries."
   [quality]
   (check-report-shape! quality)
   (apply str "# KB quality\n"

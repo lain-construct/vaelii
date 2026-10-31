@@ -42,8 +42,6 @@
 
 ;; ---- generation ----------------------------------------------------------
 
-(defn- pick [^java.util.Random rng xs] (nth xs (.nextInt rng (count xs))))
-
 (defn- chance? [^java.util.Random rng p] (< (.nextDouble rng) p))
 
 (defn- shuffled
@@ -75,22 +73,22 @@
   (let [rel     (symbol (str "tmpRel" k))
         sub     (symbol (str "tmpSubRel" k))
         noted   (symbol (str "tmpNoted" k))
-        arity   (pick rng [2 2 3])
-        mark    (pick rng (if (= 2 arity)
-                            [nil nil :symmetric :commutative :commutative]
-                            [nil :commutative :commutative-in-args :commutative-in-args
-                             :commutative-in-arg-and-rest]))
+        arity   (tu/pick rng [2 2 3])
+        mark    (tu/pick rng (if (= 2 arity)
+                               [nil nil :symmetric :commutative :commutative]
+                               [nil :commutative :commutative-in-args :commutative-in-args
+                                :commutative-in-arg-and-rest]))
         subpred (chance? rng 0.4)
-        n-decl  (pick rng [1 1 2])
+        n-decl  (tu/pick rng [1 1 2])
         decls   (distinct
                  (repeatedly n-decl
-                             #(list (pick rng '[transitiveInArgInverse transitiveInArgInverse transitiveInArg])
+                             #(list (tu/pick rng '[transitiveInArgInverse transitiveInArgInverse transitiveInArg])
                                     rel (inc (.nextInt rng arity)) 'genl)))
         claims  (vec
                  (repeatedly (+ 2 (.nextInt rng 3))
                              (fn []
                                (let [s (apply list (if (and subpred (chance? rng 0.5)) sub rel)
-                                              (repeatedly arity #(pick rng terms)))]
+                                              (repeatedly arity #(tu/pick rng terms)))]
                                  (if (chance? rng 0.25) (list 'not s) s)))))
         vars    (vec (take arity '[?x ?y ?z]))
         mono    {:strength :monotonic}]
@@ -103,9 +101,9 @@
         :symmetric                   [[(list 'symmetric rel) mono]]
         :commutative                 [[(list 'commutative rel) mono]]
         :commutative-in-args         [[(apply list 'commutativeInArgs rel
-                                              (pick rng [[1 2] [1 3] [2 3]]))
+                                              (tu/pick rng [[1 2] [1 3] [2 3]]))
                                        mono]]
-        :commutative-in-arg-and-rest [[(list 'commutativeInArgAndRest rel (pick rng [1 2]))
+        :commutative-in-arg-and-rest [[(list 'commutativeInArgAndRest rel (tu/pick rng [1 2]))
                                        mono]])
       (when subpred [[(list 'genl sub rel) mono]])
       (map #(vector % {}) (distinct claims))
@@ -116,11 +114,11 @@
   pairs, which the orders permute, and the `:consequents` the rules conclude."
   [seed]
   (let [rng    (java.util.Random. seed)
-        chains (mapv #(type-chain % (chance? rng 0.5)) (take (pick rng [2 3]) ["a" "b" "c"]))
+        chains (mapv #(type-chain % (chance? rng 0.5)) (take (tu/pick rng [2 3]) ["a" "b" "c"]))
         terms  (vec (mapcat :terms chains))
         preds  (mapv #(predicate rng % terms) (range (+ 2 (.nextInt rng 3))))
         denied (let [ds (vec (mapcat :deniable chains))]
-                 (when (and (seq ds) (chance? rng 0.5)) (pick rng ds)))]
+                 (when (and (seq ds) (chance? rng 0.5)) (tu/pick rng ds)))]
     {:consequents (mapv :consequent preds)
      :sentences   (vec (concat
                         (for [e (mapcat :edges chains)] [e {}])

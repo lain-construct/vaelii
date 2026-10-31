@@ -185,6 +185,56 @@
         (is (= 50 (count (:rows d))))
         (is (> (:total d) 50))))))
 
+;; ---- the definitional block ---------------------------------------------
+
+(defn- block [d] (into {} (map (juxt :part :value)) (:definitional-block d)))
+
+(defn- separations [b] (into {} (map (juxt :term :separation)) (:rows (:siblings b))))
+
+(tu/deftest-kb a-types-block-names-each-part-and-marks-the-missing-ones
+  (tu/with-terms [kin_root kin_a kin_b kin_c kin_d KinBoth]
+    (doseq [s [(list 'genl kin_root 'thing) (list 'unary_predicate kin_a)
+               (list 'genl kin_a kin_root) (list 'genl kin_b kin_root)
+               (list 'genl kin_c kin_root) (list 'genl kin_d kin_root)
+               (list 'disjoint kin_a kin_b) (list kin_a KinBoth) (list kin_d KinBoth)
+               (list 'comment kin_a "A kind made up for this test.")
+               (list 'positiveExampleComment kin_a "one made up")]]
+      (v/assert kb s 'CxUniverse))
+    (let [d (v/describe kb kin_a 'CxUniverse)
+          b (block d)]
+      (is (= [:comment :positive-examples :negative-examples :parents :siblings :kind
+              :arity-class]
+             (mapv :part (:definitional-block d))))
+      (is (= :missing (:kind b)) "the arity class is not a kind")
+      (is (= ['unary_predicate] (:terms (:arity-class b))))
+      (is (= [kin_root] (:terms (:parents b))))
+      (is (= {kin_b :disjoint kin_c :missing kin_d :overlaps} (separations b))
+          "a sibling nothing decides is the missing part of the separations")
+      (is (= {:term kin_d :separation :overlaps :witness :shared-instance :via KinBoth}
+             (first (filter #(= kin_d (:term %)) (:rows (:siblings b)))))
+          "an overlap names the shared instance, as the open-sibling pass reads it")
+      (is (= ["A kind made up for this test."] (:comment b)))
+      (is (= ["one made up"] (:positive-examples b)))
+      (is (= :missing (:negative-examples b))))))
+
+(tu/deftest-kb a-shipped-types-block-reads-the-separation-each-sibling-has
+  (let [b (block (v/describe kb 'arachnid W))]
+    (is (= ['invertebrate] (:terms (:parents b))))
+    (is (= :disjoint (get (separations b) 'insect))
+        "invertebrate_class is a disjoint_metatype, so the one membership separates them")
+    (is (= ["an insect, which has six legs"] (:negative-examples b))))
+  (is (= :orthogonal (get (separations (block (v/describe kb 'electronic_device W))) 'machine))))
+
+(tu/deftest-kb a-predicates-block-holds-its-arity-declarations-and-properties
+  (let [d (v/describe kb 'parentOf W)
+        b (block d)]
+    (is (= [:comment :kind :arity-class :arity :arg-declarations :parents :props]
+           (mapv :part (:definitional-block d))))
+    (is (= 2 (:arity b)))
+    (is (= (:arg-declarations d) (:arg-declarations b)))
+    (is (= :missing (:props b)) "parentOf is neither transitive nor symmetric"))
+  (is (= #{:symmetric} (:props (block (v/describe kb 'siblingOf W))))))
+
 (tu/deftest-kb an-individual-is-described-by-its-types-and-where-it-is-mentioned
   (let [d (v/describe kb 'Muffet N)]
     (testing "an individual, by the spelling and by the taxonomy alike"

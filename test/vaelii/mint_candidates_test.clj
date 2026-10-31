@@ -13,6 +13,7 @@
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.special :as special]
@@ -111,13 +112,13 @@
     (into #{} (mapcat #(reads/as-stored-mints-about-global idx %)) (reads/as-stored-mint-terms idx))))
 
 (defn- concluded
-  "The handles a stored justification `special/mint-informant?` accepts concludes, of a
+  "The handles a stored justification `kb/mint-informant?` accepts concludes, of a
   shape the family files: what `reindex` posts."
   [kb]
   (let [recs (:records kb)]
     (into #{}
           (comp (keep #(p/get-justification recs %))
-                (filter #(special/mint-informant? (:informant %)))
+                (filter #(kb/mint-informant? kb (:informant %)))
                 (map :consequence)
                 (filter #(some-> (p/get-sentex recs %) :sentence (@#'special/mint-term))))
           (p/justification-ids recs))))

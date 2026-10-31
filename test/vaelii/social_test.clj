@@ -14,23 +14,21 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
-(defn- holds-ask      [s ctx]         (boolean (v/ask? tu/*kb* s ctx)))
 (defn- holds-query    [s ctx]         (boolean (v/query? tu/*kb* s ctx {:max-depth 5})))
-(defn- holds-genl     [sub super ctx] (boolean (v/genl? tu/*kb* sub super ctx)))
 (defn- holds-disjoint [a b ctx]       (boolean (v/disjoint? tu/*kb* a b ctx)))
 
 (tu/deftest-kb the-relationship-vocabulary-genls-into-knows-and-friendof
-  (is (holds-genl 'relativeOf 'knows 'CxWell))
-  (is (holds-genl 'coworkerOf 'knows 'CxWell))
-  (is (holds-genl 'roommateOf 'knows 'CxWell))
-  (is (holds-genl 'originatorOf 'relativeOf 'CxWell))
-  (is (holds-genl 'romanticPartnerOf 'friendOf 'CxWell))
-  (is (not (holds-genl 'marriedTo 'romanticPartnerOf 'CxWell))
+  (is (tu/holds-genl 'relativeOf 'knows 'CxWell))
+  (is (tu/holds-genl 'coworkerOf 'knows 'CxWell))
+  (is (tu/holds-genl 'roommateOf 'knows 'CxWell))
+  (is (tu/holds-genl 'originatorOf 'relativeOf 'CxWell))
+  (is (tu/holds-genl 'romanticPartnerOf 'friendOf 'CxWell))
+  (is (not (tu/holds-genl 'marriedTo 'romanticPartnerOf 'CxWell))
       "no edge: it would carry marriedTo's own knows-rule under friendOf's and cover it")
-  (is (holds-genl 'dwellsIn 'livesIn 'CxWell))
-  (is (holds-genl 'dwelling 'container 'CxWell))
-  (is (not (holds-genl 'dwelling 'building 'CxWell)) "an apartment is a dwelling and not a building")
-  (is (holds-genl 'dwelling 'tangible 'CxWell) "container carries dwelling to tangible"))
+  (is (tu/holds-genl 'dwellsIn 'livesIn 'CxWell))
+  (is (tu/holds-genl 'dwelling 'container 'CxWell))
+  (is (not (tu/holds-genl 'dwelling 'building 'CxWell)) "an apartment is a dwelling and not a building")
+  (is (tu/holds-genl 'dwelling 'tangible 'CxWell) "container carries dwelling to tangible"))
 
 (tu/deftest-kb dwelling-is-disjoint-from-organism-substance-and-person
   (doseq [t '[organism substance person clothing furniture]]
@@ -54,15 +52,15 @@
   (tu/with-terms [Resident1 Resident2 Unit]
     (v/assert kb (list 'dwellsIn Resident1 Unit) 'CxWell)
     (testing "one dweller alone derives no roommateOf (red)"
-      (is (not (holds-ask (list 'roommateOf Resident1 Resident2) 'CxWell))))
+      (is (not (tu/holds-ask (list 'roommateOf Resident1 Resident2) 'CxWell))))
     (v/assert kb (list 'dwellsIn Resident2 Unit) 'CxWell)
     (testing "two different dwellers of the same dwelling derive roommateOf (green)"
-      (is (holds-ask (list 'roommateOf Resident1 Resident2) 'CxWell))
-      (is (holds-ask (list 'knows Resident1 Resident2) 'CxWell) "roommateOf genls knows"))))
+      (is (tu/holds-ask (list 'roommateOf Resident1 Resident2) 'CxWell))
+      (is (tu/holds-ask (list 'knows Resident1 Resident2) 'CxWell) "roommateOf genls knows"))))
 
 (tu/deftest-kb relationshiplabel-is-a-plain-ternary-fact
   (tu/with-terms [Namer Named]
     (v/assert kb (list 'person Namer) 'CxWell)
     (v/assert kb (list 'person Named) 'CxWell)
     (v/assert kb (list 'relationshipLabel Namer Named "mentor") 'CxWell)
-    (is (holds-ask (list 'relationshipLabel Namer Named "mentor") 'CxWell))))
+    (is (tu/holds-ask (list 'relationshipLabel Namer Named "mentor") 'CxWell))))

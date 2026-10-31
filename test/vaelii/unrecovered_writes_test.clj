@@ -44,10 +44,7 @@
            (backend/close-dir! dir)
            (doseq [x (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File x))))))
 
-(defn- ex-type
-  "The `:type` of the `ex-info` `f` throws, or `::none`."
-  [f]
-  (try (f) ::none (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+(defn- ex-type [f] (tu/refusal-type f ::none))
 
 ;; ---- the shapes, and that each one is recognised -------------------------
 

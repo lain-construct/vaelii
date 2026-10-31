@@ -80,13 +80,13 @@
 (defn- reachable-predicates
   "The trigger predicates that can answer the exception conjunct `lit`, whose predicate is
   `pred`: the global `specs` of `pred` for a positive conjunct, and `specs` plus `genls`
-  for a negated one, each across `genlInverse` edges too (`special/signed-all`), since a
+  for a negated one, each across `genlInverse` edges too (`rules/signed-reach`), since a
   swapped tuple has the multiset of arguments the shape test compares."
   [kb pred lit]
   (let [tax (reasoning/taxonomy kb)]
     (if (sx/negation? lit)
-      (into (special/signed-all tax :down pred) (special/signed-all tax :up pred))
-      (special/signed-all tax :down pred))))
+      (into (rules/signed-reach tax :down pred) (rules/signed-reach tax :up pred))
+      (rules/signed-reach tax :down pred))))
 
 (defn- negates-reaches?
   "Can a trigger on the predicate `tp` answer the negated conjunct `lit` on `pred` through
@@ -258,12 +258,12 @@
           test-for (memoize #(inherit/moved-goal-test kb %))]
       (into #{}
             (mapcat (fn [[rh triggers]]
-                      (let [firings (jtms/dependents tms rh)
+                      (let [firings (delay (jtms/dependents tms rh))
                             moved   (when-not (#{:all :all-rejoin} triggers)
                                       (special/different-rechecked-terms kb rh triggers))]
                         (cond
-                          (#{:all :all-rejoin} triggers) firings
-                          moved (firings-naming kb firings moved)
+                          (#{:all :all-rejoin} triggers) @firings
+                          moved (firings-naming kb @firings moved)
                           :else
                           (let [sens   (remove withdrawal-marker? triggers)
                                 marks  (filter withdrawal-marker? triggers)
@@ -279,8 +279,8 @@
                                 seps   (keep ::special/separation marks)]
                             (cond
                               (and (seq sens) (or (= :all shapes) (empty? block-lits)))
-                              firings                        ; nothing to narrow by
-                              (and (seq marks) (nil? rsx)) firings
+                              @firings                       ; nothing to narrow by
+                              (and (seq marks) (nil? rsx)) @firings
                               :else
                               (concat
                                (when (seq sens)
@@ -291,17 +291,17 @@
                                              (if-let [j (p/get-justification (:records kb) jid)]
                                                (reach? (:bindings j))
                                                false))
-                                           firings)))
+                                           @firings)))
                                (when (some #{::special/entailment} marks)
-                                 (entailment-candidates kb rsx firings block-lits blocked))
+                                 (entailment-candidates kb rsx @firings block-lits blocked))
                                ;; a computed answer moves with every source the prover
                                ;; reads, which no argument of the firing names
-                               (when (some #{::special/computed} marks) firings)
-                               (when (seq seps) (firings-naming kb firings (into #{} cat seps)))
+                               (when (some #{::special/computed} marks) @firings)
+                               (when (seq seps) (firings-naming kb @firings (into #{} cat seps)))
                                (when-let [ms (seq (keep ::special/merged marks))]
-                                 (firings-naming kb firings (into #{} cat ms)))
+                                 (firings-naming kb @firings (into #{} cat ms)))
                                (when (seq pres)
-                                 (preserving-candidates kb rsx firings pres test-for
+                                 (preserving-candidates kb rsx @firings pres test-for
                                                         norm))
                                (except-candidates tms rh (keep ::special/except-closure marks)))))))))
             queued))))

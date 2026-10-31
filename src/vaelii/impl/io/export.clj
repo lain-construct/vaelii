@@ -1,62 +1,18 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.io.export
-  "Write a KB out as a portable **export dump** — a directory holding the record
-  store's three streams, in a format that survives a backend change, an
-  index-representation change, and a record class rename.
-
-  The `:disk` store directory looks like an archive and is not one: it holds frozen
-  *records*, so renaming a record class makes every frame in it thaw to a
-  `{:nippy/unthawable …}` placeholder — silently, because a placeholder is a perfectly
-  good map.  Hence the one non-negotiable rule of this format:
-
-  > **A frame never carries a class name.**
-
-  A frame is the record's **field map** — `(into {} record)`, a plain map — so a rename
-  changes nothing a dump holds, and `vaelii.impl.io.import`'s `field-map` already
-  accepts one.
-
-  What a dump holds is what the record store holds, because everything else the KB has
-  is derived from it: sentexes, justifications, and per-handle provenance.  A premise
-  needs no stream of its own — a premise *is* a sentex whose `:strength` is non-nil, a
-  field on the record in both backends, so the mark rides along with it.  The index is
-  a cache (`reindex`), the taxonomy and the TMS labels are recomputed (`recover`).
-
-      <dump>/
-        meta.edn                     the marker, the schema, and the counts
-        sentexes.nippy.stream        one frame per sentex
-        justifications.nippy.stream  one frame per justification
-        provenance.nippy.stream      [handle provenance-map] per frame (omitted when none)
-        index/entries.nippy.stream   [key value] per frame — only in :records+index
-        index/index.edn              the layout version + the records fingerprint
-
-  **The index is optional and always discardable.**  `:variant :records+index` writes it
-  as well, in the `[structured-key value]` projection every index backend shares
-  (`p/index-entries`), so an index written by one backend loads into another.  It is a
-  *cache*: a reader replays it only when it can prove the entries were derived from
-  exactly the records beside them (`vaelii.impl.io.fingerprint`), and rebuilds otherwise.
-  That is what makes writing it safe — an index that does not match its records is worse
-  than no index, because every lookup then answers confidently and short.
-
-  **Framing** is the chunked layout `vaelii.impl.io.frames` writes and reads: a
-  run of `[int32 length][compressed chunk]`, each chunk an independent compressed
-  stream over back-to-back nippy frames.  Constant memory on both sides — the writer
-  holds one chunk, never the corpus.  `meta.edn` *states* the framing rather than
-  implying it through a version number, because the engine's dumps number their own
-  format and a reader must never have to guess.
-
-  **`meta.edn` is written last**, which makes it double as the completion marker:
-  `vaelii.browser.catalog/classify` keys on it, so a half-written or cancelled export is
-  not offered as loadable.  That is the one ordering constraint in the whole format.
-
-  Export from a KB nobody is writing: the walk fetches record by record, and the
-  single-writer contract offers no snapshot to walk instead."
+  "Write a KB out as a portable export dump: a directory holding the record store's streams
+  in a format that survives a backend change, an index-representation change and a record
+  class rename. A frame never carries a class name; it is the record's field map. `meta.edn`
+  is written last and is the completion marker. The index is optional and always
+  discardable. See docs/storage.md, \"Exporting and importing a dump\"."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.impl.io.fingerprint :as fp]
             [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.snapshot :as snapshot]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.opts :as opts]
@@ -89,18 +45,10 @@
 ;;; ── compression ───────────────────────────────────────────────────────
 
 (def ^:private compressions
-  "What a writer emits.  Measured on a 47k-sentex generated corpus: `:none` 5.2 MB in
-  0.3s, `:gzip` 463 kB in 1.0s, `:xz` 331 kB in 2.4s.  So `:gzip` is the default — it
-  eats most of what the field names cost, at a speed nobody notices — and `:xz`
-  (LZMA2) buys another 28% for 2.3x the write, the trade a multi-gigabyte archive is
-  usually willing to make.  Its encoder is **per chunk** — a chunk is its own compressed
-  stream, which is what lets a reader decompress any one of them — so one is allocated and
-  dropped per chunk rather than held for the stream, and `vaelii.impl.io.frames` sizes its
-  dictionary to a chunk (`xz-dict-bytes`) so that allocation is 24 MB rather than 93.
-  Either way the peak is one encoder, whatever the corpus.  `:none` is the opt-out.
-
-  The reader additionally reads `:zstd` from a dump some other tool wrote, which is why
-  it refuses it and we do not write it."
+  "What a writer emits: `:gzip` (the default), `:xz` and `:none`. The encoder is per chunk, so
+  the peak is one encoder whatever the corpus. The reader also reads `:zstd` from a dump
+  another tool wrote, and the writer does not emit it. Measurements: docs/storage.md,
+  \"Exporting and importing a dump\"."
   #{:gzip :xz :none})
 
 (defn- check-compression!
@@ -115,19 +63,18 @@
 
 ;;; ── the destination ───────────────────────────────────────────────────
 
-(defn- ensure-empty-dir!
-  "`dir` as an empty directory, created when it does not exist.  A directory that
-  already holds anything is **refused**: a dump merged into another dump is not a
-  dump — the streams would interleave two KBs' handles and `meta.edn` would count one
-  of them."
-  ^File [dir]
+(defn ensure-empty-dir!
+  "`dir` as an empty directory, created when it does not exist. A directory that already
+  holds anything is refused with `:not-empty`, a file with `:not-a-directory`. `what`
+  names the destination and `noun` the thing written, in the messages."
+  ^File [dir what noun]
   (let [^File d (io/file dir)]
     (when (.isFile d)
-      (throw (ex-info (str "export destination " (.getPath d) " is a file, not a directory")
+      (throw (ex-info (str what " " (.getPath d) " is a file, not a directory")
                       {:type :not-a-directory :dir (.getPath d)})))
     (when-let [kids (seq (.listFiles d))]
-      (throw (ex-info (str "export destination " (.getPath d) " is not empty ("
-                           (count kids) " entries) — a dump is a directory of its own")
+      (throw (ex-info (str what " " (.getPath d) " is not empty ("
+                           (count kids) " entries) — " noun " is a directory of its own")
                       {:type :not-empty :dir (.getPath d)
                        :entries (mapv #(.getName ^File %) (take 8 kids))})))
     (.mkdirs d)
@@ -141,23 +88,12 @@
 ;;; ── the frame streams ─────────────────────────────────────────────────
 
 (defn- record-frames
-  "The frame stream for `ids`: each record fetched by handle and written as its
-  **field map**.  `(into {} record)` is a shape conversion, not a translation — a
-  Clojure record is already a map — and it is what drops the class name and the
-  positional layout, which is the whole point of the format.
-
-  A rule frame adds `:sentence` — the `implies` form `sentex/sentence-of` builds from the
-  record's `:antecedent` and `:consequent` — because a rule record holds no sentence and
-  a dump's rule frame carries one, so the format a reader parses is the same whichever
-  build wrote it.
-
-  A handle whose record has gone is skipped rather than written as a hole, so the
-  count `meta.edn` reports is the count the stream holds.
-
-  `tap`, when non-nil, is called with `[handle record]` for each frame written, so a caller
-  that needs to see every record — the index fingerprint does — rides the walk the writer
-  is already making rather than making a second one.  `r` is a `vaelii.impl.progress`
-  reporter ticked once per handle."
+  "The frame stream for `ids`: each record fetched by handle and written as its field map
+  (`(into {} record)`, which drops the class name and positional layout). A rule frame adds
+  `:sentence`, built by `sentex/sentence-of`. A handle whose record has gone is skipped.
+  `tap`, when non-nil, is called with `[handle record]` per frame written, so the index
+  fingerprint rides this walk. `r` is a `vaelii.impl.progress` reporter ticked once per
+  handle."
   [store fetch ids tap r]
   (keep (fn [id]
           (progress/tick! r)
@@ -168,15 +104,10 @@
         ids))
 
 (defn- provenance-frames
-  "The `[handle provenance-map]` frames for the handles that have one.  Provenance is
-  optional per handle and belief never reads it, so this is a filter over the same walk
-  rather than a stream the store could enumerate.
-
-  **Justification handles as well as sentex ones.**  `core/add-provenance` writes under
-  whatever handle it is given, the provenance store is keyed by handle rather than by
-  kind, and the two kinds draw from one counter — so a walk over the sentexes alone
-  drops every provenance map a caller put on a firing.  `r` is a `vaelii.impl.progress`
-  reporter ticked once per handle."
+  "The `[handle provenance-map]` frames for the handles that have one, a filter over the same
+  walk. It covers justification handles as well as sentex ones, since provenance is keyed by
+  handle and the two kinds share one counter. `r` is a progress reporter ticked once per
+  handle."
   [store ids r]
   (keep (fn [id]
           (progress/tick! r)
@@ -276,58 +207,22 @@
       n)))
 
 (defn export!
-  "Export `kb`'s records to `dir` as a portable dump, and return a summary:
-
-      {:variant :records :sentexes n :justifications n :provenance n
-       :index-entries n :bytes n :elapsed-ms n :dir \"…\"}
+  "Export `kb`'s records to `dir` as a portable dump, and return a summary `{:variant :records
+  :sentexes n :justifications n :provenance n :index-entries n :bytes n :elapsed-ms n :dir
+  \"…\"}`.
 
   `opts`: `{:variant :records|:records+index :compression :gzip|:xz|:none :chunk-size n
-  :provenance? bool :on-progress f}` (defaults `:records`, `:gzip`, 10000 and true;
-  `:xz` trades write speed for
-  a materially smaller archive — compression is a stream wrapper around a whole chunk,
-  orthogonal to the nippy encoding of the frames inside it).  `:on-progress` is called
-  with `{:phase :done :total}` — the form a corpus reader's `load-dir!`,
-  `io.import/import-dump` and `io.generate/load-into` report, so
-  `vaelii.browser.catalog` draws a bar from it — at every chunk boundary, in phase order
-  `:sentexes`, `:justifications`, `:provenance`, `:index-entries`, `:meta`.  A callback
-  that **throws** is how a caller cancels: the throw propagates out of the phase it
-  interrupted, leaving a directory with no `meta.edn`, which is not a loadable dump.
-
-  Handles are exported as they stand — a justification names its antecedents by
-  handle, and an `exceptWhen` meta-sentex names its rule by handle *inside a stored
-  sentence*, so a dump that renumbered would have to rewrite content.
-
-  `:records+index` additionally writes `index/`, whose entries are only ever a cache: the
-  fingerprint beside them is computed on the **same walk** that writes the sentex frames,
-  so a reader can tell whether they describe the records it just stored, and rebuild if
-  not.  It is the expensive half of the dump and then some — measured at 6.2 entries per
-  record and 3.8× the records' bytes, for a load twice as fast —
-  so it is opt-in rather than the default.
-
-  `:belief? true`, the default, also writes `reasoning/`: the KB's reasoning image
-  (`vaelii.impl.reasoning-image`), written with content fingerprints of the sentexes and the
-  justifications this dump streams, taken on the same two walks.  An import that lands
-  exactly those records under the same source identity installs it in place of `recover`.
-  It is written only for a KB on the dense network, with the default provers and solver,
-  whose network covers its records; the summary's `:reasoning-image` is `:written`,
-  `:not-writable` or `:omitted` (`:belief? false`).  A phase `:belief` reports it.  **It
-  is declined, as `:not-writable`, when the change clock moved during the export**: the
-  network is read after the walks and written with their fingerprints, so a write between
-  the two would install on import as belief the streamed records never had.
-
-  `dir` must not exist or must be empty (`:type :not-empty`), and `meta.edn` is
-  written **last**.  The provenance stream is omitted entirely when no handle carries
-  provenance; the reader already treats it as optional.
-
-  **`:provenance? false` omits it even when handles do carry it**, and it is not a
-  micro-optimization: provenance is an open per-handle map an application layers whatever
-  it likes into, so it has no size bound of its own and can dominate the records it
-  annotates.  Measured on one large imported KB, the provenance stream is **57% of the
-  dump, larger than the records**, and what an import pipeline writes there is its own
-  bookkeeping rather than anything a reader of the ontology wants.  Belief never reads
-  provenance and the importer treats the stream as optional, so a dump without it is a
-  complete KB, just an unannotated one; that makes this the right knob for a dump meant
-  to be downloaded, and the wrong one for a backup."
+  :provenance? bool :belief? bool :on-progress f}`, defaults `:records`, `:gzip`, 10000, true
+  and true. `:on-progress` is called with `{:phase :done :total}` at every chunk boundary, in
+  phase order `:sentexes`, `:justifications`, `:provenance`, `:index-entries`, `:belief`,
+  `:meta`; a callback that throws cancels the export and leaves a directory with no
+  `meta.edn`. Handles are exported as they stand. `:records+index` also writes `index/`,
+  with its fingerprint computed on the same walk as the sentex frames. `:belief? true` also
+  writes `reasoning/` for a KB on the dense network with the default provers and solver; the
+  summary's `:reasoning-image` is `:written`, `:not-writable` (also when the change clock
+  moved during the export) or `:omitted`. `:provenance? false` omits the provenance stream,
+  which is also omitted when no handle carries one. `dir` must not exist or must be empty
+  (`:type :not-empty`). See docs/storage.md, \"Exporting and importing a dump\"."
   ([kb dir] (export! kb dir {}))
   ([kb dir {:keys [variant compression chunk-size on-progress provenance? belief?]
             :or   {variant :records compression :gzip chunk-size 10000
@@ -338,7 +233,7 @@
    (check-variant! variant)
    (let [t0       (System/nanoTime)
          clock    (observe/change-clock)
-         ^File d  (ensure-empty-dir! dir)
+         ^File d  (ensure-empty-dir! dir "export destination" "a dump")
          records  (:records kb)
          sx-set   (p/sentex-ids records)
          j-set    (p/justification-ids records)
@@ -409,6 +304,7 @@
                      :provenance-count    p-n
                      :index-entry-count   i-n
                      :reasoning-image     (some? image)
+                     :reasoners           (vec (sort (kb/reasoners-of kb)))
                      :handle-policy       :preserved
                      :written-at          (str (Instant/now))
                      :writer              (writer-id)))

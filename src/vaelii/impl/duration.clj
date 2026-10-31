@@ -23,15 +23,10 @@
   [kb context [dim unit] lo hi d sup]
   (cond
     (sx/variable? d) [[{d (provers/render-quantity lo hi unit)} sup]]
-    (provers/measure? d) (let [[[dim* lo* hi*] msup]
-                               (provers/normalize-quantity-with-support kb d context)
-                               [base bsup] (provers/base-unit-with-support kb (last d) context)]
-                           ;; a unit with no `conversionFactor` is its own base, so a
-                           ;; dimension check alone reads 5 Fortnight equal to 5 Second
-                           (if (and (= dim dim*)
-                                    (= unit base)
+    (provers/measure? d) (let [[[k lo* hi*] msup] (provers/measure-with-support kb d context)]
+                           (if (and (= [dim unit] k)
                                     (provers/q= lo lo*) (provers/q= hi hi*))
-                             [[{} (into (into sup msup) bsup)]]
+                             [[{} (into sup msup)]]
                              []))
     :else []))
 
@@ -49,13 +44,9 @@
                  (keep (fn [m]
                          (let [measure (get (second m) '?m)]
                            (when (provers/measure? measure)
-                             (let [[[dim lo hi] nsup]
-                                   (provers/normalize-quantity-with-support kb measure context)
-                                   [base bsup]
-                                   (provers/base-unit-with-support kb (last measure) context)]
-                               [[[dim base]
-                                 (provers/round-magnitude lo) (provers/round-magnitude hi)]
-                                (into (conj nsup (first m)) bsup)])))))
+                             (let [[[k lo hi] sup] (provers/measure-with-support kb measure context)]
+                               [[k (provers/round-magnitude lo) (provers/round-magnitude hi)]
+                                (conj sup (first m))])))))
                  ms)
         ls (into #{} (map first) rs)]
     (when (= 1 (count ls))

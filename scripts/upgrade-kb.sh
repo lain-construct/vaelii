@@ -12,8 +12,8 @@
 # KB-DIR defaults to checkouts/kb beside this checkout. A current KB installs its image
 # and is left as it was. A stale one pays one full recover, which grows with the store.
 # A KB another process holds open is refused by its single-writer lock. The heap is
-# VAELII_HEAP, default 40g, and a KB over postgres records runs under `+with-postgres`
-# (scripts/lib/start.sh).
+# VAELII_HEAP, else half of physical memory up to 31g, and a KB over postgres records
+# runs under `+with-postgres` (scripts/lib/start.sh).
 #
 # --verify goes to every `upgrade` run (docs/operations.md): it recovers anyway and
 # reports whether belief changed. --trust keeps an image written under other engine
@@ -40,7 +40,8 @@ for arg in "$@"; do
 done
 [ ${#DIRS[@]} -eq 0 ] && DIRS=("")
 cd "$ROOT"
-JVM_OPTS="${JVM_OPTS:-} $(start_jvm_opts)"
+JVM_HEAP_OPTS="$(start_jvm_opts)" || exit 1
+JVM_OPTS="${JVM_OPTS:-} $JVM_HEAP_OPTS"
 export JVM_OPTS
 
 for arg in "${DIRS[@]}"; do

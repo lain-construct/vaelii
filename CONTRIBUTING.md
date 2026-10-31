@@ -384,6 +384,15 @@ removing one or changing an arglist or an arity is class 1: a **Breaking** entry
 Adding one is Additive. The seed terms' arities are frozen although they are shipped data,
 because the koinii modules write and read those terms at those arities.
 
+**A release's renames are data too.** A change that renames, merges, re-means or retires a
+name (a var, a daemon op, a shipped term) adds a row to `resources/renames/unreleased.edn`:
+KB vocabulary under `:renames`, `:context-merges`, `:re-meanings` and `:retired`, and the
+public API, koinii's vars and the daemon's ops under `:api` with the same keys. The release
+cut renames the file to `<version>.edn` and starts an empty `unreleased.edn`. `upgrade
+--sync` rewrites stored premises from the vocabulary rows (docs/catalog.md, "A release's
+renames"), and `lein lint`'s E22 holds the file to the Breaking entries, the shipped KB and
+the goldens.
+
 Adding a **method to an existing interface** is class 1 rather than Additive, and it is the
 case people misfile: an implementer that satisfied the protocol yesterday satisfies it
 in part today, and finds out at the call site. Prefer a new protocol advertised beside
@@ -657,7 +666,7 @@ lein test :slow                  # only the marked ones
 lein test-multi-jvm              # the cross-process tests — opt-in, in neither of the above
 lein test-fuzz                   # the exhaustive truncation sweep — likewise opt-in
 lein test-full-kb [KB-DIR]       # the probes of a full-size KB on disk — likewise opt-in
-lein test :red                   # the specified-but-not-built tests — opt-in, expected red
+lein test-red                    # the specified-but-not-built tests — opt-in, fails on one that passes
 lein test-backends               # the whole suite once per backend (all nine)
 lein test-sweeps                 # ...and once per sweep (all seven)
 lein test-matrix                 # both at once, concurrently — ~13 min, not ~55.
@@ -786,9 +795,12 @@ mocks — the in-memory stores by default, with no external dependency.
   ceilings, so the harness runs on every commit.
 - **`^:red` marks a test that specifies behaviour the engine does not have yet**, and
   it is the fourth mark `:all` passes over: such a test fails today by design, so no
-  selector but `:red` runs it and the gate stays green while it waits. `lein test :red
-  <namespace>` runs the marked tests, and a red test whose behaviour has landed drops
-  the mark in the change that makes it pass. A test pinning a limit the engine has *on
+  selector but `:red` runs it and the gate stays green while it waits. `lein test-red
+  [<namespace> …]` runs the marked tests with the verdict inverted per test: it exits 1
+  on a red test that passes and prints the `lein test :only` line for each one. A red
+  test whose behaviour has landed drops the mark in the change that makes it pass, and
+  `lein gate` prints "red owed" when the pending diff touches a file the red tests drive
+  (`RED_OWED_RE`, `scripts/gate.sh`). A test pinning a limit the engine has *on
   purpose* is an ordinary test, not a red one.
 - **The suite logs at `:error` and no lower.** Trove's default backend prints from
   `:info` up, and the suite provokes `:warn` on purpose — `::dropped-conclusion`,

@@ -36,15 +36,11 @@
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
+;; The KB is built per test because `restarted` opens a second KB over the same store
+;; and writes through it, which a KB shared with later tests would not see.
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 (def ^:private U 'CxUniverse)
-
-(defn- ex-type
-  "The `:type` of the ex-info a thunk throws, or nil.  A refusal that collapses into an
-  arity or naming error is exactly the regression a bare `thrown?` stays green through."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (defn- stored
   "The sentence each believed match of `pattern` is stored under, as a set — what the
@@ -223,11 +219,6 @@
       (is (= #{(list covering W A B C)} (stored kb (list covering '?w '?a '?b '?c)))
           "spelled the way every later assertion spells it"))))
 
-(defn- orders [coll]
-  (if (empty? coll)
-    [[]]
-    (mapcat (fn [x] (map #(vec (cons x %)) (orders (remove #{x} coll)))) coll)))
-
 (tu/deftest-kb a-late-mark-reaches-a-rule-over-facts-already-stored
   ;; A mark moves which tuples an antecedent reaches over facts already stored.  A fact
   ;; out of canonical order is re-spelled and reaches the rules as new content; a fact
@@ -238,7 +229,7 @@
           [x y]           [[0 1] [1 0]]
           target          [0 1]]
     (let [results
-          (vec (for [order (orders [:rule :fact :mark])]
+          (vec (for [order (tu/orders [:rule :fact :mark])]
                  (tu/with-terms [rel A B C flagged]
                    (let [ab    [A B]
                          tail  (when ternary? [C])
@@ -357,12 +348,12 @@
 (tu/deftest-kb a-malformed-declaration-is-refused-at-the-entry-point
   (tu/with-terms [p]
     (testing "positions are one-based positive integers"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgAndRest p 0) U))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgAndRest p -1) U))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgs p 1 0) U)))))
+      (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'commutativeInArgAndRest p 0) U))))
+      (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'commutativeInArgAndRest p -1) U))))
+      (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'commutativeInArgs p 1 0) U)))))
     (testing "a named set names at least two distinct positions, or it licences nothing"
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgs p 1) U))))
-      (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutativeInArgs p 1 1) U)))))))
+      (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'commutativeInArgs p 1) U))))
+      (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'commutativeInArgs p 1 1) U)))))))
 
 (tu/deftest-kb a-function-spelled-fn-takes-each-commuting-mark-in-either-arrival-order
   ;; `…Fn` names a function by spelling, so the relation slot reads no declaration and the
@@ -379,9 +370,9 @@
       (v/assert kb (list 'commutativeInArgs TailFn 1 2) U)
       (is (= #{[:rest 2] [:args [1 2]]} (groups TailFn)))
       (testing "an individual, a type slot and a predicate-only mark still refuse"
-        (is (= :not-well-formed (ex-type #(v/assert kb (list 'commutative Ann) U))))
-        (is (= :not-well-formed (ex-type #(v/assert kb (list 'genl PairFn 'thing) U))))
-        (is (= :not-well-formed (ex-type #(v/assert kb (list 'symmetric PairFn) U))))))))
+        (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'commutative Ann) U))))
+        (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'genl PairFn 'thing) U))))
+        (is (= :not-well-formed (tu/refusal-type #(v/assert kb (list 'symmetric PairFn) U))))))))
 
 (tu/deftest-kb the-written-position-order-does-not-decide-the-entry
   ;; The three arms key on one descriptor however the author wrote the positions, or a

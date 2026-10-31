@@ -38,11 +38,6 @@
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
-(defn- permutations [coll]
-  (if (empty? coll)
-    [[]]
-    (mapcat (fn [x] (map #(vec (cons x %)) (permutations (remove #{x} coll)))) coll)))
-
 (defn- terms
   "A fresh temporary for each symbol, keyed by the symbol."
   [syms]
@@ -265,7 +260,7 @@
 (defn- orders
   "The arrival orders `how` admits: a knock that names the edge's handle follows it."
   [how]
-  (cond->> (permutations [:named :other :knock :claim])
+  (cond->> (tu/orders [:named :other :knock :claim])
     (#{:retract :except} how) (filter #(< (.indexOf ^java.util.List % :named) (.indexOf ^java.util.List % :knock)))))
 
 (def ^:private sampled
@@ -442,7 +437,7 @@
   (sibling-orders-agree (fn [parts] [parts (vec (rseq parts))]) true))
 
 (deftest ^:slow a-sibling-route-carries-the-firing-in-every-order
-  (sibling-orders-agree permutations false))
+  (sibling-orders-agree tu/orders false))
 
 ;; ---- a permuting mark, stated in each sibling -----------------------------
 ;;
@@ -503,7 +498,7 @@
 
 (deftest a-permuting-mark-in-each-sibling-holds-the-mirrored-firing-until-the-last-goes
   (doseq [mark-of   [#(list 'symmetric %)]
-          order     (permutations [:ma :mb :claim])
+          order     (tu/orders [:ma :mb :claim])
           withdrawn [[:ma :mb] [:mb :ma]]]
     (testing (str (first (mark-of 'r)) " " order " withdrawing " withdrawn)
       (is (= (mapv #(vec (repeat 2 (vec (repeat 4 %)))) [true true false])
@@ -561,10 +556,10 @@
       (is (= [true false] (claim-answers kind order))))))
 
 (deftest a-claim-on-an-unhidden-route-holds-the-firing-in-sampled-orders
-  (claim-orders-agree (map #(into [:named :other] %) (permutations [:claim0 :claim1 :denial :rule]))))
+  (claim-orders-agree (map #(into [:named :other] %) (tu/orders [:claim0 :claim1 :denial :rule]))))
 
 (deftest ^:slow a-claim-on-an-unhidden-route-holds-the-firing-in-every-order
-  (claim-orders-agree (permutations [:claim0 :claim1 :named :other :denial :rule])))
+  (claim-orders-agree (tu/orders [:claim0 :claim1 :named :other :denial :rule])))
 
 ;; ---- belief reads a route the reader does not see -------------------------------
 ;;
@@ -589,7 +584,7 @@
 
 (deftest a-route-through-an-excepted-claim-or-edge-holds-belief-and-not-visibility
   (doseq [kind [:preserve :subsume], hide [:claim0 :other]
-          order (map #(conj % :other :denial) (permutations [:claim0 :claim1 :named :rule]))]
+          order (map #(conj % :other :denial) (tu/orders [:claim0 :claim1 :named :rule]))]
     (testing (str kind " " hide " " order)
       (is (= [true false] (hidden-route-answers kind order hide))))))
 
@@ -633,7 +628,7 @@
                          [:other :named :rule :denial :claim] [:named :denial :claim :rule :other]]))
 
 (deftest ^:slow a-claim-on-its-own-second-route-holds-the-next-firing-in-every-order
-  (chained-orders-agree (permutations [:rule :claim :named :other :denial])))
+  (chained-orders-agree (tu/orders [:rule :claim :named :other :denial])))
 
 ;; ---- a read nested in a search does not leave an answer for the next read ---------
 ;;
@@ -672,6 +667,6 @@
       (into {} (map (fn [r] [r ((reads r))])) order))))
 
 (deftest a-read-inside-a-search-holds-nothing-the-next-read-is-served
-  (doseq [order (permutations [:in-E :in-H :ask-E :ask-H])]
+  (doseq [order (tu/orders [:in-E :in-H :ask-E :ask-H])]
     (testing (str order)
       (is (= {:in-E true :in-H true :ask-E true :ask-H true} (open-question-answers order))))))

@@ -8,6 +8,7 @@
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.impl.decide.argument :as argument]
+            [vaelii.impl.kb :as kb]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -15,18 +16,20 @@
 (use-fixtures :each (tu/neutral))
 
 (defn- arg-derived
-  "The informants of the stored justifications of `sentence`, in any context.  The fixture
+  "The informants of the stored justifications of `sentence`, in any context, a mint's
+  read as its declaring kind (`kb/mint-kind`).  The fixture
   loads under the root reading, so an argument declaration in force derives the membership
   as `arg` under the entailing reading and stores nothing under the constraint-only one."
   [kb sentence]
-  (into #{} (comp (mapcat #(v/supporting-justifications kb (:id %))) (map :informant))
+  (into #{} (comp (mapcat #(v/supporting-justifications kb (:id %)))
+                  (map #(let [i (:informant %)] (or (kb/mint-kind kb i) i))))
         (v/sentexes-matching kb sentence '?ctx)))
 
 (defn- arg-derivation-expected
   "What `arg-derived` answers for a membership an argument declaration types."
   [] (if argument/*assertive-arg-types?* #{'arg} #{}))
 
-;; ---- connected conjunctive antecedents: the test world's join rules -----
+;; ---- connected conjunctive antecedents in the starter -------------------
 
 (tu/deftest-kb a-part-is-located-where-its-whole-is
   ;; (implies (and (tangiblePartOf ?part ?whole) (locatedIn ?whole ?place)) (locatedIn ?part ?place))

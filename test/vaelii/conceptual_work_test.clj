@@ -20,8 +20,6 @@
 
 (def ^:private CPT 'CxTra)
 
-(defn- holds-ask  [s ctx]         (boolean (v/ask? tu/*kb* s ctx)))
-(defn- holds-genl [sub super ctx] (boolean (v/genl? tu/*kb* sub super ctx)))
 (defn- holds-isa  [x t ctx]       (boolean (v/isa? tu/*kb* x t ctx)))
 (defn- following? [p]             (boolean (v/has-prop? tu/*kb* :target-following p)))
 (defn- bound-value
@@ -47,34 +45,34 @@
   (doseq [k '[conceptual_work]]
     (is (= 1 (count (v/sentexes-matching kb (list 'comment k '?c) CPT)))
         (str k " carries one comment in the theory"))
-    (is (holds-genl k 'thing CPT) (str k " reaches thing from the theory")))
+    (is (tu/holds-genl k 'thing CPT) (str k " reaches thing from the theory")))
   (doseq [p '[carries subInformationOf agentClaims dataContent propositionalContent]]
-    (is (holds-ask (list 'binary_predicate p) CPT) (str p " is binary in the theory"))
+    (is (tu/holds-ask (list 'binary_predicate p) CPT) (str p " is binary in the theory"))
     (is (= 1 (count (v/sentexes-matching kb (list 'comment p '?c) CPT)))
         (str p " carries one comment in the theory")))
   (testing "intangiblePartOf is declared in the upper ontology and seen from the theory"
-    (is (holds-ask '(binary_predicate intangiblePartOf) CPT))
+    (is (tu/holds-ask '(binary_predicate intangiblePartOf) CPT))
     (is (= 1 (count (v/sentexes-matching kb '(comment intangiblePartOf ?c) 'CxUniverse)))))
   (testing "a conceptual work is information, and information is the content, not the medium"
-    (is (holds-genl 'conceptual_work 'information CPT))
-    (is (holds-genl 'conceptual_work 'intangible CPT)))
+    (is (tu/holds-genl 'conceptual_work 'information CPT))
+    (is (tu/holds-genl 'conceptual_work 'intangible CPT)))
   (testing "carries types a temporal carrier against the information it holds"
-    (is (holds-ask '(arg carries 1 temporal) CPT))
-    (is (holds-ask '(arg carries 2 information) CPT)))
+    (is (tu/holds-ask '(arg carries 1 temporal) CPT))
+    (is (tu/holds-ask '(arg carries 2 information) CPT)))
   (testing "intangiblePartOf specializes partOf and subInformationOf specializes it again"
-    (is (holds-genl 'intangiblePartOf 'partOf CPT))
-    (is (holds-genl 'subInformationOf 'intangiblePartOf CPT))
-    (is (holds-genl 'subInformationOf 'partOf CPT))
-    (is (holds-ask '(arg intangiblePartOf 1 intangible) CPT))
-    (is (holds-ask '(arg subInformationOf 1 information) CPT)))
+    (is (tu/holds-genl 'intangiblePartOf 'partOf CPT))
+    (is (tu/holds-genl 'subInformationOf 'intangiblePartOf CPT))
+    (is (tu/holds-genl 'subInformationOf 'partOf CPT))
+    (is (tu/holds-ask '(arg intangiblePartOf 1 intangible) CPT))
+    (is (tu/holds-ask '(arg subInformationOf 1 information) CPT)))
   (testing "agentClaims is typed and marked as the old claims relation was"
-    (is (holds-ask '(arg agentClaims 1 thing) CPT))
-    (is (holds-ask '(arg agentClaims 2 thing) CPT))
+    (is (tu/holds-ask '(arg agentClaims 1 thing) CPT))
+    (is (tu/holds-ask '(arg agentClaims 2 thing) CPT))
     (is (following? 'agentClaims)))
   (testing "dataContent is functional over a string; propositionalContent is not functional over a proposition"
-    (is (holds-ask '(quotedArg dataContent 2 string) CPT))
+    (is (tu/holds-ask '(quotedArg dataContent 2 string) CPT))
     (is (v/has-prop? tu/*kb* :functional 'dataContent))
-    (is (holds-ask '(arg propositionalContent 2 proposition) CPT))
+    (is (tu/holds-ask '(arg propositionalContent 2 proposition) CPT))
     (is (not (v/has-prop? tu/*kb* :functional 'propositionalContent))))
   (testing "neither CxWell nor CxUniverse reads the vocabulary"
     (is (empty? (v/sentexes-matching kb (list 'comment 'conceptual_work '?c) 'CxUniverse)))))
@@ -91,8 +89,8 @@
       (v/assert kb (list 'carries PaperCopy Article) CxDesk)
       (v/assert kb (list 'carries Chirp Article) CxDesk))
     (testing "both the tangible copy and the intangible chirp carry the work"
-      (is (holds-ask (list 'carries PaperCopy Article) CxDesk))
-      (is (holds-ask (list 'carries Chirp Article) CxDesk)))
+      (is (tu/holds-ask (list 'carries PaperCopy Article) CxDesk))
+      (is (tu/holds-ask (list 'carries Chirp Article) CxDesk)))
     (testing "carrying fixes nothing about the carrier's mass"
       (is (holds-isa PaperCopy 'tangible CxDesk))
       (is (holds-isa Chirp 'intangible CxDesk)))
@@ -110,12 +108,12 @@
       (v/assert kb (list 'event Burning) CxDesk)
       (v/assert kb (list 'destroyedInput Burning PaperCopy) CxDesk))
     (testing "the carrier's end is bounded by the burning"
-      (is (holds-ask (list 'instantNotAfter (list 'EndFn PaperCopy) (list 'EndFn Burning)) CxDesk)))
+      (is (tu/holds-ask (list 'instantNotAfter (list 'EndFn PaperCopy) (list 'EndFn Burning)) CxDesk)))
     (testing "nothing concludes the work destroyed or bounds its end"
-      (is (not (holds-ask (list 'destroyedInput Burning Article) CxDesk)))
-      (is (not (holds-ask (list 'instantNotAfter (list 'EndFn Article) (list 'EndFn Burning)) CxDesk))))
+      (is (not (tu/holds-ask (list 'destroyedInput Burning Article) CxDesk)))
+      (is (not (tu/holds-ask (list 'instantNotAfter (list 'EndFn Article) (list 'EndFn Burning)) CxDesk))))
     (testing "the carrier still carries the work"
-      (is (holds-ask (list 'carries PaperCopy Article) CxDesk)))))
+      (is (tu/holds-ask (list 'carries PaperCopy Article) CxDesk)))))
 
 ;; ---- intangiblePartOf and subInformationOf -------------------------------------------
 
@@ -127,9 +125,9 @@
       (v/assert kb (list 'conceptual_work Chapter) CxDesk)
       (v/assert kb (list 'subInformationOf Chapter Book) CxDesk))
     (testing "the chapter is a part of the book through each spec in the chain"
-      (is (holds-ask (list 'subInformationOf Chapter Book) CxDesk))
-      (is (holds-ask (list 'intangiblePartOf Chapter Book) CxDesk))
-      (is (holds-ask (list 'partOf Chapter Book) CxDesk))))
+      (is (tu/holds-ask (list 'subInformationOf Chapter Book) CxDesk))
+      (is (tu/holds-ask (list 'intangiblePartOf Chapter Book) CxDesk))
+      (is (tu/holds-ask (list 'partOf Chapter Book) CxDesk))))
   (tu/with-terms [CxDesk2 Book Frontmatter Preface]
     (desk! CxDesk2)
     (tu/with-entailing
@@ -139,7 +137,7 @@
       (v/assert kb (list 'subInformationOf Preface Frontmatter) CxDesk2)
       (v/assert kb (list 'subInformationOf Frontmatter Book) CxDesk2))
     (testing "subInformationOf is transitive"
-      (is (holds-ask (list 'subInformationOf Preface Book) CxDesk2)))))
+      (is (tu/holds-ask (list 'subInformationOf Preface Book) CxDesk2)))))
 
 (tu/deftest-kb a-mixed-tangible-and-intangible-part-pair-holds-neither-spec
   (tu/with-terms [CxDesk Soul Body]
@@ -149,10 +147,10 @@
       (v/assert kb (list 'tangible Body) CxDesk)
       (v/assert kb (list 'partOf Soul Body) CxDesk))
     (testing "the mixed pair holds the general relation"
-      (is (holds-ask (list 'partOf Soul Body) CxDesk)))
+      (is (tu/holds-ask (list 'partOf Soul Body) CxDesk)))
     (testing "neither spec is concluded, since their arg types do not admit this pair"
-      (is (not (holds-ask (list 'intangiblePartOf Soul Body) CxDesk)))
-      (is (not (holds-ask (list 'tangiblePartOf Soul Body) CxDesk))))))
+      (is (not (tu/holds-ask (list 'intangiblePartOf Soul Body) CxDesk)))
+      (is (not (tu/holds-ask (list 'tangiblePartOf Soul Body) CxDesk))))))
 
 ;; ---- agentClaims: an agent presenting a sentex as true, independent of carries -------
 
@@ -163,7 +161,7 @@
       (v/assert kb (list 'tangible DnaMolecules) CxDesk)
       (v/assert kb (list 'carries DnaMolecules DnaContent) CxDesk))
     (testing "the molecules are a carrier and their content is information"
-      (is (holds-ask (list 'carries DnaMolecules DnaContent) CxDesk))
+      (is (tu/holds-ask (list 'carries DnaMolecules DnaContent) CxDesk))
       (is (holds-isa DnaContent 'information CxDesk)))
     (testing "no rule concludes agentClaims from carries, so neither claims anything"
       (doseq [x [DnaMolecules DnaContent]]
@@ -185,10 +183,10 @@
         (v/assert kb (list 'agentClaims Ann h) CxDesk))
       (testing "the author's declared data and propositional content both read back"
         (is (= "I am hungry." (bound-value kb (list 'dataContent Msg '?s) CxDesk '?s)))
-        (is (holds-ask (list 'propositionalContent Msg (list hungry Ann)) CxDesk)))
+        (is (tu/holds-ask (list 'propositionalContent Msg (list hungry Ann)) CxDesk)))
       (testing "the author's claim is on record, and the desk does not believe it"
-        (is (holds-ask (list 'agentClaims Ann h) CxDesk))
-        (is (not (holds-ask (list hungry Ann) CxDesk)))))))
+        (is (tu/holds-ask (list 'agentClaims Ann h) CxDesk))
+        (is (not (tu/holds-ask (list hungry Ann) CxDesk)))))))
 
 ;; Two files holding the same text share one data content.
 (tu/deftest-kb two-files-with-the-same-text-share-data-content
@@ -221,8 +219,8 @@
       (is (not= (bound-value kb (list 'dataContent FileEnglish '?s) CxDesk '?s)
                 (bound-value kb (list 'dataContent FileFrench '?s) CxDesk '?s))))
     (testing "RED: nothing derives the one proposition both files state about Cat1"
-      (is (and (holds-ask (list 'propositionalContent FileEnglish (list catIsBlack Cat1)) CxDesk)
-               (holds-ask (list 'propositionalContent FileFrench (list catIsBlack Cat1)) CxDesk))
+      (is (and (tu/holds-ask (list 'propositionalContent FileEnglish (list catIsBlack Cat1)) CxDesk)
+               (tu/holds-ask (list 'propositionalContent FileFrench (list catIsBlack Cat1)) CxDesk))
           "a translation-aware reading does not exist yet, so this fails until one is built"))))
 
 ;; Two chat messages with the same words from two
@@ -242,8 +240,8 @@
       (is (= (bound-value kb (list 'dataContent MsgFromAnn '?s) CxDesk '?s)
              (bound-value kb (list 'dataContent MsgFromBob '?s) CxDesk '?s))))
     (testing "RED: nothing derives which speaker the indexical in each message names"
-      (is (and (holds-ask (list 'propositionalContent MsgFromAnn (list hungry Ann)) CxDesk)
-               (holds-ask (list 'propositionalContent MsgFromBob (list hungry Bob)) CxDesk))
+      (is (and (tu/holds-ask (list 'propositionalContent MsgFromAnn (list hungry Ann)) CxDesk)
+               (tu/holds-ask (list 'propositionalContent MsgFromBob (list hungry Bob)) CxDesk))
           "an indexical-resolving reading does not exist yet, so this fails until one is built"))))
 
 ;; The UTF-8/UTF-16 case: dataContent is the decoded text a file holds, independent
@@ -280,9 +278,9 @@
       (v/assert kb (list 'dataContent R "No.") CxDesk)
       (v/assert kb (list 'propositionalContent R (list 'not (list stillHere Cleo))) CxDesk))
     (testing "the plain-English reading is the positive control, and it is in force"
-      (is (holds-ask (list 'propositionalContent R (list 'not (list stillHere Cleo))) CxDesk)))
+      (is (tu/holds-ask (list 'propositionalContent R (list 'not (list stillHere Cleo))) CxDesk)))
     (testing "RED: nothing derives the flipped reading Q's code gives R, or Cleo's claim of it"
-      (is (and (holds-ask (list 'propositionalContent R (list stillHere Cleo)) CxDesk)
+      (is (and (tu/holds-ask (list 'propositionalContent R (list stillHere Cleo)) CxDesk)
                (seq (v/ask kb (list 'agentClaims Cleo '?h) CxDesk)))
           "carries takes no code argument, so nothing derives the reading under Q's code"))
     (testing "the KB never concludes Cleo claims the plain negative reading either"

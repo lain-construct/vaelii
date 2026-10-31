@@ -107,22 +107,13 @@
                                     {:type :unknown-option :mismatch :missing-value :flag a})))))))))
 
 (defn read-arg
-  "One argv string as data: the EDN it reads as — a sentence, a context symbol, a handle
-  — and the **raw string** when it reads as none.
-
-  That last case is what a filesystem path is.  `/var/lib/vaelii` is not a symbol (two
-  slashes), so a command taking a path (`export`, `load`) would otherwise fail in the
-  reader, before the command it belongs to had been looked at.
-
-  **One argument is one form.**  `edn/read-string` answers the first and drops the rest,
-  so `assert '(dog Muffet) (cat Felix)' CxWell` stored the dog, printed its handle and
-  exited 0 with nothing said about the cat — a write that did less than the line asked
-  for and reported success.  A second form is refused instead (`:bad-args`, as a wrong
-  operand count is); a string that reads as no form at all — or as none because it is
-  empty — is still the string it already was, which is what a path is.
-
-  `cmd` names the command in the refusal, and is the `:op` every `:bad-args` throw
-  carries."
+  "One argv string as data: the EDN it reads as (a sentence, a context symbol, a handle) and
+  the **raw string** when it reads as none, which is what a filesystem path is
+  (`/var/lib/vaelii` is not a symbol).  **One argument is one form**: `edn/read-string`
+  drops a second form, so `assert '(dog Muffet) (cat Felix)' CxWell` would store the dog
+  and exit 0; a second form is refused (`:bad-args`, as a wrong operand count is).  A
+  string that reads as no form, or as none because it is empty, stays the string.  `cmd`
+  names the command in the refusal and is the `:op` every `:bad-args` throw carries."
   [cmd s]
   (let [r     (PushbackReader. (StringReader. (str s)))
         form  (try (edn/read {:eof ::eof} r) (catch Exception _ ::unreadable))]
@@ -149,40 +140,107 @@
 ;; symbol, a handle a long), so `-main` (which edn-reads each argv string) and the REPL
 ;; (which reads forms off the line) share one implementation.
 
+(defn- in-content-order
+  "An answer **set**, in a printed content order.  `match`, `query` and `ask` answer with a
+  set, which has no order of its own, so two loads of the same knowledge would print
+  differently and a diff of the outputs would read as a KB change; `types` and `contexts`
+  are sorted for that reason.  `prove` is **not** here: it answers one solution per
+  derivation in DFS order, which is part of what a proof says."
+  [answers]
+  (nm/by-print-key answers))
+
+(defn- diff-text-kbs
+  "`diff`'s answer: the two text KBs its operands name, compared by content."
+  [args]
+  (v/kb-diff (str (nth args 0)) (str (nth args 1))))
+
 (def command-table
-  "Every command word, in the order `--help` prints it: `[min max operands gloss]`.
+  "Every command word, in the order `--help` prints it: `[word min max operands gloss run]`,
+  where `run` is `(fn [kb args o])` and `o` is `{:strength :depth :ctx :nearest :opts}`.
 
   `max` is nil for a command whose last operand is optional.  One table rather than
   two, because the arity a command *takes* and the arity `--help` *advertises* going
   out of step is how a usage message starts lying — and `dispatch` reaches into `args`
   with `nth`, so an unchecked short line raises `IndexOutOfBoundsException`, whose
   message is the class name and names neither the command nor the argument."
-  [["assert"      2 2   "'<sentence>' <CxName>"        "store a fact"]
-   ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <CxName>" "store a rule"]
-   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals, in content order"]
-   ["query"       2 2   "'<goal>' <CxName>"            "the default read, in content order (--depth N to expand rules)"]
-   ["query?"      2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
-   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, in content order; no rule expansion"]
-   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation, in DFS order"]
-   ["provable?"   2 2   "'<goal>' <CxName>"            "the same, as a boolean"]
-   ["retract"     1 1   "<handle>"                      "remove a sentex and what it solely supported"]
-   ["why"         1 1   "<handle>"                      "the proof tree behind a belief"]
-   ["why-not"     1 2   "'<goal>' [<CxName>]"          "why a goal is not believed (--nearest N: the rules that nearly fired)"]
-   ["in"          1 1   "<handle>"                      "is it believed?"]
-   ["isa"         2 3   "<Individual> <type> [<CxName>]" "type membership, via genl"]
-   ["types-of"    1 2   "<Individual> [<CxName>]"      "the types asserted of it, not their supertypes"]
-   ["describe"    1 1   "<term>"                        "everything the KB holds about one term (--context C)"]
-   ["handle-of"   2 2   "'<sentence>' <CxName>"        "the handle a sentence is stored under"]
-   ["types"       0 0   ""                              "types in the genl hierarchy"]
-   ["contexts"    0 0   ""                              "contexts in the genlCx hierarchy"]
-   ["conflicts"   0 0   ""                              "irreducible :monotonic clashes, both still believed"]
-   ["contradictions" 0 0 ""                             "coexisting P/¬P pairs at :default"]
-   ["quality"     0 0   ""                              "a report on the knowledge: unfired rules, skew, depth, coverage"]
-   ["load"        1 1   "<path>"                        "assert a text KB: a Cx*.txt file, or a directory of them"]
-   ["export"      1 1   "<dest>"                        "write a dump (--variant, --compression), or a text KB (--format text)"]
-   ["diff"        2 2   "<a> <b>"                       "what two text KBs disagree about, as content"]
-   ["upgrade"     0 0   ""                              "bring the --dir store's reasoning and index images up to this build"]
-   ["repl"        0 0   ""                              "the interactive loop"]])
+  [["assert"      2 2   "'<sentence>' <CxName>"        "store a fact"
+    (fn [kb [s c] o] (v/assert kb s c (:strength o)))]
+   ["assert-rule" 3 3   "'[<antecedents>]' '<consequent>' <CxName>" "store a rule"
+    (fn [kb [a c x] o] (v/assert-rule kb a c x (:strength o)))]
+   ["match"       2 2   "'<pattern>' <CxName>"         "stored, believed literals, in content order"
+    (fn [kb [p c] _] (in-content-order (map v/sentence-of (v/sentexes-matching kb p c))))]
+   ["query"       2 2   "'<goal>' <CxName>"            "the default read, in content order (--depth N to expand rules)"
+    (fn [kb [g c] o] (in-content-order (v/query kb g c (:depth o))))]
+   ["query?"      2 2   "'<goal>' <CxName>"            "the same, as a boolean"
+    (fn [kb [g c] o] (v/query? kb g c (:depth o)))]
+   ["ask"         2 2   "'<goal>' <CxName>"            "the prover registry, in content order; no rule expansion"
+    (fn [kb [g c] _] (in-content-order (v/ask kb g c)))]
+   ["prove"       2 2   "'<goal>' <CxName>"            "backward chaining; one solution per derivation, in DFS order"
+    (fn [kb [g c] _] (v/prove kb g c))]
+   ["provable?"   2 2   "'<goal>' <CxName>"            "the same, as a boolean"
+    (fn [kb [g c] _] (v/provable? kb g c))]
+   ["retract"     1 1   "<handle>"                      "remove a sentex and what it solely supported"
+    (fn [kb [h] _] (v/retract! kb h))]
+   ["why"         1 1   "<handle>"                      "the proof tree behind a belief"
+    (fn [kb [h] _] (v/why kb h))]
+   ;; `--nearest N` runs a bounded backward search naming the rules that came closest
+   ;; (docs/api.md); it takes a goal, never a handle (`check-args!`)
+   ["why-not"     1 2   "'<goal>' [<CxName>]"          "why a goal is not believed (--nearest N: the rules that nearly fired)"
+    (fn [kb [g c] o]
+      (cond
+        (:nearest o) (v/why-not kb g (or c '?ctx) (:nearest o))
+        (nil? c)     (v/why-not kb g)
+        :else        (v/why-not kb g c)))]
+   ["in"          1 1   "<handle>"                      "is it believed?"
+    (fn [kb [h] _] (v/in? kb h))]
+   ["isa"         2 3   "<Individual> <type> [<CxName>]" "type membership, via genl"
+    (fn [kb args _] (apply v/isa? kb args))]
+   ["types-of"    1 2   "<Individual> [<CxName>]"      "the types asserted of it, not their supertypes"
+    (fn [kb args _] (apply v/types-of kb args))]
+   ["describe"    1 1   "<term>"                        "everything the KB holds about one term (--context C)"
+    (fn [kb [t] o] (v/describe kb t (:ctx o)))]
+   ["handle-of"   2 2   "'<sentence>' <CxName>"        "the handle a sentence is stored under"
+    (fn [kb [s c] _] (v/handle-of kb s c))]
+   ;; `by-print-key`, never bare `sort`: a NAT type node keyed with `str` collapses under
+   ;; an ambient print bound
+   ["types"       0 0   ""                              "types in the genl hierarchy"
+    (fn [kb _ _] (nm/by-print-key (v/types kb)))]
+   ["contexts"    0 0   ""                              "contexts in the genlCx hierarchy"
+    (fn [kb _ _] (sort (v/contexts kb)))]
+   ["conflicts"   0 0   ""                              "irreducible :monotonic clashes, both still believed"
+    (fn [kb _ _] (v/conflicts kb))]
+   ["contradictions" 0 0 ""                             "coexisting P/¬P pairs at :default"
+    (fn [kb _ _] (v/contradictions kb))]
+   ;; the one command that answers in prose: `show` prints the Markdown string as written
+   ["quality"     0 0   ""                              "a report on the knowledge: unfired rules, skew, depth, coverage"
+    (fn [kb _ _] (v/quality-report (v/kb-quality kb)))]
+   ["load"        1 1   "<path>"                        "assert a text KB: a Cx*.txt file, or a directory of them"
+    (fn [kb [path] _] (dissoc (v/load-text! kb (str path)) :elapsed-ms))]
+   ;; a dump (the KB's state) and a text KB (its premises) are two entry points
+   ;; (docs/api.md); `check-args!` refuses a `--format` other than `text`, and a dump's
+   ;; flags beside `--format text`.  The dump flags are the writer's own keywords.
+   ["export"      1 1   "<dest>"                        "write a dump (--variant, --compression), or a text KB (--format text)"
+    (fn [kb [dest] o]
+      (let [opts (:opts o)]
+        (if (= "text" (:format opts))
+          (v/export-text! kb (str dest))
+          (v/export! kb (str dest)
+                     (cond-> {}
+                       (:variant opts)     (assoc :variant (keyword (:variant opts)))
+                       (:compression opts) (assoc :compression (keyword (:compression opts))))))))]
+   ;; both operands are text KBs on disk; `run` answers it without opening a KB
+   ;; (`without-a-kb`), so this runner is the REPL's
+   ["diff"        2 2   "<a> <b>"                       "what two text KBs disagree about, as content"
+    (fn [_ args _] (diff-text-kbs args))]
+   ;; `upgrade!` opens and closes the store itself, and two KBs over one directory share
+   ;; its stores, so inside the REPL the close would close the store under the caller
+   ["upgrade"     0 0   ""                              "bring the --dir store's reasoning and index images up to this build"
+    (fn [_ _ _]
+      (throw (ex-info (str "upgrade opens and closes its own KB — run `lein cli"
+                           " upgrade --dir <path>` from the shell, not inside the repl")
+                      {:type :unknown-command :cmd "upgrade"
+                       :commands (mapv first command-table)})))]
+   ["repl"        0 0   ""                              "the interactive loop" nil]])
 
 (def commands
   "The command words `dispatch` knows, for the usage message and `unknown command`."
@@ -190,18 +248,13 @@
 
 (def ^:private arity-of
   "command word -> `[min max operands]`, for `check-arity!`."
-  (into {} (map (fn [[c mn mx ops _]] [c [mn mx ops]])) command-table))
+  (into {} (map (fn [[c mn mx ops]] [c [mn mx ops]])) command-table))
 
 (defn check-arity!
-  "Refuse a command line with the wrong number of operands, naming what the command
-  takes and what it got.
-
-  Without this the short line reaches `dispatch`, whose `nth` raises
-  `IndexOutOfBoundsException` — caught and printed, so `lein cli assert '(dog Rex)'`
-  answers `error: IndexOutOfBoundsException`: a true statement about a vector, and no
-  help at all to someone who left off a context.  A *long* line is refused too, since
-  the extra operand is otherwise dropped in silence — and a dropped context is a fact
-  stored somewhere other than where it was meant to go."
+  "Refuse a command line with the wrong number of operands, naming what the command takes
+  and what it got.  A short line would reach `dispatch`'s `nth` as
+  `IndexOutOfBoundsException`, and a *long* line would drop the extra operand in silence,
+  storing a fact somewhere other than where it was meant to go."
   [cmd args]
   (when-some [[mn mx ops] (arity-of cmd)]
     (let [n (count args)]
@@ -213,10 +266,9 @@
                              "\n  usage: " cmd (when (seq ops) (str " " ops))
                              "\n  quote every argument: the shell eats ( ) [ ] and ?")
                         ;; `:bad-args`, not `:unknown-option`: the operands are the wrong
-                        ;; number and every flag on the line may be one this command reads.
-                        ;; A caller branching on `:unknown-option` reports a bad option, and
-                        ;; there is none — `:op` is the word `serve` already refuses a wire
-                        ;; call's argument count under.
+                        ;; number, and every flag on the line may be one this command reads.
+                        ;; `:op` is the word `serve` already refuses a wire call's argument
+                        ;; count under.
                         {:type :bad-args :op cmd :given n :takes [mn mx]}))))))
 
 (def ^:private driver-flags
@@ -259,24 +311,20 @@
                           :flag flag :value (str s)})))))
 
 (defn check-args!
-  "Refuse what `dispatch` refuses of a command line without reading a KB: the operand
-  count (`check-arity!`), a whole-number flag's value (`count-option`), `--nearest`
-  beside a handle, and an `export --format` that names nothing or comes with a dump's
-  flags.
-
-  `-main` asks this before it opens the KB, so a refused line leaves no `--dir` store
-  behind, and `--starter` loads nothing for it; `dispatch` asks it again, for the lines a
-  REPL session runs over the KB it already holds.  `args` are data, as `dispatch` takes
-  them."
+  "Refuse what `dispatch` refuses of a command line without reading a KB: the operand count
+  (`check-arity!`), a whole-number flag's value (`count-option`), `--nearest` beside a
+  handle, and an `export --format` that names nothing or comes with a dump's flags.  `-main`
+  asks this before it opens the KB, so a refused line leaves no `--dir` store behind and
+  `--starter` loads nothing; `dispatch` asks it again for the lines a REPL session runs.
+  `args` are data, as `dispatch` takes them."
   [cmd args opts]
   (check-arity! cmd args)
   (when-let [d (:depth opts)] (count-option "--depth" d))
   (when-let [n (:nearest opts)] (count-option "--nearest" n))
   (case cmd
-    ;; This command takes a **goal** or a **handle** — one integer operand is a handle,
-    ;; as `why`'s is — and `--nearest` belongs to the goal alone: a stored handle is
-    ;; stored, so `:not-stored` is not the answer it can get, and there are no near
-    ;; misses to look for.  So the pairing is refused rather than dropped, which is
+    ;; This command takes a **goal** or a **handle** (one integer operand is a handle, as
+    ;; `why`'s is), and `--nearest` belongs to the goal alone: a stored handle has no near
+    ;; misses to look for.  The pairing is refused rather than dropped, which is
     ;; `check-flags!`'s rule one level in: a flag honoured for one operand shape and
     ;; ignored for the other reads identically from outside.
     "why-not"
@@ -287,13 +335,10 @@
                            " look for.  Write the sentence and its context.")
                       {:type :unknown-option :mismatch :conflict :flag "--nearest"
                        :handle (first args)})))
-    ;; `--format` names the one alternative to a dump, so a value that is not `text`
-    ;; names nothing.  Dropped, it wrote the dump the flag was there to replace and
-    ;; exited 0: `--format texr` reads from the outside exactly like `--format text`,
-    ;; which is `check-flags!`'s rule one value in.  `--variant` and `--compression`
-    ;; describe a dump, so they are refused beside `--format text` rather than ignored —
-    ;; accepted and dropped, a compression flag reads from the outside exactly like one
-    ;; that was applied.
+    ;; `--format` names the one alternative to a dump, so a value that is not `text` names
+    ;; nothing, and `--format texr` is refused (`check-flags!`'s rule one value in).
+    ;; `--variant` and `--compression` describe a dump, so they are refused beside
+    ;; `--format text` rather than ignored.
     "export"
     (when-let [f (:format opts)]
       (when (not= "text" f)
@@ -311,17 +356,11 @@
     nil))
 
 (defn check-flags!
-  "Refuse a flag `cmd` does not read, naming what it does read.
-
-  `-main` calls this rather than `dispatch`, and that placement is the whole of it: the
-  REPL reuses one option map for every line it runs, so a session opened `--strength
-  monotonic` must not have a later `match` line refused for carrying the session's
-  flag.  The line naming `repl` is checked against the union instead, and the lines
-  inside it against nothing.
-
-  An unknown command word is left alone, as `check-arity!` leaves it — `-main` reports
-  that as `:unknown-command`, which says more than a flag complaint about a command
-  that does not exist."
+  "Refuse a flag `cmd` does not read, naming what it does read.  `-main` calls this rather
+  than `dispatch`, since the REPL reuses one option map for every line, so a session opened
+  `--strength monotonic` must not have a later `match` line refused for the session's flag.
+  The line naming `repl` is checked against the union, and the lines inside it against
+  nothing.  An unknown command word is left alone: `-main` reports `:unknown-command`."
   [cmd opts]
   (when (some #{cmd} commands)
     (let [allowed (if (= cmd "repl")
@@ -340,7 +379,7 @@
 (defn usage
   "The `--help` text: every command, its operands and a one-line gloss."
   []
-  (let [w (apply max (map (fn [[c _ _ ops _]] (count (str c " " ops))) command-table))]
+  (let [w (apply max (map (fn [[c _ _ ops]] (count (str c " " ops))) command-table))]
     (str "vaelii — a command-line driver for a KB\n\n"
          "  lein cli <command> [args…] [--dir <path>] [--starter] [--memory]\n\n"
          "Quote every argument. A shell eats parens, brackets and `?`:\n"
@@ -371,27 +410,9 @@
          "  --verify              upgrade: recover anyway, and report whether belief changed\n"
          "  --trust               upgrade: keep an image written under other engine source,\n"
          "                        and rebuild only images the records moved behind\n"
-         "  --sync                upgrade: then bring the shipped contexts to what this engine\n"
-         "                        ships, one change at a time (writes the store)\n"         "  (repl takes all six — its options are fixed at start and each line reuses them)\n")))
-
-(defn- in-content-order
-  "An answer **set**, in a printed content order.
-
-  Three commands answer with one — `match`, `query` and `ask` — and a set has no order of
-  its own, so what reached stdout was whichever order the retrieval enumerated: two loads
-  of the same knowledge printed it differently, and a diff of the two outputs read as a
-  change in the KB.  `types` and `contexts` in the same table are sorted for that reason,
-  and these are held to it too.
-
-  `prove` is deliberately **not** here.  It answers one solution per derivation in the
-  order the DFS found them, and that order is part of what a proof says."
-  [answers]
-  (nm/by-print-key answers))
-
-(defn- diff-text-kbs
-  "`diff`'s answer: the two text KBs its operands name, compared by content."
-  [args]
-  (v/kb-diff (str (nth args 0)) (str (nth args 1))))
+         "  --sync                upgrade: then rewrite what a release renamed, and bring the\n"
+         "                        shipped contexts to what this engine ships, one change\n"
+         "                        at a time (writes the store)\n"         "  (repl takes all six — its options are fixed at start and each line reuses them)\n")))
 
 (defn dispatch
   "Run one command against `kb` and return its result (a handle, a seq of sentences /
@@ -403,106 +424,31 @@
   than an artifact."
   [kb cmd args opts]
   (check-args! cmd args opts)
-  (let [strength (when-let [s (:strength opts)] {:strength (keyword s)})
-        ;; `--depth n` is how a command line says how far to expand rules.  Absent, the
-        ;; read is whatever needs no rule — `query`'s contract, and there is deliberately
-        ;; no default to supply here either.
-        depth    (when-let [d (:depth opts)] {:max-depth (count-option "--depth" d)})
-        ;; `--context C` names the vantage a read takes; absent, `?ctx` reads every
-        ;; context, which is the unscoped reading and what a shell line usually means
-        ctx      (if-let [c (:context opts)] (symbol (str c)) '?ctx)
-        nearest  (when-let [n (:nearest opts)] {:nearest (count-option "--nearest" n)})]
-    (case cmd
-      "assert"      (v/assert kb (nth args 0) (nth args 1) strength)
-      "assert-rule" (v/assert-rule kb (nth args 0) (nth args 1) (nth args 2) strength)
-      "match"       (in-content-order (map v/sentence-of (v/sentexes-matching kb (nth args 0) (nth args 1))))
-      "query"       (in-content-order (v/query kb (nth args 0) (nth args 1) depth))
-      "query?"      (v/query? kb (nth args 0) (nth args 1) depth)
-      "ask"         (in-content-order (v/ask kb (nth args 0) (nth args 1)))
-      "prove"       (v/prove kb (nth args 0) (nth args 1))
-      "provable?"   (v/provable? kb (nth args 0) (nth args 1))
-      "retract"     (v/retract! kb (nth args 0))
-      "why"         (v/why kb (nth args 0))
-      ;; `--nearest N` is the one that costs a search, so it is a flag rather than the
-      ;; default: it runs a bounded backward search and names the rules that came closest,
-      ;; which is what a `:not-stored` answer cannot say on its own (docs/api.md).  It
-      ;; takes a goal, never a handle (`check-args!`).
-      "why-not"     (cond
-                      nearest (v/why-not kb (nth args 0) (or (second args) '?ctx) nearest)
-                      (= 1 (count args)) (v/why-not kb (nth args 0))
-                      :else (v/why-not kb (nth args 0) (nth args 1)))
-      "in"          (v/in? kb (nth args 0))
-      "isa"         (apply v/isa? kb args)
-      "types-of"    (apply v/types-of kb args)
-      "handle-of"   (v/handle-of kb (nth args 0) (nth args 1))
-      ;; everything the KB holds about one term, by the term's role — the shell spelling
-      ;; of "what can I ask about this?" (docs/troubleshooting.md).  `--context` is what
-      ;; scopes it: the argument declarations, the grants and the comments are each read
-      ;; from that context's genlCx ancestor set, so two vantages give two correct answers
-      "describe"    (v/describe kb (nth args 0) ctx)
-      ;; `by-print-key`, never bare `sort`: a type node may be a NAT, and a NAT keyed with
-      ;; `str` collapses under an ambient print bound
-      "types"       (nm/by-print-key (v/types kb))
-      "contexts"    (sort (v/contexts kb))
-      "conflicts"   (v/conflicts kb)
-      "contradictions" (v/contradictions kb)
-      ;; the one command that answers in prose rather than in data: the report is four
-      ;; distributions and a pretty-printed map of them is not a reading anybody takes.
-      ;; `show` prints a string as-is, so the Markdown arrives as written
-      "quality"     (v/quality-report (v/kb-quality kb))
-      ;; the text KB format — one `Cx<Name>.txt` per context, the file name naming it
-      ;; — which is what `export --format text` writes and what the shipped ontology is
-      ;; authored in.  One order-insensitive pass over the whole directory, so a
-      ;; context resting on another's content loads whichever name sorts first.
-      "load"        (dissoc (v/load-text! kb (str (nth args 0))) :elapsed-ms)
-      ;; the one command whose argument is a **destination** rather than knowledge.
-      ;; Two formats, and they are two entry points rather than one with a flag (docs/api.md):
-      ;; a dump is the KB's state at its own handles, a text KB is its premises in the
-      ;; format an author edits.  `--format` other than `text`, and `--variant` or
-      ;; `--compression` beside `--format text`, are refused by `check-args!`.  The two
-      ;; dump flags arrive as strings and are the writer's own keywords, so they are
-      ;; read as such rather than re-spelled here, and the writer refuses a value it
-      ;; does not know.
-      "export"      (if (= "text" (:format opts))
-                      (v/export-text! kb (str (nth args 0)))
-                      (v/export! kb (str (nth args 0))
-                                 (cond-> {}
-                                   (:variant opts)     (assoc :variant (keyword (:variant opts)))
-                                   (:compression opts) (assoc :compression (keyword (:compression opts))))))
-      ;; the one command that reads **two** KBs and neither of them is `kb`: both arguments
-      ;; are text KBs on disk, each read into an in-RAM KB of its own.  Keyed on content,
-      ;; so two exports of one KB taken at different handles diff empty and a `diff` of
-      ;; the output means something (docs/api.md).  `run` answers it without opening a KB
-      ;; (`without-a-kb`); this arm is the REPL's, whose KB is already open
-      "diff"        (diff-text-kbs args)
-      ;; `upgrade` opens and closes the store itself (`upgrade!`), so `run` answers it
-      ;; without opening a KB (`without-a-kb`).  Here a KB is already open, and two KBs
-      ;; over one directory share its stores, so the close would close the store under
-      ;; the caller.
-      "upgrade"     (throw (ex-info (str "upgrade opens and closes its own KB — run `lein cli"
-                                         " upgrade --dir <path>` from the shell, not inside"
-                                         " the repl")
-                                    {:type :unknown-command :cmd cmd :commands commands}))
-      (throw (ex-info (str "unknown command: " cmd " — want one of "
-                           (str/join ", " commands))
-                      {:type :unknown-command :cmd cmd :commands commands})))))
+  (if-some [run (some (fn [[c _ _ _ _ run]] (when (= c cmd) run)) command-table)]
+    (run kb args
+         {:strength (when-let [s (:strength opts)] {:strength (keyword s)})
+          ;; `--depth n` says how far to expand rules.  Absent, the read needs no rule
+          ;; (`query`'s contract), and there is no default to supply here either.
+          :depth    (when-let [d (:depth opts)] {:max-depth (count-option "--depth" d)})
+          ;; `--context C` names the vantage a read takes; absent, `?ctx` reads every context
+          :ctx      (if-let [c (:context opts)] (symbol (str c)) '?ctx)
+          :nearest  (when-let [n (:nearest opts)] {:nearest (count-option "--nearest" n)})
+          :opts     opts})
+    (throw (ex-info (str "unknown command: " cmd " — want one of "
+                         (str/join ", " commands))
+                    {:type :unknown-command :cmd cmd :commands commands}))))
 
 ;; ---- KB construction -----------------------------------------------------
 
 (defn open-kb-from
-  "Build the KB a run operates on from the parsed `opts`: `:dir` → durable disk
-  (recovered), else in-memory — which `:memory` also names explicitly, so `--memory
-  --dir <path>` is a contradiction and is refused rather than resolved by a guess.
-  `:starter` loads the shipped schema.
-
-  **A `--dir` whose parent does not exist is refused** (`:unknown-source`, the keyword
-  `upgrade!` refuses a directory holding no store under), and nothing is created.  The
-  store creates every missing component of the path it opens, so a mistyped
-  `/var/lib/veelii/kb` answered a read with `[]` at exit 0 — no such fact, where the truth
-  was no such KB — and left an empty store to answer the same way next time.  The CLI
-  creates the KB's own directory and nothing above it: an existing directory, empty or
-  holding a store, and an absent one under an existing parent open as they did, which is
-  how a new KB is made from the shell."
+  "Build the KB a run operates on from the parsed `opts`: `:dir` -> durable disk (recovered,
+  with the reasoners the store records registered), else in-memory, which `:memory` also
+  names explicitly, so `--memory --dir <path>` is refused.  `:starter` loads the shipped
+  schema.  **A `--dir` whose parent does not exist is refused** (`:unknown-source`) and
+  nothing is created, since the store creates every missing path component and a mistyped
+  path would answer a read with `[]` at exit 0.  The CLI creates the KB's own directory and
+  nothing above it, which is how a new KB is made from the shell.  A throw from the
+  `:starter` load closes the KB before it propagates."
   [{:keys [dir starter memory] :as _opts}]
   (when (and memory dir)
     (throw (ex-info (str "--memory and --dir " dir " contradict — a memory KB has no"
@@ -520,9 +466,14 @@
                              " create the parent first (mkdir -p " (.getPath parent) ").")
                         {:type :unknown-source :path (str dir) :missing (.getPath parent)})))))
   (let [kb (if dir
-             (v/open-kb {:backend (or (v/store-backend dir) :disk-log) :dir dir})
+             (v/open-kb {:backend (or (v/store-backend dir) :disk-log) :dir dir
+                         :reasoners :stored})
              (v/open-kb {}))]
-    (when starter (starter/load-into kb))
+    (when starter
+      (try (starter/load-into kb)
+           (catch Throwable t
+             (try (v/close! kb) (catch Throwable c (.addSuppressed t c)))
+             (throw t))))
     kb))
 
 (defn- sync-line
@@ -535,42 +486,33 @@
 (defn upgrade!
   "Bring the store in `dir` up to this build, and report what that took.  Opens the store
   under the backend its files were written by, with `:recover? :auto`: a reasoning image this
-  build can install is installed, and one written under another image layout, other engine
-  source or other policies is declined, belief is recovered from the records, and the
-  recover writes a new image.  Closing the store then writes the index image a rebuilt
-  index leaves due.  Returns
+  build can install is installed, and one written under another layout, engine source or
+  policies is declined, belief is recovered from the records, and the recover writes a new
+  image.  Closing the store writes the index image a rebuilt index leaves due.  Returns
 
     {:dir :backend
      :reasoning :current | :rebuilt | :written | :no-image
      :image  {:format :network :written-at :source}   ; the manifest now on disk, :source cut to 12
      :index  :current | :rewritten | :no-image
      :verify …                                        ; with :verify only
-     :sync   {:added :removed :forwarded :refused}}   ; with :sync only
+     :sync {:added :removed :forwarded :refused} :renames {:rewritten …}}  ; with :sync only
 
-  `:reasoning` is what the open did: `:current` is an image it installed; `:rebuilt` is one
-  it declined and replaced; `:written` is the first image of a store that held none;
-  `:no-image` is a backend that keeps none (`:disk-log`, `:disk-columnar`).  Without
-  `:sync` the records are read and never rewritten.
-
-  Three options:
+  `:reasoning`: `:current` is an image it installed; `:rebuilt` one it declined and replaced;
+  `:written` the first image of a store that held none; `:no-image` a backend that keeps none.
+  Without `:sync` the records are never rewritten.  Options:
 
   - `:verify` moves the image to `reasoning.prev/` before the open, so the open recovers from
-    the records and writes a new image.  Then it compares the two
-    (`reasoning-image/compare-images`) and deletes the old one.  `:verify` in the result is
-    `{:against source :labels :network :state}`, or one keyword when the two cannot be
-    compared: `:no-previous-image`, `:no-image`, `:layout-changed` or `:records-moved`.
-    When the open writes no image, the old one is moved back.
-  - `:trust` opens with `:recover? :trust`, as the browser does: the image is installed and
-    kept, `:current`, and belief is recovered only when the records moved behind the
-    images.  It refuses `:verify` (`:unknown-option`), which asks for the recover.
-  - `:sync` brings the shipped contexts to what this engine ships (`sync/sync-each!`, one
-    change at a time, a progress line per change on stderr) after the open and after the
-    `:verify` comparison.  It writes records, so the close writes a new image and `:image`
-    is that one.  A KB whose `v/write-hazards` is not empty is not synced, and `:sync` is
-    `{:skipped [hazard …]}`.
+    the records, then compares the two (`reasoning-image/compare-images`) and deletes the old
+    one.  `:verify` in the result is `{:against source :labels :network :state}`, or one
+    keyword: `:no-previous-image`, `:no-image`, `:layout-changed` or `:records-moved`.
+  - `:trust` opens with `:recover? :trust`: belief is recovered only when the records
+    moved.  It refuses `:verify` (`:unknown-option`).
+  - `:sync` rewrites what a release renamed (`sync/rename!`) and syncs the shipped contexts
+    (`sync/sync-each!`, a progress line per change on stderr) after the open and `:verify`.
+    A KB whose `v/write-hazards` is not empty is not synced: `:sync` is `{:skipped [hazard …]}`.
 
-  A directory holding no store is refused (`:unknown-source`) rather than creating an empty
-  one there.  `!` because the image it replaces cannot be read back."
+  A directory holding no store is refused (`:unknown-source`).  `!` because the image it
+  replaces cannot be read back."
   ([dir] (upgrade! dir {}))
   ([dir {:keys [verify trust] sync? :sync}]
    (let [backend   (or (v/store-backend dir)
@@ -596,8 +538,9 @@
        ;; a `reasoning.prev/` left by an interrupted --verify holds an image this build declined
        (ri/delete-image! prev)
        (ri/move-image! bdir prev))
-     (let [kb       (v/open-kb {:backend backend :dir (str dir) :recover? (if trust :trust :auto)})
-           [opened verified synced]
+     (let [kb       (v/open-kb {:backend backend :dir (str dir) :recover? (if trust :trust :auto)
+                                :reasoners :stored})
+           [opened verified synced renamed]
            (try
              ;; the open's image is read before the sync moves the records the close then
              ;; writes a new image for, so `:reasoning` and `:verify` describe the open
@@ -611,11 +554,13 @@
                                 (not= (:records old) (:records opened))    :records-moved
                                 :else (assoc (ri/compare-images prev bdir)
                                              :against (short (:source old)))))
-                   synced   (when sync?
-                              (if-let [hz (not-empty (v/write-hazards kb))]
-                                {:skipped (vec (sort (keys hz)))}
-                                (sync/sync-each! kb sync-line)))]
-               [opened verified synced])
+                   [synced renamed]
+                   (when sync?
+                     (if-let [hz (not-empty (v/write-hazards kb))]
+                       [{:skipped (vec (sort (keys hz)))}]
+                       (let [renamed (sync/rename! kb)]
+                         [(sync/sync-each! kb sync-line) renamed])))]
+               [opened verified synced renamed])
              (finally (v/close! kb)))
            i1       (mtime index)
            fresh    (ri/read-manifest bdir)
@@ -633,23 +578,19 @@
                                  (assoc :source (short (:source fresh))))
                 :index   (cond (nil? i1) :no-image (= i0 i1) :current :else :rewritten)}
          verify (assoc :verify verified)
-         sync?  (assoc :sync synced))))))
+         sync?   (assoc :sync synced)
+         renamed (assoc :renames renamed))))))
 
 ;; ---- the shell -----------------------------------------------------------
 
 (defn- show [x] (if (coll? x) (pp/pprint x) (println x)))
 
 (defn on-stderr
-  "A log fn that writes where `f` does, with `*out*` bound to `*err*`.
-
-  The refusal is not the only thing that must stay out of the data: the engine's own
-  `log!` calls go through Trove's console backend, which prints to `*out*`
-  (docs/operations.md, \"Logging\") — and `*out*` here is a script's `lein cli match … >
-  answers.edn`.  At `:info`, an ordinary `export` (`::exported`) or a starter load (two
-  `::dropped-conclusion` warnings) lands three lines inside the answer with no variable
-  set at all.  A wrapper rather than a level: silencing the engine to keep stdout
-  parseable would trade one loss for another, and the daemon and the browser want the
-  lines where they are."
+  "A log fn that writes where `f` does, with `*out*` bound to `*err*`.  The engine's `log!`
+  calls go through Trove's console backend, which prints to `*out*` (docs/operations.md,
+  \"Logging\"), and `*out*` here is a script's `lein cli match … > answers.edn`: at `:info`
+  an ordinary `export` or a starter load lands lines inside the answer.  A wrapper, not a
+  level, since the daemon and the browser want the lines where they are."
   [f]
   (fn [& args] (binding [*out* *err*] (apply f args))))
 
@@ -716,44 +657,31 @@
                     {:type :unknown-option :mismatch :conflict
                      :flags (vec (keep #(when (% opts) (str "--" (name %)))
                                        [:memory :starter]))}))
-    ;; the recover an upgrade pays is the longest open a store has, and the one whose
-    ;; closure cache grows with the corpus: the memory guard lowers the cache profile's
-    ;; pressure as the heap fills, and the closure cache evicts to the lowered bound on its
-    ;; next store, so no list of KBs is needed for the guard to reach it
+    ;; the recover an upgrade pays is the longest open a store has: the memory guard lowers
+    ;; the cache profile's pressure as the heap fills, and the closure cache evicts to the
+    ;; lowered bound on its next store, so no list of KBs is needed for the guard to reach it
     :else (do (v/install-memory-guard! {:kbs (constantly nil)})
               (upgrade! (:dir opts) (select-keys opts [:verify :trust :sync])))))
 
 (def ^:private without-a-kb
-  "The commands `run` answers without opening the run's KB, each with the fn that answers
-  it from `[args opts]`.  This map is the one place that decides it.
-
-  Opening a `--dir` KB takes the directory's single-writer lock, so a command that reads
-  no KB and opens one anyway is refused whenever a daemon owns that directory — told the
-  live KB is busy about work that never touches it.  `upgrade` opens and closes a store
-  of its own (`upgrade!`).  `diff` reads two text KBs into KBs of their own and never
-  the run's, so it answers under a held lock; `--dir`, `--memory` and `--starter` name
-  the run's KB and change nothing it prints."
+  "The commands `run` answers without opening the run's KB, each with the fn that answers it
+  from `[args opts]`.  Opening a `--dir` KB takes the directory's single-writer lock, so a
+  command that reads no KB would be refused whenever a daemon owns the directory.
+  `upgrade` opens and closes a store of its own (`upgrade!`); `diff` reads two text KBs into
+  KBs of their own.  `--dir`, `--memory` and `--starter` name the run's KB and change
+  nothing they print."
   {"upgrade" upgrade-from-the-shell
    "diff"    (fn [args _opts] (diff-text-kbs args))})
 
 (defn run
-  "Parse `argv`, open the KB, run the command and print its result; return the exit
-  status.  With `repl` (or no command) it drops into the interactive loop.
-
-  **Every refusal is one line on stderr and exit 1** (`refusal-line`), naming its
-  `:type`: a refused flag, operand or `--dir`, and whatever the engine refused.  An
-  unknown command word is exit 2, with the command list and the `help` pointer after the
-  line.
-
-  **Everything that needs no KB is answered before one is opened**, since opening a
-  `--dir` KB takes its single-writer lock and may create its store: `help`, the flag and
-  operand checks (so a refused line leaves no store behind and loads no `--starter`), and
-  the commands in `without-a-kb`.
-
-  `Throwable`, not `ExceptionInfo`: a missing `load` file raises
-  `FileNotFoundException`, and a deeply nested EDN argument or `load` file raises
-  `StackOverflowError` (the browser's untrusted-EDN reads make the same catch) — a stack
-  trace where the same mistake in engine vocabulary prints one line."
+  "Parse `argv`, open the KB, run the command and print its result; return the exit status.
+  With `repl` (or no command) it drops into the interactive loop.  **Every refusal is one
+  line on stderr and exit 1** (`refusal-line`), naming its `:type`.  An unknown command word
+  is exit 2, with the command list and the `help` pointer after the line.  **Everything that
+  needs no KB is answered before one is opened** (it would take the single-writer lock and
+  may create a store): `help`, the flag and operand checks, and the commands in
+  `without-a-kb`.  It catches `Throwable`, since a missing `load` file raises
+  `FileNotFoundException` and a deeply nested EDN argument raises `StackOverflowError`."
   [argv]
   (try
     (let [[positionals opts] (parse-opts argv)
@@ -777,9 +705,14 @@
               (if-let [answer (without-a-kb cmd)]
                 (show (answer args opts))
                 (let [kb (open-kb-from opts)]
-                  (if session?
-                    (repl-loop kb opts)
-                    (show (dispatch kb cmd args opts)))))
+                  (try
+                    (if session?
+                      (repl-loop kb opts)
+                      (show (dispatch kb cmd args opts)))
+                    (catch Throwable t
+                      (try (v/close! kb) (catch Throwable _ nil))
+                      (throw t)))
+                  (v/close! kb)))
               0)))))
     (catch Throwable e
       (err! (refusal-line e))

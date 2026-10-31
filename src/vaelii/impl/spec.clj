@@ -26,11 +26,12 @@
   (`genls`, `context-up`, …) are specced too, since a wrong-arity call to one of
   them is exactly the kind of mistake instrumentation should surface early.
 
-  **Twenty-one publics that take an option map are outside it**, and instrumenting says
+  **Twenty-three publics that take an option map are outside it**, and instrumenting says
   nothing about their arguments: the batch writes (`assert-many`,
   `bulk-assert-facts!`, `edit!`), the fork and the two consequence readers over it (`fork`,
   `preview`, `edit-with-consequences!`), the store transfers (`import!`, `export!`,
-  `export-text!`, and `load-foreign!`, whose options belong to the reader plugin),
+  `export-text!`, `load-text!`, and `load-foreign!`, whose options belong to the reader
+  plugin), the batch digest read (`digests`),
   the two search-back reads (`search-tree`, `compare-tacticians`) and the truncation
   report (`query-status`), the evaluatable-prover
   registration (`add-evaluatable`), the four-valued epistemic-status read (`argue`), and
@@ -96,7 +97,7 @@
 
 ;; ---- the rule-assertion option map (assert-rule adds :direction) --------
 
-(s/def ::direction #{:forward :backward :inert :both :forward-only})
+(s/def ::direction #{:forward :backward :inert :both :forward-only :lazy-forward})
 (s/def ::rule-opts (s/keys :opt-un [::strength ::chain? ::max-depth ::max-term-depth ::max-derivations
                                     ::max-ms ::stop? ::on-progress ::progress-every-ms ::creator
                                     ::provenance ::direction]))
@@ -158,9 +159,13 @@
                :context (s/? ::context) :opts (s/? (s/nilable ::opts)))
   :ret  (s/or :one ::handle :many (s/coll-of ::handle)))
 
+;; `try-assert` reads one key `assert` does not, and takes it off before `assert` runs
+(s/def ::refuse-unsatisfiable? boolean?)
+(s/def ::try-opts (s/merge ::opts (s/keys :opt-un [::refuse-unsatisfiable?])))
+
 (s/fdef vaelii.core/try-assert
   :args (s/cat :kb ::kb :sentence ::sentence
-               :context (s/? ::context) :opts (s/? (s/nilable ::opts)))
+               :context (s/? ::context) :opts (s/? (s/nilable ::try-opts)))
   :ret  (s/or :one ::handle :many (s/coll-of ::handle)))
 
 (s/fdef vaelii.core/assert-rule

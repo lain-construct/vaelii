@@ -18,6 +18,7 @@
   underneath rules already stored — and `checks` runs the search on both paths (see
   the section at the bottom, and docs/exceptions.md)."
   (:require [clojure.string :as str]
+            [vaelii.impl.graph :as graph]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.rewrite :as rewrite]
@@ -61,14 +62,20 @@
   [why xs]
   (name-problems why (remove nm/function-spelled? xs)))
 
+(defn- shaped-problems
+  "The leading refusals of a sentence over named types: `arity-msg` when `arity-ok?` is
+  false, then `name-problems` of `xs` with `why`."
+  [arity-ok? arity-msg why xs]
+  (cond-> []
+    (not arity-ok?) (conj arity-msg)
+    :always         (into (name-problems why xs))))
+
 (defn genl-problems
   "The refusals of the `genl` sentence `s`.  The cycle test reads the unscoped closure
   (`tax/genl?-global`): a cycle is a property of the whole edge set, which no reader's
   context changes."
   [tax [_ sub super :as s] _context]
-  (cond-> []
-    (not= 3 (count s))     (conj "genl takes two arguments")
-    :always                (into (name-problems "genl relates types" [sub super]))
+  (cond-> (shaped-problems (= 3 (count s)) "genl takes two arguments" "genl relates types" [sub super])
     (= sub super)          (conj (str sub " genl itself"))
     (and tax (not= sub super) (tax/genl?-global tax super sub))
     (conj (str "genl " sub " " super " creates a cycle (" super
@@ -96,9 +103,7 @@
                " already sees " sub ")"))))
 
 (defn disjoint-problems [_ [_ a b :as s] _context]
-  (cond-> []
-    (not= 3 (count s))  (conj "disjoint takes two arguments")
-    :always             (into (name-problems "disjoint relates types" [a b]))
+  (cond-> (shaped-problems (= 3 (count s)) "disjoint takes two arguments" "disjoint relates types" [a b])
     (= a b)             (conj (str a " disjoint with itself"))))
 
 (defn covering-problems
@@ -138,14 +143,10 @@
                " is already a supertype of " whole ", so it cannot be a part of it"))))
 
 (defn disjoint-metatype-problems [_ [_ m :as s] _context]
-  (cond-> []
-    (not= 2 (count s)) (conj "disjoint_metatype takes one argument")
-    :always            (into (name-problems "disjoint_metatype marks a metatype" [m]))))
+  (shaped-problems (= 2 (count s)) "disjoint_metatype takes one argument" "disjoint_metatype marks a metatype" [m]))
 
 (defn sibling-disjoint-problems [_ [_ c :as s] _context]
-  (cond-> []
-    (not= 2 (count s)) (conj "sibling_disjoint takes one argument")
-    :always            (into (name-problems "sibling_disjoint marks a collection" [c]))))
+  (shaped-problems (= 2 (count s)) "sibling_disjoint takes one argument" "sibling_disjoint marks a collection" [c]))
 
 (defn type-pair-problems
   "`(orthogonal a b)` and `(siblingDisjointException a b)` — two arguments, neither an
@@ -153,9 +154,7 @@
   declaration contradicts the taxonomy, and `decide.related` reports that clash as it
   reports one over two genl-related types."
   [_ [f a b :as s] _context]
-  (cond-> []
-    (not= 3 (count s)) (conj (str f " takes two arguments"))
-    :always            (into (name-problems (str f " relates types") [a b]))))
+  (shaped-problems (= 3 (count s)) (str f " takes two arguments") (str f " relates types") [a b]))
 
 (defn arg-constraint-problems
   "`arg` and `genlArg` — the two argument constraints — are structurally identical:
@@ -389,9 +388,7 @@
       (conj (str f " names a position twice; the positions must be distinct")))))
 
 (defn prop-problems [_ [f pred :as s] _context]
-  (cond-> []
-    (not= 2 (count s))    (conj (str f " takes one argument"))
-    :always               (into (name-problems (str f " marks a predicate") [pred]))))
+  (shaped-problems (= 2 (count s)) (str f " takes one argument") (str f " marks a predicate") [pred]))
 
 (defn relation-prop-problems
   "`prop-problems` for a one-place mark on a relation, a predicate or a function
@@ -430,12 +427,7 @@
   `D`, which is the multi-edge case a pairwise `(rewriteOf D P)` test would miss."
   [prefs from to]
   (let [out (reduce (fn [m [p d]] (update m p (fnil conj #{}) d)) {} prefs)]
-    (loop [seen #{}, stack [from]]
-      (when-let [n (peek stack)]
-        (cond
-          (= n to)     true
-          (seen n)     (recur seen (pop stack))
-          :else        (recur (conj seen n) (into (pop stack) (get out n #{}))))))))
+    (contains? (graph/reach-all [from] #(get out % #{})) to)))
 
 (defn- rewrite-role
   "The role of a `rewriteOf` argument for the same-role check (docs/equality.md,
@@ -483,8 +475,8 @@
   `F` is a function name (a `Cx*Fn`-shaped constant, an individual by the naming
   invariants), `pos` a 1-based positive integer over `F`'s arguments, and `R` a predicate
   name.  Whether `pos` is in `F`'s arity is not knowable here — no declaration states an
-  application's arity — so it is left to the producer, which simply finds no sibling pair
-  to order when `pos` is out of range."
+  application's arity — so it is left to the producer, which finds no pair to order when
+  `pos` is out of range."
   [_ [f fname pos rel :as s] _context]
   (cond-> []
     (not= 4 (count s))    (conj (str f " takes a function, an argument position, and a sub-relation"))
@@ -601,9 +593,7 @@
         f " " (str/join " " args) "))")])
 
 (defn inverse-problems [_ [_ p q :as s] _context]
-  (cond-> []
-    (not= 3 (count s)) (conj "inverse takes two arguments")
-    :always            (into (name-problems "inverse relates predicates" [p q]))))
+  (shaped-problems (= 3 (count s)) "inverse takes two arguments" "inverse relates predicates" [p q]))
 
 (defn negates-problems
   "The argument count alone.  Whether an argument is a predicate, and of which length, is
@@ -613,9 +603,7 @@
   (cond-> [] (not= 3 (count s)) (conj "negates takes two arguments")))
 
 (defn genl-inverse-problems [_ [_ p q :as s] _context]
-  (cond-> []
-    (not= 3 (count s)) (conj "genlInverse takes two arguments")
-    :always            (into (name-problems "genlInverse relates predicates" [p q]))))
+  (shaped-problems (= 3 (count s)) "genlInverse takes two arguments" "genlInverse relates predicates" [p q]))
 
 ;; (Per-functor well-formedness dispatch lives in the `:wff` column of the table in
 ;; `vaelii.impl.special`, read back through `special/wff-problems` — one enumeration
@@ -684,7 +672,10 @@
   called with no argument, every rule): an edge `reader -> node` exists exactly when the
   reader reads a predicate whose spec closure holds `c`.  A node concluding any predicate
   steps to every rule.  So a step reads the consequent's upward closure and the rule
-  index under each predicate in it, and no spec closure.
+  index under each predicate in it, and no spec closure.  A step from a `:backward-only?`
+  node skips a reader holding the predicate in its `:closure-only` set: that reader reads
+  the predicate only through `different`, which reads stored content, and a backward-only
+  rule stores no conclusion.
 
   The search state is the consequent and the `negative?` flag, not the rule: two rules
   concluding one predicate have the same edges in.  A state is pushed once, and a
@@ -713,7 +704,9 @@
                      (some? c)
                      (for [g (nm/sort-by-content-key identity (tax/genls-global tax c))
                            :when (.add seen-g [g negative?])
-                           r (readers g)]
+                           r (readers g)
+                           :when (not (and (:backward-only? node)
+                                           (contains? (:closure-only r) g)))]
                        [(edge-kind r g) c r]))))]
     (or (some (fn [[node negative?]] (when (closes? node negative?) [node])) starts)
         (loop [q (reduce push clojure.lang.PersistentQueue/EMPTY
@@ -782,8 +775,11 @@
   The walk starts at the rules reading a predicate in `genls-global(super)`, in content
   order, and goes against the graph's edges (`negation-walk`).  It closes at a rule
   concluding a spec of `sub` when a negative edge is on the path or the edge from the
-  start is negative.  It reads only the rules those starts reach, and finds only cycles
-  through the new edge, so a cycle already stored refuses no edge that does not reach it.
+  start is negative.  A backward-only closing rule reaches no start through a
+  `:closure-only` read, so a second walk over the starts less those reads looks for one,
+  and runs only when some start has such a read.  It reads only the rules those starts
+  reach, and finds only cycles through the new edge, so a cycle already stored refuses no
+  edge that does not reach it.
 
   A `genlCx` edge needs no walk: the graph's edges read the `genl` closure alone.
 
@@ -792,16 +788,35 @@
   ([tax readers sub super]
    (genl-negation-cycle tax readers #(negation-starts readers %) sub super))
   ([tax readers starts-of sub super]
-   (let [above  (tax/genls-global tax super)
-         starts (starts-of above)
-         below? (fn [node]
-                  (or (:concludes-any? node)
-                      (some-> (:consequent-pred node) (->> (tax/genls-global tax)) (contains? sub))))]
-     (when-let [chain (negation-walk tax readers starts
-                                     (fn [node negative?] (and negative? (below? node))))]
+   (let [above   (tax/genls-global tax super)
+         starts  (starts-of above)
+         below?  (fn [node]
+                   (or (:concludes-any? node)
+                       (some-> (:consequent-pred node) (->> (tax/genls-global tax)) (contains? sub))))
+         ;; what a start reads of `above` when the closing rule is backward-only, which no
+         ;; `:closure-only` read reaches (`negation-walk`)
+         reads   (fn [start backward-only?]
+                   (if backward-only?
+                     #(and (above %) (not (contains? (:closure-only start) %)))
+                     above))
+         stored  (into [] (keep (fn [[r _]]
+                                  (let [r? (reads r true)]
+                                    (when (or (some r? (:antecedent-preds r))
+                                              (some r? (:exception-preds r)))
+                                      [r (boolean (some r? (:exception-preds r)))]))))
+                       starts)
+         walk    (fn [starts closing?]
+                   (negation-walk tax readers starts
+                                  (fn [node negative?] (and negative? (closing? node)))))
+         chain   (if (= starts stored)
+                   (walk starts below?)
+                   (or (walk starts #(and (below? %) (not (:backward-only? %))))
+                       (walk stored #(and (below? %) (:backward-only? %)))))]
+     (when chain
        (let [[start] chain
              closing (if (= 1 (count chain)) start (peek (peek chain)))
-             edge    (if (some above (:exception-preds start)) :excepts-on :depends-on)]
+             edge    (if (some (reads start (:backward-only? closing)) (:exception-preds start))
+                       :excepts-on :depends-on)]
          (conj (forward-path chain)
                (str (name edge) " " (if (:concludes-any? closing) sub (:consequent-pred closing)))
                (:label closing)))))))

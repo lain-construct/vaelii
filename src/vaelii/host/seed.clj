@@ -28,46 +28,51 @@
   in **code** (vaelii.host.core-context, vaelii.host.starter) is the *order* the layers
   load in and the one computed batch.  Sentences read with `clojure.edn`, so a KB file
   is data and can never run code."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [vaelii.core :as v]
             [vaelii.impl.io.text :as text]))
 
 (def anchor
-  "The classpath path of the file every KB carries: layer discovery anchors on it when a
-  jar records no directory entry for the layer."
+  "The classpath path of the file every KB carries: resource discovery anchors on it when
+  a jar records no directory entry for the directory it lists."
   "kb/upper/core.txt")
 
-(defn layer-files
-  "The `.txt` file names in layer sub-directory `dir`, sorted, or nil when it holds none.
-  They are read off whichever classpath shape holds them: a filesystem tree (repl / lein /
-  test) is listed as a directory, and a packaged jar is listed by its own entries —
-  anchored on `anchor` when the jar carries no directory entry for `kb/<dir>` to resolve.
-  Any other protocol is refused rather than answered nil: nil here starts a KB with a
-  layer silently absent, the exact failure `read-sentences` exists to refuse one file at a
-  time."
-  [dir]
-  (let [want  (str "kb/" dir "/")
-        res   (or (io/resource (str "kb/" dir)) (io/resource anchor))
+(defn resource-files
+  "The names of the files ending `ext` directly under classpath directory `dir`, sorted,
+  or nil when it holds none.  A filesystem tree (repl / lein / test) is listed as a
+  directory, and a packaged jar by its own entries, anchored on `anchor` when the jar
+  carries no directory entry for `dir`.  Any other protocol is refused rather than answered
+  nil: nil here starts a KB with a layer silently absent, the failure `read-sentences`
+  refuses one file at a time."
+  [dir ext]
+  (let [want  (str dir "/")
+        res   (or (io/resource dir) (io/resource anchor))
         names (when res
                 (case (.getProtocol res)
-                  "file" (when-let [d (io/resource (str "kb/" dir))]
+                  "file" (when-let [d (io/resource dir)]
                            (keep (fn [^java.io.File f]
                                    (let [n (.getName f)]
-                                     (when (str/ends-with? n ".txt") n)))
+                                     (when (str/ends-with? n ext) n)))
                                  (.listFiles (io/file d))))
                   "jar"  (let [conn ^java.net.JarURLConnection (.openConnection res)]
                            (for [^java.util.jar.JarEntry e (enumeration-seq (.entries (.getJarFile conn)))
                                  :let [n (.getName e)]
                                  :when (and (str/starts-with? n want)
-                                            (str/ends-with? n ".txt")
+                                            (str/ends-with? n ext)
                                             (not (str/includes? (subs n (count want)) "/")))]
                              (subs n (count want))))
-                  (throw (ex-info (str "kb/" dir " sits behind classpath protocol "
-                                       (.getProtocol res) ", which layer discovery cannot list"
-                                       " — it reads the file and jar protocols")
+                  (throw (ex-info (str dir " sits behind classpath protocol "
+                                       (.getProtocol res) ", which resource discovery cannot"
+                                       " list — it reads the file and jar protocols")
                                   {:type :missing-resource :dir dir :url (str res)}))))]
     (some-> (seq names) sort)))
+
+(defn layer-files
+  "The `.txt` file names in layer sub-directory `dir` (`resource-files` of `kb/<dir>`)."
+  [dir]
+  (resource-files (str "kb/" dir) ".txt"))
 
 (defn layer-contexts
   "The context symbols whose KB files live in the layer sub-directory `dir` (\"middle\"),
@@ -123,3 +128,33 @@
   ([kb context dir]
    (load-sentences kb (read-sentences context dir) context)))
 
+(defn- release-order
+  "The order of a renames file's name: its version's numbers, `unreleased` after them all."
+  [file]
+  (let [n (str/replace file #"\.edn$" "")]
+    (if (= "unreleased" n) [Long/MAX_VALUE 0 0] (mapv parse-long (str/split n #"\.")))))
+
+(defn compose-renames
+  "The renames files `maps`, oldest first, as one map of the four vocabulary keys: each
+  `:renames` and `:context-merges` chain followed to its last spelling, the `:re-meanings`
+  notes joined and the `:retired` sets unioned.  `:api`, which a caller's code takes, is
+  left out."
+  [maps]
+  (let [chase (fn [m] (update-vals m (fn [t] (loop [t t seen #{}]
+                                               (if-let [u (when-not (seen t) (m t))]
+                                                 (recur u (conj seen t))
+                                                 t)))))]
+    {:renames        (chase (apply merge {} (map :renames maps)))
+     :context-merges (chase (apply merge {} (map :context-merges maps)))
+     :re-meanings    (apply merge-with #(str %1 "; " %2) {} (map :re-meanings maps))
+     :retired        (into #{} (mapcat :retired) maps)}))
+
+(defn release-renames
+  "Every `renames/<version>.edn` on the classpath, composed (`compose-renames`).  Every
+  file is read, since a store records no release: `lein lint`'s E22 keeps each renamed or
+  retired symbol out of the shipped KB, so a rename finds a premise to rewrite only in a
+  store written before it."
+  []
+  (compose-renames
+   (map #(edn/read-string (slurp (io/resource (str "renames/" %))))
+        (sort-by release-order (resource-files "renames" ".edn")))))

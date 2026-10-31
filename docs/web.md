@@ -41,7 +41,7 @@ all load. A path holding no KB is logged and the browser stays on the starter.
 `start-vaelii.sh` and `start-vaelii-dev.sh` set it to their `KB-DIR` argument;
 `start-vaelii-server.sh` passes its `KB-DIR` to `vaelii.serve` as a command-line argument
 and sets no variable. All three default `KB-DIR` to `checkouts/kb` beside the checkout,
-and set the heap from `VAELII_HEAP` (default `40g`).
+and set the heap from `VAELII_HEAP` (default half of physical memory, up to `31g`).
 
 `VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins. Three
 sources are read in order — the variable, the `vaelii.web.port` system property (what a
@@ -153,11 +153,14 @@ A port already in use is **reported, not thrown**: you asked for a REPL, and you
 whether or not the port was free. `(vaelii.browser.web/dev-stop)` takes the server down
 without leaving the prompt; `dev-repl` called again replaces it.
 
-`-main` calls `fresh-starter-kb!`, which **clears the record + index stores first**
-so each run starts from a clean, deterministic state — re-asserting the starter KB
-over stale handles from an earlier run (or an earlier code version) would otherwise
-fail. For a *persistent* KB, construct one against existing databases and call
-`core/recover` instead of loading the starter. Startup logs go through
+`-main` and `dev-repl` open the starter with `fresh-starter-kb!` over a memory space the
+catalog claims for it, so no other KB shares its stores. `dev-repl` called again first
+unloads the starter it opened before ([catalog.md](catalog.md#unloading-never-deletes-an-on-disk-kb)),
+which the catalog refuses while a job writes that KB. `fresh-starter-kb!` **clears the
+record + index stores first**, so a run over stores an earlier run (or an earlier code
+version) left starts from a clean, deterministic state. For a *persistent* KB, construct
+one against existing databases and call `core/recover` instead of loading the starter.
+Startup logs go through
 [Trove](https://github.com/taoensso/trove) (`trove/log!`), at the level
 `VAELII_LOG_LEVEL` or `core/set-log-level` sets and Trove's own console default when
 neither does; Jetty's own SLF4J logging is silenced by a NOP binding
@@ -169,13 +172,17 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | Route | Shows |
 |-------|-------|
 | `/` | the **upper ontology**: the reader's browsing history (the terms, literals and rules whose pages they opened, each list in visit order and capped at 50, held in the browser's localStorage by vaelii.js, a literal drawn by `/history/literals` with its badge, its colours and its belief now, and an entry the active KB does not hold forgotten through `/history/known`), what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
-| `/stats` (`?nogoods=1`, `?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, the placed `contradicts` count and the filed violation tally), a contexts-by-size table ranked largest-first, and the filed ledger of dropped derivations when non-empty (`filed-violations`), each entry naming the run that dropped it. Every count is a stored count and the ledger a deref, so a page load reads no belief and fetches no record. The held facts and rules and the convicted firings, the `:inert-argument`, `:inert-rule` and `:forced-conclusion` entries `violations` reads off the stored state, are behind **Scan for held facts and rules**, which runs the `held` list (`/lists/run`) as a job. `?nogoods=1` reads what the placed nogoods come to, the dilemmas and conflicts, each placement read at its own context: a belief read per placement, which is minutes on a corpus holding tens of thousands. The contexts table and the ledgers are one screen each and continue on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed; its clash list stops at 50 with a `showing 50 of N` line and does not continue |
+| `/stats` (`?nogoods=1`, `?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, the placed `contradicts` count and the filed violation tally), a contexts-by-size table ranked largest-first, and the filed ledger of dropped derivations when non-empty (`filed-violations`), each entry naming the run that dropped it. Every count is a stored count and the ledger a deref, so a page load reads no belief and fetches no record. The held facts and rules and the convicted firings, the `:inert-argument`, `:inert-rule` and `:forced-conclusion` entries `violations` reads off the stored state, are behind **Scan for held facts and rules**, which runs the `held` list (`/lists/run`) as a job. `?nogoods=1` reads what the placed nogoods come to, the dilemmas and conflicts, each placement read at its own context: a belief read per placement, which is minutes on a corpus holding tens of thousands. The contexts table and the ledgers are one screen each and continue on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed; its clash list stops at 50 with a `showing 50 of N` line and does not continue. The newest finished tally of the [definitional blocks](#a-term-page-lists-its-definitional-block) over the KB, how many types hold each part, is shown under a button that runs another (`/stats/blocks`) |
+| `/stats/blocks` (POST) | run the definitional block tally, one `describe` per type, as a read job, and answer with `/stats` when it finishes inside 5 s, else with `/jobs`. Origin-checked: it starts work |
 | `/lists` | the **lists**: whole-KB lists, each read only when its button is pressed — every believed **defeat** (the sentex it takes out of belief and its context), every **contradiction** the last settle left standing (the dilemmas, then the conflicts), every **unary predicate without a genl** but `thing`, and every **held fact and rule** with every convicted firing. A list runs as a read job (below) |
 | `/lists/run` (POST) | run one list (`list=defeats`, `contradictions`, `orphan-types` or `held`) as a job, and answer with its rows when it finishes inside 5 s, else with `/jobs`. Origin-checked: it starts work |
 | `/lists/result?job=`, `/lists/rows?job=&offset=` | a finished list's rows, 200 at a time, continuing on scroll; a job the registry has dropped (after an hour) says so |
+| `/quality` | the **health report**: the newest finished `kb-quality` reading over the active KB, one framed region per reading in `quality-report`'s order, with the time it finished and the catalog entry it read, and the button that runs another (below) |
+| `/quality/run` (POST) | run `kb-quality` as a read job and answer with the page when it finishes inside 5 s, else with `/jobs`; with a reading already running over the KB, answer with the page and start nothing. Origin-checked: it starts work |
+| `/quality/progress` | a running reading's progress bar, polled by the page each second; once the job settles it answers `HX-Refresh`, which reloads the page |
 | `/closure?dir=genls\|specs&q=<term>` | **every supertype or every subtype** of a type, drawn as a layered picture of the reduced order, the term on the bottom row for genls and the top row for specs (below). The term page links both under its graph |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (a query with no regex metacharacter is a case-insensitive substring match, so `DOG` finds `dog`; a query carrying one is a regular expression under `re-find`, so `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
-| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:predicate-extent]`, argument-position `[:argument-slot pos]` (the slot predicate set the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
+| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its [definitional block](#a-term-page-lists-its-definitional-block), then every sentex containing it grouped by the **index root** that reaches it — functor `[:predicate-extent]`, argument-position `[:argument-slot pos]` (the slot predicate set the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
 | `/sentex/:id` | a **sentex** (atomic or rule): an action bar — Copy, Edit, Remove (below) — then its **belief state** (IN, or the `why-not` reason — superseded / defeated / inert / unsupported — with the restatement, contradictors, the declarations a placed defeat convicts through, the grounds of the length an inert tuple breaks, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), the meta-sentexes naming it by `(sentexHandle id)` (`sentexes-naming`, the first 60), its provenance map, and its terms |
 | `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, each derived node expanded once, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
@@ -358,7 +365,8 @@ position are terms of a sentence rather than nodes of a graph. And **one node pe
 neighbour reached by two predicates is one node whose edge names both, because a node per
 *fact* would put two `Ann`s on the page where the KB has one — the same defect drawing an
 edge once per asserting context would be. One edge in two contexts is one edge; the graph
-is not context-scoped and does not label an edge with a context.
+is not context-scoped and does not label an edge with a context. `merge-neighbours` removes the repeats
+by term, because a stateful filter over a lazy seq would answer differently the second time anything read it.
 
 **It says what it left out**, with the count, in a caption under the picture: *showing 8 of
 37 direct subtypes*. A truncated picture that does not announce itself is worse
@@ -502,8 +510,9 @@ Two things it is careful to show rather than assert:
 - **The cascade.** All five sentences the script touches are rendered at every step. A
   stored one shows its record and its live belief pill. The `genl` hierarchy of event kinds answers
   `(hasCapability Pingu travelling)` at retrieval and stores no record, so its row shows
-  what `ask?` answers: answerable in step 1, unanswerable once the flight goes in step 2,
-  and answerable again in step 3. `(not (hasCapability Pingu flying))` appears in step 2 —
+  what `argue` answers: answerable in step 1, unanswerable once the flight goes in step 2,
+  and answerable again in step 3. An answerable row links the records the answer was read
+  from: the flight, `(genl flying travelling)` and the `transitiveInArg` declaration. `(not (hasCapability Pingu flying))` appears in step 2 —
   the KB does not merely fail to conclude flight, it concludes flightlessness, which is a
   different statement.
 - **The returning conclusion is the same record.** `exceptWhen` blocks rather than rebuts:
@@ -671,7 +680,9 @@ therefore a writer for the duration. `/chain` and POST `/funnel` go through **`w
 guard for a write that *is* a job (below); the two submit the same chaining run and differ
 only in the page it lands on. `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
 `/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
-and cancelling a job has to stay reachable precisely *because* one is running. `/kbs/unload`
+and cancelling a job has to stay reachable precisely *because* one is running. A job does not go
+through `writing` either: it takes the monitor on its own thread, and a request that waited for the
+job inside the monitor would hold the lock the job needs and time out every time. `/kbs/unload`
 still hands `catalog/unload!` the write monitor, because *releasing* an entry is the end of
 a KB's stores: a synchronous write already inside the monitor has to finish before they go
 rather than interleave with the clear, exactly as the export route's does. A write still
@@ -872,6 +883,37 @@ interrupted, since an interrupt inside a disk store's read closes the store's fi
 channel. Its rows ride in the job's summary metadata, so the jobs screen prints a count,
 and they are kept for the hour a finished job's report is. The lists page links each
 list's last run over the active KB.
+
+## The health report
+
+`/quality` renders `kb-quality` ([quality.md](quality.md)): the seven readings about the
+knowledge, in the order `quality-report` prints them and under its headings, one framed
+region each. Every figure on the page is a field of the reading. Every listed rule,
+declaration and rule pair is a sentex row linking `/sentex/:id`, both rules of a covered
+pair and of a clash pair included, and a list the reading capped ends with a `showing n
+of N` line whose `N` is the reading's own count. `/stats` keeps the run ledgers
+(contradictions, conflicts, violations, `exposed-clashes`) and links `/quality`; neither
+page repeats the other's figures.
+
+A page load reads no reading. The button runs `kb-quality` as a `:quality` job, which
+claims no writer and so runs beside a load. The button waits 5 s for it, as a list's
+does, because a reading of the 4,942-sentex starter KB took 616 to 1,012 ms on a box at
+load average 58, past the 250 ms fast path. A reading that finishes inside the wait is
+answered with the page; a longer one is answered with `/jobs`, and `/quality` shows the
+job's phase and fills in when it settles. The job hands
+`kb-quality` its progress fn as `:on-progress`, so a cancel throws at the next phase
+report and the job files no reading; the page then says the last run filed none, and
+shows the reading before it, if there is one. The job is never interrupted, for the reason
+a list job is not.
+
+The reading is the job's return value, held in the jobs registry like a list job's rows:
+for an hour, among the newest 100 settled reports. The page shows the newest finished one
+whose catalog entry is the active KB's.
+
+Under `--attach` the daemon serves `kb-quality` and runs the census in its own process.
+`:on-progress` is a function and does not cross the wire, so the job reports no phase,
+and a cancel from the browser cannot stop the daemon's loop: the page and the job's card
+say so in place of a cancel button.
 
 ## A type's whole closure
 
@@ -1800,6 +1842,27 @@ The `[edit]` beside the heading follows the same order — it opens on the head 
 group the page renders first (`term-main-handles`), which is now the declarations rather
 than the extent.
 
+### A term page lists its definitional block
+
+A type's or a predicate's page opens its prose column with the term's **definitional
+block**: one line per part `handbook/06-definitional-block.md` names, in the handbook's
+order, read off `describe`'s `:definitional-block`. A type lists its comment, positive and
+negative examples, parents, siblings, kind and arity class; a predicate lists its comment,
+kind, arity class, arity, argument declarations, parents and relation properties. The
+kind is the types asserted of the term less its arity class (`unary_predicate`,
+`binary_predicate`, …), which has a line of its own, since the starter loader asserts
+`unary_predicate` of every type. The handbook's links part (`seeAlso`, `termsRelated`)
+has no line. A part the KB holds nothing for is tagged **missing**, beside an **add** link
+that opens the assert form on a sentence supplying it (`(comment dog "")`, `(genl dog )`),
+deliberately incomplete as the assert form's term seed is; a predicate's arity class seed
+names the class of its arity. Each sibling carries what decides it against the term, as
+`subsumption-statuses` reads the pair: `genl`, `spec`, `disjoint`, `orthogonal` for a
+declared overlap, or `overlaps` with the shared instance or shared subtype that shows one,
+which is what the `:open-sibling-pair` pass of `kb-integrity` reads as decided. A sibling
+nothing decides is tagged missing, with one link seeding `disjoint` and one seeding
+`orthogonal`. The siblings are the types sharing a direct parent with the term, capped at
+`describe`'s limit with the remainder counted.
+
 ### Hiding what the engine concluded
 
 Most of what a term page lists on a settled ontology is **derived**: `dog` is told four
@@ -1894,7 +1957,7 @@ A sentence is rendered structurally, not as one opaque string:
   `dog`. A term outside the taxonomy colors by its spelling, so `parentOf` colors as a
   predicate. The node check comes **before** the non-symbol
   fallback, because a type node need not be a symbol: an imported ontology names a type
-  it has no atomic name for with a function term, and over ten thousand of the types in
+  it has no atomic name for with a function term, and 17,211 of the types in
   the OpenCyc import [kbs.md](kbs.md) is the route to are compounds.
   Reading those as numbers is a page in the wrong colour. A legend is shown
   on the home page.

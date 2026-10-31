@@ -30,14 +30,7 @@
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu])
   (:import [java.io DataInputStream DataOutputStream File RandomAccessFile]
-           [java.nio.file CopyOption Files StandardCopyOption]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-reasoning-image-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
+           [java.nio.file CopyOption Files StandardCopyOption]))
 
 (defn- copy-dir! [^String from ^String to]
   (let [src (.toPath (io/file from)) dst (.toPath (io/file to))]
@@ -115,7 +108,7 @@
   "Copy `dir` to a fresh directory, drop the copy's manifest, and open it — a KB that
   recovers the same records from scratch.  Returns `[kb copy-dir]`."
   [dir]
-  (let [ref (tmpdir)]
+  (let [ref (tu/tmpdir "vaelii-reasoning-image-")]
     (copy-dir! dir ref)
     (.delete (manifest ref))
     [(open ref) ref]))
@@ -130,7 +123,7 @@
 
 (deftest a-reopened-kb-holds-the-state-its-writer-closed-with
   (tu/with-snapshot-platform
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb     (open dir)
               _      (content! kb)
@@ -142,14 +135,14 @@
               (is (installed? a) "the image was installed")
               (same-as! closed (whole a))
               (finally (v/close! a)))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-clash-with-a-derived-side-reinstalls
   (tu/with-snapshot-platform
     ;; A clash report lists each side's supporting justifications, and a derived side has
     ;; some: the image writes them as field maps, since its reader refuses a class name,
     ;; and reads them back into the records the writer held.
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)]
           ;; before `content!`, whose disjointness arrives last and so settles the clash
@@ -168,11 +161,11 @@
                 (is (installed? a) "the image was installed")
                 (same-as! closed (whole a))
                 (finally (v/close! a))))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest an-image-a-recover-wrote-reinstalls-that-recover
   (tu/with-snapshot-platform
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)] (content! kb) (v/close! kb))
         (.delete (manifest dir))
@@ -185,7 +178,7 @@
               (is (installed? a) "the close kept that image: the records had not moved")
               (same-as! recovered (whole a))
               (finally (v/close! a)))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest an-installed-kb-believes-what-a-recover-of-its-records-believes
   (tu/with-snapshot-platform
@@ -193,7 +186,7 @@
     ;; carries the labels a recover computes.  The network's depths and the settle's readings
     ;; are the writer's, and a recover rebuilds those rather than reading them, so only belief
     ;; is compared here — the two tests above hold the rest.
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)] (content! kb) (v/close! kb))
         (let [a (open dir)
@@ -205,8 +198,8 @@
             (testing "and after the same later writes"
               (doseq [k [a b]] (later-writes! k))
               (is (= (belief b) (belief a))))
-            (finally (v/close! a) (v/close! b) (rm-rf! ref))))
-        (finally (rm-rf! dir))))))
+            (finally (v/close! a) (v/close! b) (tu/rm-rf! ref))))
+        (finally (tu/rm-rf! dir))))))
 
 (defn- inherited-reports [kb]
   (into #{} (comp (filter #(= :inherited (:kind %))) (map (juxt :sentence :priority)))
@@ -217,7 +210,7 @@
     ;; The second session installs the first's image and settles once, so its discovery
     ;; memo, imaged at the close, holds a mark taken in its network's first settle.  The
     ;; third session's network is a fresh one, and its first settle is the denial's.
-    (let [dir (tmpdir)
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")
           U   'CxUniverse
           mono {:strength :monotonic}]
       (try
@@ -239,8 +232,8 @@
             (doseq [k [a b]] (v/assert k '(not (carriesLoad cart_kind Bone1)) U mono))
             (is (seq (inherited-reports b)) "the denial clashes with the inherited claim")
             (is (= (inherited-reports b) (inherited-reports a)))
-            (finally (v/close! a) (v/close! b) (rm-rf! ref))))
-        (finally (rm-rf! dir))))))
+            (finally (v/close! a) (v/close! b) (tu/rm-rf! ref))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest an-installed-kb-s-first-read-takes-the-taxonomy-s-own-separation-tables
   (tu/with-snapshot-platform
@@ -248,7 +241,7 @@
     ;; separation tables as two read-back copies, equal and not identical.  The first read
     ;; takes the taxonomy's, so a later read compares the two by identity, not entry by
     ;; entry.
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)] (content! kb) (v/close! kb))
         (let [a (open dir)]
@@ -260,11 +253,11 @@
                                    (:vaelii.impl.decide.membership/sep-inputs
                                     @(reasoning/nogood-candidates a)))))
             (finally (v/close! a))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-write-then-a-close-refreshes-the-image
   (tu/with-snapshot-platform
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)] (content! kb) (v/close! kb))
         (let [kb (open dir)]
@@ -276,7 +269,7 @@
             (is (installed? kb) "the close rewrote the image over the moved records")
             (is (true? (get (belief kb) ['(dog Muffet) 'CxUniverse])))
             (finally (v/close! kb))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (defn- rewrite-manifest! [dir f]
   (spit (manifest dir) (pr-str (f (edn/read-string (slurp (manifest dir)))))))
@@ -289,12 +282,12 @@
 (def ^:private spoilers
   [["the records moved under it"
     (fn [dir]
-      (let [aside (tmpdir)]
+      (let [aside (tu/tmpdir "vaelii-reasoning-image-")]
         (copy-dir! (str dir "/reasoning") aside)
         (let [kb (open dir)] (v/assert kb '(dog Muffet) 'CxUniverse {:strength :default}) (v/close! kb))
-        (rm-rf! (str dir "/reasoning"))
+        (tu/rm-rf! (str dir "/reasoning"))
         (copy-dir! aside (str dir "/reasoning"))
-        (rm-rf! aside)))]
+        (tu/rm-rf! aside)))]
    ["another source digest"
     (fn [dir] (rewrite-manifest! dir #(assoc % :source "0")))]
    ["another image layout"
@@ -317,7 +310,7 @@
 
 (deftest a-default-open-keeps-an-image-written-under-another-source
   (tu/with-snapshot-platform
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)] (content! kb) (v/close! kb))
         (rewrite-manifest! dir #(assoc % :source "0"))
@@ -327,10 +320,10 @@
             (is (installed? a) "the image was installed, not recovered past")
             (is (not (:stale-belief (v/write-hazards a))))
             (is (= (belief b) (belief a)) "it holds the labels a recover derives")
-            (finally (v/close! a) (v/close! b) (rm-rf! ref))))
+            (finally (v/close! a) (v/close! b) (tu/rm-rf! ref))))
         (is (= "0" (:source (edn/read-string (manifest-text dir))))
             "the close keeps the source the belief was derived under")
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (defn- strip-argument-family!
   "Rewrite the image in `dir` as a build without the argument family wrote it: its
@@ -346,7 +339,7 @@
 
 (deftest an-image-without-the-argument-family-installs-with-no-whole-argument-read
   (tu/with-snapshot-platform
-    (let [dir   (tmpdir)
+    (let [dir   (tu/tmpdir "vaelii-reasoning-image-")
           reads (atom 0)
           all   @#'checks/all-declarations]
       (try
@@ -365,16 +358,16 @@
               (is (zero? @reads) "the first settle reads no declaration whole")
               (let [[b ref] (recovered-copy dir)]
                 (try (is (= (belief b) (belief a)) "it believes what a recover of its records believes")
-                     (finally (v/close! b) (rm-rf! ref))))
+                     (finally (v/close! b) (tu/rm-rf! ref))))
               (finally (v/close! a)))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest the-image-policy-names-the-forced-monotonic-declarations
   (tu/with-snapshot-platform
     ;; the forced sets an image carries were computed under the forced-monotonic set the
     ;; declarations give, so the image's `:policy` carries those declarations and an image
     ;; under other ones is declined
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb     (open dir)
               declared #(:forced-monotonic (:policy (ri/manifest-for kb nil)))]
@@ -383,13 +376,13 @@
             (v/assert kb '(forced_monotonic_predicate likes) 'CxUniverse)
             (is (= '[[forced_monotonic_predicate likes CxUniverse]] (declared)))
             (finally (v/close! kb))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-stale-or-torn-image-is-declined-and-the-open-recovers
   (tu/with-snapshot-platform
     (doseq [[label spoil!] spoilers]
       (testing label
-        (let [dir (tmpdir)]
+        (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
           (try
             (let [kb (open dir)] (content! kb) (v/close! kb))
             (spoil! dir)
@@ -400,12 +393,12 @@
               (try
                 (is (not (installed? a)) "the image was declined")
                 (same-as! (whole b) (whole a))
-                (finally (v/close! a) (v/close! b) (rm-rf! ref))))
-            (finally (rm-rf! dir))))))))
+                (finally (v/close! a) (v/close! b) (tu/rm-rf! ref))))
+            (finally (tu/rm-rf! dir))))))))
 
 (deftest a-kb-running-its-own-code-takes-no-image
   (tu/with-snapshot-platform
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)]
           (content! kb)
@@ -414,7 +407,24 @@
           (is (nil? (ri/save! kb)))
           (v/close! kb))
         (is (not (.exists (manifest dir))) "nor does its close write one")
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
+
+(deftest a-kb-registering-a-shipped-reasoner-takes-an-image-the-next-open-installs
+  (tu/with-snapshot-platform
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
+      (try
+        (let [kb (open dir)]
+          (content! kb)
+          (v/add-reasoner kb :allen)
+          (is (nil? (ri/refusal kb)))
+          (is (= [:allen] (:reasoners (:policy (ri/save! kb)))))
+          (v/close! kb))
+        (let [before (manifest-text dir)
+              kb     (v/open-kb {:backend :disk-snapshot :dir dir :reasoners :stored})]
+          (try
+            (is (= before (manifest-text dir)) "the open installed the image")
+            (finally (v/close! kb))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest no-image-is-written-while-a-settle-decides-the-belief
   (tu/with-snapshot-platform
@@ -422,7 +432,7 @@
     ;; thread declines: the manifest covers the records, and a settle moves belief without
     ;; writing one, so an image of a network a settle is deciding would pass the next open's
     ;; check and install belief no settled KB held.
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb      (open dir)
               _       (content! kb)
@@ -443,12 +453,12 @@
                 (finally (deliver release true) (deref w 10000 nil)))))
           (is (some? (ri/save! kb)) "the settle has published, and the image is written")
           (v/close! kb))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-kb-whose-belief-does-not-cover-its-records-writes-no-image
   (tu/with-snapshot-platform
     (testing "a loader declared the belief unbuilt"
-      (let [dir (tmpdir)]
+      (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
         (try
           (let [kb (open dir)]
             (content! kb)
@@ -456,9 +466,9 @@
             (is (nil? (ri/save! kb)))
             (v/close! kb))
           (is (not (.exists (manifest dir))))
-          (finally (rm-rf! dir)))))
+          (finally (tu/rm-rf! dir)))))
     (testing "a record with no node and no inert mark"
-      (let [dir (tmpdir)]
+      (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
         (try
           (let [kb (open dir)]
             (content! kb)
@@ -467,12 +477,12 @@
             (is (nil? (ri/save! kb)))
             (v/close! kb))
           (is (not (.exists (manifest dir))))
-          (finally (rm-rf! dir)))))))
+          (finally (tu/rm-rf! dir)))))))
 
 (deftest an-inert-sentex-is-imaged-and-reopens-stored-and-not-believed
   (tu/with-snapshot-platform
     ;; neither `assert-inert` nor a recover makes a node for the inert record
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)]
           (content! kb)
@@ -486,14 +496,14 @@
             (is (= (belief b) (belief a)))
             (is (= (set (keys (:nodes (network b)))) (set (keys (:nodes (network a))))))
             (is (false? (get (belief a) ['(dog Spot) 'CxUniverse])))
-            (finally (v/close! a) (v/close! b) (rm-rf! ref))))
-        (finally (rm-rf! dir))))))
+            (finally (v/close! a) (v/close! b) (tu/rm-rf! ref))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest every-kb-atom-is-imaged-or-named-as-left-alone
   (let [kb    (v/open-kb {:backend :memory :space [::atoms] :recover? false})
         atoms (into #{} (keep (fn [[k x]] (when (instance? clojure.lang.IAtom x) k)))
                     (concat kb (reasoning/of kb)))]
-    (is (= atoms (set/union (set ri/state-atoms) ri/unimaged-atoms))
+    (is (= atoms (set/union (set (ri/state-atoms)) (ri/unimaged-atoms)))
         "a new KB atom must be carried by the image or named in `unimaged-atoms`")))
 
 (defn- export-import
@@ -501,7 +511,7 @@
   dump, spoil the dump with `spoil!`, and import it into a fresh `:disk-log` KB.  Calls
   `f` with the exporter, the importer, the export summary and the import summary."
   [before-export! spoil! f]
-  (let [src (tmpdir) dump (str (tmpdir) "/dump") dst (tmpdir)]
+  (let [src (tu/tmpdir "vaelii-reasoning-image-") dump (str (tu/tmpdir "vaelii-reasoning-image-") "/dump") dst (tu/tmpdir "vaelii-reasoning-image-")]
     (try
       (let [a (open src)]
         (content! a)
@@ -512,7 +522,7 @@
               im (v/import! b dump)]
           (try (f a b ex im)
                (finally (v/close! a) (v/close! b)))))
-      (finally (rm-rf! src) (rm-rf! (.getParent (io/file dump))) (rm-rf! dst)))))
+      (finally (tu/rm-rf! src) (tu/rm-rf! (.getParent (io/file dump))) (tu/rm-rf! dst)))))
 
 (deftest a-dump-carries-the-image-and-an-import-installs-it
   (tu/with-snapshot-platform
@@ -550,7 +560,7 @@
   ;; between the two — here from the export's own progress callback, once the sentexes
   ;; have streamed — would install on import as belief the streamed records never had:
   ;; the premise is in the dump and OUT in the network.
-  (let [dir  (tmpdir)
+  (let [dir  (tu/tmpdir "vaelii-reasoning-image-")
         dump (str dir "/dump")
         open (fn [tag] (v/open-kb {:backend :memory :space [::moved-dump tag] :recover? false}))
         a    (open :a)
@@ -572,11 +582,11 @@
             "the premise the dump streamed is believed, as a recover of it believes it")
         (is (v/ask? b '(animal Dog0) 'CxUniverse) "and so is what it derives")
         (doseq [kb [a b]] (v/clear! kb)))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest the-records-fingerprint-covers-the-justifications
   (tu/with-snapshot-platform
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb   (open dir)
               _    (content! kb)
@@ -590,14 +600,14 @@
                 (is (= (:sentexes fp) (:sentexes (drs/reasoning-fingerprint recs))))
                 (is (not= (:justifications fp) (:justifications (drs/reasoning-fingerprint recs))))))
             (finally (v/close! kb))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-cleared-store-declines-the-image-of-the-records-it-held
   (tu/with-snapshot-platform
     ;; `clear!` truncates the logs, so records of the same byte lengths refill the old slots
     ;; exactly, and the store below differs from the one the image describes in content
     ;; alone.  The epoch the wipe mints is the part of the fingerprint that separates the two.
-    (let [dir   (tmpdir)
+    (let [dir   (tu/tmpdir "vaelii-reasoning-image-")
           strip (fn [fp] (update-vals fp #(dissoc % :epoch)))]
       (try
         (let [kb (open dir)]
@@ -618,7 +628,7 @@
               (is (v/isa? kb2 'Tiddle 'mammal))
               (is (not (v/isa? kb2 'Muffet 'animal))))
             (finally (v/close! kb))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (defn- rewrite-state!
   "Replace the image's `state.nippy` in `dir` with `f` of its thawed content, and the
@@ -643,7 +653,7 @@
 (deftest the-image-carries-the-owed-releases-and-an-image-without-them-installs
   (tu/with-snapshot-platform
     (binding [argument/*assertive-arg-types?* true checks/*prune-subsumed-mints?* true]
-      (let [dir (tmpdir)]
+      (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
         (try
           (let [kb (open dir)]
             (owe-a-release! kb)
@@ -662,7 +672,7 @@
               (is (installed? b) "an image an earlier build wrote without the queue installs")
               (is (zero? (v/owed-releases b)))
               (finally (v/close! b))))
-          (finally (rm-rf! dir)))))))
+          (finally (tu/rm-rf! dir)))))))
 
 ;; A value whose thaw throws an `OutOfMemoryError` while `heap-short?` holds, as a thaw
 ;; does when the heap runs out under it, and nippy wraps the error as it wraps that one.
@@ -686,7 +696,7 @@
     (doseq [[label plant] [["in the state section"
                             #(assoc-in % [:taxonomy ::heap-probe] (->HeapProbe))]]]
       (testing label
-        (let [dir (tmpdir)]
+        (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
           (try
             (let [kb (open dir)] (content! kb) (v/close! kb))
             (rewrite-state! dir plant)
@@ -699,7 +709,7 @@
             (let [kb (open dir)]
               (try (is (installed? kb) "the next open installs it")
                    (finally (v/close! kb))))
-            (finally (rm-rf! dir))))))))
+            (finally (tu/rm-rf! dir))))))))
 
 (deftest a-heap-failure-writing-an-image-keeps-the-image-it-had
   (tu/with-snapshot-platform
@@ -708,7 +718,7 @@
     (doseq [[label v] [["in the network section" #'dense/write-image]
                        ["in the state section" #'ri/state-of]]]
       (testing label
-        (let [dir (tmpdir)]
+        (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
           (try
             (let [kb (open dir)] (content! kb) (v/close! kb))
             (let [before (manifest-text dir)
@@ -724,7 +734,7 @@
             (let [kb (open dir)]
               (try (is (installed? kb) "the next open installs it")
                    (finally (v/close! kb))))
-            (finally (rm-rf! dir))))))))
+            (finally (tu/rm-rf! dir))))))))
 
 (defn- repeats
   "`{:symbol n :long n}`: for each class, how many more objects of it `x` holds, counted by
@@ -750,7 +760,7 @@
     ;; The KB that writes an image names a symbol or a handle with one object wherever it
     ;; repeats, and so does the KB that installs it.  The network's snapshot boxes its
     ;; handles as it reads them, so only its symbols are counted.
-    (let [dir (tmpdir)]
+    (let [dir (tu/tmpdir "vaelii-reasoning-image-")]
       (try
         (let [kb (open dir)]
           (content! kb)
@@ -769,4 +779,4 @@
               (is (< 1 (count (filter #(symbol? (:informant %)) (vals (:justs net))))))
               (is (zero? (:symbol (repeats net)))))
             (finally (v/close! kb))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))

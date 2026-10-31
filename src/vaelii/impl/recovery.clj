@@ -599,6 +599,18 @@
       (deliver-moved! kb moved)
       source)))
 
+(defn rebuild!
+  "Replace `kb`'s belief with belief recovered from its stores on a second KB, installed
+  as a background rebuild installs it, for a KB whose stores were replaced under it (a
+  fork's base refresh, `vaelii.impl.overlay.rebase`), and for `recover` over a KB whose
+  belief a stopped or failed background rebuild left stale.  Its settles keep the
+  withheld-mint releases owed, as `recover`'s do.  Returns `kb`."
+  [kb]
+  (binding [special/*release-withheld?* false]
+    (kb/stop-rebuild! kb)
+    (reasoning-image/register-close! kb (rebuild-and-install! kb identity)))
+  kb)
+
 (defn- rebuild-failed!
   "Log the throw that ended `kb`'s belief rebuild, and file it under `:rebuild` as
   `:failed`, where `rebuild-progress` reports it: a failed rebuild leaves `:stale-belief`
@@ -723,8 +735,7 @@
     (if (:stale-belief @(:unrecovered kb))
       (do ;; the progress of a stopped or failed background rebuild; this one runs here
         (swap! (:unrecovered kb) dissoc :rebuild)
-        (reasoning-image/register-close! kb (rebuild-and-install! kb identity))
-        kb)
+        (rebuild! kb))
       (let [t0 (System/nanoTime)
             ;; the install is the open's longest silent step at scale; a browser load shows
             ;; this line as its card's note until the outcome below replaces it

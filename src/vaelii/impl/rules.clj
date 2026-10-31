@@ -91,26 +91,17 @@
   (antecedent-keys (antecedents sentence)))
 
 (defn dependency-predicates
-  "The antecedent keys of a rule `sentence` as **`consequent-predicate` keys** — what a
-  rule reading those antecedents depends on, spelled the way the thing that could
-  satisfy it is filed.
-
-  The two spellings differ on one shape and only one: an `antecedent-key` distinguishes
-  negations by their body's predicate (`[:not flies]`, so an arriving `(not (p a))`
-  reaches the rules that read a negation on `p` and not every rule that reads any
-  negation), while a *conclusion* `(not (flies ?x))` is filed under its outermost
-  functor, which is `not`.  So a reader looking a dependency up among the concluders has
-  to ask for `not`; asking for `[:not flies]` reads an empty bucket, and an edge that is silently
-  not there is a negation cycle `checks/check-stratified` accepts instead of refusing.
-
-  Coarser than the index key, deliberately: every negated antecedent depends on every
-  negated conclusion here.  Over-approximating is the safe direction for the one caller
-  — refusing a stratified rule set is annoying, accepting an order-dependent one is a
-  correctness hole (`checks/stratification-readers`)."
+  "The antecedent keys of a rule `sentence` as `consequent-predicate` keys: what a rule
+  reading those antecedents depends on, spelled as the thing that could satisfy it is filed.
+  An `antecedent-key` names a negation by its body's predicate (`[:not flies]`), while a
+  conclusion `(not (flies ?x))` is filed under `not`.  A dependency lookup among concluders
+  must ask for `not`, or it reads an empty bucket and `checks/check-stratified` accepts a
+  negation cycle.  Coarser than the index key on purpose: every negated antecedent depends on
+  every negated conclusion, the safe direction (`checks/stratification-readers`)."
   [sentence]
   (map #(if (vector? %) sx/not-functor %) (antecedent-predicates sentence)))
 
-(defn- signed-reach
+(defn signed-reach
   "`p`'s global `genl` closure in direction `dir` (`:up` or `:down`), together with the
   predicates `genlInverse` edges reach either way round (`tax/signed-closure`): every
   predicate an antecedent or fact on `p` can meet through the matching fan.  The plain
@@ -123,22 +114,13 @@
   "The antecedent-index keys an arriving fact `sentence` triggers rules through, and the
   trigger side of `antecedent-key`.
 
-  A **positive** fact's predicate and its supertypes: a fact on a spec satisfies an
-  antecedent on its genl, which is `match1`'s subsumption.  A **negative** fact is the
-  mirror, because a `genl` edge carries the other way through a negation — `(not (p a))`
-  entails `(not (q a))` for every *spec* `q` of `p` — so it triggers `[:not q]` for each
-  spec of its body's predicate.
-
-  Each side is the closure intersected with the keys some stored rule reads, the rule
-  index's root level (`reads/as-stored-rule-keys`), walking the smaller of the two: a
-  membership test per closure term, or one pass over the stored keys.  The pass costs
-  every key on a backend that decodes the set, and a chaining run asks once per datum.
-  The two closures are not the same size: the up set is bounded by the hierarchy's depth,
-  while the down set is most of a broad ontology, so the spec walk stops at the stored key
-  count (`tax/specs-global-within`) and `(not (thing X))` takes the pass.
-
-  The closures are unscoped: a firing is placed in a context the join decides, so the
-  keys are a superset over every reader that the placement narrows."
+  A positive fact triggers its predicate and its supertypes (`match1`'s subsumption).  A
+  negative fact `(not (p a))` entails `(not (q a))` for every spec `q` of `p`, so it triggers
+  `[:not q]` for each spec of its body's predicate.  Each side is the closure intersected with
+  the keys some stored rule reads (`reads/as-stored-rule-keys`), walking the smaller of a
+  membership test per closure term and one pass over the stored keys.  The spec walk stops at
+  the stored key count (`tax/specs-global-within`), and `(not (thing X))` takes the pass.  The
+  closures are unscoped, a superset that the placement narrows."
   [tax sentence index]
   (let [k (antecedent-key sentence)]
     (if (vector? k)
@@ -180,16 +162,14 @@
 ;; Wrapping a rule sets the engines that run it (`:engines` on the record,
 ;; `sx/direction-engines`).  Default (a bare implies) is backward — forward chaining
 ;; materializes a conclusion per match, intractable on a large KB, so forward is opt-in
-;; (set/forwardRule).  Four directions:
+;; (set/forwardRule).  Five directions:
 ;;   #{:forward :backward}  set/forwardRule — forward AND backward (the wrapper adds forward
 ;;                          without taking the backward use away); the forward mode the
 ;;                          ontology uses.
 ;;   #{:backward}           backward only (the default).
-;;   #{:forward}            forward-chains but is NOT usable in backward proof
-;;                          (set/forwardOnlyRule).  The direction for a rule whose
-;;                          conclusion answers a goal its own antecedent poses — core.txt's
-;;                          commutative/symmetric bridge is the one the ontology ships, and
-;;                          `candidate-rules` says what a backward walk of such a rule costs.
+;;   #{:forward}            forward-chains, never backward (set/forwardOnlyRule): a rule
+;;                          whose conclusion answers a goal its own antecedent poses.
+;;   #{:backward :lazy}     backward; a forward join proves it (set/lazyForwardRule).
 ;;   #{}                    neither engine (set/inertRule, documentation).
 ;; A choice or constraint rule holds #{:solve}: a solve reads it and neither chainer does.
 ;; The *index* is complete either way — a rule is filed under both its antecedent and its
@@ -207,6 +187,12 @@
   "Does this stored rule sentex backward-chain?  Read off the record's `:engines`, as
   `forward-sentex?` is."
   [sentex] (contains? (:engines sentex) :backward))
+
+(defn lazy-sentex?
+  "Does a forward join prove this stored rule sentex's conclusion on demand
+  (`set/lazyForwardRule`)?  Read off `:engines`; a rule that also forward-chains stores
+  its conclusions, so it is not lazy."
+  [sentex] (let [e (:engines sentex)] (and (contains? e :lazy) (not (contains? e :forward)))))
 
 (defn solve-sentex?
   "Does a `do/label` solve read this stored rule sentex — a choice, constraint or
@@ -265,22 +251,14 @@
   (boolean (seq (naf-antecedents sentex))))
 
 (def different-flip-predicates
-  "The predicates a fact can arrive on that flips a `(different …)` antecedent.
-
-  `different` is negation as failure over two things: the equality closure, and the
-  `indeterminate_term` category whose members are exempt from the unique-name assumption.
-  A merge makes a difference stop holding, and identifying an indeterminate term makes one
-  start — so a rule reading `different` owes a re-check on both, in both directions.
-
-  A subkind of the category needs no entry: `special/recheck-on-predicate` fans an
-  arriving fact's predicate up its `genls-global` closure, so a `(vague_kind Foggy)`
-  declared under the category reaches a rule registered on `indeterminate_term` alone.
-  `genl` is here because the edge itself is what makes a kind indeterminate, and a skolem
-  is not, because a skolem's membership is minted rather than asserted and no fact ever
-  arrives on it.
-
-  The same set `checks/negative-predicates` runs the stratification edge to, because the
-  question is the same one: what can withdraw a difference."
+  "The predicates a fact can arrive on that flips a `(different …)` antecedent.  `different`
+  is negation as failure over the equality closure and over the `indeterminate_term` category,
+  whose members are exempt from the unique-name assumption.  A merge ends a difference and
+  identifying an indeterminate term starts one, so a rule reading `different` owes a re-check
+  in both directions.  A subkind of the category needs no entry, since
+  `special/recheck-on-predicate` fans a predicate up its `genls-global` closure.  `genl` is here
+  because the edge makes a kind indeterminate; a skolem is not, since its membership is minted.
+  This is the set `checks/negative-predicates` runs the stratification edge to."
   '#{rewriteOf sameAs equals indeterminate_term genl})
 
 (defn different-antecedents
@@ -552,25 +530,28 @@
   (or (has-aggregate? sentex) (has-nested-naf? sentex)))
 
 (defn recheck-predicates
-  "The predicates whose change must re-check this rule for its **own** re-check
-  conditions — the predicates its `unknown` antecedents and its **aggregate** bodies
-  mention, plus `different-flip-predicates` where it reads `different`.  A closed-extent
-  negative antecedent adds its own
-  (`closed-extent-predicates-of`), separately, because whether it is one is a taxonomy
-  read rather than a property of the sentence.  (An exceptWhen exception is a separate meta-sentex, registered under its
-  rule by the meta-sentex's own indexing; it is not read off the rule.)  The key set
-  the `[:exception-index …]` index posts a rule under when it is indexed.
-
-  The three kinds are one key set because they are one problem: each reads what the KB
-  believes at firing time rather than a fact the justification names, so each needs a
-  fact arriving on those predicates to bring the firing back for re-decision.  A
-  `different` antecedent is the case with nothing to name at all — it holds by the
-  *absence* of a merge, so no support handle exists for a justification to carry and the
-  re-check is the only instrument that can withdraw the firing (docs/predall.md)."
+  "The predicates whose change must re-check this rule for its own re-check conditions: the
+  predicates its `unknown` antecedents and aggregate bodies mention, plus
+  `different-flip-predicates` where it reads `different`.  A closed-extent negative antecedent
+  adds its own (`closed-extent-predicates-of`), since that is a taxonomy read.  An exceptWhen
+  exception is registered under its rule by the meta-sentex's own indexing.  This is the key
+  set the `[:exception-index …]` index posts a rule under.  Each kind reads what the KB
+  believes at firing time, so a fact arriving on those predicates brings the firing back for
+  re-decision.  A `different` antecedent holds by the absence of a merge and has no support
+  handle, so the re-check is the only way to withdraw the firing (docs/predall.md)."
   [sentex]
   (distinct (concat (naf-predicates sentex)
                     (aggregate-predicates sentex)
                     (when (has-different? sentex) different-flip-predicates))))
+
+(defn nonempty-recheck-predicates
+  "`[nonempty]` for a rule with a positive antecedent on `nonempty`, else nil: the key the
+  re-check index posts the rule under.  `NonemptyProver` computes the antecedent from the
+  believed members of its type, so every membership re-checks the rule
+  (`special/recheck-nonempty-readers`) and no predicate of the rule names them."
+  [sentex]
+  (when (some #(and (sequential? %) (= 'nonempty (first %))) (:antecedent sentex))
+    ['nonempty]))
 
 (defn rechecked?
   "Does this rule carry a re-check condition of its **own** — an `unknown` antecedent, an
@@ -612,10 +593,10 @@
   "The surface `set/*Rule` wrapper each direction rewraps and exports to.  `:backward` is
   the default (a bare implies), so it needs no wrapper; `:both` and `:forward` both mean
   forward + backward and write as `set/forwardRule`; `:forward-only` (forward, never
-  backward) writes `set/forwardOnlyRule`; `:inert` writes
-  `set/inertRule`."
+  backward) writes `set/forwardOnlyRule`; `:lazy-forward` writes `set/lazyForwardRule`;
+  `:inert` writes `set/inertRule`."
   '{:forward set/forwardRule :both set/forwardRule
-    :forward-only set/forwardOnlyRule :inert set/inertRule})
+    :forward-only set/forwardOnlyRule :lazy-forward set/lazyForwardRule :inert set/inertRule})
 
 (defn wrap-direction
   "Express `direction` as the corresponding `set/*Rule` wrapper around `sentence`.
@@ -939,21 +920,15 @@
 (defn- conjunctive? [c] (and (sequential? c) (= 'and (first c))))
 
 (defn rewrap
-  "Put the direction / default / assumption / constraint wrappers a rule was written
-  with back around `sentence` — the inverse of `sx/peel-rule-wrapper`, since the
-  wrappers ride the record, not the stored sentence.  The arguments are the wrappers as
-  `peel-rule-wrapper` reads them: a polycanonicalized conjunct keeps the mode of the rule
-  it came from, and `split-exceptWhen` restores the qualified rule's other wrappers after
-  stripping the exception.  `rewrap-sentex` reads them off a stored record instead.  An
-  exceptWhen is not among them — it is split off before this runs and stored as a
-  meta-sentex against each conjunct's handle (`split-exceptWhen`).
-
-  A **cardinality** constraint rule restores its authored surface instead of the
-  internal `set/hardConstraint (implies …)` form: its consequent is a `cardAtMost` /
-  `cardAtLeast` marker, so `(asp/atMost k ?v pattern)` comes back rather than the rule it
-  was normalized to (`normalize-cardinality`).
-
-  `solve?` puts `set/solveRule` outermost, around the direction wrapper."
+  "Put the direction / default / assumption / constraint wrappers a rule was written with
+  back around `sentence`: the inverse of `sx/peel-rule-wrapper`, since the wrappers ride the
+  record and not the stored sentence.  The arguments are the wrappers as `peel-rule-wrapper`
+  reads them: a polycanonicalized conjunct keeps the mode of its rule, and `split-exceptWhen`
+  restores the qualified rule's other wrappers.  `rewrap-sentex` reads them off a stored
+  record.  An exceptWhen is not among them (`split-exceptWhen`).  A cardinality constraint
+  rule restores its authored surface, `(asp/atMost k ?v pattern)`, instead of the internal
+  `set/hardConstraint (implies …)` form (`normalize-cardinality`).  `solve?` puts
+  `set/solveRule` outermost, around the direction wrapper."
   ([sentence direction defeasible assumption constraint]
    (rewrap sentence direction defeasible assumption constraint false))
   ([sentence direction defeasible assumption constraint solve?]
@@ -1091,20 +1066,14 @@
 
 (defn expand-antecedent
   "Polycanonicalize a rule whose antecedent disjoins into one rule per DNF alternative,
-  preserving any virtual wrapper.  `(implies (or A B) C)` becomes
-  `[(implies A C) (implies B C)]` and `(implies (and (or A B) D) C)` distributes to
-  `[(implies (and A D) C) (implies (and B D) C)]`; anything else — a non-rule, a rule
-  with no `or`, an `or` in an argument slot — returns `[sentence]` unchanged.
+  preserving any virtual wrapper.  `(implies (or A B) C)` becomes `[(implies A C) (implies B
+  C)]` and `(implies (and (or A B) D) C)` becomes `[(implies (and A D) C) (implies (and B D)
+  C)]`.  Anything else, a non-rule, a rule with no `or`, or an `or` in an argument slot, returns
+  `[sentence]`.
 
-  **Only the level written here.**  A generator's generated rule keeps its `or` until the
-  mint substitutes the holes, and `chain/mint-rule` expands what it is about to store —
-  so the alternatives a generator generates are the alternatives of the rule it generated,
-  and each is checked and indexed in its own right.
-
-  Returns `[sentence]` unexpanded for a rule the cap refuses or an empty `(or)`, which
-  is what keeps the refusal loud rather than large: `disjunction-problems` reports both
-  from the unexpanded form, and materializing 2^n rules to find out how many there were
-  is the cost the cap exists to not pay."
+  Only the level written here is expanded: a generator's generated rule keeps its `or` until
+  `chain/mint-rule` expands what it stores.  A rule the cap refuses and an empty `(or)` return
+  `[sentence]` unexpanded, and `disjunction-problems` reports both from that form."
   [sentence]
   (let [[dir def? _exc assum con inner] (sx/peel-rule-wrapper sentence)
         solve? (sx/solve-wrapped? sentence)]
@@ -1211,29 +1180,19 @@
     (into #{} (filter ante-vars) (sx/form-vars generated))))
 
 (defn nesting
-  "A rule sentence peeled into its **levels**, outermost first — one map per `implies`:
+  "A rule sentence peeled into its levels, outermost first, one map per `implies`:
 
-      {:antecedents …  ; that level's antecedent patterns
-       :consequent  …  ; what it concludes, wrapper and all
-       :generated   …  ; the bare rule it generates, nil at the innermost level
-       :bound       …} ; the variables an *enclosing* level's antecedents bind
+        {:antecedents …  ; that level's antecedent patterns
+         :consequent  …  ; what it concludes, wrapper and all
+         :generated   …  ; the bare rule it generates, nil at the innermost level
+         :bound       …} ; the variables an *enclosing* level's antecedents bind
 
-  An ordinary rule is one level with no `:generated`; a generator is two; a generator
-  that generates a generator is three, and so on with no cap.
-
-  `:bound` is the whole of the scoping rule, accumulated on the way down: by the time a
-  level's rule is stored, every enclosing level has fired and substituted its own holes,
-  so those variables are **ground** there — which is what lets one stand in functor
-  position, and what counts as bound when the innermost rule's range restriction is
-  checked.  A variable an enclosing level does *not* bind belongs to the level it is
-  written at or further in.
-
-  One peel rather than a recursion per question: the holes, the variable functors and
-  the range restriction are all read off these levels, so they cannot disagree about
-  which level owns a variable.
-
-  An ordinary rule stops after one level, so a rule that generates nothing pays one peel
-  and one map for being read this way."
+  An ordinary rule is one level, a generator two, with no cap.  `:bound` is accumulated on the
+  way down: every enclosing level has fired and substituted its holes before a level's rule is
+  stored, so those variables are ground there, may stand in functor position, and count as
+  bound for the innermost rule's range restriction.  The holes, the variable functors and the
+  range restriction are all read off these levels, so they agree about which level owns a
+  variable."
   [sentence]
   (loop [r (inner-rule sentence) bound #{} acc []]
     (let [as    (antecedents r)
@@ -1281,28 +1240,15 @@
                    " is unbound by the antecedents"))))))
 
 (defn range-problems
-  "Why `antecedents => consequent` is not range-restricted, as a seq of problem
-  strings — empty when the rule is fine.  The value form, like the wff arms:
-  a caller that refuses wraps it in a throw, and a fixpoint that must not abort
-  can record it instead.
+  "Why `antecedents => consequent` is not range-restricted, as a seq of problem strings, empty
+  when the rule is fine.  The value form, like the wff arms.  A head existential `(exists ?y C)`
+  exempts only its marked variables: the check runs over the inner `C` (docs/skolem.md).
 
-  A head existential `(exists ?y C)` exempts **only** its marked variable(s): the
-  check runs over the inner `C` (docs/skolem.md).
-
-  A **generator** is checked at its innermost level, and the two claims are about
-  *different* rules.  Every generator level's own range restriction is vacuous — its
-  consequent is a rule rather than a conclusion, and what it generates has free variables on
-  purpose — so what is checked is the **innermost** rule's, with every enclosing level's
-  holes counted as bound because substitution makes them ground before anything is
-  stored.  Checking it here rather than at firing is what makes the refusal reach the
-  author: a generator that can only ever generate junk is refused where it is written, not
-  once per binding at the far end of a fixpoint.
-
-  Each generator level owes one claim of its own: it must fill a hole **no enclosing
-  level has already filled**.  A level whose every shared variable is already ground
-  generates the same rule at every firing, which is a rule its author could have written —
-  and under nesting that is a mistake the outer fill *creates*, so saying it here is
-  what keeps the refusal at the sentence instead of once per mint in the ledger."
+  A generator is checked at its innermost level, with every enclosing level's holes counted as
+  bound; each generator level's own range restriction is vacuous.  The refusal therefore
+  reaches the author where the generator is written.  Each generator level also owes one claim:
+  it must fill a hole no enclosing level has already filled, since otherwise it generates the
+  same rule at every firing."
   [antecedents consequent]
   (let [levels (nesting (rule-sentence antecedents consequent))
         inner  (peek levels)]
@@ -1507,21 +1453,15 @@
                  " its own right, and each has to bind the consequent on its own")}))))
 
 (defn disjunction-problems
-  "Why a sentence's `or`s cannot be polycanonicalized away, as problem maps — empty when
-  they can, and empty in one read for the overwhelming majority of sentences, which
-  carry no `or` at all.
-
-  Four families, reported in that order so the sharpest complaint comes first: an `or`
-  in a position nothing expands (a conclusion, a closed-query body, an exception, under
-  `not`), an empty `(or)`, a rule wider than `max-alternatives`, and an alternative the
-  consequent is not range-restricted over.  A sentence that is not a rule reads empty:
-  `sx/connective-problems` refuses a standalone `or` and a `not` over one.
-
-  A **generator** is read level by level: every level's antecedents may disjoin, since
-  the mint expands what it stores, and only the innermost level's consequent is a
-  conclusion.  The innermost range check counts an enclosing level's variables as bound
-  whether or not the alternative taken there binds them — the mint's own
-  `checks/rule-violation` answers for the rule that is actually generated."
+  "Why a sentence's `or`s cannot be polycanonicalized away, as problem maps; empty when they
+  can, and empty in one read for a sentence with no `or`.  Four families, in this order: an `or`
+  in a position nothing expands (a conclusion, a closed-query body, an exception, under `not`),
+  an empty `(or)`, a rule wider than `max-alternatives`, and an alternative the consequent is
+  not range-restricted over.  A non-rule reads empty (`sx/connective-problems` refuses a
+  standalone `or`).  A generator is read level by level: every level's antecedents may
+  disjoin, only the innermost consequent is a conclusion, and the innermost range check counts
+  an enclosing level's variables as bound (`checks/rule-violation` answers for the generated
+  rule)."
   [sentence]
   (if-not (some-disjunction sentence)
     []
@@ -1563,34 +1503,18 @@
 ;; ---- the functor a rule is indexed by ------------------------------------
 
 (defn variable-functor-literals
-  "The `[role literal]` pairs of a rule whose functor is a **variable** — `(?p ?x ?y)`,
-  or the dotted rest `(?pred . ?args)`.  Read through `naming/applied-literals` one
-  level at a time, so the frames descended into are the ones the naming check descends:
-  a negated antecedent, a head existential, an aggregate's body.
+  "The `[role literal]` pairs of a rule whose functor is a variable: `(?p ?x ?y)` or the dotted
+  rest `(?pred . ?args)`.  Read through `naming/applied-literals` one level at a time, so the
+  frames descended into are those the naming check descends: a negated antecedent, a head
+  existential, an aggregate's body.
 
-  Inside a generator's generated rule the question is asked of **non-holes only**, and
-  that is the carve the whole feature rests on.  The index's claim is on what gets
-  stored as a rule; a generated rule is a pattern, and what gets stored is the mint —
-  checked in its own right, by this function, when it is minted.  A variable an
-  **enclosing** level binds is therefore fine in functor position, because that level's
-  firing makes it concrete before anything is keyed on it, and that is what lets one
-  generator range over a family of predicates while every rule the index ever sees has a
-  concrete functor.
-
-  **Enclosing, not same-level**, and the distinction is the whole of what nesting buys.
-  `(implies (and (?tpred ?type ?cap) (?type ?instance)) …)` generated by a generator that
-  binds `?tpred` fills the first functor and not the second: `?type` is bound by a
-  literal of the rule *being stored*, so the mint is a rule the index cannot key, and
-  refusing it is refusing exactly what would otherwise be stored inert.  Written a level
-  further in — `(implies (?tpred ?type ?cap) (implies (?type ?instance) …))` — `?type` is
-  a hole of the middle level, ground before its rule is stored, and both functors are
-  concrete by the time anything is indexed.
-
-  A generated variable functor no enclosing level binds is refused as loudly as any other,
-  and it has to be: nothing will ever bind it, so every mint it produces is the
-  accepted-and-inert rule this check exists to keep out — and refusing it here names
-  the generator, where refusing it at the mint would name a rule the author never
-  wrote."
+  Inside a generator's generated rule the question is asked of non-holes only.  A generated
+  rule is a pattern and the mint is what gets stored, checked in its own right when minted.  A
+  variable an enclosing level binds is ground before anything is keyed on it, so one generator
+  can range over a family of predicates.  A variable bound by a literal of the rule being
+  stored (`(implies (and (?tpred ?type ?cap) (?type ?instance)) …)`) is refused; written one
+  level further in it is a hole of the middle level and both functors are concrete.  A
+  generated variable functor no enclosing level binds is refused, naming the generator."
   [sentence]
   (letfn [(level-literals [i {:keys [antecedents consequent generated]}]
             ;; only the innermost level's consequent is a conclusion; every other one is
@@ -1607,33 +1531,18 @@
     (vec (mapcat level-problems (range) (nesting sentence)))))
 
 (defn check-indexable-functors
-  "Throw `:type :not-indexable` when an **antecedent** literal of the rule `sentence`
-  puts a variable in functor position.  A variable functor in the **consequent** is
-  allowed and indexed (see `consequent-index-pred`), so this refuses only the half the
-  engine cannot key.
+  "Throw `:type :not-indexable` when an antecedent literal of the rule `sentence` puts a
+  variable in functor position.  A variable functor in the consequent is allowed and indexed
+  (`consequent-index-pred`).
 
-  **The split, and why it falls where it does.**  The rule index is keyed by predicate,
-  and a variable names none.  For a *consequent* that adds no work the range check does
-  not already buy: every consequent variable is antecedent-bound
-  (`check-range-restricted`), so a rule concluding `(?p ?y ?x)` fires forward through its
-  *concrete* antecedent with `?p` already ground, and the `var-consequent-key` catch-all
-  cell makes it reachable by a backward goal.  For an *antecedent* it is the widest
-  trigger the engine can have: `(?p ?x ?y)` names no predicate to key on, so
-  `chain/fire-rules-for` cannot find the rule from an arriving fact, and it would fire
-  only when a concrete-predicate antecedent beside it arrives — `(transitive foo)` before
-  the facts derives nothing, and after them joins over whatever happens to be stored at
-  that instant.  Two arrival orders, two answers, from a rule the engine reported as
-  accepted.  That half stays refused.
-
-  The workaround the message names is the instantiated rule: one rule per predicate the
-  metarule was meant to range over, each with a functor the index can read — written by
-  hand, or by the **generator** that generates them, which is what a variable antecedent
-  functor usually wants to be (docs/generators.md).  So the message names the level to
-  move it to when the rule is one a generator generates: a functor a level *further out*
-  binds is ground before its rule is stored, and only the ones nothing binds are left.
-
-  An `:inert` rule is exempt at the caller (`checks/check-rule!`): it runs in neither
-  engine by construction, so it claims nothing the index has to honour."
+  The rule index is keyed by predicate.  Every consequent variable is antecedent-bound
+  (`check-range-restricted`), so a consequent `(?p ?y ?x)` fires through its concrete
+  antecedent and the `var-consequent-key` catch-all cell serves backward goals.  An antecedent
+  `(?p ?x ?y)` names no predicate to key on, so `chain/fire-rules-for` cannot find the rule from
+  an arriving fact and the rule would give two answers in two arrival orders.  The message
+  names the instantiated rule, or the generator level to move it to (docs/generators.md): a
+  functor a level further out binds is ground before its rule is stored.  An `:inert` rule is
+  exempt at the caller (`checks/check-rule!`)."
   [sentence]
   (when-let [bad (seq (filter (comp #{:antecedent :generated-antecedent} first)
                               (variable-functor-literals sentence)))]
@@ -1658,18 +1567,12 @@
 
 (defn consequent-index-pred
   "The key the consequent slot of `index-rule` files `rule-sentex` under: its
-  `consequent-predicate`, or `p/var-consequent-key` when that predicate is a variable —
-  a rule with concrete antecedents concluding `(?p …)`, which `check-indexable-functors`
-  allows.  Such a rule is filed under the one shared catch-all bucket rather than the
-  canonical `?var0` no goal can spell, and `resolution/concluding-rule-handles` unions
-  that bucket into every concrete-goal answer so a backward goal can reach it.
-
-  **An `:inert` rule is the exception**: it chains in neither engine, so it concludes nothing and must not surface as a concluder for
-  every goal.  It keeps the canonical variable — a dead key nothing reads — and only a
-  rule that can actually conclude reaches `:var-pred`.
-
-  One spelling for all three writers — `special/index-rule-sentex`, its unindex twin, and
-  `reindex/index-one!` — so a rebuilt index files the key a live one does."
+  `consequent-predicate`, or `p/var-consequent-key` when that predicate is a variable (a rule
+  with concrete antecedents concluding `(?p …)`, allowed by `check-indexable-functors`).  The
+  shared catch-all bucket is unioned into every concrete-goal answer by
+  `resolution/concluding-rule-handles`.  An `:inert` rule concludes nothing, so it keeps the
+  canonical variable, a key nothing reads.  `special/index-rule-sentex`, its unindex twin and
+  `reindex/index-one!` share this spelling."
   [rule-sentex]
   (let [c (consequent-key (:consequent rule-sentex))]
     (if (and (sx/variable? c) (chains? rule-sentex))
@@ -1685,10 +1588,16 @@
   does a rule's engines moving (`forget-stratification`)."
   nil)
 
+(def ^:dynamic *negated-keys-memo*
+  "nil, or a volatile bound beside `*stratification-memo*` holding the stored rules'
+  `[:not P]` antecedent keys, emptied with it."
+  nil)
+
 (defn forget-stratification
-  "Empty `*stratification-memo*`: a stored rule's graph node moved."
+  "Empty `*stratification-memo*` and `*negated-keys-memo*`: a stored rule's graph node moved."
   []
-  (when-let [m *stratification-memo*] (vreset! m nil)))
+  (when-let [m *stratification-memo*] (vreset! m nil))
+  (when-let [m *negated-keys-memo*] (vreset! m nil)))
 
 ;; A rule is posted under each antecedent key in the `:rule-antecedent` count trie and under
 ;; its consequent key in `:rule-consequent`, each ending in the rule's context; a watched

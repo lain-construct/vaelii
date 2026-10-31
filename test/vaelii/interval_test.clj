@@ -13,11 +13,10 @@
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.test-util :as tu]))
 
-;; A fresh KB per test, with the opt-in prover registered; the algebra tests need none.
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (iv/allen-prover)))))
+;; One KB per namespace, with the opt-in prover registered; the algebra tests need none.
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (iv/allen-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 
@@ -258,13 +257,6 @@
       (is (contains? (set (map '?y (v/query kb (list 'subintervalOf T1 '?y) C {:max-depth 1})))
                      'Forever)))))
 
-(defn- orderings
-  "Every ordering of `coll`."
-  [coll]
-  (if (empty? coll)
-    [[]]
-    (mapcat (fn [x] (map #(vec (cons x %)) (orderings (remove #{x} coll)))) coll)))
-
 (tu/deftest-kb a-membership-moves-a-typed-containment-for-its-readers-in-every-order
   ;; `(time_point P1)` keeps `(subintervalOf P1 P2)` from holding, and no support handle
   ;; names the membership, so its arrival and departure have to reach the forward rule
@@ -290,7 +282,7 @@
                :mark   [(list mark P1)]
                :during [(list 'during P1 P2)]
                :point  [(list 'time_point P1)]})]]]
-    (let [orders  (orderings (keys (sentences 'P1 'P2 'sub 'mark 'moment)))
+    (let [orders  (tu/orders (keys (sentences 'P1 'P2 'sub 'mark 'moment)))
           beliefs (frequencies
                    (for [order orders]
                      (tu/with-terms [P1 P2 sub mark moment]

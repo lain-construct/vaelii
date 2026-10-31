@@ -1080,6 +1080,15 @@
              (select-keys (post-op handler :assert [(list dog Rex) CxServe]) [:status :type])))
       (is (nil? (v/handle-of kb (list dog Rex) CxServe))))))
 
+(tu/deftest-kb a-stopped-daemon-leaves-no-feed-listener-on-its-kb
+  (let [before (v/watchers kb)
+        server (serve/start kb {:port 0 :token nil})]
+    (try
+      (client/watch (client/client "localhost" (serve/port server) {:token nil}))
+      (is (= (inc (count before)) (count (v/watchers kb))) "the daemon registered a listener")
+      (finally (.stop ^Server server)))
+    (is (= before (v/watchers kb)))))
+
 (tu/deftest-kb a-re-sent-write-answers-what-operations-md-says
   ;; the re-send table in docs/operations.md, row by row; `:export`'s row is
   ;; `export-over-the-wire-refuses-a-path-unless-request-paths-is-on`'s last block
@@ -1319,6 +1328,27 @@
               (is (empty? (client/sentexes-matching conn (list bird Tweety) CxWire))))))
         (finally
           (.stop server))))))
+
+(tu/deftest-kb a-callers-print-bound-elides-nothing-on-the-wire
+  (tu/with-terms [visits Ann Bob Cal Dee CxWire]
+    (let [s (list visits Ann Bob Cal Dee)]
+      (testing "the daemon's reply prints the sentence whole"
+        (v/assert kb s CxWire)
+        (let [body (pr-str {:op :sentexes-matching :args [(list visits '?a '?b '?c '?d) CxWire]})
+              resp (binding [*print-length* 3 *print-level* 3]
+                     ((open-app kb) {:request-method :post :uri "/op"
+                                     :headers {"content-type" "application/edn"}
+                                     :body (ByteArrayInputStream. (.getBytes ^String body "UTF-8"))}))]
+          (is (= [s] (map :sentence (:result (edn/read-string (:body resp))))))))
+      (testing "the client's request prints the sentence whole"
+        (v/retract! kb (v/handle-of kb s CxWire))
+        (let [server (serve/start kb {:port 0 :token nil})]
+          (try
+            (let [conn (client/client "localhost" (serve/port server) {:token nil})
+                  h    (binding [*print-length* 3 *print-level* 3]
+                         (client/assert conn s CxWire))]
+              (is (= h (v/handle-of kb s CxWire))))
+            (finally (.stop server))))))))
 
 (tu/deftest-kb the-public-shims-answer-what-the-daemon-answers
   ;; `vaelii.serve` and `vaelii.client` are one-line delegations, and a delegation to the

@@ -10,23 +10,16 @@
             [vaelii.impl.disk.kv :as dkv]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.sentex :as sx])
+            [vaelii.impl.sentex :as sx]
+            [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
-           [java.nio.channels FileChannel]
-           [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
-
-(defn- tmpdir ^String []
-  (str (Files/createTempDirectory "vaelii-disk-fault-" (into-array FileAttribute []))))
-
-(defn- rm-rf! [^String dir]
-  (doseq [f (reverse (file-seq (java.io.File. dir)))] (.delete ^java.io.File f)))
+           [java.nio.channels FileChannel]))
 
 (defn- with-tmp [f]
-  (let [dir (tmpdir)]
+  (let [dir (tu/tmpdir "vaelii-disk-fault-")]
     (try (f dir)
          (finally (try (backend/close-dir! dir) (catch Throwable _ nil))
-                  (rm-rf! dir)))))
+                  (tu/rm-rf! dir)))))
 
 (defn- open [dir] (v/open-kb {:backend :disk-log :dir dir}))
 

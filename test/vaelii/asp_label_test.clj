@@ -14,16 +14,12 @@
             [vaelii.impl.asp.label :as label]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.jtms :as jtms]
-            [vaelii.impl.rules :as vr]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.impl.types.solve :as solve-types]
             [vaelii.test-util :as tu]))
 
 (def ^:private asp? (solver/available?))
-
-(defn- default-rule [antes conseq]
-  (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq))))
 
 (defn- check-tms [kb c]
   (testing "cautious beliefs are all believed"
@@ -40,8 +36,8 @@
   [kb]
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind)]
-    (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
-    (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+    (v/assert kb (tu/default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+    (v/assert kb (tu/default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
     (v/assert kb (list quaker nixon)     'CxUniverse)
     (v/assert kb (list republican nixon) 'CxUniverse)
     {:pacifist pacifist
@@ -135,7 +131,7 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+        (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
         (v/assert kb (list bird tweety) 'CxUniverse)
         (v/assert kb (list 'not (list flies tweety)) 'CxUniverse {:strength :monotonic})
         (testing "the default lost, and not by arbitration"
@@ -243,7 +239,7 @@
     (tu/with-neutral-kb [kb tu/fresh]
       (let [bird (tu/tmp-type) flies (tu/tmp-pred) tweety (tu/tmp-ind)]
         (v/set-solver kb edge/edge-solver)
-        (v/assert kb (default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
+        (v/assert kb (tu/default-rule [(list bird '?x)] (list flies '?x)) 'CxUniverse)
         (v/assert kb (list bird tweety) 'CxUniverse)
         (v/assert kb (list 'not (list flies tweety)) 'CxUniverse {:strength :monotonic})
         (testing "the monotonic side won without a solve"

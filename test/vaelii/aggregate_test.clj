@@ -720,6 +720,29 @@
         (is (= one-at-a-time (counted kb ancestorCount))
             "the batch settles once and reaches the identical counts")))))
 
+(tu/deftest-kb a-firing-a-moved-count-withdraws-leaves-no-refusal-in-either-arrival-order
+  ;; the edit lands `(item Ann)` first, so the zero count fires and the settle withdraws
+  ;; the firing once the counted fact lands beside it
+  (tu/with-terms [item valueOf lacking Ann]
+    (let [rh     (v/assert kb (list 'set/forwardRule
+                                    (list 'implies
+                                          (list 'and (list item '?o)
+                                                (list 'agg/count 0 '?v (list valueOf '?o '?v)))
+                                          (list lacking '?o)))
+                           'CxWell)
+          row    #(some (fn [r] (when (= rh (:rule r)) (select-keys r [:placed :refused :status])))
+                        (v/chain-report kb))
+          facts  [[(list item Ann) 'CxWell] [(list valueOf Ann 1) 'CxWell]]]
+      (v/edit! kb {:add facts})
+      (let [batched (row)]
+        (doseq [[s c] facts] (v/retract! kb (v/handle-of kb s c)))
+        (v/edit! kb {:add (vec (reverse facts))})
+        (is (= {:placed 0 :refused 0 :status :silent} batched (row))
+            "the withdrawn firing is not in the refusal record"))
+      (v/retract! kb (v/handle-of kb (list valueOf Ann 1) 'CxWell))
+      (is (v/in? kb (v/handle-of kb (list lacking Ann) 'CxWell))
+          "the count falling back to zero fires the rule"))))
+
 ;; ---- the index is derived, so a rebuild must restore the maintenance ----
 
 (tu/deftest-kb reindex-rebuilds-the-re-check-posting-an-aggregate-rule-needs
@@ -821,17 +844,10 @@
 
 ;; ---- order independence --------------------------------------------------
 
-(defn- permutations [coll]
-  (if (< (count coll) 2)
-    [coll]
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
-
 (tu/deftest-kb the-counts-do-not-depend-on-the-order-the-facts-arrived
   ;; each ordering gets its own cast, so the answer is keyed by the node's role
   (let [answers
-        (for [perm (permutations [[:a :b] [:b :c] [:c :d] [:a :d]])]
+        (for [perm (tu/permutations [[:a :b] [:b :c] [:c :d] [:a :d]])]
           (tu/with-terms [node ancestorOf ancestorCount A B C D]
             (let [term  {:a A :b B :c C :d D}
                   role  (into {} (map (fn [[k v]] [v k])) term)

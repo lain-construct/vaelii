@@ -17,9 +17,6 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- fwd [antes conseq]
-  (list 'set/forwardRule (vr/rule-sentence antes conseq)))
-
 ;; ---- violations: what chaining dropped ----------------------------------
 
 (tu/deftest-kb a-derived-conclusion-that-breaks-an-argument-constraint-is-held
@@ -37,7 +34,7 @@
      (v/assert kb (list 'disjoint person rock) 'CxUniverse)
      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
      (v/assert kb (list rock Boulder) 'CxUniverse)
-     (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+     (v/assert kb (tu/fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
      (v/assert kb (list looksLike Boulder) 'CxUniverse)
      (testing "the inadmissible conclusion is stored and not believed"
        (is (some? (v/handle-of kb (list parentOf Boulder Muffet) 'CxUniverse)))
@@ -64,7 +61,7 @@
        (let [dh (v/assert kb (list 'disjoint person rock) 'CxUniverse)
              _  (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
              mh (v/assert kb (list rock Boulder) 'CxUniverse)]
-         (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+         (v/assert kb (tu/fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
          (v/assert kb (list looksLike Boulder) 'CxUniverse)
          (is (not (v/ask? kb (list parentOf Boulder Muffet) 'CxUniverse)) (name lift))
          (v/retract! kb (if (= lift :disjoint) dh mh))
@@ -85,7 +82,7 @@
        (v/assert kb (list 'disjoint person rock) 'CxUniverse)
        (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
        (v/assert kb (list rock Boulder) 'CxUniverse)
-       (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+       (v/assert kb (tu/fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
        (v/assert kb (list looksLike Boulder) 'CxUniverse)
        (is (= [:inert-argument] (map :violation (v/violations kb))))
        (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse)))))
@@ -100,14 +97,14 @@
      (v/clear-violations! kb)          ; the ledger accumulates; scope to this stage
      (tu/with-terms [dog animal relates]
        (v/assert kb (list 'genl dog animal) 'CxUniverse)
-       (v/assert kb (fwd [(list relates '?x '?y)] (list 'genl '?x '?y)) 'CxUniverse)
+       (v/assert kb (tu/fwd [(list relates '?x '?y)] (list 'genl '?x '?y)) 'CxUniverse)
        (v/assert kb (list relates animal dog) 'CxUniverse)
        (is (= [:not-well-formed] (map :violation (v/filed-violations kb))))
        (is (not (v/genl? kb animal dog)) "and the closure is intact")))))
 
 (tu/deftest-kb a-clean-run-reports-no-violations
   (tu/with-terms [bird flies Robin]
-    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
+    (v/assert kb (tu/fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
     (v/assert kb (list bird Robin) 'CxNaturalWorld)
     (is (seq (v/sentexes-matching kb (list flies Robin) 'CxNaturalWorld)))
     (is (empty? (v/violations kb)) "nothing was dropped, so nothing is reported")))
@@ -190,7 +187,7 @@
   ;; undetectable — and this is the API a caller uses for impact analysis before a
   ;; retract.
   (tu/with-terms [bird flies Robin]
-    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
+    (v/assert kb (tu/fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
     (let [fact  (v/assert kb (list bird Robin) 'CxNaturalWorld)
           concl (v/handle-of kb (list flies Robin) 'CxNaturalWorld)]
       (is (v/in? kb concl) "the rule fired")
@@ -206,7 +203,7 @@
 
 (tu/deftest-kb justification-looks-a-justification-up-by-id
   (tu/with-terms [bird flies Robin]
-    (v/assert kb (fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
+    (v/assert kb (tu/fwd [(list bird '?x)] (list flies '?x)) 'CxNaturalWorld)
     (v/assert kb (list bird Robin) 'CxNaturalWorld)
     (let [concl (v/handle-of kb (list flies Robin) 'CxNaturalWorld)
           d     (first (v/supporting-justifications kb concl))]

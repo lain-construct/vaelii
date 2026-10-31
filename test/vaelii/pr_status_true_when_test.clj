@@ -33,6 +33,8 @@
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
+;; The KB is built per test because a test registers reasoners, which a KB shared
+;; across tests would keep.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core-with! '[[CxChange "middle"] [CxRealWorld "middle"]]))))

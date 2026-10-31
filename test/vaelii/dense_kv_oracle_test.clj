@@ -21,9 +21,8 @@
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.types.postings :as postings]))
-
-(defn- pick [^java.util.Random rng v] (nth v (.nextInt rng (count v))))
+            [vaelii.impl.types.postings :as postings]
+            [vaelii.test-util :as tu]))
 
 (deftest kv-backend-set-equal
   (let [rng   (java.util.Random. 42)
@@ -37,21 +36,21 @@
     (dotimes [_ 8000]
       (let [r (.nextInt rng 100)]
         (cond
-          (< r 45) (let [k (pick rng hkeys) m (.nextInt rng 500)]
+          (< r 45) (let [k (tu/pick rng hkeys) m (.nextInt rng 500)]
                      (p/kv-add-to-set mem k m) (p/kv-add-to-set den k m))
-          (< r 60) (let [k (pick rng hkeys) m (.nextInt rng 500)]
+          (< r 60) (let [k (tu/pick rng hkeys) m (.nextInt rng 500)]
                      (p/kv-remove-from-set mem k m) (p/kv-remove-from-set den k m))
           ;; label set: mix symbol and NUMBER tokens (the misclassification trap)
-          (< r 75) (let [k (pick rng lkeys)
+          (< r 75) (let [k (tu/pick rng lkeys)
                          m (if (< (.nextDouble rng) 0.5)
                              (symbol (str "s" (.nextInt rng 40)))
                              (long (.nextInt rng 2000)))]
                      (p/kv-add-to-set mem k m) (p/kv-add-to-set den k m))
-          (< r 85) (let [k (pick rng lkeys) m (symbol (str "s" (.nextInt rng 40)))]
+          (< r 85) (let [k (tu/pick rng lkeys) m (symbol (str "s" (.nextInt rng 40)))]
                      (p/kv-remove-from-set mem k m) (p/kv-remove-from-set den k m))
-          (< r 95) (let [k (pick rng ckeys)]
+          (< r 95) (let [k (tu/pick rng ckeys)]
                      (is (= (p/kv-increment mem k) (p/kv-increment den k)) "incr reply"))
-          :else    (let [k (pick rng ckeys)]
+          :else    (let [k (tu/pick rng ckeys)]
                      (is (= (p/kv-decrement mem k) (p/kv-decrement den k)) "decr reply")))))
     ;; every handle / label key: members and cardinality agree
     (doseq [k (concat hkeys lkeys)]

@@ -1,5 +1,6 @@
-;; CxKinship — kinship & age theory: the genl edge and the rules that derive
-;; ancestorOf and grandparentOf from parentOf, and olderThan from birthYearOf. Sees the shared
+;; CxKinship — kinship & age theory: the genl edge that derives ancestorOf from parentOf,
+;; the genlInverse edges that answer parentOf from fatherOf and motherOf, and the rules
+;; that derive grandparentOf from parentOf and olderThan from birthYearOf. Sees the shared
 ;; upper ontology via CxUniverse; CxWell sees it.
 
 (genlCx CxKinship CxUniverse)
@@ -14,8 +15,8 @@
   (implies (and (birthYearOf ?x ?bx) (birthYearOf ?y ?by) (lessThan ?bx ?by))
            (olderThan ?x ?y)))
 
-;; Maternity and paternity each entail parenthood, and neither converse holds: a parent
-;; is one or the other, and nothing in a parentOf fact says which.
-(set/forwardRule (implies (and (fatherOf ?child ?father)) (parentOf ?father ?child)))
-
-(set/forwardRule (implies (and (motherOf ?child ?mother)) (parentOf ?mother ?child)))
+;; Maternity and paternity each entail parenthood with the arguments exchanged, and
+;; neither converse holds: a parent is one or the other, and nothing in a parentOf fact
+;; says which.
+(genlInverse fatherOf parentOf)
+(genlInverse motherOf parentOf)

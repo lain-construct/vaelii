@@ -492,6 +492,16 @@ known-true, and a default second claim is defeated; merely believed, and the rea
 undercut and the second claim stands. Either way the KB does not hold both directions
 unreported.
 
+**A sentence is not its own converse.** For a self tuple `(P a a)` the converse is the
+sentence, so a stored copy would convict a second assert of the same content. The checks
+exclude a stored sentex whose canonical sentence and **home** context (the sentence's own
+context, not the context of the asker) both equal the candidate's. `(P a a)` in two
+contexts is a real pair: each is the other's converse across the context boundary
+(`a-self-tuple-in-two-contexts-orders-on-the-context`). Keying self on the asker's context
+instead of `home` discards the twin stored in a vantage that `settle` asks from
+(`reads-clash?`), and then whether the pair is reported depends on which of the two was
+written last (`clash_oracle_test`'s streams measure that).
+
 The mark is read for the sentence's predicate **and every super-predicate of it**
 (`tax/props-over`), because `(fatherOf a b)` beside `(parentOf b a)` is two `parentOf`
 tuples one way round each, and `(asymmetric parentOf)` denies that pair. The converse
@@ -523,6 +533,11 @@ stored and derived directly.
 
 `vaelii.impl.inherit/verdict` is the whole semantics in one function: `:for`,
 `:against`, `:ambiguous`, or nil when the predicate declares no preserved position.
+
+The prover is a `SupportingProver` with empty functor sets, as `TransitivePredicateProver`
+is. Its `solve-with-support` pairs the one answer with each reading
+`inherit/answer-readings` names, and `argue` names those readings on the derivation leaf
+([inference.md](inference.md#an-answer-no-record-holds)).
 
 Being answered at all is not the same as being *reached*. `TransitiveInArgProver` sits in
 a registry where a prover claiming `completeness 100` runs alone, and a computed answer

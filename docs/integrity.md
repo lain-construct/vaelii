@@ -6,7 +6,8 @@
   predicate `genl` edges that widen a declared argument type, the candidate types with no `genl`
   path to `thing`, the `genl` edges a cover forces on a candidate type that the
   closure does not hold, the exact-arity class a candidate predicate or function's kind
-  and arity force that it is not an instance of, the orthogonal declarations (`orthogonal` and
+  and arity force that it is not an instance of, the candidate terms a sentence uses whose
+  every membership the uses entail, the orthogonal declarations (`orthogonal` and
   `siblingDisjointException`) over a pair a stated separation divides, the stored rules a
   declaration the engine implements states, the `genl` nodes with no declared arity, the
   functions a held rule applies with no single correspondence, the argument declarations
@@ -14,7 +15,8 @@
   would contradict each other if both fired, and for review: three ontology-engineering
   smells (sibling types with one direct `genl` set, stated edges that derive without
   themselves, and `disjoint` pairs a known cover exhausts), every declared argument
-  position no declaration types, the edged types that miss the taxonomy's root, the
+  position no declaration types, the sibling type pairs nothing decides, the binary
+  predicates no relation property decides, the edged types that miss the taxonomy's root, the
   rule clashes an inert rule, a stated exception or an acknowledgment accounts for, and
   the acknowledged rule-macro suggestions.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
@@ -79,24 +81,29 @@ declared predicate independently. The widening pass does the same: one census of
 census: it checks one candidate term at a time. The implicit-`genl` pass reads none
 either: one candidate term, then one visible cover over it, at a time. The
 implicit-arity-class pass reads one census of the visible `predicateTypeByArity` and
-`functionTypeByArity` facts, then one candidate term at a time. The
-`orthogonal` pass reads one census of visible orthogonal declarations, then one
+`functionTypeByArity` facts, then one candidate term at a time. The undeclared-term pass
+reads no census: one candidate term, then its memberships and its first use, at a time.
+The `orthogonal` pass reads one census of visible orthogonal declarations, then one
 declaration at a time. The rule-macro pass reads one census of the stored rules, then
 one rule at a time. The undeclared-arity pass reads one census of the visible `genl`
 edges, then one node at a time. The uncorresponded-function pass reads one census of the
 stored rules, then one rule at a time. The stranded-declaration pass reads one census of the
 argument declarations, then one declaration at a time. The two rule-clash passes read one
 census of the stored rules, then one candidate pair at a time. The taxonomy-island pass
-reads the visible `genl` nodes, then one node's closure at a time. The three ontology-engineering passes read the taxonomy's types
+reads the visible `genl` nodes, then one node's closure at a time. The open-sibling-pair
+pass reads the visible `genl` nodes, then one parent's direct specs at a time, and the
+undecided-relation-property pass one census of arity declarations, then one predicate at
+a time. The three ontology-engineering passes read the taxonomy's types
 once, or one census of stated `genl` and `disjoint` declarations, then one type or one
 declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
 
 `:categories`, a set of category keys, runs the passes of those categories alone and
 reads nothing for the others. Without `:categories`, the sweep runs every pass except
-the seven review-only ones: `:twin-genls`, `:derivable-stated-edge`,
-`:disjoint-could-be-partition`, `:missing-arg`, `:taxonomy-island`,
-`:rule-clash-review` and `:rule-macro-review`. A caller names a review-only category
+the nine review-only ones: `:twin-genls`, `:derivable-stated-edge`,
+`:disjoint-could-be-partition`, `:missing-arg`, `:open-sibling-pair`,
+`:undecided-relation-property`, `:taxonomy-island`, `:rule-clash-review` and
+`:rule-macro-review`. A caller names a review-only category
 in `:categories` to run its pass, so a review finding never makes a default sweep `:gap`. On a large KB the census passes (the specified and widening
 categories) can spend the daemon's `:max-work` ceiling before a candidate pass starts; a
 caller names the candidate categories to reach them, or the operator raises or lifts
@@ -358,6 +365,65 @@ The pass has these limits:
 Reading the mapping facts, each term's length, its kind and each class it lacks spend one
 work unit each, and `:max-results` counts these findings after the implicit-`genl`
 category.
+
+## What an undeclared-term finding means
+
+A sentence that uses a constant entails memberships of it: `(genl X retired)` makes
+`retired` a `predicate` through `genl`'s argument declaration, `(genlArg ranks 1 retired)`
+marks it `unary_predicate`, and `(dimensionOf Meter Length)` makes `Meter` a
+`unit_of_measure` ([argtypes.md](argtypes.md)). Each of those memberships rests on the
+use alone, so a constant nobody declared reads as declared to every check that asks for a
+membership. The sweep reports a candidate whose every membership is such an entailment:
+
+```clojure
+;; (genl sub_kind retired)
+;; (genlArg ranks 1 retired)
+{:status :gap
+ :candidate-count 1
+ :undeclared-term
+ [{:term retired :arity 1}]}
+```
+
+`(unary_predicate retired)`, or a membership of `retired` in a narrower metatype, clears
+the finding.
+
+A candidate is declared by one of these:
+
+- **A stated membership.** A believed `(T term)` the audit context sees, for any `T`,
+  held by a premise or concluded by a justification whose informant is not an argument
+  declaration: neither a mint (`arg`, `genlArg`, `argAndRest` and the other kinds
+  `kb/mint-informant?` names) nor the `declaredType` mark a declaration gives the
+  type it names. A membership a rule concludes counts as stated.
+- **A stated arity.** An arity binding of the term's own (`(arity P n)`, `arityMin`, an
+  exact-arity class or `variable_arity`) held the same way, read the same at every context
+  as `kb/relation-arity` reads it ([taxonomy.md](taxonomy.md#arity)). A length the term
+  inherits through `genl` is a use and declares nothing.
+
+A candidate that no sentex the audit context sees uses in an argument position is not a
+finding: the position is an argument of a literal (`nm/applied-literals`), at any depth
+of a compound argument outside a `Quote` or `Quasiquote` form. A functor position is not
+an argument position. A `(comment T "…")` is a use, so a term only documentation names
+is a finding. The upper ontology declares every constant it uses: core.txt states each
+`set/` wrapper and `Quote` `syncategorematic`, the type reflection.txt declares for a
+symbol of the syntax that names nothing.
+
+The finding carries the exact `:arity` `arity/relation-length` binds, inherited lengths
+included, so an author reads whether a type, a relation or an individual is missing its
+declaration. No `:arity` means no length binds the term.
+
+The pass has these limits:
+
+- **Candidate terms, not a census.** The caller's candidate set bounds the pass. A
+  candidate that is not a ground symbol (a number, a string, a compound) is skipped.
+- **One step of support.** A membership is read by its own justifications only. A
+  membership a rule concludes from a use-entailed one counts as stated.
+- **Visible from the audit context.** The memberships and the uses are those the audit
+  context sees; the arity bindings are read in every context.
+
+Each stored unary predicate of a candidate, each membership read, the length read and
+each use read spend one work unit. The use read stops at the first use, so a candidate
+costs the same however many sentences use it. `:max-results` counts these findings after
+the implicit-arity-class category.
 
 ## What an orthogonal-over-separation finding means
 
@@ -702,7 +768,7 @@ answering to two lands under one of them:
 | kind | the clash |
 |---|---|
 | `:negation` | one concludes `S` and the other `(not T)` where `S` entails `T` — `(dog X)` against `(not (animal X))`, and never `(animal X)` against `(not (dog X))` |
-| `:disjoint` | two unary type conclusions about one term whose types a `disjoint`, `sibling_disjoint` or `disjoint_metatype` declaration separates ([taxonomy.md](taxonomy.md)) |
+| `:disjoint` | two unary type conclusions about one term whose types a `disjoint`, `sibling_disjoint`, `disjoint_metatype`, `partition` or `separating` declaration separates ([taxonomy.md](taxonomy.md)) |
 | `:functional` | two conclusions filling one `functional` slot for one subject with values that are not the same term. Both spellings of the mark count — `(functionalInArg P 2)` says the same thing about the same slot as `(functional P)` — and both positions of a binary tuple, `(functionalInArg P 1)` read in the mirror |
 | `:asymmetric` | one tuple concluded both ways round under a predicate declared `asymmetric`. A self tuple `(P a a)` is not one — the ontology admits it |
 
@@ -773,7 +839,10 @@ be a `relation` through `(arg arity 1 relation)`, and a rule `(lied_before ?x) =
 person, so the two rules never both fire for one term and the pair is dropped. A declared
 domain the other conclusion does not exclude, and an undeclared one, both stay candidates
 — two stated types clashing is the clash the pair reports, so at least one side of the
-disjoint pair must be a declared arg type.
+disjoint pair must be a declared arg type. A consequent's own predicate's declarations
+type the term as the conclusion does: `(arg cat 1 feline)` beside a rule concluding `(cat
+?x)` places `?x` under `feline`, as a stated type, so a rule concluding `(dog ?x)`, with
+`dog` under a `canine` disjoint from `feline`, still pairs with it as a `:disjoint` clash.
 
 `genl` declares no type on its first position, and a spec of `P` has `P`'s length, so
 `(genl ?r P)` demands `?r` the relation-wide exact-arity class of `(relation-arity kb P)`:
@@ -850,7 +919,8 @@ and `:categories` names a pass to run it.
 - **`:derivable-stated-edge`**: a stated `genl` or `disjoint` that still holds with that
   one statement removed, as `{:stated r :path [a … b]}`, `{:stated r :also-stated-by [r
   ...]}` or `{:stated r :separated-by [r ...]}`, where each `r` is `{:handle :sentence
-  :context}`.
+  :context}`, with the reason of an [acknowledgment](#acknowledged-findings) of the
+  stated sentence as `:acknowledged`.
 - **`:disjoint-could-be-partition`**: a stated `(disjoint a b)` whose pair a known cover
   exhausts, as `{:disjoint r :suggest (partition c ...) :basis :covering|:sole-specs}`,
   where `:covering` adds the `:cover` sentences.
@@ -932,6 +1002,78 @@ gives the reason for each fixed-arity one.
 names it to run it. The pass reads one census of arity declarations, then each
 predicate's declarations in print order. It counts against `:max-results` after `:disjoint-could-be-partition`.
 
+## What an open-sibling-pair finding means
+
+Two direct specs of one parent are siblings, and handbook ch. 11 asks that each pair be
+decided: one is under the other, the two are separated, or the two overlap.
+`:open-sibling-pair` reports, per parent, the sibling pairs nothing decides:
+
+```clojure
+;; (genl a_kind whole_kind) (genl b_kind whole_kind) (genl c_kind whole_kind)
+;; (disjoint a_kind b_kind)
+{:status :gap
+ :candidate-count 0
+ :open-sibling-pair
+ [{:parent whole_kind :count 2 :pairs [[a_kind c_kind] [b_kind c_kind]]}]}
+```
+
+A pair is open when `integrity/subsumption-reading` gives it no status, the reading
+`disjointness-audit` reads `:unknown` from, with the `genl` edges read from the audit
+context: a `genl` stated below the audit context decides nothing there. A pair is decided
+by any of these:
+
+- **A `genl` path** between the two that the audit context sees.
+- **A separation** `disjoint?` reads from the audit context: a `disjoint`, a
+  `partition` or `separating` declaration, a `sibling_disjoint` parent or a
+  `disjoint_metatype`. A `covering` alone claims no separation and decides nothing.
+- **A stated overlap**: an `orthogonal` the audit context sees, which a
+  `siblingDisjointException` answers through its `genl` edge to `orthogonal`.
+- **A shared member or subtype**: a term a facts-only read places in both, or a type
+  below both, through edges the audit context sees, that is not provably empty.
+
+The fourth reading is evidence, not a declaration, so the term page's definitional block
+(`describe`'s `:siblings` part) reads a pair a shared member decides as `:missing`
+there: the block lists what the KB was told.
+
+The pass reads the type nodes the audit context sees, a `kb/relation?` name excluded,
+in print order. Each parent spends one work unit, and each pair one more beside its
+reads. A pair under two shared parents is reported under each. `:open-sibling-pair` is
+review-only and counts against `:max-results` after `:missing-arg`.
+`integrity_test`'s `the-upper-ontology-leaves-these-sibling-pairs-open` holds the upper
+ontology's open pairs per parent.
+
+## What an undecided-relation-property finding means
+
+Handbook ch. 19 asks that each relation property a binary predicate could carry be
+weighed, and a declined one banked as a stated negation (**bank the decision** in
+[oe-principles.md](oe-principles.md)). `:undecided-relation-property` reports each
+predicate the audit context sees declared arity 2, through an `(arity P 2)` or
+`binary_predicate` or another exact-arity class, that no believed visible sentence
+decides:
+
+```clojure
+;; (binary_predicate likes) (binary_predicate partOf) (transitive partOf)
+{:status :gap
+ :candidate-count 0
+ :undecided-relation-property
+ [{:predicate likes}]}
+```
+
+A predicate is decided by a mark or its stated negation, `(M P)` or `(not (M P))`, for
+`M` among `transitive`, `anti_transitive`, `symmetric`, `asymmetric`, `anti_symmetric`,
+`reflexive`, `irreflexive` and `functional`. An `inverse` or a `functionalInArg` naming
+the predicate decides nothing, so a `parentOf` with only `(inverse parentOf childOf)` is
+undecided. A mark concluded by a rule, such as `equivalence_relation`'s
+three, decides as a stated one does. One decided property clears the predicate; the pass
+does not ask that every property be weighed.
+
+The pass reads one census of arity declarations, as `:missing-arg` does, then each
+predicate's goals in order up to the first believed answer, one work unit per goal and
+per handle. `:undecided-relation-property` is review-only and counts against
+`:max-results` after `:open-sibling-pair`. `integrity_test`'s
+`the-upper-ontology-leaves-these-relation-properties-undecided` holds the upper
+ontology's undecided predicates.
+
 ## What a taxonomy-island finding means
 
 A type with a `genl` edge into a disconnected island answers nothing the closure reads
@@ -974,7 +1116,7 @@ The pass has these limits:
   name a relation rather than a node are those the audit context sees.
 
 Each node's closure and reach test spend one work unit, and `:max-results` counts these
-findings after `:missing-arg`. `kb-quality`'s `:taxonomy`
+findings after `:undecided-relation-property`. `kb-quality`'s `:taxonomy`
 reading counts the same nodes over every context ([quality.md](quality.md#taxonomy-coverage-is-two-numbers)).
 
 `:rule-clash-review`, described under the rule-clash finding above, counts against
@@ -992,6 +1134,7 @@ stays visible with the reason beside it and no longer makes a default sweep `:ga
 |---|---|---|---|
 | `:rule-macro` | the suggested declaration, `(genl livesIn locatedIn)` | `:rule-macro-review` | the rule's context |
 | `:rule-clash` | the pair, `(RulePairFn (Quote R1) (Quote R2))` | `:rule-clash-review` | the audit context |
+| `:derivable-stated-edge` | the stated sentence, `(genl plant organism)` | `:derivable-stated-edge`, already review-only | the audit context |
 
 Each rule is quoted on its own. A quoted term is opaque, so no inference or
 canonicalization reaches inside either one, and what the pair needs inferred — that
@@ -1024,3 +1167,10 @@ acknowledge one finding, the first in print order supplies the reason. The sweep
 `acknowledgedFinding` and nothing else: other spellings of an acknowledgment, such as
 `declined_rule_macro`, are rules in the KB concluding one. Every other category ignores
 the record.
+
+A derivable stated edge is the note handbook ch. 14 asks for beside an edge a cover also
+installs: the reason names the exception of **state it once** that keeps the edge, as
+`"implementation: …"` or `"documentation: …"`. The finding stays under
+`:derivable-stated-edge` and carries the reason as `:acknowledged`. `integrity_test`'s
+`the-upper-ontology-states-these-derivable-edges-without-a-note` lists the upper ontology's
+derivable stated edges that carry no record.

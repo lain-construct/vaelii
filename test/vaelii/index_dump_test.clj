@@ -32,19 +32,12 @@
             [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
+  (:import (java.io File)))
 
 ;;; ── scaffolding ───────────────────────────────────────────────────────
 
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-idx-" nm "-") (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d] (doseq [^File f (reverse (file-seq d))] (.delete f)))
-
 (defn- fresh-dump-dir ^File [nm]
-  (doto (temp-dir nm) (rm-rf!)))                 ; export! makes its own directory
+  (doto (tu/temp-dir "vaelii-idx-" nm "-") (tu/rm-rf!)))                 ; export! makes its own directory
 
 ;; Own db numbers, outside the suite's block, one pair per backend — this namespace is
 ;; *about* the four backends, so it names them all rather than running on whichever one
@@ -59,9 +52,9 @@
   "An empty KB on `opts`, plus the thunk that closes and deletes whatever it needed."
   [opts nm]
   (if (= :disk-log (:backend opts))
-    (let [d  (temp-dir nm)
+    (let [d  (tu/temp-dir "vaelii-idx-" nm "-")
           kb (v/open-kb {:backend :disk-log :dir (.getPath d) :recover? false})]
-      [(doto kb (tu/clear-kb!)) #(do (backend/close-dir! (.getPath d)) (rm-rf! d))])
+      [(doto kb (tu/clear-kb!)) #(do (backend/close-dir! (.getPath d)) (tu/rm-rf! d))])
     ;; The three `:memory*` backends share one record store on space 88, and the registry
     ;; behind it is process-global — so the fixture is cleared on the way OUT as well as
     ;; on the way in, or the last one to run stays resident for the JVM's life.
@@ -175,7 +168,7 @@
             (is (= (count (tu/sentex-ids kb)) (:count (:records im))))
             (is (= (apply max (tu/sentex-ids kb)) (:max-handle (:records im))))
             (is (integer? (:digest (:records im))))))
-        (finally (rm-rf! dir))))))
+        (finally (tu/rm-rf! dir))))))
 
 (deftest a-records-dump-writes-no-index-and-is-otherwise-the-same
   (tu/with-cleared-kb [kb tu/fresh]
@@ -190,7 +183,7 @@
           (is (= (dissoc sa :bytes :elapsed-ms :dir :variant :index-entries)
                  (dissoc sb :bytes :elapsed-ms :dir :variant :index-entries))
               "the records side of the two dumps is the same dump"))
-        (finally (rm-rf! a) (rm-rf! b))))))
+        (finally (tu/rm-rf! a) (tu/rm-rf! b))))))
 
 (deftest the-digest-is-stable-across-exports-and-moves-with-the-records
   (tu/with-cleared-kb [kb tu/fresh]
@@ -206,7 +199,7 @@
           (export/export! kb c {:variant :records+index :compression :none})
           (is (not= (:records (index-meta a)) (:records (index-meta c)))
               "and one more record is a different KB")
-          (finally (rm-rf! a) (rm-rf! b) (rm-rf! c)))))))
+          (finally (tu/rm-rf! a) (tu/rm-rf! b) (tu/rm-rf! c)))))))
 
 ;;; ── replay and rebuild agree ──────────────────────────────────────────
 
@@ -293,7 +286,7 @@
                 ;; land in exactly the same place
                 bare-dir (fresh-dump-dir "bare")]
             (try
-              (rm-rf! bare-dir)
+              (tu/rm-rf! bare-dir)
               (.mkdirs bare-dir)
               (doseq [^File f (.listFiles src-dir) :when (.isFile f)]
                 (io/copy f (io/file bare-dir (.getName f))))
@@ -308,8 +301,8 @@
                                  "and the KB itself answers differently")
                              (is (= (:mints source) (:mints (answers kb t)))
                                  "an import files the mints the exporting KB filed")))
-              (finally (rm-rf! bare-dir))))))
-      (finally (rm-rf! src-dir)))))
+              (finally (tu/rm-rf! bare-dir))))))
+      (finally (tu/rm-rf! src-dir)))))
 
 ;;; ── each precondition, broken ─────────────────────────────────────────
 
@@ -324,7 +317,7 @@
       (tu/with-cleared-kb [src tu/fresh] (build! src t)
         (export/export! src dir {:variant :records+index :compression :none}))
       (f dir t)
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (defn- rebuild-reason
   "Import `dir` into a fresh memory KB and report what became of its index."
@@ -371,7 +364,7 @@
       (tu/with-cleared-kb [src tu/fresh] (build! src (terms))
         (export/export! src dir {:compression :none}))
       (is (= {:index :rebuilt :reason :absent} (rebuild-reason dir)))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))
 
 (deftest a-remapped-import-refuses-the-index-because-its-postings-name-ghosts
   ;; An index entry is a posting of *handles*, so an import that could not put every
@@ -437,7 +430,7 @@
                              (let [s (imp/import-dump kb bare {:belief? false})]
                                (is (= :inline (:index s)) "no index to replay, so it built inline")
                                [(entries-of kb) (:sentexes s) (:rules s)])))
-                         (finally (rm-rf! bare))))]
+                         (finally (tu/rm-rf! bare))))]
         (is (= replayed inline)
             "the replayed index differs from the one the inline build produced"))
-      (finally (rm-rf! dir)))))
+      (finally (tu/rm-rf! dir)))))

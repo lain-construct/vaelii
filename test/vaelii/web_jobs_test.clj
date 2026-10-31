@@ -15,11 +15,11 @@
 (def ^:dynamic *app* nil)
 
 ;; On the shipped default the entailment mints a type per declared argument position, so
-;; the base KB is larger and every chain here runs longer.  The chaining runs on a job
-;; thread, which reads the *root* value of `*assertive-arg-types?*` rather than any
-;; test-thread binding — so this namespace sets the root off for the duration and restores
-;; it.  These tests are about the job mechanism, not the entailment (`argtype-entail-test`
-;; covers that).
+;; the base KB is larger and every chain here runs longer.  `tu/load-core!` restores a dump
+;; built on its own thread, keyed by the root of `*assertive-arg-types?*` (`dump-per-root`),
+;; so this namespace sets that root off and restores it.  A job's `future` reads the same
+;; root, since the test thread binds none.  These tests are about the job mechanism, not the
+;; entailment (`argtype-entail-test` covers that).
 (use-fixtures :once
   (fn [f]
     (let [orig argument/*assertive-arg-types?*]

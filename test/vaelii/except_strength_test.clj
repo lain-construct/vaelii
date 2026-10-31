@@ -22,25 +22,16 @@
             [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu])
-  (:import (java.io File)
-           (java.nio.file Files)
-           (java.nio.file.attribute FileAttribute)))
-
-(defn- temp-dir ^File [nm]
-  (.toFile (Files/createTempDirectory (str "vaelii-halves-" nm "-")
-                                      (into-array FileAttribute []))))
-
-(defn- rm-rf! [^File d]
-  (doseq [^File f (reverse (file-seq d))] (.delete f)))
+  (:import (java.io File)))
 
 (defn- with-dirs*
   "Run `(f dir…)` on `n` temp directory paths, removed before the body and after it — an
   export destination is normally one that does not exist yet."
   [n nm f]
-  (let [dirs (mapv #(temp-dir (str nm "-" %)) (range n))]
-    (try (run! rm-rf! dirs)
+  (let [dirs (mapv #(tu/temp-dir "vaelii-halves-" nm "-" % "-") (range n))]
+    (try (run! tu/rm-rf! dirs)
          (apply f dirs)
-         (finally (run! rm-rf! dirs)))))
+         (finally (run! tu/rm-rf! dirs)))))
 
 (defn- half-classes
   "`[rule-class exception-class]` for the one excepted rule in `ctx` — read off the

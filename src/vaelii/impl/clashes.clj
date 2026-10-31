@@ -6,6 +6,8 @@
   no single writer could see.  Nothing here writes belief.  See docs/nmtms.md, \"The clash
   reports\"."
   (:require [clojure.set :as set]
+            [clojure.walk :as walk]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.decide :as decide]
             [vaelii.impl.decide.arity :as arity]
             [vaelii.impl.decide.inherited :as inherited]
@@ -17,7 +19,6 @@
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.special :as special]
             [vaelii.impl.strength :as strength]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]))
@@ -189,7 +190,7 @@
 (defn- minted-from
   "The handles of the sentences the `genl` edges among `hs` were minted from: the source
   of each justification of such an edge an argument declaration's entailment holds up
-  (`special/mint-informant?`), which `special/entail-arg-type` stores first among its
+  (`kb/mint-informant?`), which `special/entail-arg-type` stores first among its
   antecedents.  `(disjoint gladdens saddens)` over `(genlArg disjoint 1 thing)` mints
   `(genl gladdens thing)`, so a tuple whose length that edge inherits names the
   `disjoint`."
@@ -200,7 +201,7 @@
           (comp (filter #(= 'genl (some-> (p/get-sentex recs %) :sentence nm/functor)))
                 (mapcat #(jtms/supports tms %))
                 (keep #(jtms/justification tms %))
-                (filter #(special/mint-informant? (:informant %)))
+                (filter #(kb/mint-informant? kb (:informant %)))
                 (keep #(first (:antecedents %))))
           hs)))
 
@@ -355,14 +356,36 @@
                        inh   (assoc :inherited (:inherited inh))
                        split (assoc ::vantage-verdicts split)))))
 
+(defn- defeat-report-of
+  "The `:defeat` report of the placed nogood `km` whose placements at `vantages` defeat
+  the member `loser`: `report-of`'s shape with `:verdict :defeat`, `:placed-in` (the
+  vantages in content order), and `:loser` and `:winners` as `{:handle :sentence :context
+  :defeat-class :rules}`, the winners in side order.  `:rules` names the rule sentences
+  whose firings conclude the side, in the order of the side's justifications."
+  [kb found-by km vantages loser]
+  (let [recs    (:records kb)
+        r       (report-of kb found-by km vantages nil)
+        summary (fn [{:keys [justifications] :as side}]
+                  (assoc (select-keys side [:handle :sentence :context :defeat-class])
+                         :rules (into [] (comp (map :informant) (filter integer?) (distinct)
+                                               (keep #(p/get-sentex recs %)) (map sx/sentence-of))
+                                      justifications)))]
+    (assoc r :verdict :defeat
+           :placed-in (vec (sort nm/compare-form vantages))
+           :loser (summary (first (filter #(= loser (:handle %)) (:sides r))))
+           :winners (into [] (comp (remove #(= loser (:handle %))) (map summary)) (:sides r)))))
+
 (defn- reports-over
-  "`{:conflicts [report] :contradictions [report]}` for the placed `(contradicts …)` handles
-  `hs`, each read at the context it is placed in and kept where that context believes and
-  sees it.  A nogood is a conflict at the most general of its placement contexts that read
-  it hard, and a dilemma at those that read it as a tie.  A nogood whose placement contexts
-  defeat different members is a dilemma carrying `{context handle}`, and that report stands
-  for the dilemma a reader below the disagreeing contexts reads."
-  [kb hs]
+  "`{:conflicts [report] :contradictions [report] :defeats [report]}` for the placed
+  `(contradicts …)` handles `hs`, each read at the context it is placed in and kept where
+  that context believes and sees it.  A nogood is a conflict at the most general of its
+  placement contexts that read it hard, and a dilemma at those that read it as a tie.  A
+  nogood whose placement contexts defeat different members is a dilemma carrying
+  `{context handle}`, and that report stands for the dilemma a reader below the
+  disagreeing contexts reads.  With `defeats?`, a nogood whose placement contexts defeat
+  one member is a `:defeat` report at the most general of those (`defeat-report-of`);
+  without it `:defeats` is empty."
+  [kb hs defeats?]
   (let [tax      (reasoning/taxonomy kb)
         found-by (volatile! {})
         hid      (memoize #(exc/hidden-fn kb %))
@@ -373,13 +396,17 @@
     (reduce (fn [acc [km vm]]
               (let [split (split-of tax vm)
                     hard  (at vm :hard)
-                    tie   (at vm :dilemma)]
+                    tie   (at vm :dilemma)
+                    lost  (when (and defeats? (not split))
+                            (not-empty (into #{} (keep (fn [[v d]] (when (map? d) v))) vm)))]
                 (cond-> acc
                   hard  (update :conflicts conj (report-of kb @found-by km (general tax hard) nil))
                   split (update :contradictions conj (report-of kb @found-by km (set (keys split)) split))
                   (and tie (not split))
-                  (update :contradictions conj (report-of kb @found-by km (general tax tie) nil)))))
-            {:conflicts [] :contradictions []}
+                  (update :contradictions conj (report-of kb @found-by km (general tax tie) nil))
+                  lost  (update :defeats conj (defeat-report-of kb @found-by km (general tax lost)
+                                                (:defeat (get vm (first lost))))))))
+            {:conflicts [] :contradictions [] :defeats []}
             placed)))
 
 (defn- inert-reports
@@ -399,14 +426,16 @@
 
 (defn read-clashes
   "The hard clashes and the dilemmas of every placed nogood, as `{:conflicts [report]
-  :contradictions [report]}` in `clash-report`'s shape, each report's vantages the most
-  general placement contexts that read it so (`reports-over`), with the inert tuples'
-  conflicts (`inert-reports`)."
-  [kb]
-  (-> (if (zero? (reads/stored-count-with-functor (:index kb) 'contradicts))
-        {:conflicts [] :contradictions []}
-        (reports-over kb (reads/as-stored-with-functor (:index kb) 'contradicts)))
-      (update :conflicts into (inert-reports kb))))
+  :contradictions [report] :defeats [report]}` in `clash-report`'s shape, each report's
+  vantages the most general placement contexts that read it so (`reports-over`), with the
+  inert tuples' conflicts (`inert-reports`).  `:defeats` holds the decided nogoods'
+  reports with `defeats?` and is empty without it."
+  ([kb] (read-clashes kb false))
+  ([kb defeats?]
+   (-> (if (zero? (reads/stored-count-with-functor (:index kb) 'contradicts))
+         {:conflicts [] :contradictions [] :defeats []}
+         (reports-over kb (reads/as-stored-with-functor (:index kb) 'contradicts) defeats?))
+       (update :conflicts into (inert-reports kb)))))
 
 (defn conflicts-of
   "The conflict reports (`read-clashes`), unordered: `ranked` orders them."
@@ -415,6 +444,13 @@
 (defn contradictions-of
   "The dilemma reports (`read-clashes`), unordered: `ranked` orders them."
   [kb] (:contradictions (read-clashes kb)))
+
+(defn conflicts-and-defeats-of
+  "The conflict reports and the `:defeat` reports (`read-clashes`), unordered: `ranked`
+  orders them."
+  [kb]
+  (let [{:keys [conflicts defeats]} (read-clashes kb true)]
+    (into conflicts defeats)))
 
 (defn- placements-seen
   "The stored `(contradicts …)` handles stated in a context `ctx` sees (`tax/context-up`),
@@ -476,7 +512,7 @@
   (let [sents (into #{} (keep #(let [s (:sentence (p/get-sentex (:records kb) %))]
                                  (when (and (seq? s) (= 'contradicts (first s)) (second s)) s)))
                     touched)
-        rs    (ranked (:contradictions (reports-over kb (placements-of kb sents))))]
+        rs    (ranked (:contradictions (reports-over kb (placements-of kb sents) false)))]
     {:sentences sents
      :reports   (mapv vector rs (with-grounds kb rs))}))
 
@@ -485,8 +521,68 @@
   hold, with their `:grounds`, in content order: the dilemmas the batch opens.  The
   standing reports are read over the placements of `opened`'s sentences that stand now."
   [kb {:keys [sentences reports]}]
-  (let [standing (set (:contradictions (reports-over kb (placements-of kb sentences))))]
+  (let [standing (set (:contradictions (reports-over kb (placements-of kb sentences) false)))]
     (into [] (keep (fn [[r g]] (when-not (contains? standing r) g))) reports)))
+
+(defn- contradicts-handles
+  "The placed `(contradicts …)` handles behind the handles `hs`: each `(contradicts …)`
+  among them, and the placements of each `defeat` among them (`exc/defeat-placements`)."
+  [kb hs]
+  (let [recs (:records kb)]
+    (into #{} (mapcat (fn [h]
+                        (case (some-> (p/get-sentex recs h) :sentence nm/functor)
+                          contradicts [h]
+                          defeat      (exc/defeat-placements kb h)
+                          nil)))
+          hs)))
+
+;; ---- the defeats a settle places ------------------------------------------
+;; the change feed's `:defeats` (docs/feed.md) and `argue`'s `:defeated-by`.
+
+(defn defeats-placed
+  "The `:defeat` reports, with their `:grounds`, in content order, of the placed nogoods a
+  `(contradicts …)` or a `defeat` among the handles `hs` belongs to, each over every
+  placement of its `(contradicts …)` (`placements-of`).  Every record in them is a plain
+  map, as the daemon's wire projection leaves it, so a listener and a subscription read
+  one value."
+  [kb hs]
+  (let [recs  (:records kb)
+        sents (into #{} (map #(:sentence (p/get-sentex recs %))) (contradicts-handles kb hs))]
+    (if (empty? sents)
+      []
+      (walk/postwalk #(if (record? %) (into {} %) %)
+                     (with-grounds kb (ranked (:defeats (reports-over kb (placements-of kb sents) true))))))))
+
+(defn defeats-against
+  "The `:defeat` reports, with their `:grounds`, in content order, of the placed nogoods
+  whose defeat in force at `ctx` (`exc/defeats-of`) names a stored `sentence` in a context
+  `ctx` sees, each weighed at the most general contexts its `(contradicts …)` is placed in
+  among those `ctx` reads it at.  Empty for a variable `ctx`, which names no reader."
+  [kb sentence ctx]
+  (if (sx/variable? ctx)
+    []
+    (let [tax  (reasoning/taxonomy kb)
+          recs (:records kb)
+          hs   (into [] (comp (keep #(p/get-sentex recs %))
+                              (filter #(tax/sees? tax ctx (:context %)))
+                              (map :id))
+                     (reads/as-stored-at-path (:index kb) (sx/path (sx/sentex sentence '?c))))
+          by   (reduce (fn [m h]
+                         (reduce (fn [m c]
+                                   (let [s  (p/get-sentex recs c)
+                                         ms (into #{} (map sx/handle-id) (rest (:sentence s)))
+                                         k  (decide/placed-kind kb ms)]
+                                     (cond-> m k (update [[k ms] h] (fnil conj #{}) (:context s)))))
+                                 m (contradicts-handles kb (exc/defeats-of kb h ctx))))
+                       {} hs)]
+      (->> by
+           (map (fn [[[[k ms :as km] h] vs]]
+                  (defeat-report-of kb (if (= :inherited k)
+                                         {km (get (inherited/inherited-clashes kb) ms)}
+                                         {})
+                    km (general tax vs) h)))
+           ranked
+           (with-grounds kb)))))
 
 ;; ---- the clash no single writer could see ---------------------------------
 ;;
@@ -539,10 +635,7 @@
   [tax]
   (let [dj  (volatile! {})
         vis (volatile! {})
-        memo (fn [v k f]
-               (if-let [e (find @v k)]
-                 (val e)
-                 (let [r (f)] (vswap! v assoc k r) r)))]
+        memo caches/get-or!]
     {:disjoint?
      (fn [t1 t2] (memo dj [t1 t2] #((tax/disjointness-test tax t1 nil (constantly false)) t2)))
      :visible-from

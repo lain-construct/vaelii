@@ -676,10 +676,8 @@
                ["an unknown antecedent of a forward rule" #(v/ask? kb (list calm Bob) CxS) false]]]
         (is (= expected (answer)) label)))))
 
-(defn- refusal-type
-  "The `:type` `f` throws, or `:stored`."
-  [f]
-  (try (f) :stored (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+(def ^:private refusal-type
+  (fn [f] (tu/refusal-type f :stored)))
 
 (tu/deftest-kb a-closed-extent-cycle-through-negation-is-refused-in-both-arrival-orders
   ;; Rules concluding P that read `(not (P …))` under the grant: as an antecedent, inside

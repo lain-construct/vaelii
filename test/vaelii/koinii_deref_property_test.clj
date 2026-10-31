@@ -29,6 +29,10 @@
     koinii response act has: replies (and replies to replies) built on two seats that
     minted different handles digest alike, and each reply's marker resolves on the other
     seat.
+  - `rules-and-defaults-locate-alike-on-two-seats-loaded-in-different-orders` — forward
+    rules and facts at both strengths, loaded on two seats in two orders: the seats commit
+    alike, and each premise's sentence on one seat finds the record on the other
+    (`v/handle-of`) whose digest is the same.
   - `commit-id-is-knowledge-and-state-root-is-snapshot` — content vs. provenance:
     same facts under different provenance share a `commit-id` but not a `state-root`.
   - `inclusion-proofs-are-sound-and-complete` — every believed locator's proof
@@ -87,7 +91,7 @@
 ;; that happens to open the same derived space.
 (def ^:private seat-tags
   [:loc-a :loc-b :inj :enc :cid-a :cid-b :split-a :split-b :split-c :split-d
-   :proof :marker :belief-a :belief-b :reply-a :reply-b])
+   :proof :marker :belief-a :belief-b :reply-a :reply-b :rule-a :rule-b])
 
 (use-fixtures :once
   (fn [f]
@@ -291,6 +295,41 @@
                                                  (= (d/locator-of a x) (d/locator-of b y)))))
                                         (drop (count pairs) ha) (drop (count pairs) hb)))))))))
 
+;;; ── 4c. the same over rules and defaults ──────────────────────────────────
+
+(def ^:private gen-item
+  "A fact or a forward rule over the unary predicates, at `:default` or `:monotonic`:
+  `[sentence context strength]`."
+  (gen/let [strength (gen/elements [:default :monotonic])
+            c        (gen/elements contexts)
+            rule?    gen/boolean
+            [p q]    (gen/vector-distinct (gen/elements predicates) {:num-elements 2})
+            ind      (gen/elements individuals)]
+    [(if rule?
+       (list 'set/forwardRule (list 'implies (list p '?x) (list q '?x)))
+       (list p ind))
+     c strength]))
+
+(def ^:private gen-items-and-perm
+  (gen/let [items (gen/vector-distinct gen-item {:min-elements 1 :max-elements 8})
+            perm  (gen-permutation items)]
+    [items perm]))
+
+(defspec rules-and-defaults-locate-alike-on-two-seats-loaded-in-different-orders 40
+  (prop/for-all [[items perm] gen-items-and-perm]
+                (with-two-seats :rule-a :rule-b
+                  (fn [a b]
+                    (doseq [[s c strength] items] (v/assert a s c {:strength strength}))
+                    (doseq [[s c strength] perm] (v/assert b s c {:strength strength}))
+                    (and (= (d/commit-id a) (d/commit-id b))
+                         (every? (fn [h]
+                                   (let [sa (v/sentex a h)
+                                         hb (v/handle-of b (v/sentence-of sa) (:context sa))]
+                                     (and hb
+                                          (= (v/digest a h) (v/digest b hb))
+                                          (= (v/sentence-of sa) (v/sentence-of (v/sentex b hb))))))
+                                 (filter #(v/premise? a %) (v/handles a))))))))
+
 ;;; ── 5. the knowledge / snapshot split (commit-id vs state-root) ───────────
 
 (defspec commit-id-is-knowledge-and-state-root-is-snapshot 60
@@ -428,11 +467,9 @@
                            (= (d/commit-id a) (d/commit-id b))     ; and the seats still agree
                            (= (d/state-root a) (d/state-root b))
                            (every? #(nil? (d/inclusion-proof a (d/locator-of a %))) defeated)
-                           ;; the resolvers read the same set the proof does: whatever has
-                           ;; no leaf resolves nowhere, by locator or by marker
+                           ;; dereference reads the same set the proof does: whatever has
+                           ;; no leaf resolves nowhere
                            (every? (fn [h]
-                                     (let [loc (d/locator-of a h)]
-                                       (= (some? (d/inclusion-proof a loc))
-                                          (boolean (:resolved? (d/resolve-by-locator a loc)))
-                                          (boolean (:resolved? (d/dereference a (d/marker a h)))))))
+                                     (= (some? (d/inclusion-proof a (d/locator-of a h)))
+                                        (boolean (:resolved? (d/dereference a (d/marker a h))))))
                                    (concat defeated (filter #(v/in? a %) (v/handles a))))))))))

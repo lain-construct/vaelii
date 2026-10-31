@@ -15,11 +15,10 @@
             [vaelii.impl.types.prover :as prover-types]
             [vaelii.test-util :as tu]))
 
-;; a fresh KB per test: the upper layer, whose measure.txt declares QuantityFn /
+;; one KB per namespace: the upper layer, whose measure.txt declares QuantityFn /
 ;; QuantityIntervalFn unreifiable and documents the comparison and table predicates.
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!))))
+(use-fixtures :once (tu/loaded tu/load-core!))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 
@@ -186,6 +185,26 @@
     (is (v/ask? kb '(sameQuantity (QuantityFn 5 Gram) (QuantityFn 5 Gram)) C))
     (is (not (v/ask? kb '(sameQuantity (QuantityFn 5000 Gram) (QuantityFn 5 Kilogram)) C)))))
 
+(tu/deftest-kb a-unit-with-a-dimension-and-no-factor-compares-with-no-unit-of-another-base
+  ;; The unit is its own base at factor 1, so its magnitudes are not in the dimension's
+  ;; base unit, and a comparison or a sum with a metre has no answer.  A factor row naming
+  ;; the unit itself states the same reading.
+  (tu/with-terms [Foot spanOf Trail]
+    (v/assert kb (list 'dimensionOf Foot 'Length) C)
+    (let [foot (list 'QuantityFn 1 Foot)]
+      (doseq [pred '[sameQuantity quantityLessThan quantityGreaterThan
+                     quantityLessThanOrEqual quantityGreaterThanOrEqual]]
+        (is (not (v/ask? kb (list pred foot '(QuantityFn 1 Meter)) C)) (str pred)))
+      (is (v/ask? kb (list 'sameQuantity foot foot) C) "the unit compares with itself")
+      (v/assert kb (list spanOf Trail foot) C)
+      (v/assert kb (list spanOf Trail '(QuantityFn 1 Meter)) C)
+      (is (empty? (v/ask kb (list 'agg/sum '?n '?v (list spanOf Trail '?v)) C))
+          "a sum over a foot and a metre has no answer")
+      (v/assert kb (list 'conversionFactor Foot Foot 1) C)
+      (is (not (v/ask? kb (list 'sameQuantity foot '(QuantityFn 1 Meter)) C)))
+      (is (empty? (v/ask kb (list 'agg/max '?n '?v (list spanOf Trail '?v)) C))
+          "nor a maximum, with the unit's own factor row stated"))))
+
 (tu/deftest-kb a-base-and-a-factor-are-one-reading
   (v/assert kb '(dimensionOf Gram Mass) C)
   (v/assert kb '(conversionFactor Gram Kilogram 0.001) C)
@@ -218,19 +237,16 @@
              (let [[dim lo _] (provers/normalize-quantity other '(QuantityFn 1 Gram) C)]
                [dim lo (provers/base-unit-of other 'Gram C)]))))))
 
-(tu/deftest-kb an-aggregate-renders-in-one-unit-whichever-measure-arrived-first
+(tu/deftest-kb an-aggregate-over-two-bases-has-no-answer-in-either-arrival-order
   ;; Two units of one dimension declaring **different bases** — a KB that has broken the
-  ;; direct-to-base contract, so its magnitudes are already in incomparable scales.  What
-  ;; must not depend on arrival order *as well* is the unit the answer comes back in:
-  ;; `provers/measure-bounds` reads it off one of the values, and the values reach it in
-  ;; solution order.
+  ;; direct-to-base contract, so their magnitudes are in incomparable scales, and a sum
+  ;; over the two has no answer, as a comparison between them has none.
   (let [table! (fn [k]
                  (v/assert k '(dimensionOf Furlong Distance) C)
                  (v/assert k '(dimensionOf Chain Distance) C)
                  (v/assert k '(conversionFactor Furlong Rod 40) C)
                  (v/assert k '(conversionFactor Chain Link 4) C))
-        goal   '(agg/sum ?n ?v (spanOf Trail ?v))
-        summed (fn [k] (get (tu/sole-answer (v/ask k goal C) goal) '?n))]
+        goal   '(agg/sum ?n ?v (spanOf Trail ?v))]
     (table! kb)
     (v/assert kb '(spanOf Trail (QuantityFn 1 Furlong)) C)
     (v/assert kb '(spanOf Trail (QuantityFn 2 Chain)) C)
@@ -239,8 +255,61 @@
       (table! other)
       (v/assert other '(spanOf Trail (QuantityFn 2 Chain)) C)
       (v/assert other '(spanOf Trail (QuantityFn 1 Furlong)) C)
-      (is (= (summed kb) (summed other))
-          "the same two measures in two arrival orders render in one unit"))))
+      (is (= [[] []] [(v/ask kb goal C) (v/ask other goal C)]))
+      (is (not (v/ask? kb '(sameQuantity (QuantityFn 1 Furlong) (QuantityFn 10 Chain)) C))))))
+
+;; ---- a functional measure slot -------------------------------------------
+
+(defn- try-second-weight
+  "`:stored`, or the refusal's `[:type :violation]`, for `try-assert` of a second weight."
+  [kb s]
+  (try (v/try-assert kb s C) :stored
+       (catch clojure.lang.ExceptionInfo e ((juxt :type :violation) (ex-data e)))))
+
+(tu/deftest-kb a-functional-measure-slot-holds-one-magnitude-in-any-unit
+  ;; weightOf is functional (measure.txt), and its second filler agrees with 20 kg
+  ;; exactly when the two can denote one magnitude
+  (doseq [[m agrees?] '[[(QuantityFn 20000 Gram)                true]
+                        [(QuantityIntervalFn 18 22 Kilogram)    true]
+                        [(QuantityIntervalFn 18000 22000 Gram)  true]
+                        [(QuantityIntervalFn 20 25 Kilogram)    true]
+                        [(QuantityFn 30 Kilogram)               false]
+                        [(QuantityIntervalFn 21 25 Kilogram)    false]
+                        [(QuantityFn 20 Meter)                  false]]]
+    (tu/with-terms [Muffet Rex]
+      (v/assert kb (list 'weightOf Muffet '(QuantityFn 20 Kilogram)) C)
+      (v/assert kb (list 'weightOf Rex '(QuantityFn 20 Kilogram)) C)
+      (is (= (if agrees? :stored [:definitional-clash :functional])
+             (try-second-weight kb (list 'weightOf Muffet m)))
+          (str "try-assert " m))
+      (is (= (not agrees?) (tu/stored-in-clash? kb (list 'weightOf Rex m) C))
+          (str "assert " m)))))
+
+(tu/deftest-kb a-unit-row-arriving-or-leaving-moves-a-functional-measure-clash
+  (tu/with-terms [Muffet Pound]
+    (let [kg     (list 'weightOf Muffet '(QuantityFn 1 Kilogram))
+          lb     (list 'weightOf Muffet (list 'QuantityFn 2 Pound))
+          factor (list 'conversionFactor Pound 'Kilogram 0.5)
+          clash? (fn [] (boolean (some #(contains? (:nogood %) (v/handle-of kb lb C))
+                                       (concat (v/contradictions kb) (v/conflicts kb)))))]
+      (v/assert kb kg C)
+      (v/assert kb lb C)
+      (is (clash?) "a unit the table does not declare is its own dimension")
+      (v/assert kb (list 'dimensionOf Pound 'Mass) C)
+      (v/assert kb factor C)
+      (is (not (clash?)) "two pounds at half a kilogram each is one kilogram")
+      (is (and (v/ask? kb kg C) (v/ask? kb lb C)))
+      (v/retract! kb (v/handle-of kb factor C))
+      (is (clash?) "the factor retracted, the pound compares with no kilogram"))))
+
+(tu/deftest-kb a-conclusion-drawn-through-a-shipped-unit-row-keeps-its-strength
+  ;; the firing names the Gram and Kilogram rows among its antecedents
+  (tu/with-terms [heavy Boulder]
+    (v/assert-rule kb [(list 'mass '?o '?q)
+                       (list 'quantityGreaterThan '?q '(QuantityFn 100 Gram))]
+                   (list heavy '?o) C {:direction :forward :strength :monotonic})
+    (v/assert kb (list 'mass Boulder '(QuantityFn 1 Kilogram)) C {:strength :monotonic})
+    (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list heavy Boulder) C))))))
 
 ;; ---- check-only: an open goal is refused, not enumerated -----------------
 

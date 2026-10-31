@@ -4,7 +4,8 @@
   "RCC-8 topology: the eight base region relations, the six derived predicates, the
   transcribed composition table, and the calculus and prover over `vaelii.impl.qcn-kb`.
   See docs/space.md."
-  (:require [vaelii.impl.qcn-kb :as qkb]))
+  (:require [vaelii.impl.qcn :as qcn]
+            [vaelii.impl.qcn-kb :as qkb]))
 
 (def all-relations
   "The eight RCC-8 base relations: the universe of the algebra."
@@ -83,13 +84,10 @@
    :eq    {:dc #{:dc} :ec #{:ec} :po #{:po} :tpp #{:tpp}
            :ntpp #{:ntpp} :tppi #{:tppi} :ntppi #{:ntppi} :eq #{:eq}}})
 
-(defn compose
-  "The composition of two relation sets: the union of the table entries over every pair of
-  members."
-  [s1 s2]
-  (into #{}
-        (mapcat (fn [a] (mapcat (fn [b] (get-in rcc8-composition [a b])) s2)))
-        s1))
+(def compose
+  "The composition of two relation sets: the union of the `rcc8-composition` entries over every
+  member pair (`qcn/compose-by`)."
+  (qcn/compose-by rcc8-composition))
 
 (def rcc8-algebra
   "RCC-8 as a `vaelii.impl.qcn` relation algebra."

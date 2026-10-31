@@ -382,7 +382,7 @@
     :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-pattern :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :bad-token-table :backup-failed :base-is-overlay :belief-built :body-too-large
-    :budget-exhausted
+    :budget-exhausted :canonical-mismatch
     :choice-head-not-positive
     :compaction-failed :complement :cover :creator-mismatch :cross-origin :daemon-error :damaged-dictionary
     :damaged-frame :definitional-clash :derived-only :disallowed-class
@@ -391,9 +391,9 @@
     :handle-ceiling
     :incomplete-racer :inter-arg-type :internal-error :interrupted :irreflexive :job-busy
     :labeling-inconsistent :labeling-run-blocked :length-against-shape
-    :length-against-spelling
+    :length-against-spelling :lock-unsupported
     :malformed-entry :malformed-manifest :malformed-record :manifest-too-large
-    :missing-adapter :missing-resource :naf-justification
+    :mint-rule :missing-adapter :missing-resource :naf-justification
     :naf-not-closed
     :naming :nippy-version-moved :nippy-version-unreadable
     :no-base :no-depth-bound :no-destination
@@ -402,7 +402,7 @@
     :not-a-report :not-found :not-ground :not-in-process :not-pg-snapshot :not-range-restricted :not-sealed :not-stratified
     :not-watchable :not-well-formed :not-writable :over-ceiling :owed-record-ahead :path-not-served :pattern-too-costly
     :quantifier-not-local :quoted-arg-type
-    :record-edit-unsupported :reset :shape :short-transfer :shutdown-abort :solver-failed
+    :reasoner-mismatch :record-edit-unsupported :reset :shape :short-transfer :shutdown-abort :solver-failed
     :solver-unavailable
     :stacked-batch
     :stacked-fork :stale-index-layout :stale-index-records :still-exporting :still-loading :still-stopping
@@ -415,7 +415,7 @@
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unminted-nat
     :unreadable :unreadable-store :unrecovered-kb :unrecovered-premise
-    :unreleased :unsupported-compression :unsupported-context
+    :unreleased :unresolved-reference :unsupported-compression :unsupported-context
     :unsupported-format :unsupported-platform :unsupported-unattested
     :unsupported-variant :unsupported-version})
 
@@ -482,7 +482,9 @@
    :bad-table-entry         #{:mismatch}
    :base-is-overlay         #{}
    :body-too-large          #{}
+   :canonical-mismatch      #{:actual :expected :sentence}
    :compaction-failed       #{:log}
+   :definitional-clash      #{:clashes-with :detail :entailed-from :sentence :violation}
    ;; two arms of one condition: `checks/disjoint-problems` names the opposing
    ;; membership's handle, and `checks/cascade-clash` reads a pair the cascade
    ;; supplies both sides of, which no stored sentex witnesses — so the handle is
@@ -491,6 +493,7 @@
    :disk-locked             #{:dir :holder}
    :duplicate-handle        #{:handle}
    :exception-not-closed    #{:antecedents :exception :unbound}
+   :frozen-base             #{:op}
    ;; the conditional refusal, raised by interArg's arm (inter-args-problem) and by the
    ;; homogeneity arm (inter-args-homogeneity-problem) — the same payload at both
    :inter-arg-type          #{:message :sentence :arg :expected :position
@@ -505,6 +508,8 @@
    :not-assertible          #{}
    :not-edn                 #{}
    :not-empty               #{}
+   ;; a value the stores cannot round-trip, and one the digest encoding does not cover
+   :not-encodable           #{:value}
    ;; the daemon's unrouted-path reply and the browser's reply to `POST /op` while it
    ;; reads a remote daemon — both wire replies, in the daemon's shape
    :not-found               #{:error :ok}
@@ -641,9 +646,9 @@
     `exceptWhen` — and they name the fragment instead."
 
    :shape
-   "seventeen of the eighteen carry `:message`, because they are the problem maps `check`
+   "every throw but one carries `:message`, because they are the problem maps `check`
     and `check-edit` **return** rather than throw, and a problem map is read for its
-    prose. The eighteenth is a plain throw whose prose is the exception's own message."
+    prose. The one is a plain throw whose prose is the exception's own message."
 
    :solver-failed
    "a solver that ran and failed carries what the process gave back — `:exit`, `:err`,

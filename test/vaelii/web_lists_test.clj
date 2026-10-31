@@ -133,6 +133,17 @@
   (is (empty? (jobs/jobs)))
   (is (re-find #"is gone" (:body (GET "/lists/result" "job=nope")))))
 
+(deftest an-unregistered-kb-reads-no-list-run-of-another-unregistered-kb
+  (catalog/reset-registry!)
+  (let [other (v/open-kb tu/plain-memory-space)]
+    (try
+      (run-list "defeats")
+      (jobs/wait (:id (first (jobs/jobs))) 60000)
+      (is (re-find #"Last run: " (:body (GET "/lists"))))
+      (is (not (re-find #"Last run: "
+                        (:body ((web/app other) {:request-method :get :uri "/lists"})))))
+      (finally (v/clear! other)))))
+
 (deftest a-cross-origin-run-is-refused
   (is (= 403 (:status (*app* {:request-method :post :uri "/lists/run" :scheme :http
                               :params {"list" "defeats"}

@@ -14,10 +14,10 @@
   reconciles each `:cache-support` entry after every relabel, and a scoped read filters
   each supporter through the read walk. So a defeated `(transitive P)` stops composing
   and a defeated `(inverse P Q)` stops answering the swapped goal at the contexts that
-  see the defeat — each reviving when the defeater is retracted. A `disjoint`, a
-  `functional` mark, a `genlCx` edge and an equality are on the engine's baseline
-  forced-monotonic set, so no denial defeats one. The end-to-end half of that is at
-  the foot of this file."
+  see the defeat — each reviving when the defeater is retracted, and a defeated
+  `(disjoint A B)` stops constraining there. A `functional` mark, a `genlCx` edge and an
+  equality are on the engine's baseline forced-monotonic set, so no denial defeats one.
+  The end-to-end half of that is at the foot of this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.reads :as reads]
@@ -332,6 +332,28 @@
 ;; declaration, defeat it with a monotonic `(not …)`, and watch the thing it enabled
 ;; stop happening — then retract the defeater and watch it come back.
 
+(tu/deftest-kb a-defeated-disjoint-stops-constraining
+  (tu/with-terms [dog cat Felix CxNature]
+    (v/assert kb (list 'disjoint dog cat) CxNature {:strength :default})
+    (v/assert kb (list cat Felix) CxNature)
+    (testing "believed: the pair is disjoint and the conflicting membership is a clash"
+      (is (v/disjoint? kb dog cat CxNature))
+      (is (tu/stored-in-clash? kb (list dog Felix) CxNature)))
+    (let [hn (v/assert kb (list 'not (list 'disjoint dog cat)) CxNature
+                       {:strength :monotonic})]
+      (testing "defeated: no longer disjoint there, so the membership clashes with nothing"
+        (is (not (v/disjoint? kb dog cat CxNature)))
+        (is (v/ask? kb (list dog Felix) CxNature))
+        (is (v/ask? kb (list cat Felix) CxNature))
+        (is (empty? (v/contradictions kb))))
+      (testing "the reading with no context reads the network, which keeps it IN"
+        (is (v/disjoint? kb dog cat)))
+      (testing "retracting the defeater restores the constraint"
+        (when-let [hf (v/handle-of kb (list dog Felix) CxNature)]
+          (v/retract! kb hf))
+        (v/retract! kb hn)
+        (is (v/disjoint? kb dog cat CxNature))))))
+
 (tu/deftest-kb a-defeated-inverse-stops-answering-the-swapped-goal
   (tu/with-terms [parentOf childOf Tom Bob]
     (let [_hi (v/assert kb (list 'inverse parentOf childOf) 'CxUniverse {:strength :default})]
@@ -374,13 +396,6 @@
 
 ;; ---- an edge or entry resting on a defeated handle ------------------------
 
-(defn- orders
-  "Every permutation of `xs`."
-  [xs]
-  (if (empty? xs)
-    [[]]
-    (for [x xs, more (orders (remove #{x} xs))] (cons x more))))
-
 (defn- derived-edge-reading
   "E = `(genl poodle cat)`, derived in CxA by `(breedOf ?b ?s) ⇒ (genl ?b ?s)` from
   L = `(breedOf poodle cat)` :default in CxA, beside `(poodle Fifi)` in CxA.  A monotonic
@@ -412,7 +427,7 @@
   ;; L is no supporter of E, so the defeat reaches E through E's justification alone.
   ;; Every scoped read at and below the defeat's placement agrees with `believed?` of E.
   (doseq [[deny-in want] [[:b [true false false]] [:a [false false false]]]
-          order (take-nth 5 (orders [:rule :fact :member :deny]))
+          order (take-nth 5 (tu/orders [:rule :fact :member :deny]))
           recover? [false true]]
     (testing (str deny-in " " (vec order) (when recover? " recovered"))
       (let [r (derived-edge-reading kb order deny-in recover?)]
@@ -447,7 +462,7 @@
   ;; The flat caches read the network, so the mark's entry is the same in every order and
   ;; through `recover`; a scoped read filters the mark's supporter through the read walk.
   (doseq [[deny-in composes] [[:b [true false]] [:a [false false]]]
-          order (take-nth 5 (orders [:rule :fact :steps :deny]))
+          order (take-nth 5 (tu/orders [:rule :fact :steps :deny]))
           recover? [false true]]
     (testing (str deny-in " " (vec order) (when recover? " recovered"))
       (let [r (derived-mark-reading kb order deny-in recover?)]
@@ -528,7 +543,7 @@
   ;; the belief reading and the network reading, read what a fresh memo reads.  The
   ;; network reading reads no defeat, so it sees E throughout in the `:defeat` shape.
   (doseq [hide [:defeat :except]
-          order (orders [:rule :kc-b :hide :kc-a])
+          order (tu/orders [:rule :kc-b :hide :kc-a])
           :when (or (= :defeat hide) (< (.indexOf ^java.util.List order :kc-b)
                                         (.indexOf ^java.util.List order :hide)))]
     (testing (str hide " " (vec order))
@@ -541,7 +556,7 @@
   ;; CxS hides there, and then from (functional relF), which shows the edge at CxS with no
   ;; relabel; retracting (functional relF) hides it again.  A `genlCx` firing rests only on
   ;; forced-monotonic literals, and each antecedent here is one.
-  (doseq [order (orders [:rule-i :rule-a :fact-a])]
+  (doseq [order (tu/orders [:rule-i :rule-a :fact-a])]
     (tu/with-terms [relI relF CxS CxB]
       (let [M     {:strength :monotonic}
             edge  (list 'genlCx CxS CxB)
@@ -586,7 +601,7 @@
   ;; `(genl mortal organism)` and a default rule back from organism to mortal state two
   ;; types that coincide by default.  Each firing is defeasible on its own, so a denial of
   ;; one member's conclusion defeats that firing alone and the member keeps its type.
-  (doseq [order (take-nth 4 (orders [:edge :rule :members :deny]))]
+  (doseq [order (take-nth 4 (tu/orders [:edge :rule :members :deny]))]
     (tu/with-terms [organism mortal Bob Jelly]
       (let [parts {:edge    #(v/assert kb (list 'genl mortal organism) 'CxUniverse
                                        {:strength :monotonic})

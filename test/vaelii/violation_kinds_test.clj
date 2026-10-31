@@ -3,9 +3,9 @@
 (ns vaelii.violation-kinds-test
   "The violation **kinds**, held to a fixed table: every `:violation` keyword the engine can
   file, collected from the sources at runtime and matched against the tables in
-  `vaelii.core/violations`' docstring, in both directions and down to the `:detail` keys.
+  docs/api.md's \"The `violations` ledger\" section, in both directions and down to the `:detail` keys.
 
-  **Why the docstring is the reference and not a golden file.**  A kind is not a name somebody
+  **Why the documented table is the reference and not a golden file.**  A kind is not a name somebody
   typed into a deployment script; it is what a consumer branches on, and the branch is
   written against the published table.  A kind reaches the ledger by somebody writing a
   map literal in `settle.clj`, which costs one line and updates nothing — so a kind with
@@ -53,7 +53,10 @@
             [vaelii.type-contract-test])
   (:import [java.io File]))
 
-(def ^:private doc-file "src/vaelii/core.clj")
+(def ^:private doc-file
+  "The source file left out of the scan: it holds the `violations` docstring and the kind
+  examples its fns quote."
+  "src/vaelii/core.clj")
 
 ;; ---- the scan -----------------------------------------------------------
 
@@ -270,14 +273,13 @@
 ;; ---- and the table that describes them ----------------------------------
 
 (defn- docstring-lines
-  "The lines of `core/violations`' docstring, from the `defn` to its argument vector.
-  Scoped that tightly so a table in a neighbouring docstring is not read as a claim about
-  the ledger."
+  "The lines of docs/api.md's \"The `violations` ledger\" section, up to the next `## `
+  heading.  Scoped that tightly so a table elsewhere is not read as a claim about the ledger."
   []
-  (->> (str/split-lines (slurp doc-file))
-       (drop-while #(not (str/starts-with? % "(defn violations")))
+  (->> (str/split-lines (slurp "docs/api.md"))
+       (drop-while #(not (= "## The `violations` ledger" %)))
        rest
-       (take-while #(not (re-matches #"\s*\[kb\]\s*" %)))))
+       (take-while #(not (str/starts-with? % "## ")))))
 
 (defn- row-cells
   "`[entry means detail]` for a table row, nil for anything else in the docstring."
@@ -318,7 +320,7 @@
                     (set/difference (set (keys (documented))))
                     (set/difference (set (keys undocumented-by-design))))]
     (is (empty? missing)
-        (str "no row in " doc-file "'s `violations` docstring for: " (sort missing)
+        (str "no row in docs/api.md's `violations` ledger section for: " (sort missing)
              ". `violations` is public API and its kinds are what a consumer branches on,"
              " so a kind with no row is one an operator finds by reading the source. Give"
              " each a row — the keyword, what it means, and the `:detail` keys it carries"
@@ -333,7 +335,7 @@
   ;; because it survives every reading that starts from the documentation.
   (let [ghost (set/difference (set (keys (documented))) (filed-kinds (filings)))]
     (is (empty? ghost)
-        (str "rows in " doc-file "'s `violations` docstring for kinds nothing files: "
+        (str "rows in docs/api.md's `violations` ledger section for kinds nothing files: "
              (sort ghost) ". Either the keyword is misspelt, or the reporting path that"
              " filed it is gone and the row went with it."))))
 

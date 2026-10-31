@@ -10,11 +10,10 @@
             [vaelii.impl.space :as space]
             [vaelii.test-util :as tu]))
 
-(use-fixtures :each (tu/neutral-fresh
-                     #(doto (tu/fresh)
-                        (tu/load-core!)
-                        (v/add-prover (space/spatial-prover))
-                        (v/add-prover (iv/allen-prover)))))
+(use-fixtures :once (tu/loaded #(doto % (tu/load-core!)
+                                      (v/add-prover (space/spatial-prover))
+                                      (v/add-prover (iv/allen-prover)))))
+(use-fixtures :each (tu/neutral))
 
 (def ^:private C 'CxUniverse)
 
@@ -160,9 +159,9 @@
 (tu/deftest-kb a-negative-fact-can-empty-a-constraint-and-is-reported
   ;; two predicates, so no nogood and both stay believed; the ledger reports the clash
   (tu/with-terms [A B]
+    (v/clear-violations! kb)
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'not (list 'partOfRegion A B)) C)
-    (v/clear-violations! kb)
     (is (seq (v/sentexes-matching kb (list 'nonTangentialProperPart A B) C))
         "both facts are stored and believed — the TMS has no quarrel with them")
     (is (seq (v/sentexes-matching kb (list 'not (list 'partOfRegion A B)) C)))
@@ -188,9 +187,9 @@
   ;; nothing composed here: the reader alone intersects two complements to nothing, which
   ;; is the shape `unsatisfiable-as-given?` exists to catch
   (tu/with-terms [A B]
+    (v/clear-violations! kb)
     (v/assert kb (list 'not (list 'regionConnectedTo A B)) C)      ; leaves DC
     (v/assert kb (list 'not (list 'regionDiscreteFrom A B)) C)     ; rules DC out
-    (v/clear-violations! kb)
     (is (not (v/ask? kb (list 'spatiallyDisconnected A B) C)))
     (let [es (filter #(= :qualitative-inconsistency (:violation %)) (v/violations kb))]
       (is (= 1 (count es)))
@@ -199,8 +198,8 @@
 (tu/deftest-kb a-self-assertion-a-negation-forbids-is-inconsistent
   ;; `(not (spatiallyEqual A A))` records a diagonal constraint excluding the identity
   (tu/with-terms [A B]
+    (v/clear-violations! kb)
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'not (list 'spatiallyEqual A A)) C)
-    (v/clear-violations! kb)
     (is (not (v/ask? kb (list 'nonTangentialProperPart A B) C)))
     (is (seq (filter #(= :qualitative-inconsistency (:violation %)) (v/violations kb))))))

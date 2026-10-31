@@ -51,7 +51,8 @@ export VAELII_HEAP
 echo "test-full-kb: upgrading $KB to $(git rev-parse --short HEAD)" >&2
 bash "$ROOT/scripts/upgrade-kb.sh" "$KB" || exit $?
 
-JVM_OPTS="${JVM_OPTS:-} $(start_jvm_opts) -Dvaelii.disk.sync-ms=0"
+JVM_HEAP_OPTS="$(start_jvm_opts)" || exit 1
+JVM_OPTS="${JVM_OPTS:-} $JVM_HEAP_OPTS -Dvaelii.disk.sync-ms=0"
 export JVM_OPTS
 
 RUN="$WORK/run-$$"
