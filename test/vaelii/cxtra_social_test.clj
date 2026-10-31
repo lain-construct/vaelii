@@ -85,14 +85,37 @@
     (is (tu/holds-ask (list 'romanticPartnerOf P3 P4) CxHome))
     (is (tu/holds-ask (list 'roommateOf P3 P4) CxHome))))
 
-(tu/deftest-kb the-plurality-terms-are-separated-under-person
+(tu/deftest-kb the-plurality-terms-partition-person
   (doseq [k '[singlet plural_system alter]]
     (is (= 1 (count (v/sentexes-matching kb (list 'comment k '?c) SOCX))) (str k))
     (is (tu/holds-genl k 'person SOCX) (str k))
     (is (not (tu/holds-genl k 'person 'CxSocial)) (str k)))
-  (is (v/disjoint? kb 'singlet 'plural_system SOCX))
-  (is (v/disjoint? kb 'alter 'singlet SOCX))
-  (is (v/disjoint? kb 'alter 'plural_system SOCX)))
+  (testing "the declaration is a partition, not a bare separation"
+    (is (= 1 (count (v/sentexes-matching kb '(partition person singlet plural_system alter) SOCX))))
+    (is (empty? (v/sentexes-matching kb '(separating person singlet plural_system alter) SOCX))))
+  (testing "disjoint: no person is two of the three"
+    (is (v/disjoint? kb 'singlet 'plural_system SOCX))
+    (is (v/disjoint? kb 'alter 'singlet SOCX))
+    (is (v/disjoint? kb 'alter 'plural_system SOCX))))
+
+(tu/deftest-kb every-person-is-one-of-the-three
+  (tu/with-terms [CxHome Pat Quinn]
+    (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)
+    (v/assert kb (list 'human Pat) CxHome)
+    (v/assert kb (list 'human Quinn) CxHome)
+    (testing "a person with nothing known is assigned no part"
+      (doseq [k '[singlet plural_system alter]]
+        (is (not (tu/holds-ask (list k Quinn) CxHome)) (str k))))
+    (v/assert kb (list 'not (list 'singlet Pat)) CxHome)
+    (v/assert kb (list 'not (list 'alter Pat)) CxHome)
+    (testing "a person who is neither a singlet nor an alter is a plural system"
+      (is (tu/holds-ask (list 'plural_system Pat) CxHome))
+      (is (not (tu/holds-ask (list 'plural_system Pat) 'CxSocial))
+          "a context that does not see the partition does not conclude it"))
+    (testing "a person denied all three contradicts the partition"
+      (v/assert kb (list 'not (list 'singlet Quinn)) CxHome)
+      (v/assert kb (list 'not (list 'alter Quinn)) CxHome)
+      (is (tu/stored-in-clash? kb (list 'not (list 'plural_system Quinn)) CxHome)))))
 
 (tu/deftest-kb two-alters-of-one-system-are-headmates-and-need-not-know-each-other
   (tu/with-terms [CxHome Sys A1 A2 Other]

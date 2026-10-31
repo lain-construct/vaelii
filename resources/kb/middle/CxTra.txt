@@ -702,14 +702,15 @@
 (genl founderOf originatorOf)
 
 ;; ---- plural identity ----------------------------------------------------------
-;; A plural system is several identities, its alters, sharing one body; a singlet is one
-;; identity in one body.  Each of the three is a person, and no person is two of them.
-;; separating claims no coverage: the vocabulary does not say that every person is one
-;; of the three.
-(comment singlet "A person who is one identity in one body.")
-(comment plural_system "A person made of several identities, its alters, sharing one body.")
-(comment alter "One of the identities sharing the body of a plural system, a person in its own right.")
-(set/monotonic (separating person singlet plural_system alter))
+;; Every person is exactly one of singlet, plural_system and alter, so the three partition
+;; person.  plural_system classifies the one who has the alters, for a human the body
+;; they share, and not the alters taken together; alterOf relates each alter to it.  A
+;; singlet has no alters and no relation hosts it.  Counting the body as a person beside
+;; its alters is imprecise as ontology, and the vocabulary takes it for its simplicity.
+(comment singlet "A person with no alters.")
+(comment plural_system "A person who has two or more alters: for a human, the body its alters share, not the alters taken together.")
+(comment alter "One of the identities of a plural system, a person in its own right.")
+(set/monotonic (partition person singlet plural_system alter))
 
 (comment alterOf
          "(alterOf ?alter ?system) means that ?alter is one of the identities of the plural system ?system. Functional: an alter belongs to one system.")
