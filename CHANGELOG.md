@@ -536,6 +536,12 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   entail knowing each other. [contexts.md](docs/contexts.md)
   *Migration:* none.
 
+- **CxTra ships `nameString`, a thing's name as a string.** `(nameString ?thing ?name)`
+  takes a thing of any kind in position 1 and a string (`quotedArg`) in position 2. It
+  carries no functional mark, so a thing can have more than one name string.
+  [contexts.md](docs/contexts.md)
+  *Migration:* none.
+
 ### Fix: answers
 
 - **An open query answers a part's location and ownership again.** With the starter,

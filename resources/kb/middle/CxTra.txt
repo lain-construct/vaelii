@@ -2,8 +2,9 @@
 ;; starter contexts CxWell sees: software tools, their invocations and receipts, the
 ;; capabilities a tool confers, media resources and network names, computers and the
 ;; computational systems that run on them and how they group, access to a resource,
-;; the file paths a file is looked up by, information content, its carriers, and the
-;; sentences an agent claims about it, perception relations, and relationship and
+;; the file paths a file is looked up by, information content, its carriers, the
+;; sentences an agent claims about it, and the strings that name a thing, perception
+;; relations, and relationship and
 ;; plural-identity vocabulary narrower than CxSocial's. Sees the shared upper ontology
 ;; via CxUniverse, and CxSocial. CxWell does not see it, so the everyday contexts below
 ;; CxWell read none of this vocabulary. A context opts in by placing itself under CxTra.
@@ -571,6 +572,15 @@
 (set/monotonic (instance_relation_predicate propositionalContent))
 (arg propositionalContent 1 information)
 (arg propositionalContent 2 proposition)
+
+;; ---- names ------------------------------------------------------------------
+;; nameString is stated in the form toolName is, without toolName's
+;; instance_relation_predicate and functional marks: position 1 takes a thing of any
+;; kind, and a thing can have more than one name.
+(comment nameString "(nameString ?thing ?name) means that ?name is a string that names ?thing, e.g. a person's name as written. A thing can have more than one name string.")
+(binary_predicate nameString)
+(arg nameString 1 thing)
+(quotedArg nameString 2 string)
 
 ;; ==== perception ==========================================================
 ;; Arg 1 of every perception relation names the perceiver and declares `thing`: vaelii's
