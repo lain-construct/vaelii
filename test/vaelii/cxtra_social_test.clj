@@ -98,6 +98,16 @@
     (is (v/disjoint? kb 'alter 'singlet SOCX))
     (is (v/disjoint? kb 'alter 'plural_system SOCX))))
 
+(tu/deftest-kb the-plurality-terms-are-time-varying
+  ;; This branch states rigidity in the type's comment (handbook ch. 12): the comment says
+  ;; whether a member can stop being one and go on existing, with the case that shows it.
+  (doseq [k '[singlet plural_system alter]]
+    (let [cs (map (comp last :sentence) (v/sentexes-matching kb (list 'comment k '?c) SOCX))]
+      (is (= 1 (count cs)) (str k " carries one comment"))
+      (is (every? #(re-find #"[Tt]ime-varying" (str %)) cs) (str k " is stated time-varying"))
+      (is (every? #(re-find #"can stop being one and go on existing" (str %)) cs)
+          (str k " states the case")))))
+
 (tu/deftest-kb every-person-is-one-of-the-three
   (tu/with-terms [CxHome Pat Quinn]
     (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)

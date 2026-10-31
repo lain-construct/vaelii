@@ -707,9 +707,13 @@
 ;; they share, and not the alters taken together; alterOf relates each alter to it.  A
 ;; singlet has no alters and no relation hosts it.  Counting the body as a person beside
 ;; its alters is imprecise as ontology, and the vocabulary takes it for its simplicity.
-(comment singlet "A person with no alters.")
-(comment plural_system "A person who has two or more alters: for a human, the body its alters share, not the alters taken together.")
-(comment alter "One of the identities of a plural system, a person in its own right.")
+;; The three are time-varying and person is not: the arrangement can change, and a
+;; person who passes from one part to another goes on existing.  Memberships are checked
+;; without time, so the partition is read of a person at one time: the KB states the
+;; arrangement that holds, and a change retracts the membership it ends.
+(comment singlet "A person with no alters. Time-varying: a singlet can stop being one and go on existing, as a person who comes to have alters becomes a plural system.")
+(comment plural_system "A person who has two or more alters: for a human, the body its alters share, not the alters taken together. Time-varying: a plural system can stop being one and go on existing, as a body whose alters integrate into one identity becomes a singlet.")
+(comment alter "One of the identities of a plural system, a person in its own right. Time-varying: an alter can stop being one and go on existing, since the arrangement of the system it belongs to can change.")
 (set/monotonic (partition person singlet plural_system alter))
 
 (comment alterOf
