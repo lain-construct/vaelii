@@ -110,13 +110,17 @@
     (testing "a context that does not see the extension concludes none of it"
       (is (not (tu/holds-ask (list 'headmateOf A1 A2) 'CxSocial))))))
 
-(tu/deftest-kb a-construct-is-a-made-person-and-no-organism
+(tu/deftest-kb a-construct-is-a-person-uncommitted-on-tangibility-and-no-organism
   (is (= 1 (count (v/sentexes-matching kb '(comment construct ?c) SOCX))))
   (is (tu/holds-genl 'construct 'person SOCX))
-  (is (tu/holds-genl 'construct 'made SOCX))
+  (is (not (tu/holds-genl 'construct 'made SOCX)) "being built does not make a construct tangible")
+  (is (not (tu/holds-genl 'construct 'tangible SOCX)))
+  (is (not (tu/holds-genl 'construct 'intangible SOCX)))
   (is (v/disjoint? kb 'construct 'organism SOCX))
   (is (v/disjoint? kb 'construct 'human SOCX))
   (is (v/disjoint? kb 'construct 'computer SOCX) "a construct runs on a computer and is not one")
+  (is (v/disjoint? kb 'construct 'computational_system SOCX) "a construct is never its own process")
+  (is (v/disjoint? kb 'construct 'organization SOCX) "a construct is one person, not a body of them")
   (is (not (tu/holds-genl 'construct 'person 'CxWell))))
 
 (tu/deftest-kb a-construct-runs-in-a-seat-on-a-computer-and-is-neither

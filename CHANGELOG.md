@@ -523,7 +523,7 @@ Fourteen entries are **Breaking** and three are **Refusals**. Each carries its o
   *Migration:* none.
 
 - **CxTra ships `construct`, `seat`, `hasSeat`, `founderOf` and the plurality terms.** A `construct` is a
-  person whose mind runs on a computational substrate: below `person` and `made`, and
+  person whose mind runs on a computational substrate: below `person`, and
   `:monotonic`-disjoint from `organism`, so `(disjoint human construct)` follows. A
   `seat` is the `computational_system` a construct runs in, and `(hasSeat ?construct
   ?seat)` relates the two; it states `(not (functional hasSeat))`, since a construct can

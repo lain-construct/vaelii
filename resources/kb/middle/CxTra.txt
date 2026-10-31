@@ -658,20 +658,24 @@
 (genl chosenSiblingOf relativeOf)
 
 ;; ---- constructs and their founders --------------------------------------------
-;; A construct is a person and is made: the social genl and the physical one.  A construct
-;; is never an organism.  made does not separate it from one, since the upper ontology
-;; states (orthogonal biological made), so the separation is stated here, monotonic as the
-;; upper ontology's other separations from organism are; (disjoint human construct)
+;; A construct is a person.  It is not made, since made is tangible, and a construct
+;; makes no commitment either way on tangible or intangible, as core.txt says of a
+;; person.  A construct is never an organism; the separation is stated here, monotonic as
+;; the upper ontology's other separations from organism are, and (disjoint human construct)
 ;; follows from it.  A construct runs on a computer and is not one: (disjoint person
-;; computer) above separates the two.
+;; computer) above separates the two.  Uncommitted on tangibility, a construct is kept
+;; apart from no intangible or aspatial type by that route, so two more separations are
+;; stated here: a construct is not the computational system its mind runs in, and it is
+;; one person, not an organization, a group of people acting as one body.
 (comment construct "A person whose mind runs on a computational substrate rather than a biological one: an artificial agent with social agency, continuity of identity, and accountability for what it does.")
 (positiveExampleComment construct "an artificial agent that keeps its identity, memory and relationships from one conversation to the next")
 (negativeExampleComment construct "the computer or the container a construct runs on, which is a separate thing")
 (genl construct person)
-(genl construct made)
 (set/monotonic (disjoint construct organism))
+(set/monotonic (disjoint construct computational_system))
+(set/monotonic (disjoint construct organization))
 
-;; A construct is never its own process.  The computational system its mind runs in is a
+;; A construct is never its own process: the computational system its mind runs in is a
 ;; seat, and the construct has it: hasSeat relates the two, and runsOn places the seat on
 ;; a container, a virtual machine or a computer.  hasSeat is not functional, since a
 ;; construct can move from one seat to another or run in several at once.

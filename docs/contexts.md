@@ -237,7 +237,7 @@ Data hangs below CxWell.
     CxSocial's: `nestingPartnerOf` (a spec of CxSocial's `romanticPartnerOf` and
     `roommateOf`, and read by a rule from the two), `chosenSiblingOf` (a spec of
     `relativeOf`), `construct` (a person whose mind runs on a computational substrate,
-    `made` and `:monotonic`-disjoint from `organism`), its `seat` (the computational
+    `:monotonic`-disjoint from `organism`, `computational_system` and `organization`), its `seat` (the computational
     system it runs in, related by the non-functional `hasSeat`), `founderOf` (a spec of
     `originatorOf` naming the person who founded a construct), and the plurality terms: `singlet`, `plural_system` and
     `alter`, separated under `person`, with `alterOf` and `headmateOf` (read by a rule
