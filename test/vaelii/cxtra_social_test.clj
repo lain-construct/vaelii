@@ -23,7 +23,6 @@
    (or (not-empty (mapv :type (v/check tu/*kb* sentence ctx)))
        (into [] (keep :type) [(tu/write-conviction tu/*kb* sentence ctx)]))))
 
-
 (tu/deftest-kb cxtra-is-opt-in-and-sees-cxsocial
   (testing "the theory sees CxSocial, and through it CxUniverse"
     (is (tu/holds-sees SOCX 'CxSocial))
