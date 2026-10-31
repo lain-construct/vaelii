@@ -143,6 +143,36 @@
     (testing "a context that does not see the extension concludes none of it"
       (is (not (tu/holds-ask (list 'headmateOf A1 A2) 'CxSocial))))))
 
+(defn- known-alters
+  "The alters `ctx` knows of `system`: the fillers of (alterOf ?a system) it believes."
+  [kb system ctx]
+  (into #{} (map '?a) (v/query kb (list 'alterOf '?a system) ctx)))
+
+(defn- under-counted
+  "The systems among `systems` with fewer than two known alters."
+  [kb systems ctx]
+  (into #{} (filter #(< (count (known-alters kb % ctx)) 2)) systems))
+
+(tu/deftest-kb a-plural-system-has-at-least-two-known-alters
+  ;; A plural system has two or more alters, but the KB may know fewer of them than exist,
+  ;; so the vocabulary states no count rule and no audit: a system with one known alter is
+  ;; no conflict.  The count is checked here, over this fixture, where every alter is known.
+  (tu/with-terms [CxHome SysA SysB Lone A1 A2 B1 B2 B3 L1]
+    (v/assert kb (list 'genlCx CxHome SOCX) 'CxUniverse)
+    (doseq [sys [SysA SysB Lone]] (v/assert kb (list 'plural_system sys) CxHome))
+    (doseq [[a sys] [[A1 SysA] [A2 SysA] [B1 SysB] [B2 SysB] [B3 SysB] [L1 Lone]]]
+      (v/assert kb (list 'alter a) CxHome)
+      (v/assert kb (list 'alterOf a sys) CxHome))
+    (testing "each fully described system has at least two known alters"
+      (is (= #{A1 A2} (known-alters kb SysA CxHome)))
+      (is (= #{B1 B2 B3} (known-alters kb SysB CxHome)))
+      (is (empty? (under-counted kb [SysA SysB] CxHome))))
+    (testing "the check flags a system with fewer than two known alters"
+      (is (= #{Lone} (under-counted kb [SysA SysB Lone] CxHome))))
+    (testing "and the KB does not: a system with one known alter is believed, not a clash"
+      (is (tu/holds-ask (list 'plural_system Lone) CxHome))
+      (is (tu/holds-ask (list 'alterOf L1 Lone) CxHome)))))
+
 (tu/deftest-kb a-construct-is-a-person-uncommitted-on-tangibility-and-no-organism
   (is (= 1 (count (v/sentexes-matching kb '(comment construct ?c) SOCX))))
   (is (tu/holds-genl 'construct 'person SOCX))
